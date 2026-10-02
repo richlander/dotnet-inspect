@@ -63,33 +63,24 @@ public enum LibraryBodyAnalysisFeatures
 
 /// <summary>
 /// Materialized IL body evidence for one assembly.
-/// <para>
-/// Derived single-assembly call-graph maps are populated lazily on first use
-/// and then retained, so an instance is not safe for concurrent use without
-/// external synchronization — the same as the evidence accessors that already
-/// cached this way. Use <see cref="ReleaseCallGraphCaches"/> to hand that
-/// memory back. Cross-assembly graph storage belongs to
-/// <see cref="CatalogCallGraphScope"/>.
-/// </para>
 /// </summary>
 public sealed class LibraryBodyIndex
 {
     internal LibraryBodyIndex(
         string path,
         LibraryBodyModuleIdentity moduleIdentity,
-        string? moduleName,
         LibraryBodyAnalysisResult analysis,
         LibraryBodyAnalysisFeatures features,
         bool hasFullMethodEvidenceScope,
-        LibraryOptimizationAnalysisResult? optimization = null,
-        LibraryCallGraphAnalysisResult? callGraph = null,
-        LibraryLeverageAnalysisResult? leverage = null)
+        LibraryOptimizationAnalysisResult optimization,
+        LibraryCallGraphAnalysisResult callGraph,
+        LibraryImplementationProfileAnalysisResult
+            implementationProfiles)
     {
         Path = path;
         ModuleIdentity = moduleIdentity;
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
-        DirectCalls = analysis.Methods.DirectCalls;
         ResultSinks = analysis.Methods.ResultSinks;
         FieldStores = analysis.Methods.FieldStores;
         FieldLoads = analysis.Methods.FieldLoads;
@@ -101,36 +92,11 @@ public sealed class LibraryBodyIndex
             (features
                 & LibraryBodyAnalysisFeatures.MethodEvidence) != 0
             && hasFullMethodEvidenceScope;
-        var receipt = new LibraryBodyAnalysisReceipt(
-            path,
-            moduleIdentity,
-            features,
-            hasFullScope,
-            analysis.Diagnostics);
-        _callGraph = callGraph
-            ?? new(
-                receipt,
-                moduleName,
-                analysis);
-        GeneratedFrameworkTypeSet? generatedFrameworkTypes = null;
-        _leverage = leverage
-            ?? new(
-                receipt,
-                _callGraph,
-                generatedFrameworkTypes ??=
-                    new GeneratedFrameworkTypeSet(_callGraph));
-        _optimization = optimization
-            ?? new(
-                receipt,
-                analysis,
-                _callGraph,
-                generatedFrameworkTypes ??=
-                    new GeneratedFrameworkTypeSet(_callGraph));
-        _unsafeLeverageMethods = analysis.Safety.LeverageMethods;
+        _callGraph = callGraph;
+        _optimization = optimization;
+        _implementationProfileAnalysis = implementationProfiles;
         MemorySafetyRules = analysis.Safety.Rules;
         UnsafeModes = analysis.Safety.Modes;
-        _implementationProfiles =
-            analysis.Methods.ImplementationProfiles;
         _allocationOccurrences = analysis.Allocations.Occurrences;
         _unsafetyOccurrences = analysis.Safety.Occurrences;
         Features = features;
@@ -153,15 +119,6 @@ public sealed class LibraryBodyIndex
     /// <see cref="LibraryBodyAnalysisFeatures.MethodEvidence"/> is enabled.
     /// </summary>
     public ImmutableArray<MethodIdentity> Methods { get; }
-    /// <summary>
-    /// Direct call sites attributed to their declared source caller when the
-    /// existing async or lifted-body resolver recognizes a synthesized body.
-    /// <see cref="DirectCall.EvidenceMethod"/> retains the physical IL-body
-    /// coordinate. <c>DirectCalls_AttributeAsyncCallSitesToSourceMethod</c> and
-    /// <c>DirectCalls_AttributeLiftedBodiesButNotIterators</c> gate this
-    /// contract and its iterator non-action boundary.
-    /// </summary>
-    public ImmutableArray<DirectCall> DirectCalls { get; }
     /// <summary>
     /// Conservative physical return and single-argument call sinks, with
     /// reaching-definition-backed direct-call provenance for their values,
@@ -222,47 +179,7 @@ public sealed class LibraryBodyIndex
 
     readonly LibraryOptimizationAnalysisResult _optimization;
     readonly LibraryCallGraphAnalysisResult _callGraph;
-    readonly LibraryLeverageAnalysisResult _leverage;
-
-    /// <summary>
-    /// Focused call-graph result backing the compatibility members.
-    /// </summary>
-    public LibraryCallGraphAnalysisResult CallGraphAnalysis =>
-        _callGraph;
-
-    /// <summary>
-    /// Focused leverage result backing the compatibility member.
-    /// </summary>
-    public LibraryLeverageAnalysisResult LeverageAnalysis =>
-        _leverage;
-
-    readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
-    /// <summary>
-    /// Drops the maps that back the single-assembly call-tree builders: the
-    /// definition map, distinct-caller counts and edges, and direct-call
-    /// grouping. It also drops implementation-profile projections derived
-    /// from those call relationships.
-    /// <para>
-    /// For a consumer under a hard memory ceiling that is done asking call-graph questions. This
-    /// deliberately does <em>not</em> drop the evidence-domain caches — method signals, caller-loop
-    /// evidence, root-reach roll-ups, unsafe-evidence grouping, generated-framework type sets, and
-    /// the optimization-opportunity arrays — which serve other producers and together retain well
-    /// under a megabyte. Cross-assembly storage is released through
-    /// <see cref="CatalogCallGraphScope.ReleaseGraph"/>. Everything rebuilds
-    /// on next use, so this only trades time for memory.
-    /// </para>
-    /// <para>
-    /// <c>ReleaseMethods_DropExactlyTheCachesTheyDocument</c> derives this type's cache fields by
-    /// reflection and fails if one is added, or moved across that boundary, without updating it.
-    /// </para>
-    /// </summary>
-    public void ReleaseCallGraphCaches()
-    {
-        _callGraph.ReleaseCaches();
-        _overloadRelationships = default;
-        _projectedImplementationProfiles = default;
-    }
 
     /// <summary>
     /// Source/IL optimization opportunities, each enriched with the containing method's
@@ -372,12 +289,8 @@ public sealed class LibraryBodyIndex
     /// <summary>Per-<see cref="CallerUnsafeMode"/> method counts across the whole assembly.</summary>
     public UnsafeModeBreakdown UnsafeModes { get; }
 
-    readonly ImmutableArray<MethodBodyImplementationMetrics>
-        _implementationProfiles;
-    ImmutableArray<MethodImplementationProfile>
-        _projectedImplementationProfiles;
-    ImmutableArray<OverloadCallRelationship>
-        _overloadRelationships;
+    readonly LibraryImplementationProfileAnalysisResult
+        _implementationProfileAnalysis;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
 
@@ -409,22 +322,11 @@ public sealed class LibraryBodyIndex
                 "Implementation profiles were not requested for this body index.");
         }
 
-        if (_projectedImplementationProfiles.IsDefault)
-        {
-            _projectedImplementationProfiles =
-                MethodImplementationProfileAnalysis.Collect(
-                    _implementationProfiles,
-                    DirectCalls,
-                    Signals,
-                    OverloadRelationships(),
-                    DeclaredMethodMap);
-        }
-
         return scope is null
-            ? _projectedImplementationProfiles
+            ? _implementationProfileAnalysis.Profiles
             :
             [
-                .. _projectedImplementationProfiles.Where(
+                .. _implementationProfileAnalysis.Profiles.Where(
                     profile => scope(profile.Method)),
             ];
     }
@@ -435,62 +337,12 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public ImmutableArray<OverloadCallRelationship>
         OverloadRelationships()
-    {
-        if (_overloadRelationships.IsDefault)
-        {
-            _overloadRelationships = MethodImplementationProfileAnalysis
-                .CollectOverloadRelationships(
-                    DeclaredMethods,
-                    DirectCalls,
-                    DeclaredMethodMap);
-        }
-        return _overloadRelationships;
-    }
+        => _implementationProfileAnalysis.OverloadRelationships;
 
     /// <summary>Offset-keyed allocation occurrences, grouped by containing method token.</summary>
     public IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> GetAllocationOccurrences() => _allocationOccurrences;
 
     public IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> GetUnsafetyOccurrences() => _unsafetyOccurrences;
-
-    public IReadOnlyDictionary<int, ImmutableArray<DirectCall>> GetDirectCallsByCaller()
-        => _callGraph.DirectCallsByCaller;
-
-    /// <summary>
-    /// Direct call sites grouped by the physical method body that owns their
-    /// IL coordinates. The calls retain their declared <see cref="DirectCall.Caller"/>.
-    /// </summary>
-    public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
-        GetDirectCallsByEvidenceMethod()
-        => _callGraph.DirectCallsByEvidenceMethod;
-
-    /// <summary>
-    /// Maps a compiler-generated body — an async state-machine <c>MoveNext</c>,
-    /// or a lifted local-function/lambda method — to an authenticated declared
-    /// source identity. An unscoped index may return the immediate lifted
-    /// source when the ultimate owner is unresolved; scoped indexes fail closed.
-    /// Returns null when <paramref name="caller"/> is not such a body.
-    /// <c>ResolveDeclaredMethod_MapsClassicAsyncMoveNextToSource</c> and
-    /// <c>OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes</c>
-    /// gate this contract.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="DirectCalls"/>, <see cref="FindCalls"/>, and
-    /// <see cref="GetDirectCallsByCaller"/> already expose the declared caller.
-    /// Pass <see cref="DirectCall.EvidenceMethod"/> when a consumer also needs
-    /// to resolve the physical body explicitly.
-    /// </remarks>
-    public MethodIdentity? ResolveDeclaredMethod(MethodIdentity caller)
-        => _callGraph.ResolveDeclaredMethod(caller);
-
-    /// <summary>
-    /// Membership map for definitions with analyzable bodies. Correspondence
-    /// always resolves through <see cref="DeclaredMethodMap"/> first.
-    /// </summary>
-    internal MethodDefinitionMap DeclaredMethodMap =>
-        _callGraph.DeclaredMethodMap;
-
-    internal LibraryBodyLocalCallGraph RootPathGraph()
-        => _callGraph.RootPathGraph();
 
     public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> GetUnsafeEvidenceByMember()
         => _unsafeEvidenceByMember ??= UnsafeEvidence
@@ -526,23 +378,6 @@ public sealed class LibraryBodyIndex
     public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
         => _optimization.GeneratedFrameworkTypes;
 
-    /// <summary>
-    /// True when <paramref name="type"/> is in
-    /// <see cref="GeneratedFrameworkTypes"/> or is a metadata nested type of one.
-    /// </summary>
-    public bool IsGeneratedFrameworkType(TypeRef type)
-        => IsGeneratedFrameworkType(GeneratedFrameworkTypes, type);
-
-    /// <summary>
-    /// True when <paramref name="type"/> is a classified generated-framework type
-    /// or a metadata nested type of one. Prefers decoder segment structure over
-    /// flattened <c>+</c> names; does not parse qualified display text.
-    /// </summary>
-    public static bool IsGeneratedFrameworkType(
-        IReadOnlySet<TypeRef> generatedFrameworkTypes,
-        TypeRef type)
-        => GeneratedFrameworkTypeAnalysis.Contains(generatedFrameworkTypes, type);
-
     public static LibraryBodyIndex Open(string path)
         => LibraryBodyAnalysisService.AnalyzePath(
             path,
@@ -560,75 +395,23 @@ public sealed class LibraryBodyIndex
         ImmutableArray<FieldStoreFact> fieldStores = default,
         ImmutableArray<FieldLoadFact> fieldLoads = default,
         ImmutableArray<MethodReturnFlow> returnFlows = default,
-        LibraryBodyModuleIdentity? moduleIdentity = null)
-    {
-        moduleIdentity ??= SyntheticEvidenceIdentity(methods);
-        ValidateSyntheticEvidenceIdentity(moduleIdentity, methods);
-        return new(
-            path: "",
+        LibraryBodyModuleIdentity? moduleIdentity = null,
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence)
+        => LibraryBodyAnalysisExecution.FromEvidence(
+            methods,
+            unsafeEvidence,
+            allocationOccurrences,
+            unsafetyOccurrences,
+            diagnostics,
+            directCalls,
+            resultSinks,
+            fieldStores,
+            fieldLoads,
+            returnFlows,
             moduleIdentity,
-            moduleName: null,
-            analysis: new(
-                Methods: new(
-                    DeclaredMethods: methods,
-                    Methods: methods,
-                    FailedMethodBodies: [],
-                    DirectCalls: directCalls.IsDefault ? [] : directCalls,
-                    ResultSinks: resultSinks.IsDefault ? [] : resultSinks,
-                    FieldStores: fieldStores.IsDefault ? [] : fieldStores,
-                    FieldLoads: fieldLoads.IsDefault ? [] : fieldLoads,
-                    ReturnFlows: returnFlows.IsDefault ? [] : returnFlows,
-                    BodySignals: new Dictionary<int, BodySignals>(),
-                    ImplementationMetrics: [],
-                    ImplementationMetricDiagnostics: [],
-                    ImplementationProfiles: [],
-                    InAssemblyTypeIsException:
-                        new Dictionary<(string Namespace, string Name), bool>(),
-                    NonHeapNewObjOperandTokens: new HashSet<int>(),
-                    DeclaredSources: new Dictionary<int, MethodIdentity>(),
-                    LocalThrows: []),
-                Safety: new(
-                    Evidence: unsafeEvidence,
-                    LeverageMethods: [],
-                    Rules: new MemorySafetyRulesResult.Available(
-                        MemorySafetyRulesState.Legacy,
-                        []),
-                    Modes: new UnsafeModeBreakdown(
-                        methods.Count(method =>
-                            method.CallerUnsafeMode == CallerUnsafeMode.None),
-                        methods.Count(method =>
-                            method.CallerUnsafeMode
-                                == CallerUnsafeMode.Implicit),
-                        methods.Count(method =>
-                            method.CallerUnsafeMode
-                                == CallerUnsafeMode.Explicit),
-                        methods.Count(method =>
-                            method.CallerUnsafeMode
-                                == CallerUnsafeMode.Unavailable)),
-                    Occurrences: unsafetyOccurrences
-                        ?? new Dictionary<
-                            int,
-                            ImmutableArray<UnsafetyOccurrence>>()),
-                Allocations: new(
-                    allocationOccurrences
-                        ?? new Dictionary<
-                            int,
-                            ImmutableArray<AllocationOccurrence>>()),
-                Optimizations: new(
-                    Opportunities: [],
-                    StringMaterializations: [],
-                    SuppressedMethodTokens: new HashSet<int>(),
-                    ScopeExcludedMethodTokens:
-                        new HashSet<int>(),
-                    ExceptionTypeNames:
-                        new HashSet<string>(StringComparer.Ordinal)),
-                Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
-            features: LibraryBodyAnalysisFeatures.MethodEvidence
-                | (allocationOccurrences is null
-                    ? LibraryBodyAnalysisFeatures.None
-                    : LibraryBodyAnalysisFeatures.Allocations),
-            hasFullMethodEvidenceScope: true);
-    }
+            features)
+        .CompatibilityIndex();
 
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
         bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
@@ -691,79 +474,6 @@ public sealed class LibraryBodyIndex
             resolver);
     }
 
-    static void ValidateSyntheticEvidenceIdentity(
-        LibraryBodyModuleIdentity moduleIdentity,
-        ImmutableArray<MethodIdentity> methods)
-    {
-        foreach (MethodIdentity method in methods)
-        {
-            if (moduleIdentity.AssemblyIdentity is not { } assembly
-                || !StringComparer.OrdinalIgnoreCase.Equals(
-                    assembly.Name,
-                    method.AssemblyName)
-                || moduleIdentity.ModuleVersionId
-                    != method.ModuleVersionId)
-            {
-                throw new ArgumentException(
-                    "Synthetic method evidence does not match the supplied "
-                    + "module identity.",
-                    nameof(methods));
-            }
-        }
-    }
-
-    static LibraryBodyModuleIdentity SyntheticEvidenceIdentity(
-        ImmutableArray<MethodIdentity> methods)
-    {
-        if (methods.IsDefaultOrEmpty)
-        {
-            throw new ArgumentException(
-                "An empty synthetic index requires an explicit module identity.",
-                nameof(methods));
-        }
-
-        MethodIdentity first = methods[0];
-        return new LibraryBodyModuleIdentity(
-            new AssemblyReferenceIdentity(
-                first.AssemblyName,
-                Version: null,
-                Culture: null,
-                PublicKeyToken: null),
-            first.ModuleVersionId);
-    }
-
-    public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
-        => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
-
-    /// <summary>
-    /// The most-leveraged requires-unsafe methods, ranked by distinct direct
-    /// callers — the highest-value targets for `unsafe` marking, since marking
-    /// them propagates the requirement to the most callers.
-    /// </summary>
-    public ImmutableArray<UnsafeMethodLeverage> TopUnsafeLeverage(int count = 6)
-        => UnsafeLeverage.Top(
-            _callGraph.PhysicalDirectCalls,
-            _unsafeLeverageMethods,
-            count,
-            DeclaredMethodMap);
-
-    /// <summary>
-    /// The most-leveraged methods in this assembly, ranked by distinct direct
-    /// callers. <paramref name="scope"/> optionally restricts which methods are
-    /// ranked (for example, members declared on one selected type) while fanin
-    /// is still measured across every caller in the assembly.
-    /// </summary>
-    public ImmutableArray<MethodLeverage> TopLeverage(int count = 25, Func<MethodIdentity, bool>? scope = null)
-        => _leverage.Top(count, scope);
-
-    /// <summary>
-    /// Distinct callee types touched by calls from methods in <paramref name="callerScope"/>.
-    /// Callee declaring types are reduced to their open definitions so generic instantiations
-    /// stay bounded and same-type generic self-calls are excluded.
-    /// </summary>
-    public ImmutableArray<CalledTypeSummary> CalledTypes(Func<MethodIdentity, bool> callerScope)
-        => _callGraph.CalledTypes(callerScope);
-
     /// <summary>
     /// Requires-unsafe methods whose signature carries no pointer — the unsafe
     /// obligation is visible only via the attribute / <c>unsafe</c> modifier,
@@ -780,65 +490,4 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<HollowUnsafeMethod> HollowUnsafeMethods()
         => HollowUnsafe.Collect(Methods, UnsafeEvidence);
 
-    /// <summary>
-    /// Builds a bounded outbound call tree from the focused call-graph result.
-    /// </summary>
-    public CallTreeNode BuildCallTree(
-        int rootMethodToken,
-        int maxDepth = 3,
-        int maxNodes = 25) =>
-        _callGraph.BuildCallTree(
-            rootMethodToken,
-            maxDepth,
-            maxNodes);
-
-    /// <summary>
-    /// Builds a bounded reverse call tree from the focused call-graph result.
-    /// </summary>
-    public CallTreeNode BuildCallerTree(
-        int rootMethodToken,
-        int maxDepth = 3,
-        int maxNodes = 25) =>
-        _callGraph.BuildCallerTree(
-            rootMethodToken,
-            maxDepth,
-            maxNodes);
-
-    /// <summary>
-    /// Builds a bounded reverse tree through one catalog-owned assembly-group
-    /// graph. The scope owns graph storage and correspondence work so caller
-    /// and callee views reuse one acquisition.
-    /// </summary>
-    public CallTreeNode BuildCallerTree(
-        int rootMethodToken,
-        CatalogCallGraphScope scope,
-        int maxDepth = 3,
-        int maxNodes = 25)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-        return scope.BuildCallerTree(
-            _callGraph,
-            rootMethodToken,
-            maxDepth,
-            maxNodes);
-    }
-
-    /// <summary>
-    /// Builds a bounded forward tree through one catalog-owned assembly-group
-    /// graph. The scope owns graph storage and correspondence work so caller
-    /// and callee views reuse one acquisition.
-    /// </summary>
-    public CallTreeNode BuildCallTree(
-        int rootMethodToken,
-        CatalogCallGraphScope scope,
-        int maxDepth = 3,
-        int maxNodes = 25)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-        return scope.BuildCallTree(
-            _callGraph,
-            rootMethodToken,
-            maxDepth,
-            maxNodes);
-    }
 }

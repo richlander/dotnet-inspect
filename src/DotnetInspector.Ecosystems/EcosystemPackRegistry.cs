@@ -29,6 +29,9 @@ internal sealed record EcosystemPackRegistration(
 
     public IReadOnlyList<PackageCoordinate> ToolPackages { get; init; } = [];
 
+    /// <summary>The single parent pack this pack builds on, if any.</summary>
+    public EcosystemPackId? DependsOn { get; init; }
+
     public WorkspaceEcosystemRegistrationDeclaration? WorkspaceRegistration { get; init; }
 }
 
@@ -77,6 +80,8 @@ internal sealed class EcosystemPackRegistry
         _demosById = new Dictionary<string, DemoEntry>(StringComparer.Ordinal);
         var demoOrders = new HashSet<int>();
         var populationLoaderIds = new HashSet<EcosystemPopulationLoaderId>();
+        Dictionary<EcosystemPackId, ImmutableArray<EcosystemPackId>> lineages =
+            CreateLineages(manifest, nameof(registrations));
         int previousPackOrder = default;
         bool hasPreviousPackOrder = false;
 
@@ -223,7 +228,9 @@ internal sealed class EcosystemPackRegistry
                 namespaceRoots,
                 corePackages,
                 toolPackages,
-                registration.WorkspaceRegistration is not null);
+                registration.WorkspaceRegistration is not null,
+                registration.DependsOn,
+                lineages[registration.Id]);
             EcosystemPopulationLoaderCorrespondence? loaderCorrespondence =
                 registration.PopulationLoader is { } loader
                 && registration.WorkspaceRegistration is { } workspaceRegistration
@@ -259,6 +266,79 @@ internal sealed class EcosystemPackRegistry
     internal ImmutableArray<EcosystemPackDescriptor> Packs { get; }
 
     internal ImmutableArray<EcosystemDemoDescriptor> Demos { get; }
+
+    /// <summary>
+    /// Appends each selected pack's lineage, root first, in caller order,
+    /// skipping packs already appended. Duplicate selections are rejected.
+    /// </summary>
+    internal ImmutableArray<EcosystemPackId> ExpandLineages(
+        IEnumerable<EcosystemPackId> selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        var selected = new HashSet<EcosystemPackId>();
+        var appended = new HashSet<EcosystemPackId>();
+        var result = ImmutableArray.CreateBuilder<EcosystemPackId>();
+        foreach (EcosystemPackId id in selection)
+        {
+            if (id is null || !selected.Add(id))
+            {
+                throw new ArgumentException(
+                    "An ecosystem selection cannot contain null or duplicate pack identities.",
+                    nameof(selection));
+            }
+
+            if (!_packsById.TryGetValue(id, out PackEntry? entry))
+            {
+                throw new ArgumentException(
+                    $"Ecosystem selection names unknown ecosystem pack '{id}'.",
+                    nameof(selection));
+            }
+
+            foreach (EcosystemPackId member in entry.Descriptor.Lineage)
+            {
+                if (appended.Add(member))
+                    result.Add(member);
+            }
+        }
+
+        return result.ToImmutable();
+    }
+
+    internal ImmutableArray<EcosystemPackId> OrderLayeredFind(
+        IEnumerable<EcosystemPackId> selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        EcosystemPackId[] selected = [.. selection];
+        ImmutableArray<EcosystemPackId> union = ExpandLineages(selected);
+        var ranks = new Dictionary<EcosystemPackId, int>();
+        for (int i = 0; i < selected.Length; i++)
+        {
+            foreach (EcosystemPackId id in _packsById[selected[i]].Descriptor.Lineage)
+                ranks.TryAdd(id, i);
+        }
+
+        var remainingChildren = union.ToDictionary(id => id, _ => 0);
+        foreach (EcosystemPackId id in union)
+        {
+            if (_packsById[id].Descriptor.DependsOn is { } parent)
+                remainingChildren[parent]++;
+        }
+
+        var ordered = ImmutableArray.CreateBuilder<EcosystemPackId>(union.Length);
+        while (ordered.Count < union.Length)
+        {
+            EcosystemPackId next = remainingChildren.Keys
+                .Where(id => remainingChildren[id] == 0)
+                .OrderBy(id => ranks[id])
+                .ThenBy(id => _packsById[id].Descriptor.Order)
+                .First();
+            remainingChildren.Remove(next);
+            ordered.Add(next);
+            if (_packsById[next].Descriptor.DependsOn is { } parent)
+                remainingChildren[parent]--;
+        }
+        return ordered.ToImmutable();
+    }
 
     internal EcosystemPackLookupResult Lookup(EcosystemPackId id)
     {
@@ -349,6 +429,73 @@ internal sealed class EcosystemPackRegistry
             new EcosystemDemoSelection(
                 entry.Descriptor,
                 entry.Source.Resolve()));
+    }
+
+    /// <summary>
+    /// Validates the single-inheritance <c>DependsOn</c> forest and returns each
+    /// pack's lineage, root first.
+    /// </summary>
+    private static Dictionary<EcosystemPackId, ImmutableArray<EcosystemPackId>> CreateLineages(
+        EcosystemPackRegistration[] manifest,
+        string parameterName)
+    {
+        var byId = new Dictionary<EcosystemPackId, EcosystemPackRegistration>();
+        foreach (EcosystemPackRegistration registration in manifest)
+        {
+            if (registration is not null)
+                byId.TryAdd(registration.Id, registration);
+        }
+
+        var lineages = new Dictionary<EcosystemPackId, ImmutableArray<EcosystemPackId>>();
+        foreach (EcosystemPackRegistration registration in byId.Values)
+        {
+            var chain = new List<EcosystemPackId>();
+            var visited = new HashSet<EcosystemPackId>();
+            EcosystemPackRegistration current = registration;
+            while (true)
+            {
+                if (!visited.Add(current.Id))
+                {
+                    throw new ArgumentException(
+                        $"Ecosystem pack '{registration.Id}' has a DependsOn cycle through '{current.Id}'.",
+                        parameterName);
+                }
+
+                chain.Add(current.Id);
+                if (current.DependsOn is not { } parentId)
+                    break;
+
+                if (parentId == current.Id)
+                {
+                    throw new ArgumentException(
+                        $"Ecosystem pack '{current.Id}' cannot depend on itself.",
+                        parameterName);
+                }
+
+                if (!byId.TryGetValue(parentId, out EcosystemPackRegistration? parent))
+                {
+                    throw new ArgumentException(
+                        $"Ecosystem pack '{current.Id}' depends on unregistered pack '{parentId}'.",
+                        parameterName);
+                }
+
+                if (current.WorkspaceRegistration is not null
+                    && parent.WorkspaceRegistration is null)
+                {
+                    throw new ArgumentException(
+                        $"Ecosystem pack '{current.Id}' has a Workspace projection but its"
+                        + $" parent '{parentId}' does not.",
+                        parameterName);
+                }
+
+                current = parent;
+            }
+
+            chain.Reverse();
+            lineages.Add(registration.Id, [.. chain]);
+        }
+
+        return lineages;
     }
 
     private static ImmutableArray<string> SnapshotNamespaceRoots(

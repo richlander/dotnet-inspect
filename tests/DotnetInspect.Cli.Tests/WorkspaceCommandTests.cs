@@ -919,6 +919,59 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task ActiveEcosystem_UsesExactRegistrationAsStructuralSubject()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredEcosystems = ["aspire"],
+                    ActiveEcosystem = "aspire",
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement navigation =
+            Assert.Single(
+                document.RootElement.GetProperty("navigation")
+                    .EnumerateArray());
+        Assert.Equal(
+            "Aspire",
+            navigation.GetProperty("active_subject").GetString());
+        Assert.Equal(
+            "Ecosystem",
+            navigation.GetProperty("active_kind").GetString());
+        Assert.Equal(
+            "ecosystem.overview",
+            navigation.GetProperty("lens").GetString());
+        Assert.Empty(
+            document.RootElement.GetProperty("packages").EnumerateArray());
+        Assert.Empty(
+            document.RootElement.GetProperty("libraries").EnumerateArray());
+        Assert.Empty(
+            document.RootElement.GetProperty("types").EnumerateArray());
+        Assert.Empty(
+            document.RootElement.GetProperty("members").EnumerateArray());
+        Assert.Equal(
+            [
+                "Workspace",
+                "Ecosystem",
+                "Package",
+                "Library",
+                "Type",
+                "Member",
+            ],
+            document.RootElement.GetProperty("hierarchy")
+                .EnumerateArray()
+                .Select(row => row.GetProperty("level").GetString()));
+    }
+
+    [Fact]
     public async Task KindFilter_PreservesTypedRegistrationVector()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -2092,7 +2145,7 @@ public sealed partial class WorkspaceCommandTests
             PackageId,
             root.GetProperty("packages")[0]
                 .GetProperty("package").GetString());
-        Assert.Equal(5, root.GetProperty("hierarchy").GetArrayLength());
+        Assert.Equal(6, root.GetProperty("hierarchy").GetArrayLength());
         Assert.NotEmpty(root.GetProperty("libraries").EnumerateArray());
         Assert.NotEmpty(root.GetProperty("types").EnumerateArray());
         Assert.NotEmpty(root.GetProperty("members").EnumerateArray());

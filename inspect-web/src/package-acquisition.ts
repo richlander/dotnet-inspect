@@ -126,6 +126,7 @@ export interface AppMemberSurface
   exceptions: InspectedExceptionSurface[];
   documentationLoaded?: boolean;
   baselineOrdinal?: number | null;
+  isExplicitInterfaceImplementation?: boolean;
   graphOnly?: boolean;
   graphTarget?: BodyTarget;
   implementationBody?: InspectedMemberBodySelector;

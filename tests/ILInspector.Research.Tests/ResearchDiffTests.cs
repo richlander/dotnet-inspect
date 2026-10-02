@@ -40,7 +40,6 @@ public class ResearchDiffTests
             typeof(bool),
             typeof(ApiDiffScope),
             typeof(IReadOnlySet<string>),
-            typeof(IReadOnlySet<string>),
         ]));
     }
 
@@ -1066,8 +1065,8 @@ public class ResearchDiffTests
             TypeRef.CoreLib("System", "Void"),
             MetadataToken: 0x06000001,
             IsStatic: true);
-        var oldIndex = LibraryBodyIndex.FromEvidence([method], []);
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence([method], []);
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
 
@@ -1100,14 +1099,14 @@ public class ResearchDiffTests
             4,
             AllocationKind.Array,
             TypeRef.SzArray(TypeRef.CoreLib("System", "Byte")));
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [oldMethod],
             [],
             new Dictionary<int, ImmutableArray<AllocationOccurrence>>
             {
                 [oldMethod.MetadataToken] = [oldOccurrence],
             });
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [newMethod],
             [],
             new Dictionary<int, ImmutableArray<AllocationOccurrence>>
@@ -1159,14 +1158,14 @@ public class ResearchDiffTests
             8,
             AllocationKind.Object,
             TypeRef.CoreLib("System", "Object"));
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [oldMethod],
             [],
             new Dictionary<int, ImmutableArray<AllocationOccurrence>>
             {
                 [oldMethod.MetadataToken] = [oldOccurrence],
             });
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [newMethod],
             [],
             new Dictionary<int, ImmutableArray<AllocationOccurrence>>
@@ -1463,16 +1462,16 @@ public class ResearchDiffTests
     public void CompareAssemblies_IlBody_IndexFailureDoesNotBecomeAddedFinding()
     {
         string path = typeof(ResearchDiff).Module.FullyQualifiedName;
-        LibraryBodyIndex actual = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution actual = BodyAnalysisTestExecution.Open(
             path,
             includeAllocations: false,
             includeOpportunities: false);
         MethodIdentity target = Assert.Single(
-            actual.DeclaredMethods,
+            actual.CallGraph.DeclaredMethods,
             method => method.Name == nameof(ResearchDiff.ToChangeIdPart));
-        LibraryBodyIndex partial = LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution partial = BodyAnalysisTestExecution.FromEvidence(
             [
-                .. actual.DeclaredMethods.Where(
+                .. actual.CallGraph.DeclaredMethods.Where(
                     method => method.MetadataToken != target.MetadataToken),
             ],
             [],
@@ -1484,23 +1483,23 @@ public class ResearchDiffTests
                     "Method identity could not be decoded."),
             ]);
         Assert.DoesNotContain(
-            partial.DeclaredMethods,
+            partial.CallGraph.DeclaredMethods,
             method => method.MetadataToken == target.MetadataToken);
-        Assert.Single(partial.Diagnostics);
+        Assert.Single(partial.Receipt.Diagnostics);
         using var oldSource = DecompilerMetadataSource.Open(path);
         using var newSource = DecompilerMetadataSource.Open(path);
         var oldInput = new ResearchDiffInput([])
         {
             AssemblyContents =
             [
-                new ResearchAssemblyContent(oldSource, partial.CallGraphAnalysis),
+                new ResearchAssemblyContent(oldSource, partial.CallGraph),
             ],
         };
         var newInput = new ResearchDiffInput([])
         {
             AssemblyContents =
             [
-                new ResearchAssemblyContent(newSource, actual.CallGraphAnalysis),
+                new ResearchAssemblyContent(newSource, actual.CallGraph),
             ],
         };
 
@@ -1533,18 +1532,18 @@ public class ResearchDiffTests
     public void CompareAssemblies_IlBody_KnownOwnerFailureDoesNotPoisonOtherType()
     {
         string path = typeof(ResearchDiff).Module.FullyQualifiedName;
-        LibraryBodyIndex actual = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution actual = BodyAnalysisTestExecution.Open(
             path,
             includeAllocations: false,
             includeOpportunities: false);
         MethodIdentity target = Assert.Single(
-            actual.DeclaredMethods,
+            actual.CallGraph.DeclaredMethods,
             method => method.Name == nameof(ResearchDiff.ToChangeIdPart));
-        MethodIdentity unrelated = actual.DeclaredMethods.First(method =>
+        MethodIdentity unrelated = actual.CallGraph.DeclaredMethods.First(method =>
             method.DeclaringType != target.DeclaringType);
-        LibraryBodyIndex partial = LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution partial = BodyAnalysisTestExecution.FromEvidence(
             [
-                .. actual.DeclaredMethods.Where(method =>
+                .. actual.CallGraph.DeclaredMethods.Where(method =>
                     method.MetadataToken != target.MetadataToken
                     && method.MetadataToken != unrelated.MetadataToken),
             ],
@@ -1563,14 +1562,14 @@ public class ResearchDiffTests
         {
             AssemblyContents =
             [
-                new ResearchAssemblyContent(oldSource, partial.CallGraphAnalysis),
+                new ResearchAssemblyContent(oldSource, partial.CallGraph),
             ],
         };
         var newInput = new ResearchDiffInput([])
         {
             AssemblyContents =
             [
-                new ResearchAssemblyContent(newSource, actual.CallGraphAnalysis),
+                new ResearchAssemblyContent(newSource, actual.CallGraph),
             ],
         };
 
@@ -1972,20 +1971,20 @@ public class ResearchDiffTests
     {
         byte[] firstImage = BuildIdentityAssembly("First", Guid.NewGuid());
         byte[] secondImage = BuildIdentityAssembly("Second", Guid.NewGuid());
-        LibraryBodyIndex Index(byte[] image, string label) =>
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution Index(byte[] image, string label) =>
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 label, [.. image], LibraryBodyAnalysisFeatures.MethodEvidence);
-        LibraryBodyIndex[] oldIndexes =
+        LibraryBodyAnalysisExecution[] oldIndexes =
             [Index(firstImage, "shared.dll"), Index(secondImage, "shared.dll")];
-        LibraryBodyIndex[] newIndexes =
+        LibraryBodyAnalysisExecution[] newIndexes =
             [Index(firstImage, "renamed-first.dll"), Index(secondImage, "renamed-second.dll")];
         var oldInput = new ResearchDiffInput([])
         {
-            MethodPopulations = [.. oldIndexes.Select(index => index.CallGraphAnalysis)],
+            MethodPopulations = [.. oldIndexes.Select(index => index.CallGraph)],
         };
         var newInput = new ResearchDiffInput([])
         {
-            MethodPopulations = [.. newIndexes.Select(index => index.CallGraphAnalysis)],
+            MethodPopulations = [.. newIndexes.Select(index => index.CallGraph)],
         };
         if (mechanism == ResearchChangeMechanism.BodySignals)
         {
@@ -2043,11 +2042,11 @@ public class ResearchDiffTests
     [Fact]
     public void MethodPopulationIdentity_StandaloneModuleDoesNotAcquireAKeyFromItsLabel()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.OpenFromPrefetchedImage(
             "pretend-assembly.dll",
             [.. BuildNetmodule("Widget")],
             LibraryBodyAnalysisFeatures.MethodEvidence);
-        Assert.Null(index.ModuleIdentity.AssemblyIdentity);
+        Assert.Null(index.Receipt.ModuleIdentity.AssemblyIdentity);
         ResearchDiffInput input = BodySignalInput(index);
 
         var error = Assert.Throws<ArgumentException>(() => ResearchDiff.Compare(
@@ -2891,7 +2890,7 @@ public class ResearchDiffTests
         Assert.False(result.IsEmpty);
     }
 
-    static ResearchDiffInput BodySignalInput(LibraryBodyIndex index)
+    static ResearchDiffInput BodySignalInput(LibraryBodyAnalysisExecution index)
         => new([])
         {
             BodySignalAnalyses =
@@ -3139,30 +3138,6 @@ public class ResearchDiffTests
             string.Equals(member.Subject.MemberName, "op_Addition", StringComparison.Ordinal)
             && member.HasCSharpChanges
             && member.HasIlChanges);
-    }
-
-    [Fact]
-    public void ImplementationDiff_CompareAssemblies_FiltersUnderlyingResearchDiffByMemberTarget()
-    {
-        var full = ImplementationDiff.CompareAssemblies(
-            FixtureCatalog.DiffPair.OldAssemblyPath(),
-            FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ImplementationDiffOptions(TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
-        var targetId = Assert.Single(full.Members, member => member.Subject.MemberName == "ConstantValue").Subject.Id;
-
-        var scoped = ImplementationDiff.CompareAssemblies(
-            FixtureCatalog.DiffPair.OldAssemblyPath(),
-            FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ImplementationDiffOptions(
-                TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" },
-                MemberTargetIdentities: new HashSet<string>(StringComparer.Ordinal) { targetId }));
-
-        var researchMembers = scoped.Research.MembersWhere(member => member.ImplementationChanged);
-        Assert.All(researchMembers, member => Assert.Equal(targetId, member.Subject.Id));
-        var member = Assert.Single(scoped.Members);
-        Assert.Equal(targetId, member.Subject.Id);
-        Assert.True(member.HasCSharpChanges);
-        Assert.True(member.HasIlChanges);
     }
 
     [Fact]

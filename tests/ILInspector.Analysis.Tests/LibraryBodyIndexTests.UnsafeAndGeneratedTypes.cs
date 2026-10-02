@@ -31,11 +31,11 @@ public partial class LibraryBodyIndexTests
         File.Copy(typeof(CallSiteFixtures).Assembly.Location, path);
         try
         {
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
 
-            Assert.NotEmpty(index.Methods);
+            Assert.NotEmpty(index.CallGraph.Methods);
         }
         finally
         {
@@ -46,21 +46,21 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void UnsafeEvidence_FindsSignatureOperationsAndUnsafeCalls()
     {
-        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        Assert.Contains(index.UnsafeEvidence, evidence =>
+        Assert.Contains(index.Safety.Evidence, evidence =>
             evidence.Member.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
             && evidence.Reason == "Unsafe signature"
             && evidence.Detail.Contains("int*", StringComparison.Ordinal));
-        Assert.Contains(index.UnsafeEvidence, evidence =>
+        Assert.Contains(index.Safety.Evidence, evidence =>
             evidence.Member.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
             && evidence is { Reason: "Unsafe operation", Detail: "ldind.i4", Kind: "opcode", ILOffset: not null });
-        Assert.Contains(index.UnsafeEvidence, evidence =>
+        Assert.Contains(index.Safety.Evidence, evidence =>
             evidence.Member.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)
             && evidence.Reason == "Unsafe call"
             && evidence.Detail.Contains("System.Runtime.CompilerServices.Unsafe.As<int, uint>", StringComparison.Ordinal)
             && evidence.OperandToken is not null);
-        Assert.DoesNotContain(index.UnsafeEvidence, evidence =>
+        Assert.DoesNotContain(index.Safety.Evidence, evidence =>
             evidence.Member.Name == nameof(UnsafeEvidenceFixtures.PInvokeOnly));
     }
 
@@ -68,9 +68,9 @@ public partial class LibraryBodyIndexTests
     [Trait("Speed", "Slow")]
     public void UnsafeEvidence_ClassifiesMembersDeclaredOnUnsafeApi()
     {
-        var index = LibraryBodyIndex.Open(typeof(Unsafe).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(Unsafe).Assembly.Location);
 
-        Assert.Contains(index.UnsafeEvidence, evidence =>
+        Assert.Contains(index.Safety.Evidence, evidence =>
             evidence.Member.DeclaringType is { Namespace: "System.Runtime.CompilerServices", Name: "Unsafe" }
             && evidence.Member.Name == "Add"
             && evidence is { Reason: "Unsafe API member", Kind: "api" });
@@ -79,16 +79,16 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn()
     {
-        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        Assert.False(index.MemorySafetyRulesEnabled);
+        Assert.False(index.CompatibilityIndex().MemorySafetyRulesEnabled);
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
-            index.MemorySafetyRules);
+            index.CompatibilityIndex().MemorySafetyRules);
         Assert.Equal(MemorySafetyRulesState.Legacy, rules.State);
-        Assert.Equal(0, index.UnsafeModes.Explicit);
-        Assert.Equal(0, index.UnsafeModes.Unavailable);
+        Assert.Equal(0, index.CompatibilityIndex().UnsafeModes.Explicit);
+        Assert.Equal(0, index.CompatibilityIndex().UnsafeModes.Unavailable);
 
-        var pointerRead = Assert.Single(index.Methods.Where(m =>
+        var pointerRead = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)));
         Assert.Equal(CallerUnsafeMode.Implicit, pointerRead.CallerUnsafeMode);
     }
@@ -96,20 +96,20 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void CallerUnsafeMode_UsesNormalizedUpdatedContracts()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
 
-        Assert.True(index.MemorySafetyRulesEnabled);
+        Assert.True(index.CompatibilityIndex().MemorySafetyRulesEnabled);
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
-            index.MemorySafetyRules);
+            index.CompatibilityIndex().MemorySafetyRules);
         Assert.Equal(MemorySafetyRulesState.Updated, rules.State);
-        Assert.NotEqual(0, index.UnsafeModes.Explicit);
+        Assert.NotEqual(0, index.CompatibilityIndex().UnsafeModes.Explicit);
         Assert.DoesNotContain(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method => method.CallerUnsafeMode == CallerUnsafeMode.Implicit);
 
         MethodIdentity pointerOnly = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method =>
                 method.DeclaringType.Name
                     == "MemorySafetySpellingFixture"
@@ -119,7 +119,7 @@ public partial class LibraryBodyIndexTests
             pointerOnly.CallerUnsafeMode);
 
         MethodIdentity pointerFreeUnsafe = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method =>
                 method.DeclaringType.Name
                     == "MemorySafetySpellingFixture"
@@ -129,7 +129,7 @@ public partial class LibraryBodyIndexTests
             pointerFreeUnsafe.CallerUnsafeMode);
 
         MethodIdentity constructor = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method =>
                 method.DeclaringType.Name
                     == "MemorySafetySpellingFixture"
@@ -142,7 +142,7 @@ public partial class LibraryBodyIndexTests
             new[] { "get_Property", "add_Changed", "remove_Changed" })
         {
             MethodIdentity accessor = Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method =>
                     method.DeclaringType.Name
                         == "AccessorContractFixtures"
@@ -153,7 +153,7 @@ public partial class LibraryBodyIndexTests
         }
 
         MethodIdentity safeExtern = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method =>
                 method.DeclaringType.Name
                     == "MemorySafetySpellingFixture"
@@ -171,22 +171,22 @@ public partial class LibraryBodyIndexTests
             int? marker,
             MemorySafetyRulesState expectedRules)
     {
-        LibraryBodyIndex index =
+        LibraryBodyAnalysisExecution index =
             OpenMemorySafetyContractImage(marker);
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
-            index.MemorySafetyRules);
+            index.CompatibilityIndex().MemorySafetyRules);
         Assert.Equal(expectedRules, rules.State);
-        Assert.False(index.MemorySafetyRulesEnabled);
+        Assert.False(index.CompatibilityIndex().MemorySafetyRulesEnabled);
 
         MethodIdentity pointerOnly = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method => method.Name == "PointerOnly");
         Assert.Equal(
             CallerUnsafeMode.Implicit,
             pointerOnly.CallerUnsafeMode);
 
         MethodIdentity attributeOnly = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method => method.Name == "AttributeOnly");
         Assert.Equal(
             CallerUnsafeMode.None,
@@ -196,28 +196,28 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void CallerUnsafeMode_UnavailableContractIsNotAPropagator()
     {
-        LibraryBodyIndex index =
+        LibraryBodyAnalysisExecution index =
             OpenMemorySafetyContractImage(2, 1);
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
-            index.MemorySafetyRules);
+            index.CompatibilityIndex().MemorySafetyRules);
         Assert.Equal(
             MemorySafetyRulesState.Conflicting,
             rules.State);
-        Assert.False(index.MemorySafetyRulesEnabled);
+        Assert.False(index.CompatibilityIndex().MemorySafetyRulesEnabled);
 
         Assert.All(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method => Assert.Equal(
                 CallerUnsafeMode.Unavailable,
                 method.CallerUnsafeMode));
         Assert.Equal(
-            index.DeclaredMethods.Length,
-            index.UnsafeModes.Unavailable);
-        Assert.Equal(0, index.UnsafeModes.Unsafe);
+            index.CallGraph.DeclaredMethods.Length,
+            index.CompatibilityIndex().UnsafeModes.Unavailable);
+        Assert.Equal(0, index.CompatibilityIndex().UnsafeModes.Unsafe);
 
-        Assert.Empty(index.TopUnsafeLeverage(1));
-        Assert.Empty(index.OpaqueUnsafeMethods());
-        Assert.Empty(index.HollowUnsafeMethods());
+        Assert.Empty(index.Leverage.TopUnsafe(1));
+        Assert.Empty(index.CompatibilityIndex().OpaqueUnsafeMethods());
+        Assert.Empty(index.CompatibilityIndex().HollowUnsafeMethods());
     }
 
     [Fact]
@@ -226,9 +226,9 @@ public partial class LibraryBodyIndexTests
         // The authoritative model is RequiresUnsafeAttribute || pointer signature.
         // Calling an unsafe API does not itself make a method requires-unsafe —
         // that is the heuristic's domain, deliberately excluded from the model.
-        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        var callsUnsafeAs = Assert.Single(index.Methods.Where(m =>
+        var callsUnsafeAs = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)));
         Assert.Equal(CallerUnsafeMode.None, callsUnsafeAs.CallerUnsafeMode);
     }
@@ -236,8 +236,8 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void GeneratedFrameworkTypes_DetectsGrpcStub_AndRejectsUnauthenticProtobufSpoof()
     {
-        var index = LibraryBodyIndex.Open(typeof(FakeProtobufReflection).Assembly.Location);
-        var generated = index.GeneratedFrameworkTypes;
+        var index = BodyAnalysisTestExecution.Open(typeof(FakeProtobufReflection).Assembly.Location);
+        var generated = index.CompatibilityIndex().GeneratedFrameworkTypes;
 
         // #1735: the bootstrap types are bound from an unsigned assembly literally named
         // Google.Protobuf (no real public-key-token), so these must NOT be classified as
@@ -258,7 +258,7 @@ public partial class LibraryBodyIndexTests
         Assert.DoesNotContain(generated, type => SameClrType(type, typeof(GeneratedLookalike)));
         // Because it is not classified as generated, its optimization opportunity stays visible
         // (Performance Triage suppresses opportunities only for generated-framework types).
-        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+        Assert.Contains(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == nameof(GeneratedLookalike)
             && opportunity.Method.Name == nameof(GeneratedLookalike.MakesLocalArrayUnsuppressed));
     }
@@ -289,8 +289,8 @@ public partial class LibraryBodyIndexTests
         // Google.Protobuf.* bootstrap-shaped types and calls them from product code. The
         // protobuf generated-bootstrap predicates require real Google.Protobuf assembly
         // identity, so the calling product type must not be classified as generated (#1580).
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisLookalike.AssemblyPath());
-        var generated = index.GeneratedFrameworkTypes;
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisLookalike.AssemblyPath());
+        var generated = index.CompatibilityIndex().GeneratedFrameworkTypes;
 
         Assert.DoesNotContain(
             generated,
@@ -298,7 +298,7 @@ public partial class LibraryBodyIndexTests
 
         // Because it is not classified as generated, its optimization opportunity stays
         // visible — Performance Triage suppresses opportunities only for generated types.
-        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+        Assert.Contains(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == "ProtobufBootstrapLookalike"
             && opportunity.Method.Name == "ShouldStillBeActionable");
     }
@@ -314,14 +314,14 @@ public partial class LibraryBodyIndexTests
         try
         {
             File.WriteAllBytes(path, EmitDisplayNameCollisionAssembly());
-            var index = LibraryBodyIndex.Open(path);
-            var generated = index.GeneratedFrameworkTypes;
+            var index = BodyAnalysisTestExecution.Open(path);
+            var generated = index.CompatibilityIndex().GeneratedFrameworkTypes;
 
-            TypeRef namespaceLeaf = index.Methods
+            TypeRef namespaceLeaf = index.CallGraph.Methods
                 .First(method => method.DeclaringType.Namespace == "CollisionNs.A"
                     && method.DeclaringType.Name == "GeneratedLeaf")
                 .DeclaringType;
-            TypeRef nestedLeaf = index.Methods
+            TypeRef nestedLeaf = index.CallGraph.Methods
                 .First(method => method.DeclaringType.Namespace == "CollisionNs"
                     && method.DeclaringType.Name == "A+GeneratedLeaf")
                 .DeclaringType;
@@ -331,8 +331,14 @@ public partial class LibraryBodyIndexTests
                 nestedLeaf.ToQualifiedDisplayString());
             Assert.Contains(generated, type => type.Equals(namespaceLeaf));
             Assert.DoesNotContain(generated, type => type.Equals(nestedLeaf));
-            Assert.True(index.IsGeneratedFrameworkType(namespaceLeaf));
-            Assert.False(index.IsGeneratedFrameworkType(nestedLeaf));
+            Assert.True(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    namespaceLeaf));
+            Assert.False(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    nestedLeaf));
         }
         finally
         {
@@ -351,14 +357,14 @@ public partial class LibraryBodyIndexTests
         try
         {
             File.WriteAllBytes(path, EmitDisplayNameCollisionAssembly());
-            var index = LibraryBodyIndex.Open(path);
-            var generated = index.GeneratedFrameworkTypes;
+            var index = BodyAnalysisTestExecution.Open(path);
+            var generated = index.CompatibilityIndex().GeneratedFrameworkTypes;
 
-            TypeRef nestedGenerated = index.Methods
+            TypeRef nestedGenerated = index.CallGraph.Methods
                 .First(method => method.DeclaringType.Namespace == "ReverseNs"
                     && method.DeclaringType.Name == "A+NestedLeaf")
                 .DeclaringType;
-            TypeRef namespaceLookalike = index.Methods
+            TypeRef namespaceLookalike = index.CallGraph.Methods
                 .First(method => method.DeclaringType.Namespace == "ReverseNs.A"
                     && method.DeclaringType.Name == "NestedLeaf")
                 .DeclaringType;
@@ -407,8 +413,14 @@ public partial class LibraryBodyIndexTests
             lookalikeNested.ToQualifiedDisplayString());
 
         var set = new HashSet<TypeRef> { generated };
-        Assert.True(LibraryBodyIndex.IsGeneratedFrameworkType(set, generatedNested));
-        Assert.False(LibraryBodyIndex.IsGeneratedFrameworkType(set, lookalikeNested));
+        Assert.True(
+            GeneratedFrameworkTypeAnalysis.Contains(
+                set,
+                generatedNested));
+        Assert.False(
+            GeneratedFrameworkTypeAnalysis.Contains(
+                set,
+                lookalikeNested));
     }
 
     [Fact]
@@ -422,16 +434,16 @@ public partial class LibraryBodyIndexTests
         try
         {
             File.WriteAllBytes(path, EmitLiteralPlusVsNestedAssembly());
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
-            TypeRef stub = index.Methods
+            TypeRef stub = index.CallGraph.Methods
                 .First(method => method.DeclaringType.Namespace == "Ns"
                     && method.DeclaringType.Name == "GenStub")
                 .DeclaringType;
-            TypeRef nested = index.Methods
+            TypeRef nested = index.CallGraph.Methods
                 .First(method => method.Name == "InnerMethod")
                 .DeclaringType;
-            TypeRef literalPlus = index.Methods
+            TypeRef literalPlus = index.CallGraph.Methods
                 .First(method => method.Name == "UnrelatedUserMethod")
                 .DeclaringType;
 
@@ -439,9 +451,17 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(["GenStub", "Inner"], nested.Resolution!.Type.Segments);
             Assert.Equal(["GenStub+LiteralPlus"], literalPlus.Resolution!.Type.Segments);
 
-            Assert.Contains(index.GeneratedFrameworkTypes, type => type.Equals(stub));
-            Assert.True(index.IsGeneratedFrameworkType(nested));
-            Assert.False(index.IsGeneratedFrameworkType(literalPlus));
+            IReadOnlySet<TypeRef> generated =
+                index.CompatibilityIndex().GeneratedFrameworkTypes;
+            Assert.Contains(generated, type => type.Equals(stub));
+            Assert.True(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    nested));
+            Assert.False(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    literalPlus));
         }
         finally
         {
@@ -452,15 +472,15 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_SuppressesSourceGeneratedTypes()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A [GeneratedCode] type (source generators: JSON/regex/etc.) is not an actionable
         // source-shape target, so none of its methods produce optimization opportunities,
         // even though MakesSmallArray would otherwise be a small-array row (#1273).
-        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == nameof(SourceGeneratedOptimizationFixtures));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name

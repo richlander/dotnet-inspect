@@ -314,17 +314,21 @@ public sealed record BrowserLibraryMetricsRelationship(
     int SourceDegree,
     int TargetDegree);
 
-public sealed record BrowserLibraryNamespaceLeverage(
+public sealed record BrowserLibraryStructuralSalience(
     int SchemaVersion,
     string Outcome,
     string? MethodologyVersion,
     string? EvidenceMode,
-    string? Disposition,
-    BrowserLibrarySignatureUseCoverage? Coverage,
-    BrowserLibraryNamespaceLeverageRow[] Namespaces,
-    string[] Diagnostics,
+    BrowserLibraryNamespaceLeverageIndex? NamespaceIndex,
+    BrowserLibraryTypeLeverageShard[] TypeLeverageShards,
     string? Failure,
     BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserLibraryNamespaceLeverageIndex(
+    string Disposition,
+    BrowserLibrarySignatureUseCoverage Coverage,
+    BrowserLibraryNamespaceLeverageRow[] Namespaces,
+    string[] Diagnostics);
 
 public sealed record BrowserLibraryNamespaceLeverageRow(
     string Namespace,
@@ -333,19 +337,13 @@ public sealed record BrowserLibraryNamespaceLeverageRow(
     bool TopLeverage);
 
 public sealed record BrowserLibraryTypeLeverageShard(
-    int SchemaVersion,
-    string Outcome,
-    string? MethodologyVersion,
-    string? EvidenceMode,
-    string? Namespace,
-    string? Disposition,
-    BrowserLibrarySignatureUseCoverage? Coverage,
+    string Namespace,
+    string Disposition,
+    BrowserLibrarySignatureUseCoverage Coverage,
     BrowserLibraryTypeLeverageRow[] Types,
     string[] SeaLevelOrder,
     string[] MountainPeakOrder,
-    string[] Diagnostics,
-    string? Failure,
-    BrowserCompileLibraryAvailability CompileLibrary);
+    string[] Diagnostics);
 
 public sealed record BrowserLibrarySignatureUseCoverage(
     int Considered,
@@ -507,8 +505,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
-[JsonSerializable(typeof(BrowserLibraryNamespaceLeverage))]
-[JsonSerializable(typeof(BrowserLibraryTypeLeverageShard))]
+[JsonSerializable(typeof(BrowserLibraryStructuralSalience))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserTypeImplementationHeat))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]

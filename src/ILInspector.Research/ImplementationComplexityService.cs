@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Research;
 
@@ -10,7 +11,36 @@ public sealed record ImplementationComplexityComparisonRequest(
     IReadOnlyList<LibraryImplementationProfileAnalysisResult?> OldProfiles,
     IReadOnlyList<LibraryImplementationProfileAnalysisResult?> NewProfiles,
     IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null);
+    ImplementationComplexityTargetContext? TargetContext = null);
+
+/// <summary>
+/// The complete Research-issued target context for one focused complexity
+/// comparison.
+/// </summary>
+public sealed class ImplementationComplexityTargetContext
+{
+    public ImplementationComplexityTargetContext(
+        ResearchTargetResolution resolution,
+        ResearchAdmittedPopulation population)
+    {
+        ArgumentNullException.ThrowIfNull(resolution);
+        ArgumentNullException.ThrowIfNull(population);
+        if (!ReferenceEquals(resolution.Operation, population.Operation))
+        {
+            throw new ArgumentException(
+                "The target resolution and admitted population must belong "
+                    + "to the same Research operation.",
+                nameof(resolution));
+        }
+
+        Resolution = resolution;
+        Population = population;
+    }
+
+    public ResearchTargetResolution Resolution { get; }
+
+    public ResearchAdmittedPopulation Population { get; }
+}
 
 /// <summary>
 /// Compares Analysis-owned implementation profiles without reopening or
@@ -97,6 +127,19 @@ public static class ImplementationComplexityService
                 + "endpoints.");
         }
 
+        if (request.TargetContext is { } targetContext)
+        {
+            return new ImplementationComplexityDiff(
+                true,
+                null,
+                WithLocalContext(
+                    CompareTargetedProfiles(
+                        oldByAssembly.Values,
+                        newByAssembly.Values,
+                        request,
+                        targetContext)));
+        }
+
         var changes = new List<ImplementationComplexityChange>();
         foreach (string key in oldByAssembly.Keys
             .Union(newByAssembly.Keys, StringComparer.Ordinal)
@@ -110,7 +153,10 @@ public static class ImplementationComplexityService
                 newByAssembly.TryGetValue(key, out var newAssembly)
                     ? newAssembly.Profiles
                     : [];
-            changes.AddRange(CompareProfiles(oldProfiles, newProfiles, request));
+            changes.AddRange(CompareProfiles(
+                oldProfiles,
+                newProfiles,
+                request));
         }
 
         return new ImplementationComplexityDiff(true, null, WithLocalContext(changes));
@@ -206,6 +252,158 @@ public static class ImplementationComplexityService
         LibraryImplementationProfileAnalysisResult profile)
         => profile.Receipt.ModuleIdentity.AssemblyIdentity!.Name;
 
+    static IReadOnlyList<ImplementationComplexityChange>
+        CompareTargetedProfiles(
+            IEnumerable<LibraryImplementationProfileAnalysisResult>
+                oldAnalyses,
+            IEnumerable<LibraryImplementationProfileAnalysisResult>
+                newAnalyses,
+            ImplementationComplexityComparisonRequest request,
+            ImplementationComplexityTargetContext targetContext)
+    {
+        LibraryImplementationProfileAnalysisResult[] oldPopulation =
+            [.. oldAnalyses];
+        LibraryImplementationProfileAnalysisResult[] newPopulation =
+            [.. newAnalyses];
+        var changes = new List<ImplementationComplexityChange>();
+        var projectedTargets = new HashSet<ComplexityTargetProjectionKey>();
+        var returnTypeCollisions =
+            new Dictionary<ResearchTargetDomainKey, IReadOnlySet<string>>();
+
+        foreach (ResearchTargetCorrespondenceOutcome correspondence
+            in targetContext.Resolution.Correspondences)
+        {
+            if (correspondence is not (
+                ResearchTargetCorrespondenceOutcome.Paired
+                or ResearchTargetCorrespondenceOutcome.BeforeOnly
+                or ResearchTargetCorrespondenceOutcome.AfterOnly))
+            {
+                continue;
+            }
+
+            ResearchSubjectKey subject =
+                ResearchDiff.SubjectFromCorrespondence(
+                    targetContext.Resolution,
+                    targetContext.Population,
+                    correspondence,
+                    returnTypeCollisions);
+            if (!ResearchDiff.MatchesTypeFilters(
+                subject.TypeName ?? "",
+                request.TypeFilters))
+            {
+                continue;
+            }
+
+            MetadataMethodAddress? beforeAddress =
+                Address(correspondence, ResearchComparisonSide.Before);
+            MetadataMethodAddress? afterAddress =
+                Address(correspondence, ResearchComparisonSide.After);
+            if (!projectedTargets.Add(new(
+                subject.Id,
+                correspondence.Domain.Key,
+                correspondence.Kind,
+                beforeAddress,
+                afterAddress)))
+            {
+                continue;
+            }
+
+            changes.AddRange(CompareTargetProfiles(
+                ProfilesAt(oldPopulation, beforeAddress),
+                ProfilesAt(newPopulation, afterAddress),
+                subject));
+        }
+
+        return changes;
+    }
+
+    static MetadataMethodAddress? Address(
+        ResearchTargetCorrespondenceOutcome correspondence,
+        ResearchComparisonSide side)
+        => (correspondence, side) switch
+        {
+            (ResearchTargetCorrespondenceOutcome.Paired paired,
+                ResearchComparisonSide.Before) =>
+                paired.Before.Target.Address,
+            (ResearchTargetCorrespondenceOutcome.Paired paired,
+                ResearchComparisonSide.After) =>
+                paired.After.Target.Address,
+            (ResearchTargetCorrespondenceOutcome.BeforeOnly beforeOnly,
+                ResearchComparisonSide.Before) =>
+                beforeOnly.Before.Target.Address,
+            (ResearchTargetCorrespondenceOutcome.AfterOnly afterOnly,
+                ResearchComparisonSide.After) =>
+                afterOnly.After.Target.Address,
+            _ => null,
+        };
+
+    static IReadOnlyList<MethodImplementationProfile> ProfilesAt(
+        IEnumerable<LibraryImplementationProfileAnalysisResult> analyses,
+        MetadataMethodAddress? address)
+    {
+        if (address is not { } target)
+            return [];
+
+        return
+        [
+            .. analyses
+                .Where(analysis =>
+                    analysis.Receipt.ModuleIdentity.ModuleVersionId
+                        == target.ModuleVersionId)
+                .SelectMany(static analysis => analysis.Profiles)
+                .Where(profile =>
+                    profile.Method.MetadataToken == target.Token),
+        ];
+    }
+
+    static IReadOnlyList<ImplementationComplexityChange>
+        CompareTargetProfiles(
+            IReadOnlyList<MethodImplementationProfile> oldProfiles,
+            IReadOnlyList<MethodImplementationProfile> newProfiles,
+            ResearchSubjectKey subject)
+    {
+        if (oldProfiles.Count == 0 && newProfiles.Count == 0)
+            return [];
+
+        if (oldProfiles.Count <= 1 && newProfiles.Count <= 1)
+        {
+            return
+            [
+                CreateChange(
+                    subject,
+                    oldProfiles.SingleOrDefault(),
+                    newProfiles.SingleOrDefault(),
+                    ambiguous: false),
+            ];
+        }
+
+        var oldByKey = oldProfiles.ToDictionary(
+            profile => MethodKey(profile.EvidenceMethod),
+            StringComparer.Ordinal);
+        var newByKey = newProfiles.ToDictionary(
+            profile => MethodKey(profile.EvidenceMethod),
+            StringComparer.Ordinal);
+        var changes = new List<ImplementationComplexityChange>();
+        foreach (string key in oldByKey.Keys
+            .Union(newByKey.Keys, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal))
+        {
+            oldByKey.TryGetValue(
+                key,
+                out MethodImplementationProfile? oldProfile);
+            newByKey.TryGetValue(
+                key,
+                out MethodImplementationProfile? newProfile);
+            changes.Add(CreateChange(
+                subject,
+                oldProfile,
+                newProfile,
+                ambiguous: true));
+        }
+
+        return changes;
+    }
+
     static IReadOnlyList<ImplementationComplexityChange> CompareProfiles(
         IReadOnlyList<MethodImplementationProfile> oldProfiles,
         IReadOnlyList<MethodImplementationProfile> newProfiles,
@@ -219,13 +417,17 @@ public static class ImplementationComplexityService
             .Select(profile => CreateProfileEntry(
                 profile,
                 returnTypeCollisions))
-            .Where(entry => MatchesFilters(entry.Subject, request))
+            .Where(entry => MatchesFilters(
+                entry,
+                request))
             .ToArray();
         var newEntries = newProfiles
             .Select(profile => CreateProfileEntry(
                 profile,
                 returnTypeCollisions))
-            .Where(entry => MatchesFilters(entry.Subject, request))
+            .Where(entry => MatchesFilters(
+                entry,
+                request))
             .ToArray();
         var oldByKey = oldEntries.ToDictionary(
             entry => entry.Key,
@@ -268,59 +470,72 @@ public static class ImplementationComplexityService
                     "A complexity comparison key had no profile.");
             MethodImplementationProfile? oldProfile = oldEntry?.Profile;
             MethodImplementationProfile? newProfile = newEntry?.Profile;
-            ImplementationComplexityChangeKind kind;
-            int? delta = null;
-            if (ambiguousSubjectIds.Contains(subject.Id))
-            {
-                kind = ImplementationComplexityChangeKind.Incomplete;
-                if (oldProfile is not null && newProfile is not null)
-                {
-                    delta = newProfile.NormalFlowCyclomaticComplexity
-                        - oldProfile.NormalFlowCyclomaticComplexity;
-                }
-            }
-            else if (oldProfile is null)
-            {
-                kind = ImplementationComplexityChangeKind.Added;
-            }
-            else if (newProfile is null)
-            {
-                kind = ImplementationComplexityChangeKind.Removed;
-            }
-            else
-            {
-                delta = newProfile.NormalFlowCyclomaticComplexity
-                    - oldProfile.NormalFlowCyclomaticComplexity;
-                kind = !oldProfile.IsComplete || !newProfile.IsComplete
-                    ? ImplementationComplexityChangeKind.Incomplete
-                    : delta == 0
-                        ? ImplementationComplexityChangeKind.Unchanged
-                        : ImplementationComplexityChangeKind.Changed;
-            }
-
-            ImplementationStructuralChange? structuralChange =
-                (kind is ImplementationComplexityChangeKind.Changed
-                    or ImplementationComplexityChangeKind.Unchanged)
-                    && oldProfile is not null
-                    && newProfile is not null
-                    ? CreateStructuralChange(oldProfile, newProfile)
-                    : null;
-            changes.Add(new ImplementationComplexityChange(
+            changes.Add(CreateChange(
                 subject,
-                kind,
-                oldProfile?.NormalFlowCyclomaticComplexity,
-                newProfile?.NormalFlowCyclomaticComplexity,
-                delta,
-                oldProfile?.IsComplete ?? false,
-                newProfile?.IsComplete ?? false,
-                oldEntry?.Profile.EvidenceMethod,
-                newEntry?.Profile.EvidenceMethod,
                 oldProfile,
                 newProfile,
-                StructuralChange: structuralChange));
+                ambiguousSubjectIds.Contains(subject.Id)));
         }
 
         return changes;
+    }
+
+    static ImplementationComplexityChange CreateChange(
+        ResearchSubjectKey subject,
+        MethodImplementationProfile? oldProfile,
+        MethodImplementationProfile? newProfile,
+        bool ambiguous)
+    {
+        ImplementationComplexityChangeKind kind;
+        int? delta = null;
+        if (ambiguous)
+        {
+            kind = ImplementationComplexityChangeKind.Incomplete;
+            if (oldProfile is not null && newProfile is not null)
+            {
+                delta = newProfile.NormalFlowCyclomaticComplexity
+                    - oldProfile.NormalFlowCyclomaticComplexity;
+            }
+        }
+        else if (oldProfile is null)
+        {
+            kind = ImplementationComplexityChangeKind.Added;
+        }
+        else if (newProfile is null)
+        {
+            kind = ImplementationComplexityChangeKind.Removed;
+        }
+        else
+        {
+            delta = newProfile.NormalFlowCyclomaticComplexity
+                - oldProfile.NormalFlowCyclomaticComplexity;
+            kind = !oldProfile.IsComplete || !newProfile.IsComplete
+                ? ImplementationComplexityChangeKind.Incomplete
+                : delta == 0
+                    ? ImplementationComplexityChangeKind.Unchanged
+                    : ImplementationComplexityChangeKind.Changed;
+        }
+
+        ImplementationStructuralChange? structuralChange =
+            (kind is ImplementationComplexityChangeKind.Changed
+                or ImplementationComplexityChangeKind.Unchanged)
+                && oldProfile is not null
+                && newProfile is not null
+                ? CreateStructuralChange(oldProfile, newProfile)
+                : null;
+        return new ImplementationComplexityChange(
+            subject,
+            kind,
+            oldProfile?.NormalFlowCyclomaticComplexity,
+            newProfile?.NormalFlowCyclomaticComplexity,
+            delta,
+            oldProfile?.IsComplete ?? false,
+            newProfile?.IsComplete ?? false,
+            oldProfile?.EvidenceMethod,
+            newProfile?.EvidenceMethod,
+            oldProfile,
+            newProfile,
+            StructuralChange: structuralChange);
     }
 
     static ImplementationStructuralChange CreateStructuralChange(
@@ -369,14 +584,11 @@ public static class ImplementationComplexityService
             + $"{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static bool MatchesFilters(
-        ResearchSubjectKey subject,
+        ComplexityProfileEntry entry,
         ImplementationComplexityComparisonRequest request)
         => ResearchDiff.MatchesTypeFilters(
-               subject.TypeName ?? "",
-               request.TypeFilters)
-           && (request.MemberTargetIdentities is null
-               || request.MemberTargetIdentities.Count == 0
-               || request.MemberTargetIdentities.Contains(subject.Id));
+               entry.Subject.TypeName ?? "",
+               request.TypeFilters);
 
     static ImplementationComplexityDiff Unavailable(string reason)
         => new(false, reason, []);
@@ -385,4 +597,11 @@ public static class ImplementationComplexityService
         string Key,
         MethodImplementationProfile Profile,
         ResearchSubjectKey Subject);
+
+    sealed record ComplexityTargetProjectionKey(
+        string SubjectId,
+        ResearchTargetDomainKey Domain,
+        ResearchTargetCorrespondenceKind CorrespondenceKind,
+        MetadataMethodAddress? Before,
+        MetadataMethodAddress? After);
 }

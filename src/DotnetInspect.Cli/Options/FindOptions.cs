@@ -218,7 +218,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         PackagePrefix is not null;
 
     internal bool UsesImplicitPlatform =>
-        SourceSelection?.UsesImplicitPlatform ?? !HasAnyScope;
+        Ecosystems is null
+        && (SourceSelection?.UsesImplicitPlatform ?? !HasAnyScope);
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).

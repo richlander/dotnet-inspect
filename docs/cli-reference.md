@@ -316,7 +316,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S "Library Metrics"`, `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-library structural metrics, whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
+| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-ecosystem ID` for a resource-free Ecosystem subject or `--active-package N` for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -347,7 +347,7 @@ stderr rather than mixed into structured output.
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
-| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --where "library-literal=..."` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
+| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --where "library-literal=..."` result names. Add `--active-ecosystem ID` to activate the exact resource-free registration with Ecosystem Overview, or `--active-package N` to evaluate the exact Package occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace packet encode` / `decode` | Convert validated Workspace JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -713,16 +713,18 @@ top-level package roots. Add `--lines` only to clip rendered text.
 
 For an exact online package version, requesting one literal root `README.md` or
 `skills/**/SKILL.md` path with `--content` acquires directly through the
-PackageHouse filesystem store using HTTP Range requests rather than the legacy
-extraction route. The exact entry is detached through the shared package
-document-content inspection, then the CLI applies its existing separator,
-`--raw`, JSONL, or `--out` projection. Skill documents retain their containment
-and link-normalization behavior. Detached content projections accept documents
-up to 16 MiB; an exact README written to `--out` remains a bounded byte stream
-and is not subject to that detached-content limit. Local packages, floating or
-range version selection, target-framework filters, path globs and roles,
-scoped documents, .NET tool-wrapper redirection, and other package files retain
-their existing behavior.
+PackageHouse semantic Files route rather than the legacy extraction route.
+PackageHouse selects cache, size-first HTTP Range access, or complete fallback,
+while the operation publishes only the exact requested entry. That entry is
+detached through the shared package document-content inspection, then the CLI
+applies its existing separator, `--raw`, JSONL, or `--out` projection. Skill
+documents retain their containment and link-normalization behavior. Detached
+content projections accept documents up to 16 MiB; an exact README written to
+`--out` remains a bounded byte stream and is not subject to that
+detached-content limit. Local packages, floating or range version selection,
+target-framework filters, path globs and roles, scoped documents, .NET
+tool-wrapper redirection, and other package files retain their existing
+behavior.
 
 For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
 complete sorted file paths after archive extraction and `--lib`, `--tools`, or
@@ -965,10 +967,29 @@ than reopening a same-named reference assembly. Platform implementation-pack
 observations decline exact internal reopening because public Platform syntax
 resolves the reference view.
 
-Repeat `--ecosystem ecosystem.ID` to register exactly those ecosystem packs in
-caller order. Without it, Find registers every shipped ecosystem. Registration
-is inert: it does not execute package-prefix discovery or add package content
-to the search.
+`--ecosystem` selects a named Ecosystem and its ancestors, searching each
+layer's named platform and core-package populations nearest first. Canonical
+IDs (`ecosystem.aspire`) and short names (`aspire`) are case-insensitive;
+separate multiple selections with commas (for example, `ai,blazor`) or repeat
+the option. `--ecosystem all` selects every shipped ecosystem. An explicit
+Ecosystem cannot be combined with another Find source selector yet.
+`--tfm` still applies to core packages. Each result includes an `Ecosystem`
+column (or `ecosystem` JSON field) naming the layer that produced it;
+ordinary Find output is unchanged. A finite `-n` stops at a layer boundary
+and reports unsearched ancestors on stderr:
+
+```console
+dotnet-inspect find '.Add*' --ecosystem aspire -n 20
+```
+
+This searches Aspire's core packages first and, when they fill the window,
+does not realize ASP.NET Core or Runtime. Only named populations are searched:
+registered package prefixes do not trigger package-prefix discovery. If the
+entire selection has no named populations, Find fails with a prefix hint.
+Current Markdown output retains Find's existing Members-before-Results
+sections; rows remain nearest-first within each kind. A follow-on design will
+unify Type and Member result rows and make layer-ordered TSV the progressive
+default for all Find invocations.
 
 ### Package Query over selected implementation libraries
 
@@ -1192,6 +1213,21 @@ commands own packet editing.
 
 `workspace` never selects an occurrence implicitly, even when the Workspace
 contains exactly one Package.
+
+Add `--active-ecosystem ID` to select one exact Ecosystem registration from
+the current top-level inventory receipt. Short IDs such as `aspire` normalize
+to the canonical `ecosystem.aspire` registration. The result activates the
+Ecosystem subject and its `ecosystem.overview` lens without acquiring Packages,
+Libraries, platform assets, or population:
+
+```bash
+dotnet-inspect workspace \
+  --register-ecosystem aspire \
+  --active-ecosystem aspire
+```
+
+This acquisition-absence claim is unverified by a dedicated composition gate;
+the Release tests verify the visible structural result.
 
 Add `--active-package N` to evaluate one exact occurrence by its one-based
 Workspace order. The detailed result includes the active subject, complete

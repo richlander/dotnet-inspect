@@ -65,6 +65,10 @@ import {
   generatedFacadeSource,
   browserGraphMemberSource,
 } from "./composition-root-test-fixture.ts";
+import {
+  MEMBER_TRAITS,
+  memberKindCount,
+} from "../src/member-filtering.ts";
 const engineCallGraphTarget = (
   fixture: CallGraphTarget & { typeFullName?: string },
 ): CallGraphTarget => fixture;
@@ -1102,14 +1106,32 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     filters,
     /filterMemberGroups\(selectedMemberGroups\(type\), memberFilterState\(\)\)/);
   assert.match(
+    appSource,
+    /function selectedMember\([\s\S]*memberGroupForCurrentFilters\(type, state\.selectedMemberKey\)/);
+  assert.match(
+    appSource,
+    /function openMemberGroup\([\s\S]*memberGroupForCurrentFilters\(type, key\)/);
+  assert.match(
+    appSource,
+    /function openMemberGroup\([\s\S]*state\.memberTraitFilter[\s\S]*memberDocumentOrdinalForOverload\(group, 0\)[\s\S]*openMemberDocument\(filteredDocumentOrdinal\)/);
+  assert.match(
     filters,
     /function selectedMemberGroups\([\s\S]*?return declaredMemberGroups\(type\)/);
   assert.match(
     filters,
-    /selectedMemberGroups\(type\)\s*\.flatMap\(group => group\.overloads\)/);
+    /currentTypeMemberPopulation\(type\)\?\.selectorCounts\.kinds/);
+  assert.match(
+    filters,
+    /\?\? selectedMemberGroups\(type\)\.map\(group => group\.kind\)/);
+  assert.match(
+    filters,
+    /function selectedMemberKindCount\([\s\S]*currentTypeMemberPopulation\(type\)\?\.selectorCounts[\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*memberKindCount\(selectedMemberGroups\(type\), kind\)/);
+  assert.match(
+    filters,
+    /function selectedMemberTraitCount\([\s\S]*currentTypeMemberPopulation\(type\)\?\.selectorCounts\.traits[\s\S]*if \(!traits\) return null;/);
   assert.match(
     appSource,
-    /function declaredMemberGroups\([\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
+    /function loadedMemberDeclarationsApplyToSelection\([\s\S]*state\.memberSpelling === "csharp"[\s\S]*state\.memberAccessibilityFilter === "public"[\s\S]*function declaredMemberGroups\([\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
 
   const entries =
     appSource.match(/function memberNavEntries\([\s\S]*?\n}\n\nfunction memberNavCursor/)?.[0]
@@ -1124,6 +1146,137 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     pane,
     /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
+});
+
+test("unavailable exact Member populations omit selector counts", () => {
+  const populationAndFilters =
+    appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
+    ?? "";
+  assert.notEqual(populationAndFilters, "");
+  const compositionControls =
+    appSource.match(/function compositionFilterButton\([\s\S]*?(?=\nfunction selectedMember\()/)?.[0]
+    ?? "";
+  assert.notEqual(compositionControls, "");
+
+  for (const [label, memberSpelling, memberAccessibilityFilter] of [
+    ["metadata loading", "metadata", "public"],
+    ["metadata failed", "metadata", "public"],
+    ["private loading", "csharp", "private"],
+    ["private failed", "csharp", "private"],
+  ] as const) {
+    const failed = label.endsWith("failed");
+    const state = {
+      memberKindFilter: "method",
+      memberSpelling,
+      memberAccessibilityFilter,
+      memberTextFilter: "",
+      memberTraitFilter: "",
+      memberFiltersExpanded: true,
+      typeMemberPopulationKey: `${memberSpelling}/${memberAccessibilityFilter}`,
+      typeMemberPopulation: null,
+      typeMemberPopulationLoading: !failed,
+      typeMemberPopulationError: failed ? "Population unavailable" : "",
+    };
+    const rendered: unknown = runInNewContext(
+      stripTypeScriptTypes(`${populationAndFilters}
+        ${compositionControls}
+        ({
+          filters: renderMemberFilterControls(type),
+          composition: renderMemberComposition(type),
+        });
+      `),
+      {
+        state,
+        type: { api: [] },
+        MEMBER_TRAITS,
+        memberKindCount,
+        typeMemberPopulationKey: () =>
+          `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
+        escapeHtml: (value: string) => value,
+      });
+    if (!rendered
+      || typeof rendered !== "object"
+      || !("filters" in rendered)
+      || typeof rendered.filters !== "string"
+      || !("composition" in rendered)
+      || typeof rendered.composition !== "string") {
+      assert.fail(`${label}: expected rendered Member controls`);
+    }
+
+    assert.match(
+      rendered.filters,
+      /<option value="method" selected>method<\/option>/,
+      label);
+    assert.doesNotMatch(
+      rendered.filters,
+      /<option value="method" selected>method · 0<\/option>/,
+      label);
+    assert.match(
+      rendered.composition,
+      /data-member-jump-kind="method"><span>method<\/span>/,
+      label);
+    assert.doesNotMatch(
+      rendered.composition,
+      /data-member-jump-(?:kind|trait)="[^"]*"><strong>0<\/strong>/,
+      label);
+  }
+
+  const exactZeroState = {
+    memberKindFilter: "method",
+    memberSpelling: "csharp",
+    memberAccessibilityFilter: "public",
+    memberTextFilter: "",
+    memberTraitFilter: "interface",
+    memberFiltersExpanded: true,
+    typeMemberPopulationKey: "csharp/public",
+    typeMemberPopulation: {
+      outcome: "Available",
+      population: {
+        groups: [],
+        composition: {
+          public: 0,
+          protected: 0,
+          internal: 0,
+          private: 0,
+        },
+        selectorCounts: {
+          kinds: [],
+          traits: {
+            all: 0,
+            static: 0,
+            instance: 0,
+            virtual: 0,
+            interface: 0,
+            extensions: 0,
+          },
+        },
+      },
+    },
+    typeMemberPopulationLoading: false,
+    typeMemberPopulationError: "",
+  };
+  const exactZero: unknown = runInNewContext(
+    stripTypeScriptTypes(`${populationAndFilters}
+      ${compositionControls}
+      renderMemberComposition(type);
+    `),
+    {
+      state: exactZeroState,
+      type: { api: [] },
+      MEMBER_TRAITS,
+      memberKindCount,
+      typeMemberPopulationKey: () => "csharp/public",
+      escapeHtml: (value: string) => value,
+    });
+  if (typeof exactZero !== "string") {
+    assert.fail("exact zero: expected rendered Member composition");
+  }
+  assert.match(
+    exactZero,
+    /data-member-jump-kind="method"><strong>0<\/strong><span>method<\/span>/);
+  assert.match(
+    exactZero,
+    /data-member-jump-trait="interface"><strong>0<\/strong><span>interface<\/span>/);
 });
 
 test("type API reports the filtered member count once in its header", () => {
@@ -1422,7 +1575,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metrics"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml: metadataLibraryControl[\s\S]*?package-metadata-controls/);
@@ -1446,16 +1599,16 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
 });
 
-test("library Metrics uses the full-area analysis working surface", () => {
+test("all Library Analysis modes use one full-area working surface", () => {
   assert.match(
     appSource,
-    /const libraryMetricsWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "metrics"/);
+    /const libraryAnalysisWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "analysis"/);
   assert.match(
     appSource,
-    /libraryAnalysisWorkingSurface \|\| libraryMetricsWorkingSurface \? " library-analysis-working-surface" : ""/);
+    /libraryAnalysisWorkingSurface \? " library-analysis-working-surface" : ""/);
   assert.match(
     appSource,
-    /contentNavigationIntegrated =[\s\S]*\|\| libraryMetricsWorkingSurface[\s\S]*?;/);
+    /contentNavigationIntegrated =[\s\S]*\|\| libraryAnalysisWorkingSurface[\s\S]*?;/);
 });
 
 test("package dependencies use compact coordinates in a full-area working surface", () => {
@@ -1568,12 +1721,17 @@ test("member filters retain an exact selected graph target", () => {
     "onMemberFilterClear",
     "onMemberFilterKeyDown",
     "onMemberKindFilterSelect",
-    "onMemberTraitFilterSelect",
   ]) {
     assert.match(
       sourceText(callbackProperty(actions, name)),
       /normalizeMemberSelection\(\)/);
   }
+  assert.match(
+    sourceText(callbackProperty(actions, "onMemberTraitFilterSelect")),
+    /applyMemberTraitFilter\(value \?\? ""\)/);
+  assert.match(
+    sourceText(functionDeclaration("bindTypePanelEvents")),
+    /const applyMemberTraitFilter = \(value: string\) => \{[\s\S]*normalizeMemberSelection\(\)/);
   assert.match(
     sourceText(callbackProperty(
       actions,

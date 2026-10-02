@@ -224,12 +224,12 @@ public sealed class EcosystemWorkspaceConstructionTests
     }
 
     [Fact]
-    public void PublicSelectedPlanPreservesExactCallerOrderWithoutAddingNeighbors()
+    public void PublicSelectedPlanRegistersLineageUnionRootFirst()
     {
         EcosystemPackId[] selected =
         [
+            EcosystemPackIds.Aspire,
             EcosystemPackIds.AI,
-            EcosystemPackIds.Runtime,
         ];
 
         WorkspacePlan plan =
@@ -242,10 +242,17 @@ public sealed class EcosystemWorkspaceConstructionTests
         ];
 
         Assert.Equal(
-            selected.Select(id => id.Value),
+            new[]
+            {
+                EcosystemPackIds.Runtime.Value,
+                EcosystemPackIds.MicrosoftExtensions.Value,
+                EcosystemPackIds.AspNetCore.Value,
+                EcosystemPackIds.Aspire.Value,
+                EcosystemPackIds.AI.Value,
+            },
             declarations.Select(declaration => declaration.Id.Value));
-        Assert.Same(SelectKnown(EcosystemPackIds.AI), declarations[0]);
-        Assert.Same(SelectKnown(EcosystemPackIds.Runtime), declarations[1]);
+        Assert.Same(SelectKnown(EcosystemPackIds.Runtime), declarations[0]);
+        Assert.Same(SelectKnown(EcosystemPackIds.AI), declarations[^1]);
     }
 
     [Fact]

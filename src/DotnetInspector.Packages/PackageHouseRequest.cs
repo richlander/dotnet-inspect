@@ -282,7 +282,8 @@ public sealed class PackageHouseRequest
         PackageHouseEvidenceDemand evidenceDemand =
             PackageHouseEvidenceDemand.None,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-            PackageHouseLibraryCompanionDemand.None)
+            PackageHouseLibraryCompanionDemand.None,
+        PackageHouseContentQuery? contentQuery = null)
         : this(
             demand,
             operation,
@@ -295,6 +296,7 @@ public sealed class PackageHouseRequest
             fileDemand,
             evidenceDemand,
             libraryCompanionDemand,
+            contentQuery,
             allowReferenceOnlyImplementationNames: false)
     {
     }
@@ -311,6 +313,7 @@ public sealed class PackageHouseRequest
         PackageFileDemand? fileDemand,
         PackageHouseEvidenceDemand evidenceDemand,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand,
+        PackageHouseContentQuery? contentQuery,
         bool allowReferenceOnlyImplementationNames)
     {
         ArgumentNullException.ThrowIfNull(demand);
@@ -380,6 +383,57 @@ public sealed class PackageHouseRequest
                 "Only an Acquire operation carries a file demand.",
                 nameof(fileDemand));
         }
+        if (contentQuery is not null
+            && operation.Profile != PackageHouseOperationProfile.Acquire)
+        {
+            throw new ArgumentException(
+                "Only an Acquire operation carries a semantic content query.",
+                nameof(contentQuery));
+        }
+        if (contentQuery is not null && fileDemand is not null)
+        {
+            throw new ArgumentException(
+                "A semantic content query and legacy file demand are mutually exclusive.",
+                nameof(contentQuery));
+        }
+        if (contentQuery?.Narrowing
+                is PackageHouseContentNarrowing.PackageWide
+            && targetContext is not null)
+        {
+            throw new ArgumentException(
+                "Package-wide content narrowing does not carry a target context.",
+                nameof(targetContext));
+        }
+        if (contentQuery?.Narrowing
+                is PackageHouseContentNarrowing.TfmWide tfmWide
+            && !ReferenceEquals(tfmWide.Target, targetContext))
+        {
+            throw new ArgumentException(
+                "TFM-wide content narrowing requires its exact target context.",
+                nameof(targetContext));
+        }
+        if (contentQuery?.RetainedFileList is { } retainedFileList)
+        {
+            PackageSourceCoordinate? requestedCoordinate = demand switch
+            {
+                PackageHouseDemand.Exact exact => exact.Coordinate,
+                PackageHouseDemand.Candidate candidate =>
+                    candidate.Value.Coordinate,
+                _ => null,
+            };
+            if (requestedCoordinate is null
+                || requestedCoordinate
+                    != retainedFileList
+                        .Narrowing
+                        .Acquisition
+                        .Candidate
+                        .Coordinate)
+            {
+                throw new ArgumentException(
+                    "Retained File List evidence requires its exact package coordinate.",
+                    nameof(contentQuery));
+            }
+        }
 
         if (evidenceDemand != PackageHouseEvidenceDemand.None
             && (!realizes
@@ -412,6 +466,7 @@ public sealed class PackageHouseRequest
         Association = association;
         AssetDemand = assetDemand;
         FileDemand = fileDemand;
+        ContentQuery = contentQuery;
         EvidenceDemand = evidenceDemand;
         LibraryCompanionDemand = libraryCompanionDemand;
         AllowReferenceOnlyImplementationNames =
@@ -466,6 +521,12 @@ public sealed class PackageHouseRequest
     /// (docs/design/package-read-demand.md#exact-file-demand).
     /// </summary>
     public PackageFileDemand? FileDemand { get; }
+
+    /// <summary>
+    /// The semantic package-content request carried by an Acquire operation,
+    /// or <see langword="null"/> for legacy operation-specific demand.
+    /// </summary>
+    public PackageHouseContentQuery? ContentQuery { get; }
 
     /// <summary>
     /// Additional package-authored evidence this compile realization reads.

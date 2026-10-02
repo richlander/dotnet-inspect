@@ -17,7 +17,6 @@
     <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
-    <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
   </ItemGroup>
 </Project>

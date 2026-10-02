@@ -455,32 +455,28 @@ implementation volume. Relationship Crossing renders every endpoint and edge
 in Research's bounded relationship projection; the Browser performs no second
 topology selection.
 
-The existing Metrics lens adds a structural-salience view rather than new
-persistent workspace chrome. It presents the Research-issued namespace order
-and, for a selected namespace, separate sea-level and mountain-peak Type lists
-in their Research-issued order. The lists remain directional rankings, not
-category membership lists. Each visible Type row discloses its named degree,
-structural role, and owner-issued pole when present, and activates the exact
-metadata Type key. A presentation limit may take a prefix of an issued order,
-but Browser does not sort, merge, exclude, or recompute rows. Relationship
-Crossing may decorate an already selected exact Type with its report-issued
-role; it does not infer role from the bounded call projection.
+The ordinary Type Browser automatically requests the exhaustive Library
+structural-salience document when it presents an exact Library: the namespace
+index and every exact namespace Type-leverage shard in index order. This makes
+every pole and pole-filter count authoritative in the initial all-namespaces
+view. Namespace and pole filtering are client-side projections over the same
+complete document; they neither start another analysis nor change document
+identity. Browser visibly rejects a document with missing, extra, duplicated,
+or reordered namespace shards. The request does not run implementation
+profiles, body-use analysis, the call graph, or Library Metrics. Package and
+platform Libraries use the same managed query shape and Browser contract.
 
-The Type Browser adds an explicit `Structural salience` action inside its
-existing filter disclosure. Activating it requests the Library namespace index
-and the exact shards for every top-leverage namespace. Selecting an exact
-namespace adds that namespace's shard to the partial presentation. Types in
-other namespaces remain undecorated until their namespace is selected; Browser
-does not eagerly turn activation into exhaustive assembly processing. It does
-not run implementation profiles, body-use analysis, the call graph, exhaustive
-Type-shard composition, or the rest of Library Metrics. Package and platform
-Libraries use the same managed queries and Browser contracts.
+Structural salience has no separate viewer. Metrics continues to present its
+Research-issued Complexity Explorer and Relationship Crossing evidence without
+salience rankings or namespace controls.
 
-The namespace index is cached by exact Library identity, methodology version,
-evidence mode, and workspace generation. A Type shard adds exact namespace to
-that key. Operation authority prevents stale results from publishing into a
-replacement workspace. Loading, qualified, unavailable, and failed outcomes
-remain visible and retryable.
+The exhaustive document is cached by exact Library identity, methodology
+version, evidence mode, and workspace generation. Operation authority prevents
+stale results from publishing into a replacement workspace. Loading, qualified,
+unavailable, and failed outcomes remain visible and retryable. The exact
+namespace shard remains the Research unit and a query surface for demand-driven
+tool and agent consumers; the Browser host does not compose partial shard
+unions.
 
 Browser presentation consumes Research-issued top-leverage and nullable Type
 pole designations. It does not apply a second percentage, rank, threshold, or
@@ -490,19 +486,24 @@ Sea-level and mountain-peak filters select their respective presentation
 categories and intersect with the existing text, namespace, kind, Library, and
 accessibility filters. Row cues use distinct accents without replacing the
 selected or hover state. The filter summary and each decorated row expose the
-category in text so color is not the only carrier. Deactivating the view clears
-only leverage presentation and filtering; it does not discard the cached
-Research result.
+category in text so color is not the only carrier.
 
 Structural salience follows the existing implementation-heat visual grammar.
-Categorical icons and glyphs occupy the left gutter. Scalar magnitude heat,
-including implementation-profile heat, remains a horizontal gradient anchored
-at the right edge. A sea-level Type uses a baseline glyph plus a subtle
-bottom-up vertical wash; a mountain-peak Type uses a peak glyph plus a subtle
-top-down vertical wash. Shape and vertical origin carry the distinction while
-theme-owned color remains secondary. A Type with no issued pole receives no
-salience icon or wash. Hover and selection remain visibly stronger than either
-wash, and accessible text remains authoritative. These cues express only the
+Categorical achievements occupy a shared left-gutter rail with zero to two
+ordered glyph slots per item. Two slots preserve dense Type and future member
+rows while allowing another owner-issued signal to compose with structural
+salience; this design does not define or synthesize that future signal. The
+rail is item-neutral presentation substrate, and each consumer supplies an
+already selected, strongest-first set without Browser combining scores across
+owners. In this slice Research issues only one exclusive structural pole, so a
+Type uses at most one slot: a sea-level Type uses a baseline glyph plus a
+subtle bottom-up vertical wash, while a mountain-peak Type uses a peak glyph
+plus a subtle top-down vertical wash. Scalar magnitude heat, including
+implementation-profile heat, remains a horizontal gradient anchored at the
+right edge. Shape and vertical origin carry the distinction while theme-owned
+color remains secondary. A Type with no issued pole receives an empty rail and
+no wash. Hover and selection remain visibly stronger than either wash, and
+accessible text remains authoritative. These cues express only the
 owner-issued pole; they do not encode quality, reciprocity, reachability, or a
 cycle.
 
@@ -606,9 +607,9 @@ repeats the product contract through Research and each host:
 - CLI fixtures prove that the explicit `Library Metrics` section lowers both
   issued orders and their qualifications through Markout without introducing
   them into default `-v:m` output.
-- Browser/Wasm fixtures prove that the existing Metrics lens consumes the same
-  exact Type keys and issued order, limits only by taking a disclosed prefix,
-  and never reconstructs degree, role, or ranking from the bounded call
+- Browser/Wasm fixtures prove that ordinary Type inventories consume the same
+  exact Type keys and owner-issued poles, expose authoritative pole filters,
+  and never reconstruct degree, role, or designation from the bounded call
   projection.
 - System.Text.Json 10.0.0 proves the production package path and useful
   separation of foundations and orchestrators. System.Private.CoreLib proves
@@ -638,9 +639,9 @@ hosts:
 5. Browser/Wasm adopts the same document through its settled Library detail
    path. Its managed Analysis facade runs the host-neutral
    `AssemblyContextLibraryMetricsQuery` over the exact implementation
-   participant, and its explicit `Metrics` lens presents the `Complexity
-   Explorer` and `Relationship Crossing` views while preserving Type/Member
-   drill-down rather than adding method rows to Compare.
+   participant, and the Library Analysis inspector's `Metrics` tab presents the
+   `Complexity Explorer` and `Relationship Crossing` views while preserving
+   Type/Member drill-down rather than adding method rows to Compare.
 
 The CLI path has four steps and the Browser/Wasm path has five steps; the first
 three are shared. The completed CLI adoption establishes the `Library Metrics`
@@ -662,8 +663,9 @@ stack. Each slice has one normative owner and lands a usable typed contract:
    available for a separately costed future depth mode over both directions.
 4. The CLI adds the two named `Library Metrics` row groups through Markout
    without changing the command's explicit-only disclosure.
-5. Browser/Wasm adds an explicit Type Browser action backed by the dedicated
-   metadata-only surface query, with category cues and intersecting filters.
+5. Browser/Wasm automatically requests the dedicated metadata-only surface
+   query for an exact-Library Type inventory, with category cues and
+   intersecting filters.
 6. A later provider-backed composition may push Graph demand into Metadata and
    Analysis acquisition. It is a separately evidenced QuerySpace optimization,
    not a condition of the closed-document stack.

@@ -192,16 +192,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPackagePerformance"),
     queryPackageLibraryMetrics: () =>
       unexpected("queryPackageLibraryMetrics"),
-    queryPackageLibraryNamespaceLeverage: () =>
-      unexpected("queryPackageLibraryNamespaceLeverage"),
-    queryPackageNamespaceTypeLeverage: () =>
-      unexpected("queryPackageNamespaceTypeLeverage"),
+    queryPackageLibraryStructuralSalience: () =>
+      unexpected("queryPackageLibraryStructuralSalience"),
     queryPlatformLibraryMetrics: () =>
       unexpected("queryPlatformLibraryMetrics"),
-    queryPlatformLibraryNamespaceLeverage: () =>
-      unexpected("queryPlatformLibraryNamespaceLeverage"),
-    queryPlatformNamespaceTypeLeverage: () =>
-      unexpected("queryPlatformNamespaceTypeLeverage"),
+    queryPlatformLibraryStructuralSalience: () =>
+      unexpected("queryPlatformLibraryStructuralSalience"),
     queryPlatformPerformance: () =>
       unexpected("queryPlatformPerformance"),
   },
@@ -2260,15 +2256,13 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberFacts",
       "queryPackageIntegrations",
       "queryPackageLibraryMetrics",
-      "queryPackageLibraryNamespaceLeverage",
-      "queryPackageNamespaceTypeLeverage",
+      "queryPackageLibraryStructuralSalience",
       "queryPackageOpportunities",
       "queryPackagePerformance",
       "queryPackageTypeImplementationHeat",
       "queryPlatformIntegrations",
       "queryPlatformLibraryMetrics",
-      "queryPlatformLibraryNamespaceLeverage",
-      "queryPlatformNamespaceTypeLeverage",
+      "queryPlatformLibraryStructuralSalience",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
       "queryPlatformTypeImplementationHeat",
@@ -2332,7 +2326,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 106);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 104);
 
   const state = fixture();
   const groups = [

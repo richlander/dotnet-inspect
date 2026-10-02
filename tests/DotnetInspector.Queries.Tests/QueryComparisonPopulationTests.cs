@@ -528,7 +528,7 @@ public sealed class QueryComparisonPopulationTests
             typeof(ImplementationComparisonBinding),
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
-            typeof(LibraryBodyIndex),
+            typeof(LibraryBodyAnalysisExecution),
             typeof(LibraryCallGraphAnalysisResult),
             typeof(ResearchComparisonInputOccurrence),
             typeof(ResearchAdmittedPopulation),
@@ -595,7 +595,9 @@ public sealed class QueryComparisonPopulationTests
         MethodInfo bodySignalExecute = Assert.Single(
             typeof(BodySignalComparisonQuery).GetMethods(),
             method => method.Name == nameof(BodySignalComparisonQuery.Execute));
-        Assert.Equal(typeof(ImplementationDiffResult), implementationExecute.ReturnType);
+        Assert.Equal(
+            typeof(ImplementationComparisonResult),
+            implementationExecute.ReturnType);
         Assert.Equal(typeof(BodySignalComparisonResult), bodySignalExecute.ReturnType);
 
         foreach (Type publicResult in new[]
@@ -899,7 +901,7 @@ public sealed class QueryComparisonPopulationTests
                 AssemblyResolutionProvenance.Local(
                     "query comparison population test")),
             MetadataSource.DefaultAssemblyReferenceResolver(path),
-            LibraryBodyIndex.Open(path).CallGraphAnalysis);
+            BodyAnalysisTestExecution.Open(path).CallGraph);
     }
 
     static readonly Lazy<BodySignalAnalysisInput> SharedBodySignalAnalysis = new(() =>

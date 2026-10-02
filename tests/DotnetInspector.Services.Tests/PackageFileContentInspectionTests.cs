@@ -17,6 +17,7 @@ public sealed class PackageFileContentInspectionTests
         byte[] expected = "# Package\n"u8.ToArray();
         PackageHouseSettlement.Acquired settlement =
             CreateSettlement(
+                "README.md",
                 producerKey =>
                     new InMemoryPackageContent(
                         TestPackageArchive.CreateWithContent(
@@ -48,6 +49,7 @@ public sealed class PackageFileContentInspectionTests
     {
         PackageHouseSettlement.Acquired settlement =
             CreateSettlement(
+                "README.md",
                 producerKey =>
                     new DeclaredPackageContent(
                         "README.md",
@@ -75,6 +77,7 @@ public sealed class PackageFileContentInspectionTests
     {
         PackageHouseSettlement.Acquired settlement =
             CreateSettlement(
+                "README.md",
                 producerKey =>
                     new InMemoryPackageContent(
                         TestPackageArchive.CreateWithContent(
@@ -114,6 +117,7 @@ public sealed class PackageFileContentInspectionTests
     }
 
     private static PackageHouseSettlement.Acquired CreateSettlement(
+        string path,
         Func<string, IPackageContent> createContent)
     {
         var authority =
@@ -136,7 +140,9 @@ public sealed class PackageFileContentInspectionTests
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Candidate(candidate),
             PackageHouseOperation.Create(
-                PackageHouseOperationProfile.Acquire));
+                PackageHouseOperationProfile.Acquire),
+            contentQuery:
+                PackageHouseContentQuery.PackageFilesWithFileList([path]));
         PackageHouseDecisionReceipt decision =
             PackageHouseDecisionReceipt.RetainPackage(
                 request,
@@ -166,11 +172,22 @@ public sealed class PackageFileContentInspectionTests
             payload.Origin,
             payload.Content.GenerationIdentity,
             PackageTransferReceipt.Cache);
+        var narrowing = new PackageHouseContentNarrowingReceipt(
+            acquisition,
+            targetSelection: null);
         var result = new PackageHouseResult.Settled(
             new PackageHouseEvidence(
                 request,
                 decision,
-                acquisition));
+                acquisition,
+                fileList:
+                    new PackageHouseFileList(
+                        narrowing,
+                        Assert
+                            .IsAssignableFrom<IPackageContentEntryManifest>(
+                                content)
+                            .EnumerateEntriesWithLengths()),
+                contentNarrowing: narrowing));
         return new PackageHouseSettlement.Acquired(
             result,
             payload,

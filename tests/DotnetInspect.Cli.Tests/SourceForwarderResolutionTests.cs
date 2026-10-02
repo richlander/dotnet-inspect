@@ -3142,23 +3142,22 @@ public class SourceForwarderResolutionTests
             typeof(BodyShapeFixture));
         try
         {
-            Analysis.LibraryBodyIndex index =
+            Analysis.LibraryBodyAnalysisExecution index =
                 ApiAnalysisInspection.OpenTypeAnalysis(
                         fixture.AssemblyPath,
                         [section],
                         fixture.Type,
                         sourceAssembly:
                             fixture.Loaded.GetSourceAssembly(
-                                fixture.Type))
-                    .CompatibilityIndex();
+                                fixture.Type));
 
             Assert.Equal(1, opens);
-            Assert.Equal(allocations, index.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.Allocations));
-            Assert.Equal(opportunities, index.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities));
-            Assert.NotEmpty(index.DirectCalls);
+            Assert.Equal(allocations, index.Receipt.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.Allocations));
+            Assert.Equal(opportunities, index.Receipt.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities));
+            Assert.NotEmpty(index.CallGraph.DirectCalls);
             Assert.Equal(
                 wholeAssembly,
-                index.DirectCalls.Any(call =>
+                index.CallGraph.DirectCalls.Any(call =>
                     !ApiAnalysisInspection.SameType(call.Caller.DeclaringType, fixture.Type)));
         }
         finally

@@ -82,39 +82,39 @@ test("qualified Type leverage exposes a cache-bypassing retry", () => {
   );
 });
 
-test("Metrics lens requests and presents exact structural-salience shards", () => {
-  const target = sourceText(
-    functionDeclaration("libraryMetricsTypeLeverageTarget"),
-  );
-  const loader = sourceText(
-    functionDeclaration("loadLibraryMetricsTypeLeverage"),
-  );
+test("ordinary Type lists request and present exhaustive structural salience", () => {
   const renderer = sourceText(
     functionDeclaration("renderPackageLibraryMetrics"),
   );
-  const autoLoad = sourceText(
-    functionDeclaration("maybeAutoLoadPackageLibraryMetrics"),
+  const typeAutoLoad = sourceText(
+    functionDeclaration("maybeAutoLoadTypeLeverage"),
+  );
+  const typePresentation = sourceText(
+    functionDeclaration("currentTypeLeveragePresentation"),
+  );
+  const control = sourceText(
+    functionDeclaration("typeLeverageControl"),
   );
 
   assert.match(
-    target,
-    /state\.atLibraryRoot[\s\S]*state\.libraryLens !== "metrics"[\s\S]*libraryMetricsLeverageNamespace[\s\S]*createTypeLeverageTarget\("metrics", requestedNamespaces, true\)/,
+    typeAutoLoad,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*currentTypeLeverageKey\(\)[\s\S]*typeLeverage\.presentation\(leverageKey\) !== null[\s\S]*typeLeverage\.pending\(leverageKey\)[\s\S]*loadTypeLeverage\(\)/,
   );
   assert.match(
-    loader,
-    /libraryMetricsTypeLeverageTarget\(\)[\s\S]*typeLeverage\.retry\(target\)[\s\S]*typeLeverage\.request\(target\)/,
+    typePresentation,
+    /return typeLeverage\.presentation\(key\)/,
   );
   assert.match(
+    control,
+    /data-type-leverage-filter=""[\s\S]*data-type-leverage-filter="sea-level"[\s\S]*data-type-leverage-filter="mountain-peak"/,
+  );
+  assert.doesNotMatch(
+    control,
+    /Show structural salience|Hide salience|data-type-leverage-activate/,
+  );
+  assert.doesNotMatch(
     renderer,
-    /salienceLoading: state\.libraryMetricsLeverageLoading[\s\S]*salience: currentLibraryMetricsTypeLeveragePresentation\(\)[\s\S]*selectedSalienceNamespace: state\.libraryMetricsLeverageNamespace/,
-  );
-  assert.match(
-    autoLoad,
-    /libraryMetricsLeverageKey !== leverageKey[\s\S]*loadLibraryMetricsTypeLeverage\(\)/,
-  );
-  assert.match(
-    appSource,
-    /selectSalienceNamespace: exactNamespace => \{[\s\S]*state\.libraryMetricsLeverageNamespace = exactNamespace;[\s\S]*loadLibraryMetricsTypeLeverage\(\);[\s\S]*retrySalience: \(\) => loadLibraryMetricsTypeLeverage\(true\)/,
+    /salience|typeLeverage/i,
   );
 });
 
@@ -734,6 +734,10 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
+  for (const projection of [kindJump, namespaceJump]) {
+    assert.doesNotMatch(projection, /loadTypeLeverage\(\)/);
+    assert.match(projection, /\brender\(\)/);
+  }
   for (const source of [kindJump, namespaceJump]) {
     assert.match(
       source,
@@ -786,12 +790,7 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     libraryControlsSource,
     /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
-  for (const lens of [
-    "integrations",
-    "analysis",
-    "metrics",
-    "metadata",
-  ]) {
+  for (const lens of ["analysis", "metadata"]) {
     assert.match(
       libraryControlsSource,
       new RegExp(`\\[data-platform-${lens}-library\\]`));
@@ -828,7 +827,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     appSource,
-    /else if \(lens === "metrics"\) \{\s*loadLibraryMetricsTypeLeverage\(\);\s*await loadPackageLibraryMetrics\(\);\s*}/);
+    /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*state\.analysisMode === "opportunities"[\s\S]*loadPackageLibraryMetrics\(\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
@@ -1233,7 +1232,8 @@ test("typed type panel owns its rendered control bindings", () => {
     /state\.typeLeverageFilter = ""/);
   assert.match(
     clearFilters,
-    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+    /renderPreservingMemberFocus\(\)/);
+  assert.doesNotMatch(clearFilters, /loadTypeLeverage\(\)/);
   assert.match(
     binding,
     /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
@@ -1287,23 +1287,21 @@ test("typed type panel owns its rendered control bindings", () => {
   const kindSelect = callbackSource("onKindSelect");
   assert.match(
     kindSelect,
-    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+    /renderPreservingMemberFocus\(\)/);
+  assert.doesNotMatch(kindSelect, /loadTypeLeverage\(\)/);
   assert.match(
     kindSelect,
     /loadCurrentSelectionData\("Loading the selected Type"\)/);
-  for (const [name, stateField] of [
-    ["onMemberCompositionKindSelect", "memberKindFilter"],
-    ["onMemberCompositionTraitSelect", "memberTraitFilter"],
-  ] as const) {
-    const source = callbackSource(name);
-    assert.match(
-      source,
-      new RegExp(
-        `enterMemberNavigation\\(\\(\\) => \\{[\\s\\S]*resetMemberFilters\\(\\);`
-        + `[\\s\\S]*state\\.${stateField} = value;`
-        + "[\\s\\S]*enterMemberScope\\(\\);[\\s\\S]*render\\(\\)"));
-    assert.equal(source.match(/\brender\(\)/g)?.length, 1);
-  }
+  const compositionKind = callbackSource("onMemberCompositionKindSelect");
+  assert.match(
+    compositionKind,
+    /enterMemberNavigation\(\(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*state\.memberKindFilter = value;[\s\S]*enterMemberScope\(\);[\s\S]*render\(\)/);
+  assert.equal(compositionKind.match(/\brender\(\)/g)?.length, 1);
+  const compositionTrait = callbackSource("onMemberCompositionTraitSelect");
+  assert.match(
+    compositionTrait,
+    /enterMemberNavigation\(\(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*applyMemberTraitFilter\(value\);[\s\S]*enterMemberScope\(\);[\s\S]*render\(\)/);
+  assert.equal(compositionTrait.match(/\brender\(\)/g)?.length, 1);
   const accessibilitySource =
     callbackSource("onMemberCompositionAccessibilitySelect");
   assert.match(
@@ -1360,16 +1358,20 @@ test("typed type panel owns its rendered control bindings", () => {
       "#namespace-jump": 0,
     });
 
-    test("structural salience requests only indexed exact namespaces", () => {
+    test("structural salience requests one exhaustive Library document", () => {
+      const target = sourceText(
+        functionDeclaration("createTypeLeverageTarget"),
+      );
       assert.match(
-        appSource,
-        /target\.requestedNamespaces\.filter\(namespace =>\s*index\.namespaces\.some\(row => row\.namespace === namespace\)\)/);
+        target,
+        /key: JSON\.stringify\(\[salienceLibraryKey, consumer\]\)/);
+      assert.doesNotMatch(target, /requestedNamespaces|namespaceFilter/);
       assert.match(
         appSource,
         /const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__"/);
       assert.match(
-        appSource,
-        /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\s*\? ""\s*: state\.namespaceFilter/);
+        sourceText(functionDeclaration("selectedNamespaceFilter")),
+        /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\) return ""/);
       assert.match(
         appSource,
         /const value = namespaceFilterValue\(ns\)/);
@@ -1946,7 +1948,11 @@ test("annotated source validation failures stay visible at the shell boundary", 
   );
   assert.match(
     appSource,
-    /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;[\s\S]*Annotated source document rejected[\s\S]*data-annotated-action="close-modal"/,
+    /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*return renderAnnotatedSourceRejectionModal\(\s*errorMessage\(error\),\s*escapeHtml,\s*\)/,
+  );
+  assert.match(
+    annotatedSourceModule,
+    /export function renderAnnotatedSourceRejectionModal\([\s\S]*Annotated source document rejected[\s\S]*data-annotated-action="close-modal"/,
   );
   assert.match(
     appSource,

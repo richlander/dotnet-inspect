@@ -117,8 +117,8 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
         Assert.Equal(
             [
                 EcosystemPackIds.Runtime.Value,
-                EcosystemPackIds.AspNetCore.Value,
                 EcosystemPackIds.MicrosoftExtensions.Value,
+                EcosystemPackIds.AspNetCore.Value,
             ],
             received.CuratedPlan.Registrations
                 .Select(registration =>

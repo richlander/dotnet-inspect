@@ -442,7 +442,7 @@ public sealed class AnalysisParticipationRegistrationTests
             [],
             new HashSet<string>(),
             [],
-            memberTargetIdentities: null,
+            apiMemberTargetIdentities: null,
             prepareBodySignals: null);
 
         InspectionEnvelope<DiffAnalysisDocument> inspection =
@@ -506,7 +506,7 @@ public sealed class AnalysisParticipationRegistrationTests
             [],
             new HashSet<string>(["N.Healthy"]),
             ["N.Healthy"],
-            memberTargetIdentities: null,
+            apiMemberTargetIdentities: null,
             prepareBodySignals: null);
 
         InspectionEnvelope<DiffAnalysisDocument> inspection =
@@ -582,7 +582,7 @@ public sealed class AnalysisParticipationRegistrationTests
             [],
             new HashSet<string>(["N.Widget"]),
             ["N.Widget"],
-            memberTargetIdentities: null,
+            apiMemberTargetIdentities: null,
             prepareBodySignals: null);
 
         InspectionEnvelope<DiffAnalysisDocument> inspection =
@@ -728,7 +728,7 @@ public sealed class AnalysisParticipationRegistrationTests
             [],
             new HashSet<string>(),
             [],
-            memberTargetIdentities: null,
+            apiMemberTargetIdentities: null,
             prepareBodySignals: null);
 
         InspectionEnvelope<DiffAnalysisDocument> inspection =
@@ -771,6 +771,6 @@ public sealed class AnalysisParticipationRegistrationTests
             [],
             new HashSet<string>(),
             [],
-            memberTargetIdentities: null,
+            apiMemberTargetIdentities: null,
             prepareBodySignals);
 }

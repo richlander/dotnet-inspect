@@ -366,6 +366,7 @@ test("Type inventory filters preserve their focused control across rerenders", (
         ?.[0] ?? "";
     assert.match(callback, /renderPreservingMemberFocus\(\)/);
     assert.doesNotMatch(callback, /\brender\(\)/);
+    assert.doesNotMatch(callback, /loadTypeLeverage\(\)/);
   }
   assert.match(
     appSource,
@@ -1121,7 +1122,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*state\.platformIndex\?\.target\(\s*originPackage\.activeFramework,\s*originPackage\.version\)[\s\S]*row\.hasImplementation[\s\S]*row\.pack === pack[\s\S]*row\.assembly\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*runtimeAssemblyIsResident\(\s*originPackage,\s*row\.assembly,\s*row\.pack\)[\s\S]*const runtimeResult = await loadRuntimePackAssembly\(\s*originPackage\.activeFramework,\s*platformAssemblyRequest\(row\),\s*row\.pack,\s*isCurrent,\s*originPackage\.version,\s*row\.file\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*state\.integrationMode === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*state\.platformIndex\?\.target\(\s*originPackage\.activeFramework,\s*originPackage\.version\)[\s\S]*row\.hasImplementation[\s\S]*row\.pack === pack[\s\S]*row\.assembly\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*runtimeAssemblyIsResident\(\s*originPackage,\s*row\.assembly,\s*row\.pack\)[\s\S]*const runtimeResult = await loadRuntimePackAssembly\(\s*originPackage\.activeFramework,\s*platformAssemblyRequest\(row\),\s*row\.pack,\s*isCurrent,\s*originPackage\.version,\s*row\.file\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "analysis"[\s\S]*state\.analysisMode === "performance"[\s\S]*loadPackagePerformance\(\)[\s\S]*state\.analysisMode === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*state\.analysisMode === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*loadPackageLibraryMetrics\(\)[\s\S]*loadPackageMetadata\(\)/);
   assert.doesNotMatch(
     picker,
     /\(\) => state\.packages\.includes\(originPackage\)/);
@@ -1937,10 +1938,14 @@ test("Metadata composition excludes graph-projected implementation members", () 
     ?? "";
   assert.match(
     composition,
-    /const groups = selectedMemberGroups\(type\);[\s\S]*groups\.flatMap\(group => group\.overloads\)/);
+    /selectedMemberKindCount\(type, kind\)/);
+  assert.match(
+    composition,
+    /selectedMemberTraitCount\(type, value\)/);
   assert.match(composition, /memberKinds\(type\)/);
   assert.match(composition, /memberAccessibilities\(type\)/);
   assert.match(composition, /availableMemberTraits\(type\)/);
+  assert.doesNotMatch(composition, /partitionGraphMembers|graphMembers/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

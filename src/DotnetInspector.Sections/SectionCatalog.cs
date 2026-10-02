@@ -1,8 +1,7 @@
 using System.Collections.Immutable;
-using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
 
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 public readonly record struct SectionQueryDemand(
     string Section,
@@ -28,27 +27,16 @@ public sealed class SectionQueryPlan
     public ImmutableArray<SectionQueryDemand> Demands { get; }
 
     public HashSet<InspectionQueryDefinition> Activate(
-        InspectionTrace? trace = null,
-        IReadOnlyList<HostQueryDemand>? commandDemand = null)
+        IReadOnlyList<HostQueryDemand>? hostDemand = null)
     {
         HashSet<InspectionQueryDefinition> queries = [.. Queries];
 
-        if (trace is not null)
+        if (hostDemand is not null)
         {
-            foreach (SectionQueryDemand demand in Demands)
-                trace.RecordQueryDemand(demand.Section, demand.Query);
-        }
-
-        if (commandDemand is not null)
-        {
-            foreach (HostQueryDemand demand in commandDemand)
-            {
+            foreach (HostQueryDemand demand in hostDemand)
                 queries.Add(demand.Query);
-                trace?.RecordCommandQueryDemand(demand.Reason, demand.Query);
-            }
         }
 
-        trace?.RecordRequestedQueries(queries);
         return queries;
     }
 }
@@ -90,19 +78,19 @@ public sealed class SectionCatalog<TModel>
 
         CategoryMap = categories.ToImmutable();
 
-        Verbosity[] verbosityValues = Enum.GetValues<Verbosity>();
-        _automaticPlans = new SectionQueryPlan[verbosityValues.Length * PlanVariantCount];
-        foreach (Verbosity verbosity in verbosityValues)
+        SectionViewLevel[] viewLevels = Enum.GetValues<SectionViewLevel>();
+        _automaticPlans = new SectionQueryPlan[viewLevels.Length * PlanVariantCount];
+        foreach (SectionViewLevel view in viewLevels)
         {
             for (int fixedOverview = 0; fixedOverview <= 1; fixedOverview++)
             {
                 for (int excludeUnbounded = 0; excludeUnbounded <= 1; excludeUnbounded++)
                 {
                     _automaticPlans[GetAutomaticIndex(
-                        verbosity,
+                        view,
                         fixedOverview != 0,
-                        excludeUnbounded != 0)] = pipeline.CreateQueryPlan(
-                            verbosity,
+                        excludeUnbounded != 0)] = pipeline.PlanQueries(
+                                view,
                             include: null,
                             fixedOverview != 0,
                             excludeUnbounded != 0);
@@ -155,10 +143,10 @@ public sealed class SectionCatalog<TModel>
 
     public ImmutableDictionary<string, ImmutableArray<string>> CategoryMap { get; }
 
-    internal IReadOnlyDictionary<string, string[]> SelectionCategoryMap { get; }
+    public IReadOnlyDictionary<string, string[]> SelectionCategoryMap { get; }
 
     public SectionQueryPlan PlanQueries(
-        Verbosity verbosity,
+        SectionViewLevel view,
         HashSet<string>? include = null,
         bool fixedOverview = false,
         bool excludeUnbounded = false)
@@ -166,7 +154,7 @@ public sealed class SectionCatalog<TModel>
         if (include is null || include.Count == 0)
         {
             return _automaticPlans[GetAutomaticIndex(
-                verbosity,
+                view,
                 fixedOverview,
                 excludeUnbounded)];
         }
@@ -191,8 +179,8 @@ public sealed class SectionCatalog<TModel>
                 return selection.Plans[excludeUnbounded ? 1 : 0];
         }
 
-        return Pipeline.CreateQueryPlan(
-            verbosity,
+        return Pipeline.PlanQueries(
+            view,
             include,
             fixedOverview,
             excludeUnbounded);
@@ -202,13 +190,13 @@ public sealed class SectionCatalog<TModel>
         SectionPipeline<TModel> pipeline,
         HashSet<string> include) =>
     [
-        pipeline.CreateQueryPlan(
-            Verbosity.Normal,
+        pipeline.PlanQueries(
+            SectionViewLevel.Normal,
             include,
             fixedOverview: false,
             excludeUnbounded: false),
-        pipeline.CreateQueryPlan(
-            Verbosity.Normal,
+        pipeline.PlanQueries(
+            SectionViewLevel.Normal,
             include,
             fixedOverview: false,
             excludeUnbounded: true)
@@ -250,10 +238,10 @@ public sealed class SectionCatalog<TModel>
     }
 
     private static int GetAutomaticIndex(
-        Verbosity verbosity,
+        SectionViewLevel view,
         bool fixedOverview,
         bool excludeUnbounded) =>
-        ((int)verbosity * PlanVariantCount) |
+        ((int)view * PlanVariantCount) |
         (fixedOverview ? 2 : 0) |
         (excludeUnbounded ? 1 : 0);
 

@@ -114,12 +114,19 @@ The concurrency claims are specified separately as executable TLA+ models under
 Those models check the design state machines; they do not prove that a future
 C# or TypeScript implementation conforms to them.
 
-The Workspace-rooted subject graph specified below is **target-only and
-unverified** under [#7301](https://github.com/richlander/dotnet-inspect/issues/7301).
-The current `StructuralSubjectIdentity`, snapshot, action, restoration, and
-CLI gates prove only the implemented Package-backed subset. They do not yet
-prove Ecosystem subjects, direct Workspace-to-Library routes, route-independent
-subject identity, or route reconciliation.
+The Workspace-rooted subject graph specified below remains **partially
+implemented** under
+[#7301](https://github.com/richlander/dotnet-inspect/issues/7301).
+The current `StructuralSubjectIdentity`, stateless snapshot, Registry, and CLI
+gates prove the Package-backed subset plus one exact registered-empty Ecosystem
+subject with effective Ecosystem Overview. Canonical restoration preparation
+now accepts that exact Ecosystem evaluation and optional exact lens without
+Package context. The current gates do not yet prove complete Definitions
+restoration of an Ecosystem subject, Ecosystem-to-Package or
+Ecosystem-to-Library routes, direct Workspace-to-Library routes,
+route-independent Library identity, or route reconciliation.
+No dedicated composition gate verifies the acquisition-absence claim for the
+registered-empty Ecosystem slice; by operator choice, that claim is unverified.
 
 The first preparatory Ecosystem-intake slice is implemented by
 `EcosystemPopulationNavigationProjection` and its closed result shapes in
@@ -128,8 +135,9 @@ historical accepted Focus witness against one caller-supplied current Workspace
 registration revision and returns exact current contribution evidence only
 while that revision retains the same owner-issued occurrence and contribution
 relation. Workspace registration now issues that occurrence and relation
-prerequisite. This slice does not implement the Ecosystem structural subject,
-route composition, activation, or reconciliation.
+prerequisite. The registered-empty slice tracked by #9068 consumes the same
+occurrence currency for structural identity and exact CLI selection. Population route composition, complete Definitions restoration, and
+reconciliation remain unimplemented.
 
 PR #5433 demonstrates the intended browser distinction: Workspace manages
 retained coordinates, Package is inspectable, and package tabs are absent.
@@ -2133,6 +2141,22 @@ snapshots with the same occurrence but different retained Type or Member
 contexts remain distinct restoration inputs. No active occurrence means no
 retained occurrence context.
 
+An exact Ecosystem restoration is the registration-only neighboring form. Its
+facts carry one `NavigationEcosystemEvaluation` issued from the exact current
+Workspace registration revision. It carries no Package evaluation, non-ready
+Package evaluation, or retained Package context. Navigation verifies the
+evaluation belongs to the exact Workspace, permits only that exact Ecosystem or
+the Workspace as the explicit active subject, and otherwise defaults to the
+exact Ecosystem. An optional exact lens must bind that same Ecosystem subject.
+Ordinary maintenance and subject actions consume the same exact evaluation:
+maintenance retains the active Ecosystem and exact lens only while the same
+occurrence remains available, and an explicitly selected Workspace may
+activate that prepared Ecosystem through its ordinary issued action.
+The existing pure snapshot evaluator supplies the Ecosystem hierarchy slot,
+default Overview recommendation, Registry availability, and detached consumer
+projection. Canonical restoration never reconstructs the occurrence from its
+portable registration ID.
+
 Inspection Subject Navigation independently retains that requested payload,
 requires every identity in the retained context to share one exact occurrence
 ancestry and form one contiguous path. An active Workspace may retain that
@@ -2177,6 +2201,21 @@ lifetime. Complete Workspace construction and result classification belong to
 current-authority collection publication and active-identity selection.
 Navigation owns only the new Workspace's
 internally complete current snapshot.
+
+The focused Release gates
+`CanonicalRestoration_ExactEcosystemPairIsPrepared`,
+`CanonicalRestoration_EcosystemFactsDefaultToExactSubject`,
+`CanonicalRestoration_EcosystemFactsCanSelectWorkspace`,
+`CanonicalRestoration_EcosystemMaintenanceRetainsSubjectAndLens`,
+`CanonicalRestoration_WorkspaceCanActivatePreparedEcosystem`,
+`CanonicalRestoration_RejectsForeignEcosystemFacts`,
+`CanonicalRestoration_RejectsMismatchedEcosystemSubject`,
+`CanonicalRestoration_RejectsEcosystemWithPackageFacts`,
+`CanonicalRestoration_RejectsEcosystemWithRetainedPackageContext`, and
+`CanonicalRestoration_RejectsUnknownOrInapplicableEcosystemLens` enforce this
+registration-only restoration boundary. #9132 is the immediate shared
+Complete Restoration consumer, and #9130 is the planned Browser production
+adopter.
 
 Selecting an already admitted coordinate, Library, Type, or Member in
 Spotlight uses ordinary Navigation inside the active Workspace and never

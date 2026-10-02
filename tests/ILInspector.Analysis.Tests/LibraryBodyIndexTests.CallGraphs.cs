@@ -64,8 +64,8 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_RendersReverseEdgesForSelectedRoot()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallerTreeFixtures).Assembly.Location);
-        var root = Assert.Single(index.Methods.Where(method => method.Name == nameof(CallerTreeFixtures.Inner)));
+        var index = BodyAnalysisTestExecution.Open(typeof(CallerTreeFixtures).Assembly.Location);
+        var root = Assert.Single(index.CallGraph.Methods.Where(method => method.Name == nameof(CallerTreeFixtures.Inner)));
 
         var tree = index.BuildCallerTree(root.MetadataToken, maxDepth: 2, maxNodes: 10);
 
@@ -78,8 +78,8 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_MarksCallerNodeInLoop_WhenCallerInvokesTargetInLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
-        var root = Assert.Single(index.Methods.Where(method => method.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var root = Assert.Single(index.CallGraph.Methods.Where(method => method.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
 
         var tree = index.BuildCallerTree(root.MetadataToken, maxDepth: 2, maxNodes: 25);
 
@@ -96,18 +96,18 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_VirtualDispatch_AttributesCallersToStaticOperand_NotOverride()
     {
-        var index = LibraryBodyIndex.Open(typeof(VirtualDispatchCallers).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(VirtualDispatchCallers).Assembly.Location);
 
         // Both call sites resolve to VirtualDispatchBase.Work — including ViaDerived, whose
         // receiver is a runtime VirtualDispatchDerived but whose callvirt operand is the base.
-        var baseRoot = Assert.Single(index.Methods.Where(method =>
+        var baseRoot = Assert.Single(index.CallGraph.Methods.Where(method =>
             method.DeclaringType.Name == nameof(VirtualDispatchBase) && method.Name == nameof(VirtualDispatchBase.Work)));
         var baseTree = index.BuildCallerTree(baseRoot.MetadataToken, maxDepth: 2, maxNodes: 25);
         Assert.Contains(baseTree.Children, child => child.Member.Name == nameof(VirtualDispatchCallers.ViaBase));
         Assert.Contains(baseTree.Children, child => child.Member.Name == nameof(VirtualDispatchCallers.ViaDerived));
 
         // The override is attributed no callers: virtual dispatch to it is not inferred.
-        var derivedRoot = Assert.Single(index.Methods.Where(method =>
+        var derivedRoot = Assert.Single(index.CallGraph.Methods.Where(method =>
             method.DeclaringType.Name == nameof(VirtualDispatchDerived) && method.Name == nameof(VirtualDispatchDerived.Work)));
         var derivedTree = index.BuildCallerTree(derivedRoot.MetadataToken, maxDepth: 2, maxNodes: 25);
         Assert.Equal("target", derivedTree.Perf?.RootKind);
@@ -119,19 +119,19 @@ public partial class LibraryBodyIndexTests
     public void BuildCallTrees_MarkOnlyOpenVirtualDispatchAsUnresolved()
     {
         var index =
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 typeof(VirtualDispatchCallers).Assembly.Location);
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromPath(
-                index.Path,
+                index.Receipt.SourceName,
                 AssemblyResolutionProvenance.Local(
                     "virtual-dispatch call-tree test"));
         using var catalog =
             new CatalogCallGraphScope(
                 new AssemblyDependencyResolver(
                     new AssemblyDependencyResolutionOptions(
-                        index.Path)),
-                [new CatalogCallGraphParticipant(index, assembly)]);
+                        index.Receipt.SourceName)),
+                [new CatalogCallGraphParticipant(index.CallGraph, assembly)]);
 
         AssertDispatch(
             nameof(VirtualDispatchCallers.ViaBase),
@@ -142,7 +142,7 @@ public partial class LibraryBodyIndexTests
 
         Assert.True(
             Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method => method.DeclaringType.Name
                         == nameof(VirtualDispatchBase)
                     && method.Name
@@ -150,7 +150,7 @@ public partial class LibraryBodyIndexTests
             .IsVirtualDispatchOpen);
         Assert.False(
             Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method => method.DeclaringType.Name
                         == nameof(VirtualDispatchDerived)
                     && method.Name
@@ -158,7 +158,7 @@ public partial class LibraryBodyIndexTests
             .IsVirtualDispatchOpen);
         Assert.False(
             Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method => method.DeclaringType.Name
                         == nameof(FinalVirtualDispatchDerived)
                     && method.Name
@@ -166,7 +166,7 @@ public partial class LibraryBodyIndexTests
             .IsVirtualDispatchOpen);
         Assert.False(
             Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method => method.DeclaringType.Name
                         == nameof(NonVirtualDispatchTarget)
                     && method.Name
@@ -189,7 +189,7 @@ public partial class LibraryBodyIndexTests
             CallTreeNode catalogChild =
                 Assert.Single(
                     catalog.BuildCallTree(
-                        index,
+                        index.CallGraph,
                         token,
                         maxDepth: 2,
                         maxNodes: 10).Children);
@@ -208,19 +208,19 @@ public partial class LibraryBodyIndexTests
     public void CallTrees_PreserveDispatchAcrossCalleeCollapse()
     {
         var index =
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 typeof(VirtualDispatchDerived).Assembly.Location);
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromPath(
-                index.Path,
+                index.Receipt.SourceName,
                 AssemblyResolutionProvenance.Local(
                     "collapsed virtual-dispatch call-tree test"));
         using var catalog =
             new CatalogCallGraphScope(
                 new AssemblyDependencyResolver(
                     new AssemblyDependencyResolutionOptions(
-                        index.Path)),
-                [new CatalogCallGraphParticipant(index, assembly)]);
+                        index.Receipt.SourceName)),
+                [new CatalogCallGraphParticipant(index.CallGraph, assembly)]);
 
         AssertMixedDispatch(
             nameof(
@@ -247,7 +247,7 @@ public partial class LibraryBodyIndexTests
                     maxNodes: 10);
             CallTreeNode catalogTree =
                 catalog.BuildCallTree(
-                    index,
+                    index.CallGraph,
                     token,
                     maxDepth: 2,
                     maxNodes: 10);
@@ -294,7 +294,7 @@ public partial class LibraryBodyIndexTests
             Assert.NotEqual(
                 CallTreeStatus.Truncated,
                 catalog.BuildCallTree(
-                    index,
+                    index.CallGraph,
                     token,
                     maxDepth: 2,
                     maxNodes: 2).Status);
@@ -305,7 +305,7 @@ public partial class LibraryBodyIndexTests
     public void BuildCallTree_ClassifiesSameAssemblyBodilessCallee()
     {
         var index =
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 typeof(BodilessRootFixtures).Assembly.Location);
         int rootToken = typeof(BodilessRootFixtures)
             .GetMethod(
@@ -332,7 +332,7 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod()
     {
-        var index = LibraryBodyIndex.Open(typeof(BodilessRootFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(BodilessRootFixtures).Assembly.Location);
         // Interface methods have no body and so are absent from index.Methods; the caller
         // references the method by its interface-method token.
         int targetToken = typeof(ICallerGraphTarget)
@@ -348,7 +348,7 @@ public partial class LibraryBodyIndexTests
 
     /// <summary>
     /// Derives this type's mutable cache fields by reflection and pins each one to a side of the
-    /// release boundary, so the two release methods are gated on the property they exist for
+    /// release boundary, so the release method is gated on the property it exists for
     /// rather than only on staying correct. Both directions fail: a cache the doc claims to drop
     /// but doesn't, and a cache dropped that the doc says survives. A newly added cache field
     /// belongs to neither list and fails until someone decides which side it is on.
@@ -359,7 +359,7 @@ public partial class LibraryBodyIndexTests
     /// </summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void ReleaseMethods_DropExactlyTheCachesTheyDocument()
+    public void CallGraphRelease_DropsExactlyTheCachesItDocuments()
     {
         string[] resultGraphCaches =
         [
@@ -368,6 +368,7 @@ public partial class LibraryBodyIndexTests
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_declaredMethodMap",
+            "_declaredMethodsByToken",
             "_methodMap",
             "_rootPathGraph",
         ];
@@ -376,96 +377,72 @@ public partial class LibraryBodyIndexTests
             "_physicalDirectCalls",
             "_signals",
         ];
-        string[] adapterGraphCaches =
-        [
-            "_overloadRelationships",
-            "_projectedImplementationProfiles",
-        ];
-        string[] adapterRetainedCaches =
-        [
-            "_unsafeEvidenceByMember",
-        ];
-
         Assert.Equal(
             resultGraphCaches.Concat(resultRetainedCaches)
                 .OrderBy(name => name, StringComparer.Ordinal),
             MutableCacheFields(typeof(LibraryCallGraphAnalysisResult))
                 .Select(field => field.Name)
                 .OrderBy(name => name, StringComparer.Ordinal));
-        Assert.Equal(
-            adapterGraphCaches.Concat(adapterRetainedCaches)
-                .OrderBy(name => name, StringComparer.Ordinal),
-            MutableCacheFields(typeof(LibraryBodyIndex))
-                .Select(field => field.Name)
-                .OrderBy(name => name, StringComparer.Ordinal));
-
-        string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
+        string analysisPath = typeof(LibraryBodyAnalysisExecution).Assembly.Location;
 
         var index = Exercised(analysisPath);
         LibraryCallGraphAnalysisResult callGraph =
-            index.CallGraphAnalysis;
+            index.CallGraph;
         var resultBefore = PopulatedCaches(
             callGraph,
             typeof(LibraryCallGraphAnalysisResult));
-        var adapterBefore = PopulatedCaches(
-            index,
-            typeof(LibraryBodyIndex));
-
         // The gate is only meaningful if the caches under test were populated to begin with.
-        // Both halves need this: an unpopulated cache is absent from `before` and from `after`,
-        // so the set comparison would hold no matter what the release methods did to it.
+        // An unpopulated cache is absent from `before` and from `after`, so the
+        // set comparison would hold no matter what the release method did to it.
         foreach (var name in resultGraphCaches.Concat(resultRetainedCaches))
             Assert.Contains(name, resultBefore);
-        foreach (var name in adapterGraphCaches.Concat(adapterRetainedCaches))
-            Assert.Contains(name, adapterBefore);
 
-        index.ReleaseCallGraphCaches();
+        index.CallGraph.ReleaseCaches();
         Assert.Equal(
             resultBefore.Where(name => !resultGraphCaches.Contains(name)),
             PopulatedCaches(
                 callGraph,
                 typeof(LibraryCallGraphAnalysisResult)));
-        Assert.Equal(
-            adapterBefore.Where(name => !adapterGraphCaches.Contains(name)),
-            PopulatedCaches(
-                index,
-                typeof(LibraryBodyIndex)));
-
-        static LibraryBodyIndex Exercised(string path)
+        static LibraryBodyAnalysisExecution Exercised(string path)
         {
-            var index = LibraryBodyIndex.Open(
+            var index = BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures.Default
                     | LibraryBodyAnalysisFeatures
                         .ImplementationProfiles);
-            int token = index.Methods.First().MetadataToken;
+            int token = index.CallGraph.Methods.First().MetadataToken;
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
             _ = LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index.CallGraphAnalysis,
+                index.CallGraph,
                 [
                     new(
-                        index.ModuleIdentity.ModuleVersionId,
+                        index.Receipt.ModuleIdentity.ModuleVersionId,
                         MetadataTokens.MethodDefinitionHandle(
                             token & 0x00FFFFFF)),
                 ],
                 [
                     new(
-                        index.ModuleIdentity.ModuleVersionId,
+                        index.Receipt.ModuleIdentity.ModuleVersionId,
                         MetadataTokens.MethodDefinitionHandle(
                             token & 0x00FFFFFF)),
                 ],
                 new(0, 1, 1, 1));
-            _ = index.GetDirectCallsByEvidenceMethod();
-            _ = index.ImplementationProfiles();
+            _ = index.CallGraph.DirectCallsByEvidenceMethod;
+            Assert.IsType<DirectCallTarget.CurrentModule>(
+                index.CallGraph.ResolveTarget(
+                    index.CallGraph.DirectCalls.First(call =>
+                        index.CallGraph.DeclaredMethods.Any(method =>
+                            method.MetadataToken
+                                == call.CalleeDefinitionToken))));
+            _ = index.CallGraph.MethodSignals;
+            _ = index.ImplementationProfiles.Profiles;
             // The retained half of the contract is only gated on caches this workload actually
             // populates, and the call-tree builders alone reach just one of the seven. Touch the
             // evidence-domain producers too; OptimizationOpportunities is what pulls in
             // _directCallerLoops and _rootReachByToken, which have no direct test access.
-            _ = index.OptimizationOpportunities;
-            _ = index.AllocationFanoutOpportunities;
-            _ = index.GetUnsafeEvidenceByMember();
-            _ = index.GeneratedFrameworkTypes;
+            _ = index.Optimization.Opportunities;
+            _ = index.Optimization.AllocationFanoutOpportunities;
             return index;
         }
 
@@ -511,28 +488,28 @@ public partial class LibraryBodyIndexTests
     [Trait("Speed", "Slow")]
     public void SameAssemblyCallTreeBuilders_AreUnaffectedByEarlierRequestsOnTheSameIndex()
     {
-        string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
+        string analysisPath = typeof(LibraryBodyAnalysisExecution).Assembly.Location;
         string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
 
         // Pick a root with a genuinely branching caller tree. Comparing trees is only evidence
         // if the trees can differ: a root with no in-assembly callers renders one leaf line, and
         // every comparison below would hold no matter how badly a cache leaked.
-        var probe = LibraryBodyIndex.Open(analysisPath);
+        var probe = BodyAnalysisTestExecution.Open(analysisPath);
         int richToken = PickRichest(probe, out int richest);
 
         Assert.True(richest >= 4, $"expected a branching caller tree to compare; richest had {richest} nodes");
-        int otherToken = probe.Methods.First(method => method.MetadataToken != richToken).MetadataToken;
+        int otherToken = probe.CallGraph.Methods.First(method => method.MetadataToken != richToken).MetadataToken;
         // A bodiless root is the one case whose caller grouping genuinely depends on the root,
         // so it must not be served from (or poison) the shared per-index cache.
         int bodilessToken = typeof(ICallerGraphTarget).GetMethod(nameof(ICallerGraphTarget.Target))!.MetadataToken;
 
         // Each expectation comes from an index that has answered nothing else.
-        var expectedCallers = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50));
-        var expectedCallees = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallTree(richToken, maxDepth: 2, maxNodes: 50));
-        var expectedBodiless = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50));
+        var expectedCallers = Describe(BodyAnalysisTestExecution.Open(analysisPath).BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50));
+        var expectedCallees = Describe(BodyAnalysisTestExecution.Open(analysisPath).BuildCallTree(richToken, maxDepth: 2, maxNodes: 50));
+        var expectedBodiless = Describe(BodyAnalysisTestExecution.Open(testPath).BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50));
 
         // Now ask one index both directions in an order that would expose a leaked root.
-        var reused = LibraryBodyIndex.Open(analysisPath);
+        var reused = BodyAnalysisTestExecution.Open(analysisPath);
         reused.BuildCallerTree(otherToken, maxDepth: 2, maxNodes: 50);
         reused.BuildCallTree(otherToken, maxDepth: 2, maxNodes: 50);
 
@@ -540,10 +517,10 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(expectedCallees, Describe(reused.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
 
         // A bodiless root asked after body-rooted requests have populated the cache.
-        var reusedTests = LibraryBodyIndex.Open(testPath);
+        var reusedTests = BodyAnalysisTestExecution.Open(testPath);
         int testAsmToken = PickRichest(reusedTests, out int testRichest);
         Assert.True(testRichest >= 2, $"expected a non-leaf caller tree in the test assembly; richest had {testRichest} nodes");
-        var expectedTestAsmCallers = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50));
+        var expectedTestAsmCallers = Describe(BodyAnalysisTestExecution.Open(testPath).BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50));
         reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50);
         Assert.Equal(expectedBodiless, Describe(reusedTests.BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50)));
 
@@ -553,17 +530,17 @@ public partial class LibraryBodyIndexTests
 
         // Releasing the index-owned caches is a memory/time trade only: answers after a release
         // must still match a fresh index.
-        var released = LibraryBodyIndex.Open(analysisPath);
+        var released = BodyAnalysisTestExecution.Open(analysisPath);
         released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50);
-        released.ReleaseCallGraphCaches();
+        released.CallGraph.ReleaseCaches();
         Assert.Equal(expectedCallers, Describe(released.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
         Assert.Equal(expectedCallees, Describe(released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
 
-        static int PickRichest(LibraryBodyIndex index, out int richest)
+        static int PickRichest(LibraryBodyAnalysisExecution index, out int richest)
         {
             int token = 0;
             richest = 0;
-            foreach (var method in index.Methods.Take(150))
+            foreach (var method in index.CallGraph.Methods.Take(150))
             {
                 int size = Describe(index.BuildCallerTree(method.MetadataToken, maxDepth: 2, maxNodes: 50)).Count;
                 if (size > richest)
@@ -595,14 +572,14 @@ public partial class LibraryBodyIndexTests
     [Trait("Speed", "Slow")]
     public void BuildCallerTree_WithScope_IncorporatesAndTagsExternalCallers()
     {
-        var analysisIndex = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
-        var testIndex = LibraryBodyIndex.Open(typeof(LibraryBodyIndexTests).Assembly.Location);
-        var testAssemblyName = testIndex.Methods.First().AssemblyName;
+        var analysisIndex = BodyAnalysisTestExecution.Open(typeof(LibraryBodyAnalysisExecution).Assembly.Location);
+        var testIndex = BodyAnalysisTestExecution.Open(typeof(LibraryBodyIndexTests).Assembly.Location);
+        var testAssemblyName = testIndex.CallGraph.Methods.First().AssemblyName;
 
-        // LibraryBodyIndex.Open is a static method in the analysis assembly that this test
+        // LibraryBodyAnalysisExecution.Open is a static method in the analysis assembly that this test
         // assembly calls; scoping the test assembly must pull those external callers into the
         // reverse graph and tag them with their source assembly.
-        var open = analysisIndex.Methods.First(method =>
+        var open = analysisIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == nameof(LibraryBodyIndex) && method.Name == nameof(LibraryBodyIndex.Open));
 
         var scoped = analysisIndex.BuildCallerTree(open.MetadataToken, new[] { testIndex }, maxDepth: 2, maxNodes: 200);
@@ -626,11 +603,11 @@ public partial class LibraryBodyIndexTests
     [Trait("Speed", "Slow")]
     public void BuildCallerTree_NonContributingCatalogScopeMatchesSameAssemblyTree()
     {
-        var index = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(LibraryBodyAnalysisExecution).Assembly.Location);
 
         // A fixture that does not reference the analysis assembly, so it can never contribute a
         // caller. Opening it and prefiltering it away must be indistinguishable.
-        var nonContributing = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+        var nonContributing = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
         using CatalogCallGraphScope scopeOpened =
             CatalogCallGraphTestExtensions.CreateScope(index, [nonContributing]);
         using CatalogCallGraphScope scopePrefilteredAway =
@@ -643,7 +620,7 @@ public partial class LibraryBodyIndexTests
         var mismatches = new List<string>();
         (int MaxDepth, int MaxNodes)[] traversals =
             [(2, 50), (3, 5)];
-        foreach (var method in index.DeclaredMethods)
+        foreach (var method in index.CallGraph.DeclaredMethods)
         {
             foreach ((int maxDepth, int maxNodes) in traversals)
             {
@@ -656,14 +633,14 @@ public partial class LibraryBodyIndexTests
                     includePerf: true);
                 var opened = FlattenCallTree(
                     scopeOpened.BuildCallerTree(
-                        index,
+                        index.CallGraph,
                         method.MetadataToken,
                         maxDepth,
                         maxNodes),
                     includePerf: true);
                 var prefilteredAway = FlattenCallTree(
                     scopePrefilteredAway.BuildCallerTree(
-                        index,
+                        index.CallGraph,
                         method.MetadataToken,
                         maxDepth,
                         maxNodes),
@@ -720,10 +697,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_SkippingANonContributingScopeAssemblyDoesNotChangeTheTree()
     {
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var lookalike = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
-        var ping = targetIndex.Methods.First(method => method.Name == "Ping");
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var lookalike = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+        var ping = targetIndex.CallGraph.Methods.First(method => method.Name == "Ping");
 
         var unfiltered = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller, lookalike }, maxDepth: 2, maxNodes: 50);
         var prefiltered = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
@@ -733,7 +710,7 @@ public partial class LibraryBodyIndexTests
         // And when the prefilter removes every scope assembly, the result must still match the walk
         // that opened them all and found nothing.
         var onlyNonContributing = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { lookalike }, maxDepth: 2, maxNodes: 50);
-        var allFilteredOut = targetIndex.BuildCallerTree(ping.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50);
+        var allFilteredOut = targetIndex.BuildCallerTree(ping.MetadataToken, Array.Empty<LibraryBodyAnalysisExecution>(), maxDepth: 2, maxNodes: 50);
 
         Assert.Equal(FlattenCallTree(onlyNonContributing), FlattenCallTree(allFilteredOut));
     }
@@ -745,11 +722,11 @@ public partial class LibraryBodyIndexTests
         // the real target; the other (CallerGraphLookalikeCaller) calls its own in-assembly
         // Target.Api.Ping lookalike with the same fully-qualified name. Only the real caller may
         // be reported — the cross-assembly key must carry callee assembly identity (#1579).
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var realCaller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var lookalikeCaller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var realCaller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var lookalikeCaller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
 
-        var ping = targetIndex.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
+        var ping = targetIndex.CallGraph.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
         var tree = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { realCaller, lookalikeCaller }, maxDepth: 2, maxNodes: 50);
 
         var sources = tree.Children.Select(child => child.Perf?.Source).ToList();
@@ -764,11 +741,11 @@ public partial class LibraryBodyIndexTests
         // Two caller assemblies declare the identical Shared.Entry.Run signature and both call the
         // real Target.Api.Ping. They must remain two distinct direct caller nodes; a key that omits
         // the caller source assembly collapses them into one (#1579).
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var twin = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var twin = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
 
-        var ping = targetIndex.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
+        var ping = targetIndex.CallGraph.Methods.First(method => method.DeclaringType.Name == "Api" && method.Name == "Ping");
         var tree = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller, twin }, maxDepth: 2, maxNodes: 50);
 
         var sources = tree.Children.Select(child => child.Perf?.Source).ToList();
@@ -785,10 +762,10 @@ public partial class LibraryBodyIndexTests
         // RunInt may be reported: catalog correspondence must carry parameter types, or the two
         // overloads collapse and cross-link callers
         // (#1623 rung 1; non-vacuous because same-assembly resolution is token-based).
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
-        var intOverload = targetIndex.Methods.Single(method =>
+        var intOverload = targetIndex.CallGraph.Methods.Single(method =>
             method.DeclaringType.Name == "Api" && method.Name == "Ping"
             && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Int32")));
 
@@ -807,10 +784,10 @@ public partial class LibraryBodyIndexTests
         // Box<int>.Store(1) — a member reference keyed on the List<int>-style instantiation. The
         // cross-assembly reverse map must normalize that constructed declaring type to its open
         // definition so the caller is reported (#1339); before, it under-reported as zero.
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
-        var store = targetIndex.Methods.First(method =>
+        var store = targetIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == "Box`1" && method.Name == "Store"
             && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
         var tree = targetIndex.BuildCallerTree(store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
@@ -828,13 +805,13 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_WithScope_KeepsSameArityGenericOverloadsDistinct()
     {
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
-        var storeValue = targetIndex.Methods.First(method =>
+        var storeValue = targetIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == "Box`1" && method.Name == "Store"
             && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
-        var storeList = targetIndex.Methods.First(method =>
+        var storeList = targetIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == "Box`1" && method.Name == "Store"
             && method.ParameterTypes[0].Kind == TypeRefKind.GenericInstance);
 
@@ -855,13 +832,13 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_WithScope_KeepsSameNameGenericTypesOfDifferentArityDistinct()
     {
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
-        var box1Store = targetIndex.Methods.First(method =>
+        var box1Store = targetIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == "Box`1" && method.Name == "Store"
             && method.ParameterTypes[0].Kind == TypeRefKind.GenericParameter);
-        var box2Store = targetIndex.Methods.First(method =>
+        var box2Store = targetIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == "Box`2" && method.Name == "Store");
 
         var box1Callers = targetIndex.BuildCallerTree(box1Store.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
@@ -883,9 +860,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void ResolvedCall_PreservesOpenGenericMarker_DistinctFromInstantiatedParameter()
     {
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
-        var storeValueCall = caller.DirectCalls.First(call =>
+        var storeValueCall = caller.CallGraph.DirectCalls.First(call =>
             call.Callee.Name == "Store" && call.Callee.ParameterTypes[0].Kind == TypeRefKind.Definition);
 
         // Instantiated parameter is the concrete int; the open signature keeps the marker.
@@ -914,10 +891,10 @@ public partial class LibraryBodyIndexTests
         // Root the caller graph at the open Echo<T>(T). Another assembly calls Echo<int>(1) — a
         // MethodSpec keyed on the instantiation. Normalizing generic method identity to the open
         // definition + parameter arity links the caller across assemblies (#1339).
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
-        var echo = targetIndex.Methods.First(method =>
+        var echo = targetIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == "GenericApi" && method.Name == "Echo");
         var tree = targetIndex.BuildCallerTree(echo.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
 
@@ -933,12 +910,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_WithScope_KeepsSameFqnParametersFromDifferentAssembliesDistinct()
     {
-        var target = LibraryBodyIndex.Open(FixtureCatalog.DiffAsmTarget.AssemblyPath());
-        var caller = LibraryBodyIndex.Open(FixtureCatalog.DiffAsmCaller.AssemblyPath());
+        var target = BodyAnalysisTestExecution.Open(FixtureCatalog.DiffAsmTarget.AssemblyPath());
+        var caller = BodyAnalysisTestExecution.Open(FixtureCatalog.DiffAsmCaller.AssemblyPath());
 
-        var pingA = target.Methods.First(method =>
+        var pingA = target.CallGraph.Methods.First(method =>
             method.Name == "Ping" && method.ParameterTypes[0].Assembly == "DiffAsmLibA");
-        var pingB = target.Methods.First(method =>
+        var pingB = target.CallGraph.Methods.First(method =>
             method.Name == "Ping" && method.ParameterTypes[0].Assembly == "DiffAsmLibB");
 
         var aCallers = target.BuildCallerTree(pingA.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50)
@@ -958,11 +935,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_WithScope_IncorporatesAndTagsExternalCallees()
     {
-        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+        var callerIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.CallGraph.Methods.First().AssemblyName;
 
-        var run = callerIndex.Methods.First(method =>
+        var run = callerIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == "Entry" && method.Name == "Run" && method.ParameterTypes.Length == 0);
 
         var scoped = callerIndex.BuildCallTree(run.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
@@ -983,11 +960,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_WithScope_ExpandsCalleeChainAcrossAssemblyBoundary()
     {
-        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+        var callerIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.CallGraph.Methods.First().AssemblyName;
 
-        var runOuter = callerIndex.Methods.First(method => method.Name == "RunOuter");
+        var runOuter = callerIndex.CallGraph.Methods.First(method => method.Name == "RunOuter");
         var tree = callerIndex.BuildCallTree(runOuter.MetadataToken, new[] { targetIndex }, maxDepth: 3, maxNodes: 50);
 
         var run = Assert.Single(tree.Children, child => child.Member.Name == "Run");
@@ -1002,11 +979,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_WithScope_ResolvesConstructedGenericCallee()
     {
-        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+        var callerIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.CallGraph.Methods.First().AssemblyName;
 
-        var useEcho = callerIndex.Methods.First(method => method.Name == "UseEcho");
+        var useEcho = callerIndex.CallGraph.Methods.First(method => method.Name == "UseEcho");
 
         var scoped = callerIndex.BuildCallTree(useEcho.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
         var unscoped = callerIndex.BuildCallTree(useEcho.MetadataToken, maxDepth: 2, maxNodes: 50);
@@ -1024,11 +1001,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_WithScope_IsDeterministicAcrossScopeOrder()
     {
-        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        var twinIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
+        var callerIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var twinIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
 
-        var useBox = callerIndex.Methods.First(method => method.Name == "UseBox");
+        var useBox = callerIndex.CallGraph.Methods.First(method => method.Name == "UseBox");
 
         var forward = callerIndex.BuildCallTree(useBox.MetadataToken, new[] { targetIndex, twinIndex }, maxDepth: 3, maxNodes: 50);
         var reversed = callerIndex.BuildCallTree(useBox.MetadataToken, new[] { twinIndex, targetIndex }, maxDepth: 3, maxNodes: 50);
@@ -1040,11 +1017,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_WithEmptyScope_MatchesSingleAssemblyBuilder()
     {
-        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var useBox = callerIndex.Methods.First(method => method.Name == "UseBox");
+        var callerIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var useBox = callerIndex.CallGraph.Methods.First(method => method.Name == "UseBox");
 
         var single = callerIndex.BuildCallTree(useBox.MetadataToken, maxDepth: 3, maxNodes: 50);
-        var fallback = callerIndex.BuildCallTree(useBox.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 3, maxNodes: 50);
+        var fallback = callerIndex.BuildCallTree(useBox.MetadataToken, Array.Empty<LibraryBodyAnalysisExecution>(), maxDepth: 3, maxNodes: 50);
 
         Assert.Equal(FlattenCallTree(single), FlattenCallTree(fallback));
     }
@@ -1055,12 +1032,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_WithScope_MarksUndecodedExternalCalleeAsExternal()
     {
-        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var twinIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
-        var targetAssemblyName = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath())
-            .Methods.First().AssemblyName;
+        var callerIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var twinIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
+        var targetAssemblyName = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath())
+            .CallGraph.Methods.First().AssemblyName;
 
-        var run = callerIndex.Methods.First(method =>
+        var run = callerIndex.CallGraph.Methods.First(method =>
             method.DeclaringType.Name == "Entry" && method.Name == "Run" && method.ParameterTypes.Length == 0);
 
         // The twin scope does not define Target.Api.Ping, so Ping's body is never decoded.
@@ -1076,10 +1053,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_WithScope_ReportsCallSiteFanoutForRepeatedCallee()
     {
-        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var callerIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
 
-        var runTwice = callerIndex.Methods.First(method => method.Name == "RunTwice");
+        var runTwice = callerIndex.CallGraph.Methods.First(method => method.Name == "RunTwice");
         var tree = callerIndex.BuildCallTree(runTwice.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
 
         Assert.Single(tree.Children, child => child.Member.Name == "Echo");
@@ -1100,9 +1077,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopLeverage_RanksMostCalledMethodFirst()
     {
-        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(LeverageFixtures).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 5, scope: InLeverageFixtures);
+        var ranked = index.Leverage.Top(count: 5, scope: InLeverageFixtures);
 
         var top = ranked[0];
         Assert.Equal(nameof(LeverageFixtures.Hot), top.Method.Name);
@@ -1113,9 +1090,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopLeverage_CountsFanoutAndLoopCalls()
     {
-        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(LeverageFixtures).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 25, scope: InLeverageFixtures);
+        var ranked = index.Leverage.Top(count: 25, scope: InLeverageFixtures);
 
         var fanned = Assert.Single(ranked.Where(entry => entry.Method.Name == nameof(LeverageFixtures.Fanned)));
         // Calls A, B, C, and Hot — at least four outbound call sites, one in a loop.
@@ -1127,9 +1104,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopLeverage_ScopeRestrictsRankedMethods()
     {
-        var index = LibraryBodyIndex.Open(typeof(LeverageFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(LeverageFixtures).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 100, scope: InLeverageFixtures);
+        var ranked = index.Leverage.Top(count: 100, scope: InLeverageFixtures);
 
         Assert.NotEmpty(ranked);
         Assert.All(ranked, entry => Assert.Equal(nameof(LeverageFixtures), entry.Method.DeclaringType.Name));
@@ -1138,9 +1115,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopLeverage_ReportsTrueChainDepth_StableAcrossMethodOrder()
     {
-        var index = LibraryBodyIndex.Open(typeof(LeverageDepthFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(LeverageDepthFixtures).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageDepthFixtures));
+        var ranked = index.Leverage.Top(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageDepthFixtures));
         var byName = ranked.ToDictionary(entry => entry.Method.Name, entry => entry.MaxDepth);
 
         // ChainTop -> ChainMid -> ChainLeaf is a three-method chain.
@@ -1157,9 +1134,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopLeverage_CountsDistinctRootReach()
     {
-        var index = LibraryBodyIndex.Open(typeof(LeverageRootReachFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(LeverageRootReachFixtures).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageRootReachFixtures));
+        var ranked = index.Leverage.Top(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageRootReachFixtures));
         var byName = ranked.ToDictionary(entry => entry.Method.Name);
 
         // Root1 -> Funnel -> Single and Root2 -> Funnel -> Single. Root1/Root2 have no
@@ -1181,9 +1158,9 @@ public partial class LibraryBodyIndexTests
     [Trait("Speed", "Slow")]
     public void TopLeverage_TreatsSelfRecursiveEntryAsRoot()
     {
-        var index = LibraryBodyIndex.Open(typeof(LeverageSelfRootFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(LeverageSelfRootFixtures).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageSelfRootFixtures));
+        var ranked = index.Leverage.Top(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageSelfRootFixtures));
         var byName = ranked.ToDictionary(entry => entry.Method.Name);
 
         // SelfRoot recurses, so it carries a self-edge in the reverse graph, but it has no
@@ -1198,9 +1175,9 @@ public partial class LibraryBodyIndexTests
     [Trait("Speed", "Slow")]
     public void TopLeverage_TreatsMutuallyRecursiveEntryComponentAsRoot()
     {
-        var index = LibraryBodyIndex.Open(typeof(LeverageDepthFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(LeverageDepthFixtures).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageDepthFixtures));
+        var ranked = index.Leverage.Top(count: 100, scope: method => method.DeclaringType.Name == nameof(LeverageDepthFixtures));
         var byName = ranked.ToDictionary(entry => entry.Method.Name);
 
         Assert.Equal(1, byName[nameof(LeverageDepthFixtures.Ping)].RootReach);
@@ -1212,9 +1189,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopLeverage_CountsCallerOfIntraAssemblyGenericMethod()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 200,
+        var ranked = index.Leverage.Top(count: 200,
             scope: method => method.DeclaringType.Name == nameof(CallSiteFixtures));
 
         // GenericEcho is invoked once, via a MethodSpec operand, by CallsGenericEcho.
@@ -1225,9 +1202,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopLeverage_CountsCallerOfConstructedGenericDeclaringType()
     {
-        var index = LibraryBodyIndex.Open(typeof(GenericDeclaringCallers).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(GenericDeclaringCallers).Assembly.Location);
 
-        var ranked = index.TopLeverage(count: 200,
+        var ranked = index.Leverage.Top(count: 200,
             scope: method => method.DeclaringType.Name == "GenericDeclaringTarget`1");
 
         var target = Assert.Single(ranked.Where(entry => entry.Method.Name == nameof(GenericDeclaringTarget<int>.Target)));
@@ -1241,8 +1218,8 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_LinksConstructedGenericDeclaringTypeCaller()
     {
-        var index = LibraryBodyIndex.Open(typeof(GenericDeclaringCallers).Assembly.Location);
-        var target = Assert.Single(index.Methods.Where(method =>
+        var index = BodyAnalysisTestExecution.Open(typeof(GenericDeclaringCallers).Assembly.Location);
+        var target = Assert.Single(index.CallGraph.Methods.Where(method =>
             method.DeclaringType.Name == "GenericDeclaringTarget`1"
             && method.Name == nameof(GenericDeclaringTarget<int>.Target)));
 
@@ -1255,8 +1232,8 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_LinksConstructedGenericDeclaringTypeCallee()
     {
-        var index = LibraryBodyIndex.Open(typeof(GenericDeclaringCallers).Assembly.Location);
-        var caller = Assert.Single(index.Methods.Where(method =>
+        var index = BodyAnalysisTestExecution.Open(typeof(GenericDeclaringCallers).Assembly.Location);
+        var caller = Assert.Single(index.CallGraph.Methods.Where(method =>
             method.Name == nameof(GenericDeclaringCallers.CallGenericTarget)));
 
         var tree = index.BuildCallTree(caller.MetadataToken, maxDepth: 2, maxNodes: 20);
@@ -1273,8 +1250,8 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallTree_MarksCalleeNodeInLoop_WhenInvokedInLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
-        int root = index.Methods.First(m => m.Name == nameof(CallSiteFixtures.CallsConsoleWriteLineInLoop)).MetadataToken;
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
+        int root = index.CallGraph.Methods.First(m => m.Name == nameof(CallSiteFixtures.CallsConsoleWriteLineInLoop)).MetadataToken;
 
         var tree = index.BuildCallTree(root, maxDepth: 2, maxNodes: 50);
 
@@ -1307,9 +1284,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopUnsafeLeverage_CountsCallerOfConstructedGenericDeclaringType()
     {
-        var index = LibraryBodyIndex.Open(typeof(GenericDeclaringCallers).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(GenericDeclaringCallers).Assembly.Location);
 
-        var unsafeTarget = Assert.Single(index.TopUnsafeLeverage(count: 100).Where(entry =>
+        var unsafeTarget = Assert.Single(index.Leverage.TopUnsafe(count: 100).Where(entry =>
             entry.Method.DeclaringType.Name == "GenericUnsafeTarget`1"
             && entry.Method.Name == nameof(GenericUnsafeTarget<int>.UnsafeTarget)));
 
@@ -1319,9 +1296,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MemberReferences_InstantiateGenericDeclaringTypeArguments()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
 
-        var call = Assert.Single(index.DirectCalls.Where(c =>
+        var call = Assert.Single(index.CallGraph.DirectCalls.Where(c =>
             c.Caller.Name == nameof(CallSiteFixtures.CallsListAdd)
             && c.Callee.Name == "Add"));
 
@@ -1346,9 +1323,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void FindCalls_CanMatchFullParameterShape()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
 
-        var calls = index.FindCalls(MemberPattern.Method(
+        var calls = index.CallGraph.FindCalls(MemberPattern.Method(
             TypeRef.Definition("System.Console", "System", "Console"),
             "WriteLine",
             ImmutableArray.Create(TypeRef.CoreLib("System", "String"))));
@@ -1359,12 +1336,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void BuildCallerTree_OverloadResolvesToOwnDefinition()
     {
-        var index = LibraryBodyIndex.Open(typeof(OverloadTargets).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OverloadTargets).Assembly.Location);
 
-        var intOverload = Assert.Single(index.Methods.Where(method =>
+        var intOverload = Assert.Single(index.CallGraph.Methods.Where(method =>
             method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M)
             && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Int32"))));
-        var stringOverload = Assert.Single(index.Methods.Where(method =>
+        var stringOverload = Assert.Single(index.CallGraph.Methods.Where(method =>
             method.DeclaringType.Name == nameof(OverloadTargets) && method.Name == nameof(OverloadTargets.M)
             && method.ParameterTypes.Length == 1 && method.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "String"))));
 
@@ -1380,9 +1357,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void TopUnsafeLeverage_RanksRequiresUnsafeMethodsByCallers()
     {
-        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        var top = index.TopUnsafeLeverage(count: 100);
+        var top = index.Leverage.TopUnsafe(count: 100);
 
         Assert.Contains(top, e =>
             e.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)
@@ -1400,9 +1377,9 @@ public partial class LibraryBodyIndexTests
         var (path, directory) = BuildRepeatedCallSiteFixture();
         try
         {
-            var index = LibraryBodyIndex.Open(path);
-            var target = index.Methods.First(method => method.Name == "Target");
-            var caller = index.Methods.First(method => method.Name == "CallsTargetTwice");
+            var index = BodyAnalysisTestExecution.Open(path);
+            var target = index.CallGraph.Methods.First(method => method.Name == "Target");
+            var caller = index.CallGraph.Methods.First(method => method.Name == "CallsTargetTwice");
 
             var tree = index.BuildCallTree(caller.MetadataToken, maxDepth: 2, maxNodes: 50);
             var targetNode = tree.Children.First(child => child.Member.Name == "Target");
@@ -1410,7 +1387,7 @@ public partial class LibraryBodyIndexTests
             // Three call sites reach Target, but only two distinct methods do. Fan-in is a
             // leverage cue and the reverse graph draws one edge per distinct caller, so the
             // number has to agree with the edges rather than count repeated sites.
-            Assert.Equal(3, index.DirectCalls.Count(call => call.Callee.Name == "Target"));
+            Assert.Equal(3, index.CallGraph.DirectCalls.Count(call => call.Callee.Name == "Target"));
             Assert.Equal(2, targetNode.Perf?.Fanin);
             Assert.NotNull(target);
         }

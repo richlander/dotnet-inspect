@@ -276,7 +276,7 @@ public static class AnalysisLibraryBodyUseService
                 result.Outcome == ProducerOutcome.Stopped),
             value.Coverage,
             value.Diagnostics);
-        return terminal == ProducerTerminal.Complete
+        return terminal == ProducerTerminal.Count
             ? new AnalysisLibraryBodyUseAnswer.Count(
                 value.OccurrenceCount,
                 evidence)
