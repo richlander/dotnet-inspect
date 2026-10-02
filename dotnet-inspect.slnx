@@ -309,6 +309,7 @@
     <Project Path="tools/MemberBodySizeScorecard/MemberBodySizeScorecard.csproj" />
     <Project Path="tools/MemberGroupScorecard/MemberGroupScorecard.csproj" />
     <Project Path="tools/BodyUseScorecard/BodyUseScorecard.csproj" />
+    <Project Path="tools/MethodBodyTraversalScorecard/MethodBodyTraversalScorecard.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/OwnershipIncidenceScorecard/OwnershipIncidenceScorecard.csproj" />
