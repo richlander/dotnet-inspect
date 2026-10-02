@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Prototype scorecard for #8577's shared Method-body traversal. It compares
+    three independent instruction streams, a composable single stream, the
+    hand-fused callback, instructions-only materialization, and full Layer 0
+    construction. Publish NativeAOT to time:
+      dotnet publish tools/MethodBodyTraversalScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>method-body-traversal-scorecard</AssemblyName>
+    <RootNamespace>MethodBodyTraversalScorecard</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tests\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
+  </ItemGroup>
+
+</Project>
