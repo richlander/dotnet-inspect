@@ -19,16 +19,27 @@ import {
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
 
+export type TypeAccessibilitySelectionMode = "all" | "exact";
+
 export function normalizeTypeAccessibilityFilter(
   selected: ReadonlySet<string>,
   bucketIds: readonly string[],
+  mode: TypeAccessibilitySelectionMode,
 ) {
+  if (mode === "all") return new Set(bucketIds);
   const admitted = bucketIds.filter(id => selected.has(id));
-  if (admitted.length === 0) return new Set(selected);
-  // The native selector represents one bucket or all buckets. A surviving
-  // multi-bucket set is therefore an earlier "all" selection whose vocabulary grew.
-  if (admitted.length === 1) return new Set(admitted);
-  return new Set(bucketIds);
+  const exact = admitted[0];
+  if (exact === undefined) return new Set(selected);
+  return new Set([exact]);
+}
+
+export function shouldRestoreTypeAccessibilitySelection(
+  capturedMode: TypeAccessibilitySelectionMode,
+  capturedGeneration: number,
+  currentGeneration: number,
+) {
+  return capturedMode === "all"
+    && capturedGeneration === currentGeneration;
 }
 
 const EXACT_TYPE_NOT_FOUND = 1;

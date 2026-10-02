@@ -15,6 +15,8 @@ async function openXml(
     forwarderInternalType?: boolean;
     forwarderFailure?: boolean;
     forwarderPending?: boolean;
+    libraryPending?: boolean;
+    libraryPendingAssembly?: string;
   } = {},
 ) {
   await installFacades(page, surface, [], "ready", "ready", {
@@ -152,6 +154,67 @@ test("selected forwarded Kind remains visible when Accessibility excludes forwar
   await expect(page.locator(
     '[data-type="System.Xml:Hidden.InternalType"]',
   )).toBeVisible();
+});
+
+test("an exact one-bucket Accessibility selection survives vocabulary growth", async ({
+  page,
+}) => {
+  await installFacades(page, surface, [], "ready", "ready", {
+    forwarders: true,
+    forwarderInternalType: true,
+  });
+  await openInstalledPlatform(page);
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Text.Json", { exact: true }),
+  }).click();
+  await expect(page.locator("#library-overview-title"))
+    .toHaveText("System.Text.Json");
+  await page.locator("[data-type-filter-disclosure] > summary").click();
+  const accessibility =
+    page.getByRole("combobox", { name: "Type accessibility" });
+
+  await accessibility.selectOption("");
+  await accessibility.selectOption("public");
+  await chooseSubject(page, "platform", "Platform");
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Xml", { exact: true }),
+  }).click();
+
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await expect(accessibility).toHaveValue("public");
+  await expect(page.locator(
+    '[data-type="System.Xml:Hidden.InternalType"]',
+  )).toHaveCount(0);
+  await expect(page.locator(
+    '[data-type="System.Xml:System.Xml.XmlReader"]',
+  )).toBeVisible();
+});
+
+test("a pending Platform merge preserves a newer Accessibility choice", async ({
+  page,
+}) => {
+  await openXml(page, {
+    forwarderInternalType: true,
+    libraryPending: true,
+    libraryPendingAssembly: "System.Xml.ReaderWriter",
+  });
+  await page.locator("[data-type-filter-disclosure] > summary").click();
+  const accessibility =
+    page.getByRole("combobox", { name: "Type accessibility" });
+  const kind = page.getByRole("combobox", { name: "Type kind" });
+  await kind.selectOption("forwarded");
+  await accessibility.selectOption("");
+
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-library-request",
+    /System\.Xml\.ReaderWriter/,
+  );
+  await accessibility.selectOption("internal");
+  await releaseFacade(page, "finish-platform-library");
+
+  await expect(accessibility).toHaveValue("internal");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
 });
 
 test("Library scope controls and keyboard selection retain a forwarded Type", async ({ page }) => {

@@ -823,7 +823,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
     /enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
   assert.match(
     navigation,
-    /state\.accessibilityFilter = accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)/);
+    /includeTypeAccessibility\(type\)/);
 });
 
 test("restored selections reveal their accessibility bucket", () => {

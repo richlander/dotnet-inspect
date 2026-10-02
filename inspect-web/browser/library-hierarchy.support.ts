@@ -270,6 +270,7 @@ interface PlatformFixture {
   libraryFailure?: boolean;
   libraryPending?: boolean;
   libraryPendingPack?: PlatformAssemblyRow["pack"];
+  libraryPendingAssembly?: string;
   duplicateLibrary?: boolean;
   nativeCoreLib?: boolean;
   mismatchedFile?: boolean;
@@ -642,6 +643,8 @@ async function installFacades(
         }
         document.documentElement.dataset.platformLibraryRequest = JSON.stringify([tfm, version, file, pack, assetFileName]);
         if (platformOptions.libraryPending
+          && (!platformOptions.libraryPendingAssembly
+            || platformOptions.libraryPendingAssembly + ".dll" === file)
           && (!platformOptions.libraryPendingPack || platformOptions.libraryPendingPack === pack)) {
           await new Promise(resolve => document.addEventListener("finish-platform-library", resolve, { once: true }));
         }

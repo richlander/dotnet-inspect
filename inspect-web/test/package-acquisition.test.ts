@@ -30,7 +30,10 @@ import type {
 import type {
   BrowserUploadedLibraryResult,
 } from "../src/facades/inspect-web-library.d.ts";
-import { normalizeTypeAccessibilityFilter } from "../src/type-panel.ts";
+import {
+  normalizeTypeAccessibilityFilter,
+  shouldRestoreTypeAccessibilitySelection,
+} from "../src/type-panel.ts";
 
 function assembly(
   id: string,
@@ -1343,6 +1346,7 @@ test("runtime vocabulary growth expands a prior all-Accessibility selection", ()
   const normalized = normalizeTypeAccessibilityFilter(
     selectedAll,
     resident.accessibility.map(descriptor => descriptor.id),
+    "all",
   );
 
   assert.deepEqual(
@@ -1352,14 +1356,39 @@ test("runtime vocabulary growth expands a prior all-Accessibility selection", ()
     [...normalizeTypeAccessibilityFilter(
       new Set(["public"]),
       resident.accessibility.map(descriptor => descriptor.id),
+      "exact",
     )],
     ["public"]);
   assert.deepEqual(
     [...normalizeTypeAccessibilityFilter(
       new Set(["unresolved"]),
       resident.accessibility.map(descriptor => descriptor.id),
+      "exact",
     )],
     ["unresolved"]);
+  assert.deepEqual(
+    [...normalizeTypeAccessibilityFilter(
+      new Set(["public"]),
+      ["public", "internal"],
+      "all",
+    )],
+    ["public", "internal"]);
+  assert.deepEqual(
+    [...normalizeTypeAccessibilityFilter(
+      new Set(["public"]),
+      ["public", "internal"],
+      "exact",
+    )],
+    ["public"]);
+  assert.equal(
+    shouldRestoreTypeAccessibilitySelection("all", 4, 4),
+    true);
+  assert.equal(
+    shouldRestoreTypeAccessibilitySelection("all", 4, 5),
+    false);
+  assert.equal(
+    shouldRestoreTypeAccessibilitySelection("exact", 4, 4),
+    false);
 });
 
 // Round 6 review split the two reviewers. GPT-5.6 Sol found that the resident-merge path

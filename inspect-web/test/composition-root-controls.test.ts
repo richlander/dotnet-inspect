@@ -1258,7 +1258,7 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.doesNotMatch(clearFilters, /focusFilter/);
   assert.match(
     clearFilters,
-    /state\.accessibilityFilter = defaultAccessibilityFilter\(state\.package\)/);
+    /setTypeAccessibilityFilter\(\s*defaultAccessibilityFilter\(state\.package\),\s*"exact",\s*\)/);
   assert.match(
     clearFilters,
     /state\.typeLeverageFilter = ""/);

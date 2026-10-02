@@ -462,12 +462,14 @@ import {
   normalizeTypeAccessibilityFilter,
   renderSourcePageActions,
   renderSourceResult,
+  shouldRestoreTypeAccessibilitySelection,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
   TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
   type MemberNavEntry,
   type SourceTextRange,
+  type TypeAccessibilitySelectionMode,
   typeMetadataSignature,
   typeSourceSignature,
   typeCodeViewText,
@@ -1471,6 +1473,8 @@ const initialState = {
   platformRecent: loadPlatformRecent(),
   recentPackages: loadRecentPackages(),
   accessibilityFilter: new Set<string>(),
+  typeAccessibilitySelectionMode: "exact" as TypeAccessibilitySelectionMode,
+  typeAccessibilitySelectionGeneration: 0,
   spotlightOpen: false,
   spotlightQuery: "",
   spotlightIndex: 0,
@@ -5511,10 +5515,7 @@ function reconcileAccessibilityFilter(
   type: InspectedTypeSurface | null | undefined,
 ) {
   if (!type) return;
-  const buckets = accessibilityBuckets();
-  const selectsAll = buckets.length > 0
-    && buckets.every(bucket => state.accessibilityFilter.has(bucket.id));
-  if (!selectsAll)
+  if (!typeAccessibilitySelectsAll())
     selectTypeAccessibility(type.accessibilityId);
 }
 
@@ -5794,11 +5795,31 @@ function defaultAccessibilityFilter(pkg: AppPackage | null | undefined): Set<str
     .map(descriptor => descriptor.id));
 }
 
+function setTypeAccessibilityFilter(
+  filter: ReadonlySet<string>,
+  mode: TypeAccessibilitySelectionMode,
+) {
+  state.accessibilityFilter = new Set(filter);
+  state.typeAccessibilitySelectionMode = mode;
+  state.typeAccessibilitySelectionGeneration++;
+}
+
+function includeTypeAccessibility(
+  type: AppTypeSurface | null | undefined,
+) {
+  if (!type?.accessibilityId
+    || state.accessibilityFilter.has(type.accessibilityId)) {
+    return;
+  }
+  setTypeAccessibilityFilter(
+    accessibilityFilterIncludingType(state.accessibilityFilter, type),
+    "exact",
+  );
+}
+
 function revealTypeInFilters(type: AppTypeSurface | null | undefined) {
   if (!type) return;
-  state.accessibilityFilter = accessibilityFilterIncludingType(
-    state.accessibilityFilter,
-    type);
+  includeTypeAccessibility(type);
   if (!typeMatchesFilterText(type, state.typeFilter.toLowerCase()))
     state.typeFilter = "";
   if (selectedNamespaceFilter() !== null
@@ -6210,8 +6231,9 @@ function activatePackage(
     state.memberBrowseTypeId = "";
     resetMemberFilters();
   }
-  if (pkg && (changed || resetAccessibility || state.accessibilityFilter.size === 0))
-    state.accessibilityFilter = defaultAccessibilityFilter(pkg);
+  if (pkg && (changed || resetAccessibility || state.accessibilityFilter.size === 0)) {
+    setTypeAccessibilityFilter(defaultAccessibilityFilter(pkg), "exact");
+  }
   return changed;
 }
 
@@ -6229,15 +6251,14 @@ function selectedTypeAccessibility() {
 }
 
 function typeAccessibilitySelectsAll() {
-  const buckets = accessibilityBuckets();
-  return buckets.length > 0
-    && buckets.every(bucket => state.accessibilityFilter.has(bucket.id));
+  return state.typeAccessibilitySelectionMode === "all";
 }
 
 function reconcileTypeAccessibilityVocabulary() {
   const normalized = normalizeTypeAccessibilityFilter(
     state.accessibilityFilter,
     accessibilityBuckets().map(bucket => bucket.id),
+    state.typeAccessibilitySelectionMode,
   );
   if (normalized.size === state.accessibilityFilter.size
     && [...normalized].every(id => state.accessibilityFilter.has(id))) {
@@ -6249,7 +6270,8 @@ function reconcileTypeAccessibilityVocabulary() {
 function captureTypeAccessibilitySelection() {
   return {
     package: state.package,
-    selectsAll: Boolean(state.package) && typeAccessibilitySelectsAll(),
+    mode: state.typeAccessibilitySelectionMode,
+    generation: state.typeAccessibilitySelectionGeneration,
   };
 }
 
@@ -6257,20 +6279,30 @@ function restoreTypeAccessibilitySelection(
   previous: ReturnType<typeof captureTypeAccessibilitySelection>,
   pkg: AppPackage | null,
 ) {
-  if (previous.selectsAll
+  if (shouldRestoreTypeAccessibilitySelection(
+    previous.mode,
+    previous.generation,
+    state.typeAccessibilitySelectionGeneration)
     && previous.package
     && pkg
     && state.package
     && packageIdentityEquals(pkg, previous.package)
     && packageIdentityEquals(state.package, previous.package)) {
-    selectTypeAccessibility("");
+    state.accessibilityFilter = normalizeTypeAccessibilityFilter(
+      state.accessibilityFilter,
+      pkg.accessibility.map(descriptor => descriptor.id),
+      previous.mode,
+    );
   }
 }
 
 function selectTypeAccessibility(accessibility: string) {
-  state.accessibilityFilter = accessibility
-    ? new Set([accessibility])
-    : new Set(accessibilityBuckets().map(descriptor => descriptor.id));
+  setTypeAccessibilityFilter(
+    accessibility
+      ? new Set([accessibility])
+      : new Set(accessibilityBuckets().map(descriptor => descriptor.id)),
+    accessibility ? "exact" : "all",
+  );
 }
 
 function typeAccessibilityIncludesForwarders() {
@@ -12199,7 +12231,10 @@ function bindTypePanelEvents() {
       state.kindFilter = "";
       state.typeTraitFilter = "";
       state.typeLeverageFilter = "";
-      state.accessibilityFilter = defaultAccessibilityFilter(state.package);
+      setTypeAccessibilityFilter(
+        defaultAccessibilityFilter(state.package),
+        "exact",
+      );
       renderPreservingMemberFocus();
     },
     onCopyAnchor: anchor => {
@@ -22002,9 +22037,7 @@ function navigateToRuntimeMember(
   activatePackage(pack);
   const targetLibrary = libraryKey(type);
   state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
-  state.accessibilityFilter = accessibilityFilterIncludingType(
-    state.accessibilityFilter,
-    type);
+  includeTypeAccessibility(type);
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.lens = "api";
@@ -22533,9 +22566,7 @@ function navigateToMember(
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.typeTraitFilter = "";
-  state.accessibilityFilter = accessibilityFilterIncludingType(
-    state.accessibilityFilter,
-    type);
+  includeTypeAccessibility(type);
   enterTypeSubject(type, { preserveAggregate });
   resetMemberFilters();
   state.selectedMemberKey = group.key;
@@ -22707,7 +22738,10 @@ async function loadPackage(
     state.kindFilter = "";
     state.typeTraitFilter = "";
     state.libraryScope = null;
-    state.accessibilityFilter = defaultAccessibilityFilter(packageModel);
+    setTypeAccessibilityFilter(
+      defaultAccessibilityFilter(packageModel),
+      "exact",
+    );
     const deep = options.location;
     if (deep) {
       const libraryFailure = applyLoadedPackageLibraryScope(
