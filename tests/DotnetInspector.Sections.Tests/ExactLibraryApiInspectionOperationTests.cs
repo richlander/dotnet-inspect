@@ -46,6 +46,9 @@ public sealed class ExactLibraryApiInspectionOperationTests
             "DotnetInspector.Sections.dll",
             result.Asset?.AssemblyName);
         Assert.Equal(
+            ExactLibraryApiAssetKind.Reference,
+            result.Asset?.Kind);
+        Assert.Equal(
             NuGetCache.GetSourceKey(SourceUrl),
             result.Source?.Producer);
         Assert.Equal(
@@ -120,6 +123,68 @@ public sealed class ExactLibraryApiInspectionOperationTests
         Assert.Equal(
             cold.Inspection.Diagnostics,
             retained.Inspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task RetainedToolEntryReturnsExactDetachedLibrarySurface()
+    {
+        const string asset =
+            "tools/net11.0/any/DotnetInspector.Sections.dll";
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            Archive(
+                (asset,
+                    await File.ReadAllBytesAsync(
+                        typeof(ExactLibraryApiInspectionOperation)
+                            .Assembly
+                            .Location,
+                        TestContext.Current.CancellationToken))));
+        using var client = new HttpClient(new FailingHandler());
+        PackageRootBinding root =
+            Assert.IsType<WorkspacePackageRootAcquisitionOutcome.Acquired>(
+                await WorkspaceContextLoader.AcquirePackageRootAsync(
+                    Input(),
+                    LoadOptions(client, store),
+                    TestContext.Current.CancellationToken))
+            .Root;
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            root.Root.AssetSelection.Status);
+
+        ExactLibraryApiInspectionExecution execution =
+            await ExactLibraryApiInspectionOperation.ExecuteToolEntryAsync(
+                PackageInspectionInput.CreateFromBinding(root),
+                new(
+                    PackageId,
+                    Version,
+                    Framework,
+                    asset,
+                    ExactLibraryApiSelectionKind.AssetId),
+                new()
+                {
+                    MaxAssembliesPerRole = 1,
+                    MaxAggregateRetainedImageBytes = 64 * 1024 * 1024,
+                    MaxAssemblyEntryBytes = 64 * 1024 * 1024,
+                    RequireDeclaredEntryLengths = true,
+                },
+                ExactLibraryApiInspectionOperation.DefaultLimits,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactLibraryApiInspectionOutcome.Available,
+            execution.Inspection.Content.Outcome);
+        Assert.Equal(asset, execution.Inspection.Content.Asset?.Id);
+        Assert.Equal(
+            ExactLibraryApiAssetKind.Tool,
+            execution.Inspection.Content.Asset?.Kind);
+        Assert.Equal(
+            typeof(ExactLibraryApiInspectionOperation).Module.ModuleVersionId,
+            execution.Inspection.Content.Assembly?.ModuleVersionId);
+        Assert.True(
+            execution.Inspection.Content.Inventory?.PublicTypeCount > 0);
+        Assert.IsType<InspectionShare.Available>(
+            execution.Inspection.Share);
     }
 
     [Fact]

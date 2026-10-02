@@ -84,12 +84,14 @@ internal static class BrowserPackageWireProjection
                     result.Asset.TargetFramework,
                     result.Asset.Kind switch
                     {
-                        PackageCompileAssetKind.Reference =>
+                        ExactLibraryApiAssetKind.Reference =>
                             BrowserExactLibraryApiAssetKind.Reference,
-                        PackageCompileAssetKind.Library =>
+                        ExactLibraryApiAssetKind.Library =>
                             BrowserExactLibraryApiAssetKind.Library,
+                        ExactLibraryApiAssetKind.Tool =>
+                            BrowserExactLibraryApiAssetKind.Tool,
                         _ => throw new InvalidOperationException(
-                            "Unknown package compile-asset kind."),
+                            "Unknown exact Library asset kind."),
                     }),
             result.Assembly is null
                 ? null

@@ -1751,6 +1751,24 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("Counted", library.CountStatus);
         Assert.True(library.PublicTypeDeclarations > 0);
         Assert.Empty(children.RuntimeIdentifierPackages);
+
+        BrowserExactLibraryApiInspection api =
+            Assert.IsType<BrowserExactLibraryApiInspection>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryLibraryApi(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            library.AssetId),
+                    BrowserPackageJsonContext.Default
+                        .BrowserExactLibraryApiInspection));
+        Assert.True(api.Content.IsAvailable);
+        Assert.True(api.Content.Inventory?.PublicTypeCount > 0);
+        Assert.Equal(library.AssetId, api.Content.Asset?.Id);
+        Assert.Equal(
+            BrowserExactLibraryApiAssetKind.Tool,
+            api.Content.Asset?.Kind);
     }
 
     [Fact]

@@ -498,6 +498,63 @@ public static partial class PackageExports
                     realization,
                     request,
                     BrowserApiSurfacePolicy.Limits));
+        ExactLibraryApiInspectionResult compileResult =
+            execution.Inspection.Content;
+        if (compileResult.IsAvailable
+            || (compileResult.Outcome
+                    != ExactLibraryApiInspectionOutcome.NotFound
+                && !compileResult.Failures.Any(failure =>
+                    failure.Kind
+                        == ExactLibraryApiInspectionFailureKind
+                            .CompileSelectionUnavailable)))
+        {
+            return execution.Inspection;
+        }
+
+        BrowserToolPackageProjection? tool =
+            await coordinate.Package.ProjectToolPackageAsync(
+                    string.IsNullOrWhiteSpace(coordinate.Framework)
+                        ? null
+                        : coordinate.Framework,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        if (tool is
+            {
+                Settings:
+                {
+                    Status: BrowserToolSettingsProjectionStatus.Available,
+                    Settings: { } settings,
+                },
+                Measurement:
+                    PackageToolSliceMeasurementOutcome.Measured measured,
+            }
+            && !(settings.IsRidSpecificPointerPackage
+                && settings.RuntimeIdentifierPackages is { Count: > 0 })
+            && measured.Measurements.SelectedEntries.Contains(
+                assemblyId,
+                StringComparer.Ordinal))
+        {
+            ExactLibraryApiInspectionExecution toolExecution =
+                await ExactLibraryApiInspectionOperation
+                    .ExecuteToolEntryAsync(
+                        coordinate.CreateInspectionInput(),
+                        request,
+                        new()
+                        {
+                            MaxAssembliesPerRole =
+                                BrowserInspectionScope.MaxAssembliesPerRole,
+                            MaxAggregateRetainedImageBytes =
+                                BrowserInspectionScope
+                                    .MaxRetainedImageBytes,
+                            MaxAssemblyEntryBytes =
+                                BrowserInspectionScope
+                                    .MaxRetainedImageBytes,
+                            RequireDeclaredEntryLengths = true,
+                        },
+                        BrowserApiSurfacePolicy.Limits)
+                    .ConfigureAwait(false);
+            return toolExecution.Inspection;
+        }
         return execution.Inspection;
     }
 

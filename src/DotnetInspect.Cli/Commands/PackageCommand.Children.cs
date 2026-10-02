@@ -130,6 +130,13 @@ public partial class PackageCommand
             packageName,
             version,
             options);
+        if (options.Count && !plan.IsComplete)
+        {
+            CommandError.Write(
+                plan.Document?.Detail?.ToString()
+                    ?? "The Package child Count is unavailable.");
+            return 1;
+        }
         (int keepStart, int keepEnd) =
             options.Rows?.Resolve(plan.Count)
             ?? (0, plan.Count);
@@ -138,9 +145,7 @@ public partial class PackageCommand
             CountOutput.WriteCount(
                 keepEnd - keepStart,
                 options.OutputPath);
-            return plan.IsComplete
-                ? PackageIntegrityExitCode(result)
-                : 1;
+            return PackageIntegrityExitCode(result);
         }
 
         PackageChildrenProjection projection =

@@ -879,6 +879,7 @@ public enum BrowserExactLibraryApiAssetKind
 {
     Reference,
     Library,
+    Tool,
 }
 
 public enum BrowserExactLibraryApiProjectionLimit

@@ -11,9 +11,9 @@ public sealed record ExactLibraryApiInspectionExecution(
     ApiSurface? Surface);
 
 /// <summary>
-/// Executes one exact package Library public-API inspection and returns its
-/// detached terminal envelope plus the declaration surface used by CLI
-/// rendering.
+/// Executes one exact package Library public-API inspection from either
+/// compile-role or retained-entry authority and returns its detached terminal
+/// envelope plus the declaration surface used by CLI rendering.
 /// </summary>
 public static class ExactLibraryApiInspectionOperation
 {
@@ -129,6 +129,49 @@ public static class ExactLibraryApiInspectionOperation
                 request,
                 projectionLimits);
         return new ExactLibraryApiInspectionExecution(
+            Envelope(execution.Result, request),
+            execution.Surface);
+    }
+
+    /// <summary>
+    /// Executes one exact retained Package tool entry without treating it as
+    /// a compile-role asset.
+    /// </summary>
+    public static async Task<ExactLibraryApiInspectionExecution>
+        ExecuteToolEntryAsync(
+            PackageInspectionInput input,
+            ExactLibraryApiInspectionRequest request,
+            PackageAssemblyContextRealizationOptions realizationOptions,
+            ApiSurfaceProjectionLimits projectionLimits,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(realizationOptions);
+        ArgumentNullException.ThrowIfNull(projectionLimits);
+
+        PackageInspectionSelection selection =
+            input.SelectAssemblies(
+                [
+                    new(
+                        request.Library,
+                        request.TargetFramework,
+                        request.TargetFramework),
+                ]);
+        await using var workspace = new InspectionWorkspace();
+        using PackageInspectionAssemblyContext realization =
+            await workspace.RealizePackageInspectionAsync(
+                    selection,
+                    options: realizationOptions,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        ExactLibraryApiQueryExecution execution =
+            ExactLibraryApiInspectionQuery.ExecuteToolEntry(
+                input,
+                realization.Assemblies.Single(),
+                request,
+                projectionLimits);
+        return new(
             Envelope(execution.Result, request),
             execution.Surface);
     }

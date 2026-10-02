@@ -2452,6 +2452,19 @@ public partial class CommandExecutionTests
                 "Tool.First",
                 result.Output,
                 StringComparison.Ordinal);
+
+            var count = await RunAppAsync(
+                "package",
+                packagePath,
+                "--count",
+                "--tips",
+                "q");
+            Assert.Equal(1, count.Exit);
+            Assert.Empty(count.Output);
+            Assert.Contains(
+                "could not be projected completely",
+                count.Error,
+                StringComparison.Ordinal);
         }
         finally
         {
