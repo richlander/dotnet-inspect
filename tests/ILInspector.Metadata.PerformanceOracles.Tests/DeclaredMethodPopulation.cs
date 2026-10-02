@@ -4,8 +4,10 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NLinq;
+using QuerySpace.Composition;
 
 namespace DotnetInspector.PerformanceOracles;
 
@@ -25,6 +27,17 @@ public sealed record DeclaredMethodScorecardResult(
     string TypeName,
     DeclaredMethodScorecardCheck Check,
     IReadOnlyList<DeclaredMethodScorecardCell> Cells);
+
+public sealed record PreparedQuerySpaceScorecardCell(
+    string Boundary,
+    string Terminal,
+    double Microseconds,
+    long AllocatedBytes);
+
+public sealed record PreparedQuerySpaceScorecardResult(
+    string TypeName,
+    int Count,
+    IReadOnlyList<PreparedQuerySpaceScorecardCell> Cells);
 
 public static class DeclaredMethodPopulation
 {
@@ -95,6 +108,64 @@ public static class DeclaredMethodPopulation
         return new(DisplayName(type), check, cells);
     }
 
+    public static PreparedQuerySpaceScorecardResult
+        MeasurePreparedQuerySpace(
+            string path,
+            MetadataTypeDefinitionName type)
+    {
+        using var asset = Asset.Open(path, type);
+        TypeDeclaredMethodPopulationOutcome.Counted count =
+            AssertSectionsCounted(
+                asset.ExecutePreparedQuerySpaceRequest(
+                    QuerySpaceTerminalRequirement.Count).Content);
+        TypeDeclaredMethodPopulationOutcome.Read rows =
+            AssertSectionsRead(
+                asset.ExecutePreparedQuerySpaceRequest(
+                    QuerySpaceTerminalRequirement.Rows).Content);
+        ValidatePreparedQuerySpace(asset, count, rows);
+
+        PreparedQuerySpaceScorecardCase[] cases =
+            Enum.GetValues<PreparedQuerySpaceScorecardCase>();
+        foreach (PreparedQuerySpaceScorecardCase measurementCase
+            in cases)
+        {
+            for (int warmup = 0; warmup < 10; warmup++)
+                WarmupPreparedQuerySpace(asset, measurementCase);
+        }
+
+        var times = cases.ToDictionary(
+            static measurementCase => measurementCase,
+            static _ => new List<double>());
+        var allocations = cases.ToDictionary(
+            static measurementCase => measurementCase,
+            static _ => new List<long>());
+        for (int round = 0; round < 8; round++)
+        {
+            for (int offset = 0; offset < cases.Length; offset++)
+            {
+                PreparedQuerySpaceScorecardCase measurementCase =
+                    cases[(round + offset) % cases.Length];
+                Measurement measurement =
+                    MeasurePreparedQuerySpace(
+                        asset,
+                        measurementCase);
+                times[measurementCase].Add(measurement.Microseconds);
+                allocations[measurementCase].Add(
+                    measurement.AllocatedBytes);
+            }
+        }
+
+        return new(
+            DisplayName(type),
+            count.Count,
+            [.. cases.Select(measurementCase =>
+                new PreparedQuerySpaceScorecardCell(
+                    PreparedQuerySpaceBoundary(measurementCase),
+                    PreparedQuerySpaceTerminal(measurementCase),
+                    Median(times[measurementCase]),
+                    Median(allocations[measurementCase])))]);
+    }
+
     public static string Report(DeclaredMethodScorecardResult result)
     {
         using var writer = new StringWriter(
@@ -153,6 +224,30 @@ public static class DeclaredMethodPopulation
                     + $"{receipt.MethodAttributesDecoded} | "
                     + $"{receipt.ProjectedRows} |");
         }
+    }
+
+    public static string ReportPreparedQuerySpace(
+        PreparedQuerySpaceScorecardResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        using var writer = new StringWriter(
+            System.Globalization.CultureInfo.InvariantCulture);
+        writer.WriteLine(
+            $"# Prepared-borrow QuerySpace + NLinq — {result.TypeName}");
+        writer.WriteLine(
+            $"# answer: {result.Count:N0} declared MethodDefs");
+        writer.WriteLine(
+            "| Boundary | Terminal | Median | Allocated |");
+        writer.WriteLine("| --- | --- | ---: | ---: |");
+        foreach (PreparedQuerySpaceScorecardCell cell in result.Cells)
+        {
+            writer.WriteLine(
+                $"| {cell.Boundary} | {cell.Terminal} | "
+                    + $"{cell.Microseconds:F3} us | "
+                    + $"{cell.AllocatedBytes:N0} B |");
+        }
+        writer.WriteLine();
+        return writer.ToString();
     }
 
     private static DeclaredMethodScorecardCheck Check(Asset asset)
@@ -268,6 +363,107 @@ public static class DeclaredMethodPopulation
             ?? throw new InvalidOperationException(
                 $"Expected Read, got {outcome}.");
 
+    private static TypeDeclaredMethodPopulationOutcome.Counted
+        AssertSectionsCounted(
+            TypeDeclaredMethodPopulationOutcome outcome) =>
+            outcome
+                as TypeDeclaredMethodPopulationOutcome.Counted
+            ?? throw new InvalidOperationException(
+                $"Expected Sections Counted, got {outcome}.");
+
+    private static TypeDeclaredMethodPopulationOutcome.Read
+        AssertSectionsRead(
+            TypeDeclaredMethodPopulationOutcome outcome) =>
+            outcome
+                as TypeDeclaredMethodPopulationOutcome.Read
+            ?? throw new InvalidOperationException(
+                $"Expected Sections Read, got {outcome}.");
+
+    private static void ValidatePreparedQuerySpace(
+        Asset asset,
+        TypeDeclaredMethodPopulationOutcome.Counted count,
+        TypeDeclaredMethodPopulationOutcome.Read rows)
+    {
+        if (count.Count != rows.Count
+            || count.Count != rows.Rows.Length)
+        {
+            throw new InvalidOperationException(
+                "Prepared QuerySpace Count and Rows disagree.");
+        }
+
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome>
+            currentCount =
+                asset.ExecuteCurrentQuerySpace(
+                    QuerySpaceTerminalRequirement.Count);
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome>
+            currentRows =
+                asset.ExecuteCurrentQuerySpace(
+                    QuerySpaceTerminalRequirement.Rows);
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome>
+            preparedPlanCount =
+                asset.ExecutePreparedQuerySpacePlan(
+                    QuerySpaceTerminalRequirement.Count);
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome>
+            preparedPlanRows =
+                asset.ExecutePreparedQuerySpacePlan(
+                    QuerySpaceTerminalRequirement.Rows);
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome>
+            preparedRequestCount =
+                asset.ExecutePreparedQuerySpaceRequest(
+                    QuerySpaceTerminalRequirement.Count);
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome>
+            preparedRequestRows =
+                asset.ExecutePreparedQuerySpaceRequest(
+                    QuerySpaceTerminalRequirement.Rows);
+        if (!Equivalent(currentCount, preparedRequestCount)
+            || !Equivalent(currentRows, preparedRequestRows)
+            || !Equivalent(currentCount, preparedPlanCount)
+            || !Equivalent(currentRows, preparedPlanRows))
+        {
+            throw new InvalidOperationException(
+                "Prepared QuerySpace envelopes disagree with the "
+                    + "current product operation.");
+        }
+    }
+
+    private static bool Equivalent(
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome> left,
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome> right)
+    {
+        if (left.Diagnostics.Length != right.Diagnostics.Length
+            || left.Share is not InspectionShare.NonProjectable leftShare
+            || right.Share is not InspectionShare.NonProjectable rightShare
+            || leftShare.Path != rightShare.Path
+            || leftShare.Reason.ToString()
+                != rightShare.Reason.ToString())
+        {
+            return false;
+        }
+
+        return (left.Content, right.Content) switch
+        {
+            (
+                TypeDeclaredMethodPopulationOutcome.Counted first,
+                TypeDeclaredMethodPopulationOutcome.Counted second) =>
+                    first.Subject == second.Subject
+                    && ReferenceEquals(first.Type, second.Type)
+                    && first.Binding == second.Binding
+                    && first.Count == second.Count
+                    && first.Receipt == second.Receipt,
+            (
+                TypeDeclaredMethodPopulationOutcome.Read first,
+                TypeDeclaredMethodPopulationOutcome.Read second) =>
+                    first.Subject == second.Subject
+                    && ReferenceEquals(first.Type, second.Type)
+                    && first.Binding == second.Binding
+                    && first.Count == second.Count
+                    && first.Rows.AsSpan()
+                        .SequenceEqual(second.Rows.AsSpan())
+                    && first.Receipt == second.Receipt,
+            _ => false,
+        };
+    }
+
     private static void Warmup(
         Asset asset,
         DeclaredMethodScorecardCase measurementCase)
@@ -379,6 +575,63 @@ public static class DeclaredMethodPopulation
                 nameof(measurementCase)),
         };
 
+    private static void WarmupPreparedQuerySpace(
+        Asset asset,
+        PreparedQuerySpaceScorecardCase measurementCase)
+    {
+        switch (measurementCase)
+        {
+            case PreparedQuerySpaceScorecardCase.RequestCount:
+                GC.KeepAlive(
+                    asset.ExecutePreparedQuerySpaceRequest(
+                        QuerySpaceTerminalRequirement.Count));
+                break;
+            case PreparedQuerySpaceScorecardCase.RequestRows:
+                GC.KeepAlive(
+                    asset.ExecutePreparedQuerySpaceRequest(
+                        QuerySpaceTerminalRequirement.Rows));
+                break;
+            case PreparedQuerySpaceScorecardCase.PlanCount:
+                GC.KeepAlive(
+                    asset.ExecutePreparedQuerySpacePlan(
+                        QuerySpaceTerminalRequirement.Count));
+                break;
+            case PreparedQuerySpaceScorecardCase.PlanRows:
+                GC.KeepAlive(
+                    asset.ExecutePreparedQuerySpacePlan(
+                        QuerySpaceTerminalRequirement.Rows));
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(measurementCase));
+        }
+    }
+
+    private static Measurement MeasurePreparedQuerySpace(
+        Asset asset,
+        PreparedQuerySpaceScorecardCase measurementCase) =>
+        measurementCase switch
+        {
+            PreparedQuerySpaceScorecardCase.RequestCount =>
+                Measure(
+                    () => asset.ExecutePreparedQuerySpaceRequest(
+                        QuerySpaceTerminalRequirement.Count)),
+            PreparedQuerySpaceScorecardCase.RequestRows =>
+                Measure(
+                    () => asset.ExecutePreparedQuerySpaceRequest(
+                        QuerySpaceTerminalRequirement.Rows)),
+            PreparedQuerySpaceScorecardCase.PlanCount =>
+                Measure(
+                    () => asset.ExecutePreparedQuerySpacePlan(
+                        QuerySpaceTerminalRequirement.Count)),
+            PreparedQuerySpaceScorecardCase.PlanRows =>
+                Measure(
+                    () => asset.ExecutePreparedQuerySpacePlan(
+                        QuerySpaceTerminalRequirement.Rows)),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(measurementCase)),
+        };
+
     private static Measurement Measure<T>(Func<T> execute)
     {
         var times = new double[31];
@@ -437,6 +690,34 @@ public static class DeclaredMethodPopulation
             : string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"{Ratio(value, baseline):F2}x");
+
+    private static string PreparedQuerySpaceBoundary(
+        PreparedQuerySpaceScorecardCase measurementCase) =>
+        measurementCase switch
+        {
+            PreparedQuerySpaceScorecardCase.RequestCount
+                or PreparedQuerySpaceScorecardCase.RequestRows =>
+                "Request + resolve + execute",
+            PreparedQuerySpaceScorecardCase.PlanCount
+                or PreparedQuerySpaceScorecardCase.PlanRows =>
+                "Pre-resolved plan execute",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(measurementCase)),
+        };
+
+    private static string PreparedQuerySpaceTerminal(
+        PreparedQuerySpaceScorecardCase measurementCase) =>
+        measurementCase switch
+        {
+            PreparedQuerySpaceScorecardCase.RequestCount
+                or PreparedQuerySpaceScorecardCase.PlanCount =>
+                "Count",
+            PreparedQuerySpaceScorecardCase.RequestRows
+                or PreparedQuerySpaceScorecardCase.PlanRows =>
+                "Rows",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(measurementCase)),
+        };
 
     private static string Hash(
         ImmutableArray<int> rows)
@@ -542,6 +823,14 @@ public static class DeclaredMethodPopulation
         PreparedBorrowNLinqOutcomeRows,
     }
 
+    private enum PreparedQuerySpaceScorecardCase
+    {
+        RequestCount,
+        RequestRows,
+        PlanCount,
+        PlanRows,
+    }
+
     private readonly record struct Measurement(
         double Microseconds,
         long AllocatedBytes);
@@ -551,9 +840,15 @@ public static class DeclaredMethodPopulation
         private readonly InspectionWorkspace _workspace;
         private readonly AssemblyContextGroup _group;
         private readonly ResolvedAssemblyReference _assembly;
+        private readonly AssemblyContextParticipant _participant;
         private readonly AssemblyInspectionSession _session;
+        private readonly MetadataTypeDefinitionName _typeName;
         private readonly MetadataTypeDefinitionBinding _type;
         private readonly MetadataReader _reader;
+        private readonly TypeDeclaredMethodPopulationQueryResult.Accepted
+            _countPlan;
+        private readonly TypeDeclaredMethodPopulationQueryResult.Accepted
+            _rowsPlan;
         private readonly AssemblyImageCallback<int>
             _borrowedNLinqCount;
         private readonly AssemblyImageCallback<ImmutableArray<int>>
@@ -569,16 +864,26 @@ public static class DeclaredMethodPopulation
             InspectionWorkspace workspace,
             AssemblyContextGroup group,
             ResolvedAssemblyReference assembly,
+            AssemblyContextParticipant participant,
             AssemblyInspectionSession session,
+            MetadataTypeDefinitionName typeName,
             MetadataTypeDefinitionBinding type,
             MetadataReader reader)
         {
             _workspace = workspace;
             _group = group;
             _assembly = assembly;
+            _participant = participant;
             _session = session;
+            _typeName = typeName;
             _type = type;
             _reader = reader;
+            _countPlan = Resolve(
+                TypeDeclaredMethodPopulationQuery.CreateRequest(
+                    QuerySpaceTerminalRequirement.Count));
+            _rowsPlan = Resolve(
+                TypeDeclaredMethodPopulationQuery.CreateRequest(
+                    QuerySpaceTerminalRequirement.Rows));
             _borrowedNLinqCount = BorrowedNLinqCount;
             _borrowedNLinqRows = BorrowedNLinqRows;
             _borrowedNLinqOutcomeCount =
@@ -622,7 +927,9 @@ public static class DeclaredMethodPopulation
                     workspace,
                     group,
                     assembly,
+                    participant,
                     session,
+                    type,
                     new(
                         session.ModuleVersionId(),
                         defined.Definition),
@@ -740,6 +1047,127 @@ public static class DeclaredMethodPopulation
                     _group.UseAssemblyImage(
                         _assembly,
                         _borrowedNLinqOutcomeRows));
+
+        internal InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome>
+            ExecuteCurrentQuerySpace(
+                QuerySpaceTerminalRequirement terminal) =>
+                TypeDeclaredMethodPopulationInspectionOperation.Execute(
+                    Request(terminal));
+
+        internal InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome>
+            ExecutePreparedQuerySpaceRequest(
+                QuerySpaceTerminalRequirement terminal)
+        {
+            TypeDeclaredMethodPopulationInspectionRequest request =
+                Request(terminal);
+            return ExecutePreparedQuerySpace(
+                Resolve(request.Query));
+        }
+
+        internal InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome>
+            ExecutePreparedQuerySpacePlan(
+                QuerySpaceTerminalRequirement terminal) =>
+                ExecutePreparedQuerySpace(
+                    terminal switch
+                    {
+                        QuerySpaceTerminalRequirement.Count =>
+                            _countPlan,
+                        QuerySpaceTerminalRequirement.Rows =>
+                            _rowsPlan,
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(terminal)),
+                    });
+
+        private InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome>
+            ExecutePreparedQuerySpace(
+                TypeDeclaredMethodPopulationQueryResult.Accepted
+                    accepted) =>
+                accepted.Terminal switch
+                {
+                    QuerySpaceTerminalRequirement.Count =>
+                        _session.SnapshotOperation(
+                            this,
+                            static access =>
+                                access.Operation
+                                    .ProjectPreparedQuerySpaceCount()),
+                    QuerySpaceTerminalRequirement.Rows =>
+                        _session.SnapshotOperation(
+                            this,
+                            static access =>
+                                access.Operation
+                                    .ProjectPreparedQuerySpaceRows()),
+                    _ => throw new InvalidOperationException(
+                        "Unknown prepared QuerySpace terminal."),
+                };
+
+        private InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome>
+            ProjectPreparedQuerySpaceCount()
+        {
+            var counted = AssertCounted(
+                ExecuteNLinqOutcomeCount());
+            return Envelope(
+                new TypeDeclaredMethodPopulationOutcome.Counted(
+                    Subject(),
+                    _typeName,
+                    Binding(),
+                    counted.Count,
+                    counted.Receipt));
+        }
+
+        private InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome>
+            ProjectPreparedQuerySpaceRows()
+        {
+            var read = AssertRead(
+                ExecuteNLinqOutcomeRows());
+            return Envelope(
+                new TypeDeclaredMethodPopulationOutcome.Read(
+                    Subject(),
+                    _typeName,
+                    Binding(),
+                    read.Count,
+                    read.Rows,
+                    read.Receipt));
+        }
+
+        private TypeDeclaredMethodPopulationInspectionRequest Request(
+            QuerySpaceTerminalRequirement terminal) =>
+            new(
+                _group,
+                _participant,
+                _typeName,
+                _type,
+                TypeDeclaredMethodPopulationQuery.CreateRequest(
+                    terminal));
+
+        private static TypeDeclaredMethodPopulationQueryResult.Accepted
+            Resolve(QuerySpaceRequest request) =>
+                TypeDeclaredMethodPopulationQuery.ResolveRequest(request)
+                    as TypeDeclaredMethodPopulationQueryResult.Accepted
+                ?? throw new InvalidOperationException(
+                    "Expected the declared-method QuerySpace request "
+                        + "to resolve.");
+
+        private TypeDeclaredMethodPopulationSubject Subject() =>
+            new(_assembly.Identity, _assembly.Provenance);
+
+        private TypeDeclaredMethodPopulationBinding Binding() =>
+            new(_type.ModuleVersionId, _type.Definition.Value);
+
+        private static InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome> Envelope(
+                TypeDeclaredMethodPopulationOutcome outcome) =>
+            new(
+                outcome,
+                new InspectionShare.NonProjectable(
+                    "type-declared-method-population/share",
+                    "Raw declared MethodDefs do not yet have a "
+                        + "portable Workspace scenario."));
 
         internal int ExecutePreparedBorrowNLinqCount() =>
             _session.SnapshotOperation(

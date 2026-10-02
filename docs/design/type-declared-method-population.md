@@ -158,3 +158,22 @@ context participant to publish an already admitted reusable execution
 substrate before QuerySpace execution, retain it under the existing snapshot
 and callback lifetime contract, and release it before releasing its immutable
 snapshot.
+
+The QuerySpace extension measures two cumulative boundaries over that prepared
+borrow:
+
+- **request + resolve + execute** constructs the same
+  `TypeDeclaredMethodPopulationInspectionRequest`, creates and resolves the
+  real QuerySpace request, enters the prepared borrow, executes NLinq, and
+  constructs the detached Sections envelope; and
+- **pre-resolved plan execute** reuses the accepted QuerySpace plan and measures
+  only prepared-borrow execution plus the same Metadata outcome, Sections
+  outcome, Share, and envelope construction.
+
+Both boundaries compare their complete Count and Rows envelopes with the
+current product operation, including subject, binding, ordered row tokens,
+receipt, Share, and diagnostics. The pre-resolved boundary tests whether
+QuerySpace execution itself can preserve source-native terminal cost once
+acquisition and planning have settled. The full-request boundary separately
+discloses request and route-resolution cost rather than attributing that work
+to borrowing or the producer.
