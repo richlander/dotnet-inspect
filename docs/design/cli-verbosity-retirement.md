@@ -11,14 +11,15 @@ remaining responsibilities independently expressible.
 This document owns one claim:
 
 > A dotnet-inspect request has no generic quiet, minimal, normal, detailed,
-> wide, or more-detail axis. A bare facet-producing inspection request selects
-> exactly one owner-issued default facet. Different or broader Content requires
-> exact facet or authored facet-set selection; query operators select semantic
-> extent; fields and columns select projection; result shape and explicit
-> format select presentation; capability owners authorize expensive work; and
-> companion output remains separate. The CLI and shared section-planning
-> substrate must not use one level value to change more than one of those
-> dimensions.
+> wide, or more-detail axis. A bare inspection request selects exactly one
+> owner-issued default: one registered facet for a route over one supported
+> structural subject, or one command-owned primary operation otherwise.
+> Different or broader Content requires exact facet, facet-set, command, or
+> Query Operation selection; query operators select semantic extent; fields
+> and columns select projection; result shape and explicit format select
+> presentation; capability owners authorize expensive work; and companion
+> output remains separate. The CLI and shared section-planning substrate must
+> not use one level value to change more than one of those dimensions.
 
 This is an intentionally breaking CLI composition. It defines the replacement
 roles and retirement sequence but does not redefine facet identity, query
@@ -33,8 +34,8 @@ The target experience has independent, explicit dimensions:
 | Dimension | Gesture or owner |
 | --- | --- |
 | Subject | Command and subject coordinate |
-| Default Content | One registered default facet |
-| Different or broader Content | `-Q <facet>` or an authored facet set |
+| Default Content | One registered default facet or command-owned primary operation |
+| Different or broader Content | `-Q <facet>`, an authored facet set, or an explicit command/query operation |
 | Semantic extent | `--where`, order, Top, `-n`, `--rows`, and Count |
 | Cell or field projection | `--columns` and `--fields` |
 | Presentation | Shape-native default or `--format <name>` |
@@ -107,10 +108,12 @@ same hidden dimension under another name.
 
 ### One default facet
 
-Here, a **facet-producing route** is an inspection route whose ordinary
-execution returns registered inspection Content. Operational commands such as
-cache maintenance or skill display remain with their focused owners and do not
-gain synthetic facets merely to satisfy this composition.
+Here, a **facet-producing route** is an inspection route that resolves exactly
+one Workspace, Package, Library, Type, or Member structural subject admitted by
+the View Facet Registry and returns registered facet Content for that subject.
+Operational commands such as cache maintenance or skill display remain with
+their focused owners and do not gain synthetic facets merely to satisfy this
+composition.
 
 Each admitted facet-producing route declares exactly one default View Facet
 identity. Bare invocation and explicit selection of that identity lower to the
@@ -146,10 +149,43 @@ The facet registry or its focused default-binding owner issues the association.
 The host does not recover it from section position, `Info`, size, category, or
 rendered output.
 
+### Primary operations without one structural subject
+
+Some inspection routes answer a command-owned question without resolving one
+Registry-supported structural subject. Examples include a package comparison,
+catalog search, graph operation, or ecosystem-wide census. They remain
+inspection operations, but are not facet-producing routes merely because their
+result has selectable sections.
+
+Each such route declares exactly one command-owned primary operation for bare
+invocation. Different operations use exact command or Query Operation
+identity, command operands, or focused options under their existing owners.
+Query, projection, presentation, capability, companion-output, and diagnostic
+dimensions remain independent exactly as they are for facets.
+
+This composition does not mint `diff.*`, `find.*`, `graph.*`, or another
+operation-kind `ViewFacetId`. It also does not create a second facet registry.
+A non-subject route may adopt `-Q <facet>` only after a focused owner defines
+how the route resolves exactly one existing Registry-supported structural
+subject. The selected facet then applies to that subject under the ordinary
+Registry contract; the operation name is not disguised as a subject kind.
+
+During retirement, each independently selectable section on a non-subject
+route must either:
+
+- bind to one exact command or Query Operation identity;
+- become an explicit projection of that operation's Content; or
+- retire as an independently selectable surface.
+
+Automatic base-category unions do not survive on those routes. The command and
+Query Operation owners define the final explicit grammar; this design requires
+the no-level boundary but does not issue their identities.
+
 ### Explicit facets and sets
 
-`-Q <facet>` selects different Content. An authored facet set selects an
-explicit composition. Neither is a verbosity level.
+For a facet-producing route, `-Q <facet>` selects different Content. An
+authored facet set selects an explicit composition. Neither is a verbosity
+level.
 
 The target model does not define `@normal`, `@detailed`, `@wide`, `@all`, or
 another set whose purpose is to preserve the old ladder. Useful domain sets
@@ -297,7 +333,8 @@ appropriate.
 An explicit failures facet may provide a queryable inventory, but omitting that
 facet never converts partial or failed inspection into clean success. Each
 command adoption identifies how failures currently surfaced by normal or
-detailed automatic output remain visible with only the default facet.
+detailed automatic output remain visible with only the default facet or
+primary operation.
 
 Progress and trace diagnostics are not Content detail:
 
@@ -327,16 +364,20 @@ cost, and default status without executing ordinary producers. `--explain`
 and `-E` describe the selected request. They do not expose or emulate former
 verbosity presets.
 
+For a non-subject route, command discovery and explanation expose the primary
+and explicit operations issued by that command and Query Operation owners.
+They do not project those operations as synthetic View Facets.
+
 ## Current-level replacement matrix
 
 There is intentionally no one-to-one replacement flag:
 
 | Current request | Target expression |
 | --- | --- |
-| Bare command / `-v:m` | Bare command or exact default facet |
-| `-v:q` | Explicit Info facet, optionally narrowed with `--fields` or a structured format |
-| `-v:n` | Exact facets or a coherent authored facet set; no generic equivalent |
-| `-v:d` | Exact facets or authored domain sets plus explicit capability authorization; no generic equivalent |
+| Bare command / `-v:m` | Bare command, exact default facet, or command-owned primary operation |
+| `-v:q` | Explicit Info facet or command-owned identity projection, optionally narrowed with `--fields` or a structured format |
+| `-v:n` | Exact facets, a coherent authored facet set, or explicit command/Query Operations; no generic equivalent |
+| `-v:d` | Exact facets or operations plus explicit capability authorization; no generic equivalent |
 | `-v:*` as Markdown request | `--format markdown` |
 | `-v:m` compact Tree | The one natural Tree presentation |
 | `-v:n` / `-v:d` exhaustive Tree | Complete admitted format or focused hierarchy query; no generic Tree level |
@@ -349,9 +390,12 @@ diagnostic names the relevant current dimension, not another approximation:
 
 ```text
 -v is no longer supported.
-Choose Content with -Q, presentation with --format, or inspect available
-facets with -D.
+Choose Content with -Q or this command's explicit operations, presentation
+with --format, or inspect available operations with -D.
 ```
+
+The final diagnostic is command-aware: a structural subject route names facets,
+while a non-subject route names its command or Query Operations.
 
 ## Interaction with Browser/Wasm
 
@@ -359,6 +403,7 @@ The shared section substrate must not retain `SectionViewLevel` for Browser.
 Browser/Wasm consumes the same:
 
 - default facet identity;
+- command-owned primary operation identity for a non-subject route;
 - explicit facet and facet-set catalog;
 - query and projection descriptors;
 - semantic Content and shape;
@@ -370,16 +415,16 @@ selected tab, open disclosure region, or visible column set. That is UI state,
 not a product verbosity level and not portable query intent.
 
 The CLI and Browser may choose different natural presentations while consuming
-the same default facet and Content. Neither host constructs an automatic
-normal or detailed facet union.
+the same default facet or primary operation and Content. Neither host
+constructs an automatic normal or detailed union.
 
 ## Shared planning substrate
 
 The target L2 section/facet planning request is explicit:
 
 ```text
-default binding or exact facet selection
-  -> selected section/facet demand
+default facet, primary operation, or exact explicit selection
+  -> selected operation/section/facet demand
   -> host-attributed query demand
   -> query prerequisite closure
   -> typed execution plan
@@ -389,15 +434,18 @@ default binding or exact facet selection
 catalog retains:
 
 - one exact default plan per admitted facet-producing route or lens;
+- one exact primary-operation plan per admitted non-subject route;
 - exact single-facet plans;
 - authored facet-set plans;
+- exact command and Query Operation plans;
 - bounded and unbounded admission variants where a focused owner still needs
   them; and
 - request-compiled uncommon explicit sets where supported.
 
-The default plan is not synthesized by passing a distinguished level into the
-general selection algorithm. It is compiled from the exact owner-issued
-default binding, making default-versus-explicit equivalence directly testable.
+The default-facet or primary-operation plan is not synthesized by passing a
+distinguished level into the general selection algorithm. It is compiled from
+the exact owner-issued binding, making bare-versus-explicit equivalence
+directly testable.
 
 The substrate retains cost, size, applicability, effectiveness, category/set
 membership, query attribution, and immutable plan reuse where those concepts
@@ -415,6 +463,7 @@ Browser APIs. The public CLI cutover remains atomic.
 | Default and selectable facet identity | [View Facet Registry](view-facet-registry.md) and the focused default-binding adoption proposed by [PR #9102](https://github.com/richlander/dotnet-inspect/pull/9102) | Supply exact stable Content identity rather than positional automatic selection |
 | Facet sets | Section/facet-set owner proposed by PR #9102 | Supplies explicit authored compositions without normal/detailed semantics |
 | Query extent and terminals | QuerySpace and focused row-selection owners | Supply predicates, order, Top, windows, and Count |
+| Non-subject operation identity | Command and Query Operation owners | Supply one primary operation and exact explicit operations without minting View Facets |
 | Content shape and representability | [Output Shapes](output-shapes.md) and each result owner | Supply Document, Table, Hierarchy, and complete lowering contracts |
 | Format grammar and precedence | [CLI Output Format and Destination](cli-output-format-and-destination.md) | Supplies `--format`; removes verbosity from format selection |
 | Subject defaults and Info separation | [Primary Subject Views](primary-subject-views.md) and command owners | Supply hierarchy-first defaults, exact-member leaf behavior, and explicit Info |
@@ -423,7 +472,7 @@ Browser APIs. The public CLI cutover remains atomic.
 | Shared section planning | [Section Pipeline](section-pipeline.md) | Replaces `SectionViewLevel` automatic plans with exact default and explicit plans |
 | Discovery and explanation | Schema Query, Resource Explanation, and Contextual Resource Explanation | Replace root `-v` metadata and explain current explicit requests |
 | CLI grammar and diagnostics | CLI host | Removes `-v`, adopts progress spelling, updates help and obsolete-input behavior |
-| Browser interaction | Inspect Web owners | Consume shared facet/default contracts without a portable level |
+| Browser interaction | Inspect Web owners | Consume shared default-request contracts without a portable level |
 | Breaking-change mechanics | [CLI Change Classification](cli-change-classification.md) | Classifies removal, disclosure, and any focused invalid-input guard |
 
 This map transfers none of those owners' internal contracts.
@@ -468,15 +517,17 @@ Implementation proceeds through focused, independently reviewable slices:
 5. **Decouple diagnostics and capabilities.** Preserve failure visibility and
    replace every detailed-level authorization or enrichment path with its
    focused explicit owner.
-6. **Replace L2 automatic plans.** Compile exact default, facet, and set plans;
-   remove `SectionViewLevel`, automatic plan arrays, level promotion, and
-   level-shaped capability provenance from shared substrate.
+6. **Replace L2 automatic plans.** Compile exact default-facet,
+   primary-operation, facet, operation, and set plans; remove
+   `SectionViewLevel`, automatic plan arrays, level promotion, and level-shaped
+   capability provenance from shared substrate.
 7. **Adopt subject commands.** Package, Library, Type, and Member consume their
    default hierarchy or leaf facet, explicit Info, stable projections, and
    bounded natural Tree.
-8. **Adopt remaining commands.** Facet-producing Diff, Depends, Find, Graph,
-   Ecosystem, Vocabulary, Project, Workspace, and query routes name one default
-   and remove level-dependent behavior. Operational utilities retain their
+8. **Adopt remaining commands.** Routes over one Registry-supported structural
+   subject name one default facet. Diff, search, graph, ecosystem-wide, and
+   other non-subject routes name one primary operation and exact explicit
+   operations without synthetic facets. Operational utilities retain their
    focused operations without synthetic facets.
 9. **Decouple presentation.** Remove verbosity from format precedence and make
    `--format markdown` the only explicit Markdown request.
@@ -503,47 +554,52 @@ Focused adoptions must demonstrate:
 
 1. **New facet registration.** Adding a facet does not change bare output or
    work.
-2. **Unavailable default.** A structurally applicable but unavailable default
+2. **New operation registration.** Adding an explicit command or Query
+   Operation does not change a non-subject route's primary operation.
+3. **Unavailable default.** A structurally applicable but unavailable default
    fails visibly; the host does not choose the next facet.
-3. **Empty default.** A validly empty default preserves its shape and empty
+4. **Empty default.** A validly empty default preserves its shape and empty
    meaning rather than falling back to Info.
-4. **Explicit set.** Selecting a multi-facet set executes exactly its authored
+5. **Explicit set.** Selecting a multi-facet set executes exactly its authored
    members and preserves every failure; cost does not remove one member.
-5. **Format independence.** `--format markdown` and the natural format consume
+6. **Format independence.** `--format markdown` and the natural format consume
    the same semantic Content, rows, and acquisition plan.
-6. **Environment format.** Without explicit `--format`, the environment
+7. **Environment format.** Without explicit `--format`, the environment
    override applies without being suppressed by a removed level.
-7. **Large hierarchy.** Natural Tree collapse preserves exact counts and
+8. **Large hierarchy.** Natural Tree collapse preserves exact counts and
    identity; complete JSON or an admitted row lowering contains every child.
-8. **Tree failure.** An unreadable child or incomplete population remains
+9. **Tree failure.** An unreadable child or incomplete population remains
    visible even when its branch is collapsed.
-9. **Info separation.** Selecting Info does not execute the child population;
+10. **Info separation.** Selecting Info does not execute the child population;
    selecting the child facet does not execute Info-only producers.
-10. **Detailed former enrichment.** Documentation, source, network, or
+11. **Detailed former enrichment.** Documentation, source, network, or
     exhaustive work runs only under its explicit facet and capability, never
     because Markdown or a broad set was selected.
-11. **Failure inventory omitted.** A selected operation failure remains a
+12. **Failure inventory omitted.** A selected operation failure remains a
     non-success or visible partial result without selecting a failures facet.
-12. **Row extent.** `-n`, ranges, Count, and Top change only their declared
+13. **Row extent.** `-n`, ranges, Count, and Top change only their declared
     semantic population and never select fields or facets.
-13. **Exact Member.** An exact Member retains its leaf Signature default and
+14. **Exact Member.** An exact Member retains its leaf Signature default and
     does not gain sibling overloads or Info because levels disappeared.
-14. **Removed optional value.** Former `-v d` input cannot silently bind `d` as
+15. **Removed optional value.** Former `-v d` input cannot silently bind `d` as
     a subject, package, query value, or router target.
-15. **Root removal.** Former root `-v` cannot enter implicit target routing;
+16. **Root removal.** Former root `-v` cannot enter implicit target routing;
     root discovery and explanation remain reachable explicitly.
-16. **Progress independence.** Progress and trace diagnostics leave stdout,
+17. **Progress independence.** Progress and trace diagnostics leave stdout,
     selected Content, work authorization, format, and exit meaning unchanged.
-17. **Browser parity.** CLI and Browser consume the same default facet and
-    Content while host-local tree expansion does not become portable intent.
+18. **Browser parity.** CLI and Browser consume the same default facet or
+    primary operation and Content while host-local tree expansion does not
+    become portable intent.
 
 ## Evidence plan
 
 Each implementation slice supplies Release gates for the behavior it adopts.
 Across the migration, evidence includes:
 
-- one declared default for every facet-producing route;
+- one declared default facet for every facet-producing route and one declared
+  primary operation for every non-subject inspection route;
 - bare/default-facet request and Content equivalence;
+- bare/primary-operation request and Content equivalence;
 - exact query-demand equivalence before and after internal L2 preparation;
 - no extra producer, acquisition, or capability demand from format selection;
 - selected-facet isolation from Info and unrelated peers;
@@ -555,7 +611,7 @@ Across the migration, evidence includes:
 - old optional-value and implicit-router collision outcomes;
 - current help, completion, CLI reference, workflow, and product-skill
   migration;
-- CLI and Browser default-facet and serialized-Content equality; and
+- CLI and Browser default-request and serialized-Content equality; and
 - NativeAOT before/after results for every supported terminal in each
   behavior-changing implementation PR.
 
@@ -573,7 +629,7 @@ NativeAOT evidence.
 
 This design does not:
 
-- choose every route's default facet or final ID;
+- choose every route's default facet, primary operation, or final ID;
 - define facet-set identity or membership;
 - make every current automatic section survive as a facet;
 - replace verbosity with `wide`, `more`, `detail`, `all`, or another scale;
