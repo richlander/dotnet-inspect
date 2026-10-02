@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis.Classification;
@@ -70,6 +72,32 @@ public sealed class MethodDefinitionRequestSetTests
             QuerySpaceRequestSetRejectionReason
                 .DuplicateAssociationIdentity,
             reason.Reason);
+    }
+
+    [Fact]
+    public void Plan_PreservesOwnerIssuedWorkDescription()
+    {
+        WorkDescription work =
+            Assert.IsType<ProducerPlanResult.Accepted>(
+                    ProducerPlanner.Plan(
+                        [new ProducerRequest(
+                            CountingProducer.Instance,
+                            ProducerTerminal.Count)]))
+                .Description;
+        MethodDefinitionSourceRequest<int> request =
+            MethodDefinitionSourceRequest<int>.Create(
+                QueryRequest(ProducerTerminal.Count),
+                work,
+                CountingProducer.Instance);
+        MethodDefinitionSourceAssociation association =
+            MethodDefinitionSourceAssociation.Create(request);
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            AcceptedPlan([association]);
+
+        Assert.Same(
+            work,
+            Assert.Single(Assert.Single(plan.Groups).Lanes).Work);
     }
 
     [Fact]
@@ -258,6 +286,48 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void Execute_SettledTypeScopeStopsPhysicalReadsForThatType()
+    {
+        MethodDefinitionSourceAssociation unsafeEvidence =
+            Association(
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceAssociation pinvoke =
+            Association(
+                PInvokeAnalyzer.Instance,
+                ProducerTerminal.Rows);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([unsafeEvidence, pinvoke]),
+                TwoMethodsInExcludedTypeWithFirstBody(
+                    [0x0A, 0xFE, 0x0F]));
+
+        Assert.Equal(
+            new ProducerResult<int>(
+                ProducerOutcome.Stopped,
+                1),
+            ResultOf<int>(execution, unsafeEvidence));
+        Assert.Equal(
+            ProducerOutcome.Complete,
+            ResultOf<ClosedQueryResult<ClassifiedMethodRow>>(
+                    execution,
+                    pinvoke)
+                .Outcome);
+        MethodDefinitionSourceGroupReceipt group =
+            Assert.Single(execution.GroupReceipts);
+        Assert.Equal(
+            1,
+            execution.ResultOf(unsafeEvidence)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            0,
+            execution.ResultOf(pinvoke)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, group.PhysicalCoverage.MethodsSelected.Count);
+    }
+
+    [Fact]
     public void Execute_SettledRequestSurvivesRequiredSourceFailure()
     {
         byte[] bytes =
@@ -424,6 +494,38 @@ public sealed class MethodDefinitionRequestSetTests
                                 operation,
                                 access)))
             .Execution;
+    }
+
+    static ImmutableArray<byte> TwoMethodsInExcludedTypeWithFirstBody(
+        ReadOnlySpan<byte> firstMethodBody)
+    {
+        byte[] bytes = MetadataMethodPtrFixture.Build(1, 2);
+        int searchStart = 0;
+        int replacements = 0;
+        while (bytes.AsSpan(searchStart).IndexOf("Fixture\0"u8)
+            is int relative
+            && relative >= 0)
+        {
+            int match = searchStart + relative;
+            "<Scope>\0"u8.CopyTo(bytes.AsSpan(match));
+            replacements++;
+            searchStart = match + "<Scope>\0"u8.Length;
+        }
+        Assert.True(replacements > 0);
+
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        var reader = peReader.GetMetadataReader();
+        int rva = reader
+            .GetMethodDefinition(reader.MethodDefinitions.First())
+            .RelativeVirtualAddress;
+        var section = peReader.PEHeaders.SectionHeaders.Single(
+            header => rva >= header.VirtualAddress
+                && rva < header.VirtualAddress + header.VirtualSize);
+        firstMethodBody.CopyTo(
+            bytes.AsSpan(
+                rva - section.VirtualAddress + section.PointerToRawData));
+        return ImmutableArray.Create(bytes);
     }
 
     static int ValueOf(

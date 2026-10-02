@@ -422,7 +422,9 @@ public sealed class MethodDefinitionExecution
                                 methodHandle);
                         }
 
-                        if (!AnyLaneActive(visiting))
+                        if (!AnyLaneActiveInScope(
+                                visiting,
+                                laneInScope))
                             break;
                     }
                 }
@@ -483,6 +485,19 @@ public sealed class MethodDefinitionExecution
         foreach (ProducerState[] lane in lanes)
         {
             if (AnyActive(lane))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool AnyLaneActiveInScope(
+        ProducerState[][] lanes,
+        bool[] laneInScope)
+    {
+        for (int i = 0; i < lanes.Length; i++)
+        {
+            if (laneInScope[i] && AnyActive(lanes[i]))
                 return true;
         }
 
@@ -993,6 +1008,7 @@ public sealed class MethodDefinitionExecution
             catch (ProducerAbortException abort)
             {
                 state.Execution.Abort(abort.Failure);
+                return false;
             }
             anyActive |= state.IsActive;
         }

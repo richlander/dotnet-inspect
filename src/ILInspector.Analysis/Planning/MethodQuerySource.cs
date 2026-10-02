@@ -256,11 +256,6 @@ public abstract class MethodDefinitionSourceRequest
 
     internal ProducerDeclaration FocusedProducer { get; }
 
-    internal ProducerRequest ProducerRequest =>
-        RowLimit is int rowLimit
-            ? ProducerRequest.Head(FocusedProducer, rowLimit)
-            : new(FocusedProducer, Terminal);
-
     internal abstract object BoxResult(
         MethodDefinitionExecution execution);
 
@@ -566,18 +561,12 @@ public static class MethodDefinitionSourceRequestSet
 
             ImmutableArray<MethodDefinitionSourceAssociation> members =
                 groupedAssociations.MoveToImmutable();
-            if (!TryBuildLanes(members, out var lanes))
-            {
-                throw new ProducerContractException(
-                    "A Method-source group changed after its compatibility "
-                    + "offer was accepted.");
-            }
 
             sourceGroups.Add(new(
                 group.Resource,
                 group.Source,
                 members[0].Request.Breadth,
-                lanes));
+                BuildLanes(members)));
         }
 
         return new MethodDefinitionSourceRequestSetPlanResult.Accepted(
@@ -586,9 +575,8 @@ public static class MethodDefinitionSourceRequestSet
                 sourceGroups.MoveToImmutable()));
     }
 
-    static bool TryBuildLanes(
-        ImmutableArray<MethodDefinitionSourceAssociation> associations,
-        out ImmutableArray<MethodDefinitionSourceLanePlan> lanes)
+    static ImmutableArray<MethodDefinitionSourceLanePlan> BuildLanes(
+        ImmutableArray<MethodDefinitionSourceAssociation> associations)
     {
         var planned =
             ImmutableArray.CreateBuilder<MethodDefinitionSourceLanePlan>(
@@ -596,21 +584,12 @@ public static class MethodDefinitionSourceRequestSet
         foreach (MethodDefinitionSourceAssociation association
             in associations)
         {
-            ProducerPlanResult result = ProducerPlanner.Plan(
-                [association.Request.ProducerRequest]);
-            if (result is not ProducerPlanResult.Accepted accepted)
-            {
-                lanes = default;
-                return false;
-            }
-
             planned.Add(new(
-                accepted.Description,
+                association.Request.Work,
                 [association]));
         }
 
-        lanes = planned.MoveToImmutable();
-        return true;
+        return planned.MoveToImmutable();
     }
 
     static bool SameBreadth(
@@ -647,9 +626,7 @@ public static class MethodDefinitionSourceRequestSet
                 return false;
             }
 
-            return TryBuildLanes(
-                [.. _associations, association],
-                out _);
+            return true;
         }
 
         public void Add(
