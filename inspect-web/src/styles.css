@@ -1172,6 +1172,7 @@ kbd {
   border-left: 2px solid transparent;
   color: var(--text);
 }
+.type-browser.has-item-achievement-rail .type-row { padding-left: 48px; }
 .type-row > * { position: relative; z-index: 1; }
 .type-row:hover { background: rgba(255,255,255,.02); }
 .type-row.selected {
@@ -1212,26 +1213,45 @@ kbd {
     color-mix(in oklch, var(--salience-peak) 22%, transparent) 0%,
     transparent 62%);
 }
-.type-leverage-icon {
+.type-row > .item-achievement-rail {
   position: absolute;
-  left: 10px;
-  top: 6px;
+  left: 8px;
+  top: 7px;
   z-index: 2;
+}
+.item-achievement-rail {
   display: grid;
-  width: 12px;
-  height: 18px;
-  place-items: center;
-  font: 700 10px/1 var(--mono);
+  grid-template-columns: repeat(2, 16px);
+  gap: 2px;
+  width: 34px;
+  height: 16px;
+  align-items: center;
 }
-.type-leverage-icon.sea-level {
-  align-items: end;
+.item-achievement-glyph {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-image: var(--item-achievement-mask);
+  mask-image: var(--item-achievement-mask);
+}
+.item-achievement-glyph.sea-level {
+  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 6c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8'/%3E%3Cpath d='M2 9c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3Cpath d='M3 12c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3C/svg%3E");
   color: var(--salience-sea);
-  font-size: 14px;
 }
-.type-leverage-icon.mountain-peak {
-  align-items: start;
+.item-achievement-glyph.mountain-peak {
+  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 13 5.5 7.25 7.2 9.4 10 3.5 14.5 13'/%3E%3Cpath d='M9 8.1 10 7.1 11.5 8.85'/%3E%3Cpath d='M3.5 13 5.75 9.8'/%3E%3C/svg%3E");
   color: var(--salience-peak);
-  font-size: 8px;
+}
+.item-achievement-glyph.implementation-hub {
+  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='2.5' cy='4' r='1'/%3E%3Ccircle cx='2.5' cy='8' r='1'/%3E%3Ccircle cx='2.5' cy='12' r='1'/%3E%3Cpath d='M3.5 4c2.7 0 4.2 1 5.6 2'/%3E%3Cpath d='M3.5 8h5'/%3E%3Cpath d='M3.5 12c2.7 0 4.2-1 5.6-2'/%3E%3Cpath d='m8.45 5.25.75.9.1-1.1'/%3E%3Cpath d='m8 7.35.95.65-.95.65'/%3E%3Cpath d='m8.45 10.75.75-.9.1 1.1'/%3E%3Cpath d='M11.2 5.4h1.6l.25.8.8.35.75-.4.8.8-.4.75.35.8.8.25v1.1l-.8.25-.35.8.4.75-.8.8-.75-.4-.8.35-.25.8h-1.6l-.25-.8-.8-.35-.75.4-.8-.8.4-.75-.35-.8-.8-.25v-1.1l.8-.25.35-.8-.4-.75.8-.8.75.4.8-.35z'/%3E%3Ccircle cx='12' cy='8.8' r='1.15'/%3E%3C/svg%3E");
+  color: var(--hub-strip);
 }
 .nav-back-row {
   display: grid;
@@ -1253,12 +1273,12 @@ kbd {
 .nav-back-row small { color: var(--dim); font: 10px var(--mono); }
 .member-list .member-row { padding-left: 14px; }
 .member-list .member-row.active-group { background: rgba(255,255,255,.022); }
-/* Nested overloads need no branch glyph: they sit under their family row,
-   start where the family's icon does, and spend the width on parameters. */
+/* Nested overloads use the shared achievement gutter instead of a branch
+   glyph; the signature starts after its two fixed slots. */
 .member-list .overload-nav-row {
   grid-template-columns: minmax(0, 1fr) auto;
   height: 28px;
-  padding: 0 12px 0 16px;
+  padding: 0 12px 0 48px;
 }
 .sig-name { color: var(--text); }
 .sig-type { color: var(--blue); }
@@ -1275,16 +1295,6 @@ kbd {
     270deg,
     var(--heat-color) 0%,
     color-mix(in oklch, var(--heat-color) 0%, transparent) var(--heat-reach));
-}
-.member-list .overload-nav-row.hub { position: relative; }
-.member-list .overload-nav-row.hub::before {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 4px;
-  bottom: 4px;
-  width: 3px;
-  background: var(--hub-strip);
 }
 /* An overload family's name and count: its own hue, apart from heat's tint
    and the heat-status cue tokens. The count keeps it from relying on color. */
@@ -1569,14 +1579,11 @@ kbd {
 .metrics-salience-order h3 { margin: 0; padding: 10px 12px; color: var(--text); border-bottom: 1px solid var(--line); font-size: 13px; }
 .metrics-salience-order > p { margin: 0; padding: 8px 12px; color: var(--dim); border-top: 1px solid var(--line); font: 10px var(--mono); }
 .metrics-salience-types { display: grid; }
-.metrics-salience-type { position: relative; isolation: isolate; overflow: hidden; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 3px 7px; min-width: 0; padding: 9px 12px; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
+.metrics-salience-type { position: relative; isolation: isolate; overflow: hidden; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 3px 7px; min-width: 0; padding: 9px 12px; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
 .metrics-salience-type > * { position: relative; z-index: 1; }
 .metrics-salience-type:last-child { border-bottom: 0; }
 .metrics-salience-type:hover,
 .metrics-salience-type:focus-visible { background: var(--panel-active); }
-.metrics-salience-pole { display: grid; width: 14px; height: 14px; place-items: center; font: 700 10px/1 var(--mono); }
-.metrics-salience-type.sea-level .metrics-salience-pole { align-items: end; color: var(--salience-sea); font-size: 14px; }
-.metrics-salience-type.mountain-peak .metrics-salience-pole { align-items: start; color: var(--salience-peak); font-size: 8px; }
 .metrics-salience-type-name { overflow: hidden; text-overflow: ellipsis; font: 12px var(--mono); }
 .metrics-salience-type small { grid-column: 2; color: var(--dim); font: 10px var(--mono); }
 .metrics-salience-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); }

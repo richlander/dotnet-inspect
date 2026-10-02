@@ -457,30 +457,34 @@ topology selection.
 
 The existing Metrics lens adds a structural-salience view rather than new
 persistent workspace chrome. It presents the Research-issued namespace order
-and, for a selected namespace, separate sea-level and mountain-peak Type lists
-in their Research-issued order. The lists remain directional rankings, not
-category membership lists. Each visible Type row discloses its named degree,
-structural role, and owner-issued pole when present, and activates the exact
-metadata Type key. A presentation limit may take a prefix of an issued order,
-but Browser does not sort, merge, exclude, or recompute rows. Relationship
-Crossing may decorate an already selected exact Type with its report-issued
-role; it does not infer role from the bounded call projection.
+and, for a selected namespace, the complete incoming-peer and outgoing-peer
+Type rankings in their Research-issued order. The ranking headings name their
+measure rather than a pole category. Each visible Type row discloses its named
+degree, structural role, and owner-issued pole when present, and activates the
+exact metadata Type key. A presentation limit may take a prefix of an issued
+order, but Browser does not sort, merge, exclude, or recompute rows.
+Relationship Crossing may decorate an already selected exact Type with its
+report-issued role; it does not infer role from the bounded call projection.
 
 The Type Browser adds an explicit `Structural salience` action inside its
-existing filter disclosure. Activating it requests the Library namespace index
-and the exact shards for every top-leverage namespace. Selecting an exact
-namespace adds that namespace's shard to the partial presentation. Types in
-other namespaces remain undecorated until their namespace is selected; Browser
-does not eagerly turn activation into exhaustive assembly processing. It does
-not run implementation profiles, body-use analysis, the call graph, exhaustive
-Type-shard composition, or the rest of Library Metrics. Package and platform
-Libraries use the same managed queries and Browser contracts.
+existing filter disclosure. Activating it requests the exhaustive Library
+structural-salience document: the namespace index and every exact namespace
+Type-leverage shard in index order. This makes every pole and pole-filter count
+authoritative in the initial all-namespaces view. Selecting an exact namespace
+is a client-side projection over the same complete document; it neither starts
+another analysis nor changes the document identity. Browser visibly rejects a
+document with missing, extra, duplicated, or reordered namespace shards. The
+action does not run implementation profiles, body-use analysis, the call graph,
+or the rest of Library Metrics. Package and platform Libraries use the same
+managed query shape and Browser contract.
 
-The namespace index is cached by exact Library identity, methodology version,
-evidence mode, and workspace generation. A Type shard adds exact namespace to
-that key. Operation authority prevents stale results from publishing into a
-replacement workspace. Loading, qualified, unavailable, and failed outcomes
-remain visible and retryable.
+The exhaustive document is cached by exact Library identity, methodology
+version, evidence mode, and workspace generation. Operation authority prevents
+stale results from publishing into a replacement workspace. Loading, qualified,
+unavailable, and failed outcomes remain visible and retryable. The exact
+namespace shard remains the Research unit and a query surface for demand-driven
+tool and agent consumers; the Browser host does not compose partial shard
+unions.
 
 Browser presentation consumes Research-issued top-leverage and nullable Type
 pole designations. It does not apply a second percentage, rank, threshold, or
@@ -495,14 +499,21 @@ only leverage presentation and filtering; it does not discard the cached
 Research result.
 
 Structural salience follows the existing implementation-heat visual grammar.
-Categorical icons and glyphs occupy the left gutter. Scalar magnitude heat,
-including implementation-profile heat, remains a horizontal gradient anchored
-at the right edge. A sea-level Type uses a baseline glyph plus a subtle
-bottom-up vertical wash; a mountain-peak Type uses a peak glyph plus a subtle
-top-down vertical wash. Shape and vertical origin carry the distinction while
-theme-owned color remains secondary. A Type with no issued pole receives no
-salience icon or wash. Hover and selection remain visibly stronger than either
-wash, and accessible text remains authoritative. These cues express only the
+Categorical achievements occupy a shared left-gutter rail with zero to two
+ordered glyph slots per item. Two slots preserve dense Type and future member
+rows while allowing another owner-issued signal to compose with structural
+salience; this design does not define or synthesize that future signal. The
+rail is item-neutral presentation substrate, and each consumer supplies an
+already selected, strongest-first set without Browser combining scores across
+owners. In this slice Research issues only one exclusive structural pole, so a
+Type uses at most one slot: a sea-level Type uses a baseline glyph plus a
+subtle bottom-up vertical wash, while a mountain-peak Type uses a peak glyph
+plus a subtle top-down vertical wash. Scalar magnitude heat, including
+implementation-profile heat, remains a horizontal gradient anchored at the
+right edge. Shape and vertical origin carry the distinction while theme-owned
+color remains secondary. A Type with no issued pole receives an empty rail and
+no wash. Hover and selection remain visibly stronger than either wash, and
+accessible text remains authoritative. These cues express only the
 owner-issued pole; they do not encode quality, reciprocity, reachability, or a
 cycle.
 
