@@ -1160,6 +1160,7 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
 internal sealed class MethodDefinitionHandleCoverageBuilder
 {
     List<MethodDefinitionHandleRange>? _completedRanges;
+    HashSet<int>? _unorderedRows;
     int _firstRow;
     int _lastRow;
     int _count;
@@ -1167,6 +1168,13 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
     public void Add(MethodDefinitionHandle handle)
     {
         int row = MetadataTokens.GetRowNumber(handle);
+        if (_unorderedRows is not null)
+        {
+            if (_unorderedRows.Add(row))
+                _count++;
+            return;
+        }
+
         if (_count == 0)
         {
             _firstRow = row;
@@ -1179,8 +1187,8 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
             return;
         if (row < _lastRow)
         {
-            throw new InvalidOperationException(
-                "Method source coverage must be recorded in metadata order.");
+            MoveToUnordered(row);
+            return;
         }
 
         if (row == _lastRow + 1)
@@ -1200,6 +1208,18 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
     {
         if (_count == 0)
             return MethodDefinitionHandleCoverage.Empty;
+        if (_unorderedRows is not null)
+        {
+            int[] rows = [.. _unorderedRows];
+            Array.Sort(rows);
+            var ordered = new MethodDefinitionHandleCoverageBuilder();
+            foreach (int row in rows)
+            {
+                ordered.Add(
+                    MetadataTokens.MethodDefinitionHandle(row));
+            }
+            return ordered.Build();
+        }
 
         MethodDefinitionHandleRange current = CurrentRange();
         if (_completedRanges is null)
@@ -1217,6 +1237,36 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
         return new MethodDefinitionHandleCoverage(
             _count,
             ranges.ToImmutable());
+    }
+
+    void MoveToUnordered(int row)
+    {
+        var rows = new HashSet<int>(_count + 1);
+        if (_completedRanges is not null)
+        {
+            foreach (MethodDefinitionHandleRange range
+                in _completedRanges)
+            {
+                AddRange(rows, range);
+            }
+        }
+        AddRange(rows, CurrentRange());
+        rows.Add(row);
+        _unorderedRows = rows;
+        _count = rows.Count;
+    }
+
+    static void AddRange(
+        HashSet<int> rows,
+        MethodDefinitionHandleRange range)
+    {
+        int last = MetadataTokens.GetRowNumber(range.Last);
+        for (int row = MetadataTokens.GetRowNumber(range.First);
+            row <= last;
+            row++)
+        {
+            rows.Add(row);
+        }
     }
 
     MethodDefinitionHandleRange CurrentRange() =>

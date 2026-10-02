@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
@@ -420,6 +421,68 @@ public sealed class MethodDefinitionRequestSetTests
             independentResult.Value!.Rows.ToArray(),
             sharedResult.Value!.Rows.ToArray());
         Assert.Single(sharedResult.Value.Rows);
+    }
+
+    [Fact]
+    public void Execute_ReorderedMethodPtrMatchesIndependentResults()
+    {
+        ImmutableArray<byte> image =
+            ImmutableArray.Create(
+                MetadataMethodPtrFixture
+                    .BuildSplitReorderedPointerMethods());
+        MethodDefinitionSourceAssociation unsafeEvidence =
+            Association(
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceAssociation pointer =
+            Association(
+                PointerSignatureAnalyzer.Instance,
+                ProducerTerminal.Rows);
+
+        MethodDefinitionSourceRequestSetExecution shared =
+            Execute(
+                AcceptedPlan([unsafeEvidence, pointer]),
+                image);
+        MethodDefinitionSourceRequestSetExecution independentUnsafe =
+            Execute(
+                AcceptedPlan([unsafeEvidence]),
+                image);
+        MethodDefinitionSourceRequestSetExecution independentPointer =
+            Execute(
+                AcceptedPlan([pointer]),
+                image);
+
+        Assert.Equal(
+            ResultOf<int>(independentUnsafe, unsafeEvidence),
+            ResultOf<int>(shared, unsafeEvidence));
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            sharedPointer =
+                ResultOf<
+                    ClosedQueryResult<ClassifiedMethodRow>>(
+                        shared,
+                        pointer);
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            independentPointerResult =
+                ResultOf<
+                    ClosedQueryResult<ClassifiedMethodRow>>(
+                        independentPointer,
+                        pointer);
+        Assert.Equal(
+            independentPointerResult.Outcome,
+            sharedPointer.Outcome);
+        Assert.Equal(
+            independentPointerResult.Value!.Rows.ToArray(),
+            sharedPointer.Value!.Rows.ToArray());
+        MethodDefinitionHandleCoverage physical =
+            Assert.Single(shared.GroupReceipts)
+                .PhysicalCoverage.MethodsSelected;
+        Assert.Equal(2, physical.Count);
+        Assert.True(
+            physical.Contains(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        Assert.True(
+            physical.Contains(
+                MetadataTokens.MethodDefinitionHandle(2)));
     }
 
     static MethodDefinitionSourceAssociation Association<TResult>(
