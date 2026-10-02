@@ -4738,6 +4738,7 @@ const memberDiffExplorer = createMemberDiffExplorer({
     );
     return undefined;
   },
+  writeClipboardText: value => navigator.clipboard.writeText(value),
   renderPage: render,
 });
 const compareClone = createCompareCloneCoordinator({
