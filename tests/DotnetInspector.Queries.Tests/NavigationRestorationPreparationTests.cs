@@ -10,6 +10,268 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class NavigationRestorationPreparationTests
 {
     [Fact]
+    public async Task
+        CanonicalRestoration_ExactEcosystemPairIsPrepared()
+    {
+        await using EcosystemFixture fixture =
+            await EcosystemFixture.CreateAsync("ecosystem.aspire");
+        NavigationEcosystemEvaluation ecosystem =
+            fixture.Evaluation("ecosystem.aspire");
+        StructuralSubjectIdentity.EcosystemSubject subject =
+            fixture.Subject(ecosystem);
+        var lens = new NavigationLensIdentity(
+            subject,
+            new ViewFacetId("ecosystem.overview"));
+
+        NavigationRestorationPreparationResult.Prepared prepared =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    fixture.Workspace.Identity,
+                    fixture.Facts(ecosystem),
+                    fixture.Registry,
+                    new(subject, Lens: lens)));
+
+        NavigationWorkspaceSnapshot snapshot =
+            prepared.Initialization.State.CurrentSnapshot;
+        Assert.Same(subject.Occurrence, snapshot.Ecosystem!.Occurrence);
+        Assert.Equal(subject, snapshot.ActiveSubject);
+        Assert.Null(snapshot.RetainedContext);
+        Assert.Empty(snapshot.Packages);
+        Assert.Equal(lens, snapshot.LensOutcome.EffectiveLens);
+    }
+
+    [Fact]
+    public async Task
+        CanonicalRestoration_EcosystemFactsDefaultToExactSubject()
+    {
+        await using EcosystemFixture fixture =
+            await EcosystemFixture.CreateAsync("ecosystem.aspire");
+        NavigationEcosystemEvaluation ecosystem =
+            fixture.Evaluation("ecosystem.aspire");
+
+        NavigationRestorationPreparationResult.Prepared prepared =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    fixture.Workspace.Identity,
+                    fixture.Facts(ecosystem),
+                    fixture.Registry,
+                    new()));
+
+        StructuralSubjectIdentity.EcosystemSubject subject =
+            Assert.IsType<StructuralSubjectIdentity.EcosystemSubject>(
+                prepared.Initialization.State.CurrentSnapshot.ActiveSubject);
+        Assert.Same(ecosystem.Occurrence, subject.Occurrence);
+        Assert.Equal(
+            "ecosystem.overview",
+            prepared.Initialization.State.CurrentSnapshot
+                .LensOutcome.EffectiveLens!.Facet.Value);
+    }
+
+    [Fact]
+    public async Task
+        CanonicalRestoration_EcosystemFactsCanSelectWorkspace()
+    {
+        await using EcosystemFixture fixture =
+            await EcosystemFixture.CreateAsync("ecosystem.aspire");
+        NavigationEcosystemEvaluation ecosystem =
+            fixture.Evaluation("ecosystem.aspire");
+        StructuralSubjectIdentity.WorkspaceSubject workspace =
+            StructuralSubjectIdentity.ForWorkspace(
+                fixture.Workspace.Identity);
+
+        NavigationRestorationPreparationResult.Prepared prepared =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    fixture.Workspace.Identity,
+                    fixture.Facts(ecosystem),
+                    fixture.Registry,
+                    new(workspace)));
+
+        NavigationWorkspaceSnapshot snapshot =
+            prepared.Initialization.State.CurrentSnapshot;
+        Assert.Equal(workspace, snapshot.ActiveSubject);
+        Assert.Same(ecosystem.Occurrence, snapshot.Ecosystem!.Occurrence);
+        Assert.Null(snapshot.RetainedContext);
+    }
+
+    [Fact]
+    public async Task
+        CanonicalRestoration_RejectsForeignEcosystemFacts()
+    {
+        await using EcosystemFixture first =
+            await EcosystemFixture.CreateAsync("ecosystem.aspire");
+        await using EcosystemFixture second =
+            await EcosystemFixture.CreateAsync("ecosystem.aspire");
+        var facts = new NavigationEvaluationFacts(
+            first.Scope,
+            Package: null,
+            first.Availability)
+        {
+            Ecosystem = second.Evaluation("ecosystem.aspire"),
+        };
+
+        NavigationRestorationPreparationResult.Rejected rejected =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Rejected>(
+                NavigationTransitions.PrepareRestoration(
+                    first.Workspace.Identity,
+                    facts,
+                    first.Registry,
+                    new()));
+
+        Assert.Equal(
+            NavigationRestorationRejectionKind.InvalidContext,
+            rejected.Kind);
+    }
+
+    [Fact]
+    public async Task
+        CanonicalRestoration_RejectsMismatchedEcosystemSubject()
+    {
+        await using EcosystemFixture fixture =
+            await EcosystemFixture.CreateAsync(
+                "ecosystem.aspire",
+                "ecosystem.extensions");
+        NavigationEcosystemEvaluation aspire =
+            fixture.Evaluation("ecosystem.aspire");
+        StructuralSubjectIdentity.EcosystemSubject extensions =
+            fixture.Subject(
+                fixture.Evaluation("ecosystem.extensions"));
+
+        NavigationRestorationPreparationResult.Rejected rejected =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Rejected>(
+                NavigationTransitions.PrepareRestoration(
+                    fixture.Workspace.Identity,
+                    fixture.Facts(aspire),
+                    fixture.Registry,
+                    new(extensions)));
+
+        Assert.Equal(
+            NavigationRestorationRejectionKind.InvalidContext,
+            rejected.Kind);
+    }
+
+    [Fact]
+    public async Task
+        CanonicalRestoration_RejectsEcosystemWithPackageFacts()
+    {
+        await using Fixture packageFixture = await Fixture.CreateAsync();
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                packageFixture.Workspace.GetRegistrationSnapshot()).Revision;
+        var declaration = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"),
+            ["Aspire"],
+            [],
+            []);
+        WorkspaceRegistrationRevision updated =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                packageFixture.Workspace.ReplaceRegistrations(
+                    registrations,
+                    [new WorkspaceRegistration.Ecosystem(declaration)]))
+                .Revision;
+        WorkspaceEcosystemRegistrationOccurrence occurrence =
+            Assert.Single(updated.EcosystemContributions).Ecosystem;
+        var facts = new NavigationEvaluationFacts(
+            packageFixture.Scope,
+            packageFixture.Packages[0],
+            packageFixture.Availability)
+        {
+            Ecosystem = new(updated, occurrence),
+        };
+
+        Assert.Throws<ArgumentException>(
+            () => NavigationTransitions.PrepareRestoration(
+                packageFixture.Workspace.Identity,
+                facts,
+                packageFixture.Registry,
+                new()));
+    }
+
+    [Fact]
+    public async Task
+        CanonicalRestoration_RejectsEcosystemWithRetainedPackageContext()
+    {
+        await using Fixture packageFixture = await Fixture.CreateAsync();
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                packageFixture.Workspace.GetRegistrationSnapshot()).Revision;
+        var declaration = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"),
+            ["Aspire"],
+            [],
+            []);
+        WorkspaceRegistrationRevision updated =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                packageFixture.Workspace.ReplaceRegistrations(
+                    registrations,
+                    [new WorkspaceRegistration.Ecosystem(declaration)]))
+                .Revision;
+        WorkspaceEcosystemRegistrationOccurrence occurrence =
+            Assert.Single(updated.EcosystemContributions).Ecosystem;
+        StructuralSubjectIdentity.PackageSubject package =
+            packageFixture.Session.CurrentSnapshot.Inventory!.Package;
+        var facts = new NavigationEvaluationFacts(
+            packageFixture.Scope,
+            Package: null,
+            packageFixture.Availability)
+        {
+            Ecosystem = new(updated, occurrence),
+        };
+
+        NavigationRestorationPreparationResult.Rejected rejected =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Rejected>(
+                NavigationTransitions.PrepareRestoration(
+                    packageFixture.Workspace.Identity,
+                    facts,
+                    packageFixture.Registry,
+                    new(
+                        Context:
+                            new NavigationRetainedSubjectContext(package))));
+
+        Assert.Equal(
+            NavigationRestorationRejectionKind.InvalidContext,
+            rejected.Kind);
+    }
+
+    [Theory]
+    [InlineData("ecosystem.unknown")]
+    [InlineData("package.overview")]
+    public async Task
+        CanonicalRestoration_RejectsUnknownOrInapplicableEcosystemLens(
+            string facet)
+    {
+        await using EcosystemFixture fixture =
+            await EcosystemFixture.CreateAsync("ecosystem.aspire");
+        NavigationEcosystemEvaluation ecosystem =
+            fixture.Evaluation("ecosystem.aspire");
+        StructuralSubjectIdentity.EcosystemSubject subject =
+            fixture.Subject(ecosystem);
+
+        NavigationRestorationPreparationResult.Rejected rejected =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Rejected>(
+                NavigationTransitions.PrepareRestoration(
+                    fixture.Workspace.Identity,
+                    fixture.Facts(ecosystem),
+                    fixture.Registry,
+                    new(
+                        subject,
+                        Lens: new NavigationLensIdentity(
+                            subject,
+                            new ViewFacetId(facet)))));
+
+        Assert.Equal(
+            NavigationRestorationRejectionKind.Registry,
+            rejected.Kind);
+    }
+
+    [Fact]
     public async Task CanonicalRestoration_PreparedPairEqualsExactRequest()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
@@ -900,6 +1162,91 @@ public sealed class NavigationRestorationPreparationTests
             ],
             scope.Closure,
             scope.Preparing);
+
+    sealed class EcosystemFixture : IAsyncDisposable
+    {
+        EcosystemFixture(
+            InspectionWorkspace workspace,
+            WorkspaceRegistrationRevision registrations,
+            WorkspaceScopeSnapshot scope)
+        {
+            Workspace = workspace;
+            Registrations = registrations;
+            Scope = scope;
+            Registry = InspectionViewFacetCatalog.Registry;
+            ViewFacetAvailabilitySnapshot available =
+                NavigationSnapshotTestData.AllAvailable(Registry);
+            Availability = (_, _) => available;
+        }
+
+        public InspectionWorkspace Workspace { get; }
+
+        public WorkspaceRegistrationRevision Registrations { get; }
+
+        public WorkspaceScopeSnapshot Scope { get; }
+
+        public ViewFacetRegistry Registry { get; }
+
+        public NavigationFacetAvailabilityProvider Availability { get; }
+
+        public static async ValueTask<EcosystemFixture> CreateAsync(
+            params string[] ids)
+        {
+            var workspace = new InspectionWorkspace(
+                [
+                    .. ids.Select(
+                        id => new WorkspaceRegistration.Ecosystem(
+                            new WorkspaceEcosystemRegistrationDeclaration(
+                                WorkspaceEcosystemRegistrationId.Create(id),
+                                [NamespaceRoot(id)],
+                                [],
+                                []))),
+                ]);
+            WorkspaceRegistrationRevision registrations =
+                Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                    workspace.GetRegistrationSnapshot()).Revision;
+            WorkspaceScopeSnapshot scope =
+                Assert.IsType<WorkspaceScopeReadResult.Available>(
+                    await workspace.GetScopeSnapshotAsync()).Snapshot;
+            return new(workspace, registrations, scope);
+        }
+
+        public NavigationEcosystemEvaluation Evaluation(string id)
+        {
+            WorkspaceEcosystemRegistrationOccurrence occurrence =
+                Registrations.EcosystemContributions
+                    .Select(static contribution =>
+                        contribution.Ecosystem)
+                    .Single(ecosystem =>
+                        ecosystem.Declaration.Id.Value == id);
+            return new(Registrations, occurrence);
+        }
+
+        public NavigationEvaluationFacts Facts(
+            NavigationEcosystemEvaluation ecosystem) =>
+            new(
+                Scope,
+                Package: null,
+                Availability)
+            {
+                Ecosystem = ecosystem,
+            };
+
+        public StructuralSubjectIdentity.EcosystemSubject Subject(
+            NavigationEcosystemEvaluation ecosystem) =>
+            StructuralSubjectIdentity.ForEcosystem(
+                StructuralSubjectIdentity.ForWorkspace(
+                    Workspace.Identity),
+                ecosystem.Occurrence,
+                ecosystem.Id);
+
+        public ValueTask DisposeAsync() => Workspace.DisposeAsync();
+
+        static string NamespaceRoot(string id) =>
+            id == "ecosystem.aspire"
+                ? "Aspire"
+                : "Microsoft.Extensions";
+    }
 
     sealed record Diagnostic : IViewFacetDiagnosticEvidence;
 }
