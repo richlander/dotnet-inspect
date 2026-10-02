@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 
 using DotnetInspector.PerformanceOracles;
 using ILInspector.Metadata;
@@ -18,12 +19,15 @@ if (!ScorecardCommandLine.TryParse(
 
 var shape = new ScorecardShape();
 var assets = new List<ScorecardAsset<HierarchyAsset>>();
+var images =
+    new Dictionary<string, HierarchyImage>(StringComparer.Ordinal);
 try
 {
     foreach (string specification in options!.Assets)
     {
         if (!HierarchyAsset.TryLoad(
                 specification,
+                images,
                 out HierarchyAsset? asset,
                 out error))
         {
@@ -41,7 +45,20 @@ try
         HierarchyPopulation.LinqColumn(shape),
         oracle,
         HierarchyPopulation.PlannerColumn(shape),
+        HierarchyPopulation.IndexedColumn(shape),
     ];
+    foreach (HierarchyImage image in images.Values)
+    {
+        HierarchyIndexPreparationObservation preparation =
+            image.IndexPreparation;
+        Console.WriteLine(
+            $"# index preparation: {image.Name}, "
+            + $"{preparation.Elapsed.TotalMilliseconds:F3} ms, "
+            + $"{preparation.AllocatedBytes} B, "
+            + $"{preparation.Receipt.PhysicalRelationCount} relations, "
+            + $"{preparation.Receipt.IndexedTargetCount} targets, "
+            + $"{preparation.Receipt.Disposition}");
+    }
     ScorecardCheck check =
         Scorecard.Check(
             assets,
@@ -106,22 +123,21 @@ try
 }
 finally
 {
-    foreach (ScorecardAsset<HierarchyAsset> asset in assets)
-        asset.Asset.Dispose();
+    foreach (HierarchyImage image in images.Values)
+        image.Dispose();
 }
 
-sealed class HierarchyAsset : IDisposable
+sealed class HierarchyAsset
 {
     HierarchyAsset(
         string path,
         MetadataHierarchyRelationKind kind,
         MetadataTypeDefinitionName target,
-        byte[] content)
+        HierarchyImage image)
     {
         Kind = kind;
         Target = target;
-        Session = AssemblyInspectionSession.OpenPrefetched(
-            new MemoryStream(content, writable: false));
+        Image = image;
         Name =
             $"{Path.GetFileNameWithoutExtension(path)}:"
             + $"{kind}:{target.ToEscapedFullName()}";
@@ -139,14 +155,17 @@ sealed class HierarchyAsset : IDisposable
 
     public MetadataTypeDefinitionName Target { get; }
 
-    public AssemblyInspectionSession Session { get; }
+    public AssemblyInspectionSession Session => Image.Session;
+
+    public MetadataHierarchyRelationIndex Index => Image.Index;
+
+    HierarchyImage Image { get; }
 
     public MetadataRelationInspectionRequest OldRequest { get; }
 
-    public void Dispose() => Session.Dispose();
-
     public static bool TryLoad(
         string specification,
+        Dictionary<string, HierarchyImage> images,
         out HierarchyAsset? asset,
         out string? error)
     {
@@ -180,15 +199,93 @@ sealed class HierarchyAsset : IDisposable
             return false;
         }
 
+        string fullPath = Path.GetFullPath(path);
+        if (!images.TryGetValue(
+                fullPath,
+                out HierarchyImage? image))
+        {
+            image = new(fullPath);
+            images.Add(fullPath, image);
+        }
+
         asset = new(
-            Path.GetFullPath(path),
+            fullPath,
             kind.Value,
             valid.Name,
-            File.ReadAllBytes(path));
+            image);
         error = null;
         return true;
     }
 }
+
+sealed class HierarchyImage : IDisposable
+{
+    internal HierarchyImage(string path)
+    {
+        AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(
+                File.ReadAllBytes(path),
+                writable: false));
+        try
+        {
+            Session = session;
+            long allocatedBefore =
+                GC.GetAllocatedBytesForCurrentThread();
+            long started = Stopwatch.GetTimestamp();
+            MetadataHierarchyRelationIndexPreparation preparation =
+                Session.PrepareHierarchyRelationIndex(
+                    MetadataOperationPolicy.Unbounded);
+            TimeSpan elapsed =
+                Stopwatch.GetElapsedTime(started);
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread()
+                    - allocatedBefore;
+            Index = RequireIndex(preparation);
+            IndexPreparation =
+                new(elapsed, allocated, Index.Receipt);
+            Name = Path.GetFileNameWithoutExtension(path);
+        }
+        catch
+        {
+            session.Dispose();
+            throw;
+        }
+    }
+
+    internal string Name { get; }
+
+    internal AssemblyInspectionSession Session { get; }
+
+    internal MetadataHierarchyRelationIndex Index { get; }
+
+    internal HierarchyIndexPreparationObservation IndexPreparation { get; }
+
+    public void Dispose() => Session.Dispose();
+
+    static MetadataHierarchyRelationIndex RequireIndex(
+        MetadataHierarchyRelationIndexPreparation preparation) =>
+        preparation switch
+        {
+            MetadataHierarchyRelationIndexPreparation.Ready ready =>
+                ready.Index,
+            MetadataHierarchyRelationIndexPreparation.Failed failed =>
+                throw new InvalidOperationException(
+                    string.Join(
+                        ", ",
+                        failed.Receipt.Diagnostics.Select(
+                            static diagnostic => diagnostic.Detail))),
+            MetadataHierarchyRelationIndexPreparation.Rejected rejected =>
+                throw new InvalidOperationException(rejected.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown hierarchy index preparation outcome."),
+        };
+}
+
+readonly record struct HierarchyIndexPreparationObservation(
+    TimeSpan Elapsed,
+    long AllocatedBytes,
+    MetadataHierarchyRelationIndexReceipt Receipt);
 
 static class HierarchyPopulation
 {
@@ -238,6 +335,20 @@ static class HierarchyPopulation
             (closing, asset) =>
                 HierarchyRelationOracle.PlannerAnswer(
                     asset.Session,
+                    asset.Kind,
+                    asset.Target,
+                    closing,
+                    shape));
+
+    public static ScorecardColumn<
+        HierarchyAsset,
+        HierarchyRelationOracleRow> IndexedColumn(
+        ScorecardShape shape) =>
+        new(
+            "Prepared reverse index",
+            (closing, asset) =>
+                HierarchyRelationOracle.IndexedAnswer(
+                    asset.Index,
                     asset.Kind,
                     asset.Target,
                     closing,

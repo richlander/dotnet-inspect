@@ -343,6 +343,29 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Prepares a target-independent hierarchy census and reverse lookup over
+    /// this exact image.
+    /// </summary>
+    public MetadataHierarchyRelationIndexPreparation
+        PrepareHierarchyRelationIndex(
+            MetadataOperationPolicy? policy = null,
+            CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataHierarchyRelationIndexPreparation.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
+        return MetadataRelationInspection.PrepareHierarchyIndex(
+            this,
+            reader,
+            policy ?? new MetadataOperationPolicy(long.MaxValue),
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Finds exact TypeDef names by one simple ASCII leaf name without
     /// materializing unrelated declaration names.
     /// </summary>

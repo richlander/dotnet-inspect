@@ -218,6 +218,35 @@ public static class HierarchyRelationOracle
                                 and not ScorecardClosing.Exists,
                         forwardPlan:
                             ForwardPlan(closing, shape))));
+        return AnalysisAnswer(result, closing, shape);
+    }
+
+    public static ScorecardAnswer<HierarchyRelationOracleRow> IndexedAnswer(
+        MetadataHierarchyRelationIndex index,
+        MetadataHierarchyRelationKind kind,
+        MetadataTypeDefinitionName target,
+        ScorecardClosing closing,
+        ScorecardShape shape)
+    {
+        MetadataHierarchyRelationAnalysisResult result =
+            RequireAvailable(
+                index.Analyze(
+                    new(
+                        new(target, kind),
+                        MetadataOperationPolicy.Unbounded,
+                        materializeRows:
+                            closing is not ScorecardClosing.Count
+                                and not ScorecardClosing.Exists,
+                        forwardPlan:
+                            ForwardPlan(closing, shape))));
+        return AnalysisAnswer(result, closing, shape);
+    }
+
+    static ScorecardAnswer<HierarchyRelationOracleRow> AnalysisAnswer(
+        MetadataHierarchyRelationAnalysisResult result,
+        ScorecardClosing closing,
+        ScorecardShape shape)
+    {
         if (closing == ScorecardClosing.Exists)
         {
             return ScorecardAnswer<HierarchyRelationOracleRow>.OfExists(

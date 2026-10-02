@@ -18,7 +18,10 @@ public sealed record MetadataOperationPolicy
         long maxRetainedText = long.MaxValue,
         long maxInterfaceImplementationRows = long.MaxValue,
         long maxRetainedMethodSemanticsAssociations =
-            MethodSemanticsReadBudget.DefaultMaximumRetainedAssociations)
+            MethodSemanticsReadBudget.DefaultMaximumRetainedAssociations,
+        long maxRetainedHierarchyRelations =
+            MetadataHierarchyRelationIndex
+                .DefaultMaximumRetainedRelations)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
         ArgumentOutOfRangeException.ThrowIfNegative(
@@ -35,6 +38,8 @@ public sealed record MetadataOperationPolicy
             maxInterfaceImplementationRows);
         ArgumentOutOfRangeException.ThrowIfNegative(
             maxRetainedMethodSemanticsAssociations);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maxRetainedHierarchyRelations);
 
         MaxMetadataRows = maxMetadataRows;
         MaxMethodImplementationRows = maxMethodImplementationRows;
@@ -47,12 +52,15 @@ public sealed record MetadataOperationPolicy
         MaxInterfaceImplementationRows = maxInterfaceImplementationRows;
         MaxRetainedMethodSemanticsAssociations =
             maxRetainedMethodSemanticsAssociations;
+        MaxRetainedHierarchyRelations =
+            maxRetainedHierarchyRelations;
     }
 
     public static MetadataOperationPolicy Unbounded { get; } =
         new(
             long.MaxValue,
-            maxRetainedMethodSemanticsAssociations: long.MaxValue);
+            maxRetainedMethodSemanticsAssociations: long.MaxValue,
+            maxRetainedHierarchyRelations: long.MaxValue);
 
     public long MaxMetadataRows { get; }
     public long MaxMethodImplementationRows { get; }
@@ -64,6 +72,7 @@ public sealed record MetadataOperationPolicy
     public long MaxRetainedText { get; }
     public long MaxInterfaceImplementationRows { get; }
     public long MaxRetainedMethodSemanticsAssociations { get; }
+    public long MaxRetainedHierarchyRelations { get; }
 }
 
 public sealed record MetadataOperationCounters(
@@ -76,7 +85,8 @@ public sealed record MetadataOperationCounters(
     long StructuredNodes = 0,
     long RetainedText = 0,
     long InterfaceImplementationRows = 0,
-    long RetainedMethodSemanticsAssociations = 0);
+    long RetainedMethodSemanticsAssociations = 0,
+    long RetainedHierarchyRelations = 0);
 
 public enum MetadataOperationDimension
 {
@@ -90,6 +100,7 @@ public enum MetadataOperationDimension
     RetainedText,
     InterfaceImplementationRows,
     RetainedMethodSemanticsAssociations,
+    RetainedHierarchyRelations,
 }
 
 public enum MetadataOperationFailureKind
@@ -134,6 +145,7 @@ public sealed class MetadataOperationContext : IDisposable
     long _retainedText;
     long _interfaceImplementationRows;
     long _retainedMethodSemanticsAssociations;
+    long _retainedHierarchyRelations;
     bool _disposed;
 
     public MetadataOperationContext(MetadataOperationPolicy policy)
@@ -272,6 +284,8 @@ public sealed class MetadataOperationContext : IDisposable
             case MetadataOperationDimension
                     .RetainedMethodSemanticsAssociations:
                 return ref _retainedMethodSemanticsAssociations;
+            case MetadataOperationDimension.RetainedHierarchyRelations:
+                return ref _retainedHierarchyRelations;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(dimension),
@@ -304,6 +318,8 @@ public sealed class MetadataOperationContext : IDisposable
             MetadataOperationDimension
                     .RetainedMethodSemanticsAssociations =>
                 _policy.MaxRetainedMethodSemanticsAssociations,
+            MetadataOperationDimension.RetainedHierarchyRelations =>
+                _policy.MaxRetainedHierarchyRelations,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(dimension),
                 dimension,
@@ -321,7 +337,8 @@ public sealed class MetadataOperationContext : IDisposable
             _structuredNodes,
             _retainedText,
             _interfaceImplementationRows,
-            _retainedMethodSemanticsAssociations);
+            _retainedMethodSemanticsAssociations,
+            _retainedHierarchyRelations);
 
     internal MethodSemanticsReadBudget
         CreateMethodSemanticsReadBudget()
