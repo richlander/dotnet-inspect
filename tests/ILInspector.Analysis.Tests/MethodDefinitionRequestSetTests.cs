@@ -49,6 +49,30 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void Plan_DuplicateAssociationReturnsTypedRejection()
+    {
+        MethodDefinitionSourceAssociation association =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count);
+
+        var rejected = Assert.IsType<
+            MethodDefinitionSourceRequestSetPlanResult.Rejected>(
+                MethodDefinitionSourceRequestSet.Plan(
+                    MethodDefinitionSourceResourceIdentity.Create(),
+                    [association, association]));
+
+        QuerySpaceRequestSetRejection reason =
+            Assert.Single(rejected.Reasons);
+        Assert.Equal(1, reason.CandidateIndex);
+        Assert.Same(association.Identity, reason.Association);
+        Assert.Equal(
+            QuerySpaceRequestSetRejectionReason
+                .DuplicateAssociationIdentity,
+            reason.Reason);
+    }
+
+    [Fact]
     public void Execute_SharedClosingsEqualIndependentReferenceResults()
     {
         CountingProducer producer = CountingProducer.Instance;
@@ -120,6 +144,77 @@ public sealed class MethodDefinitionRequestSetTests
         Assert.Equal(1, existsResult.Value);
         Assert.Equal(ProducerOutcome.Aborted, rowsResult.Outcome);
         Assert.NotNull(rowsResult.Critical);
+    }
+
+    [Fact]
+    public void Execute_SameTerminalSettledRequestSurvivesLaterAbort()
+    {
+        MethodDefinitionSourceAssociation settled =
+            Association(
+                SettlingProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceAssociation aborted =
+            Association(
+                AbortingProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([settled, aborted]));
+
+        Assert.Equal(
+            new ProducerResult<int>(
+                ProducerOutcome.Stopped,
+                1),
+            ResultOf<int>(execution, settled));
+        Assert.Equal(
+            ProducerOutcome.Aborted,
+            ResultOf<int>(execution, aborted).Outcome);
+        Assert.Equal(
+            1,
+            execution.ResultOf(settled)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            2,
+            execution.ResultOf(aborted)
+                .SourceReceipt.DefinitionsVisited);
+        MethodDefinitionSourceGroupReceipt group =
+            Assert.Single(execution.GroupReceipts);
+        Assert.Equal(2, group.LaneReceipts.Length);
+    }
+
+    [Fact]
+    public void Execute_FailedBodyReadIsNotReportedAsAcquired()
+    {
+        MethodDefinitionSourceAssociation association =
+            Association(
+                BodyReadingProducer.Instance,
+                ProducerTerminal.Count);
+        ImmutableArray<byte> image =
+            ImmutableArray.Create(
+                MetadataMethodPtrFixture.BuildTrailingOutOfRange(
+                    [0x00]));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([association]), image);
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<int>(execution, association).Outcome);
+        MethodDefinitionSourceRequestResult result =
+            execution.ResultOf(association);
+        Assert.Equal(0, result.SourceReceipt.BodiesAcquired);
+        Assert.Equal(
+            0,
+            result.WorkReceipt
+                .For(BodyReadingProducer.Instance)
+                .Layers.Single(
+                    static layer =>
+                        layer.Layer
+                            == nameof(MethodDefinitionLayers.Body))
+                .Acquired);
+        Assert.Equal(
+            0,
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.BodiesAcquired.Count);
     }
 
     [Fact]
@@ -582,7 +677,7 @@ public sealed class MethodDefinitionRequestSetTests
                         "Test request-set abort."));
             }
 
-            return true;
+            return false;
         }
 
         internal override int Seed() => 0;
@@ -591,6 +686,41 @@ public sealed class MethodDefinitionRequestSetTests
             int accumulator,
             bool fact) =>
             fact ? accumulator + 1 : accumulator;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    sealed class BodyReadingProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        BodyReadingProducer()
+            : base(
+                "Test.MethodRequestSet.BodyReading",
+                version: 1,
+                tier: 1,
+                MethodDefinitionLayers.Declaration
+                    | MethodDefinitionLayers.Body)
+        {
+        }
+
+        public static BodyReadingProducer Instance { get; } =
+            new();
+
+        internal override int Visit(
+            scoped MethodDefinitionView view) =>
+            view.HasManagedBody
+                ? view.GetBody().Size
+                : 0;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(
+            int accumulator,
+            int fact) =>
+            accumulator + fact;
 
         internal override int Complete(
             int accumulator,

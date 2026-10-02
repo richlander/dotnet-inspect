@@ -469,6 +469,8 @@ public static class MethodDefinitionSourceRequestSet
             {
                 continue;
             }
+            if (groupByAssociation.ContainsKey(association.Identity))
+                continue;
 
             int groupIndex = -1;
             for (int i = 0; i < groups.Count; i++)
@@ -588,63 +590,23 @@ public static class MethodDefinitionSourceRequestSet
         ImmutableArray<MethodDefinitionSourceAssociation> associations,
         out ImmutableArray<MethodDefinitionSourceLanePlan> lanes)
     {
-        var laneBuilders = new List<LaneBuilder>();
+        var planned =
+            ImmutableArray.CreateBuilder<MethodDefinitionSourceLanePlan>(
+                associations.Length);
         foreach (MethodDefinitionSourceAssociation association
             in associations)
         {
-            MethodDefinitionSourceRequest request = association.Request;
-            LaneBuilder? lane = null;
-            foreach (LaneBuilder candidate in laneBuilders)
-            {
-                if (candidate.Terminal == request.Terminal
-                    && candidate.RowLimit == request.RowLimit)
-                {
-                    lane = candidate;
-                    break;
-                }
-            }
-
-            if (lane is null)
-            {
-                lane = new(request.Terminal, request.RowLimit);
-                laneBuilders.Add(lane);
-            }
-
-            lane.Associations.Add(association);
-        }
-
-        var planned =
-            ImmutableArray.CreateBuilder<MethodDefinitionSourceLanePlan>(
-                laneBuilders.Count);
-        int identityLanes = 0;
-        foreach (LaneBuilder lane in laneBuilders)
-        {
             ProducerPlanResult result = ProducerPlanner.Plan(
-                lane.Associations
-                    .Select(static association =>
-                        association.Request.ProducerRequest)
-                    .ToArray());
+                [association.Request.ProducerRequest]);
             if (result is not ProducerPlanResult.Accepted accepted)
             {
                 lanes = default;
                 return false;
             }
 
-            if ((MethodDefinitionExecution.FieldsRead(accepted.Description)
-                    & MethodDefinitionLayers.IdentityText) != 0)
-            {
-                identityLanes++;
-            }
-
             planned.Add(new(
                 accepted.Description,
-                lane.Associations.ToImmutable()));
-        }
-
-        if (identityLanes > 1)
-        {
-            lanes = default;
-            return false;
+                [association]));
         }
 
         lanes = planned.MoveToImmutable();
@@ -693,20 +655,6 @@ public static class MethodDefinitionSourceRequestSet
         public void Add(
             MethodDefinitionSourceAssociation association) =>
             _associations.Add(association);
-    }
-
-    sealed class LaneBuilder(
-        ProducerTerminal terminal,
-        int? rowLimit)
-    {
-        public ProducerTerminal Terminal { get; } = terminal;
-
-        public int? RowLimit { get; } = rowLimit;
-
-        public ImmutableArray<MethodDefinitionSourceAssociation>.Builder
-            Associations { get; } =
-                ImmutableArray.CreateBuilder<
-                    MethodDefinitionSourceAssociation>();
     }
 }
 

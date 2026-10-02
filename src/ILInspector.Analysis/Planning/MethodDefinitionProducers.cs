@@ -505,8 +505,12 @@ public readonly ref struct MethodDefinitionView
                 + "declare the body layer.");
         }
 
-        producer.CountUnit(ref producer.LastBodyUnit, Token, ref producer.BodyAcquisitions);
-        return _unit.GetBody();
+        MethodBodyBlock body = _unit.GetBody();
+        producer.CountUnit(
+            ref producer.LastBodyUnit,
+            Token,
+            ref producer.BodyAcquisitions);
+        return body;
     }
 
     /// <summary>The same-unit fact of a declared visit dependency.</summary>
@@ -668,14 +672,17 @@ internal struct MethodDefinitionUnit(
 
     public MethodBodyBlock GetBody()
     {
-        _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
         if (_body is not null)
+        {
+            _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
             return _body;
+        }
 
         MethodBodyBlock body = _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
         _body = body;
         _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
+        _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
         return body;
     }
 
