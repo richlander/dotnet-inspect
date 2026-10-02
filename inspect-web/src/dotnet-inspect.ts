@@ -257,6 +257,7 @@ import {
   sourceResultNeedsLoad,
   type GraphSourceRequest,
   type GraphSourceState,
+  type MemberSourceView,
   type SourceResultState,
   type TypeSourceView,
 } from "./source-inspection.ts";
@@ -424,9 +425,7 @@ import {
   annotatedSourcePresentationText,
   annotatedFocusSelector,
   captureAnnotatedSourceScroll,
-  renderAnnotatedSourcePageActions,
   bindAnnotatedSource,
-  renderAnnotatedSource as renderAnnotatedSourcePure,
   renderAnnotatedSourceModal as renderAnnotatedSourceModalPure,
   renderAnnotatedSourceRejectionModal,
   restoreAnnotatedSourceScroll,
@@ -1356,6 +1355,7 @@ const initialState = {
   typeMemberPopulationKey: "",
   typeHeat: { status: "idle" } as TypeHeatState,
   memberSource: { status: "idle" as const },
+  memberSourceView: "source" as const,
   memberAnnotated: null,
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
@@ -1532,6 +1532,7 @@ interface StateOverrides {
   selectedOverloadIndex: number | null;
   typeHeat: TypeHeatState;
   memberSource: SourceResultState<BrowserMemberSource>;
+  memberSourceView: MemberSourceView;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
@@ -3457,7 +3458,8 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.member,
         request.selectorKey,
         request.metadataToken,
-        request.taste)
+        request.taste,
+        request.view)
     : inspectPlatformMemberSource(
         request.framework,
         request.version,
@@ -3468,6 +3470,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.selectorKey,
         request.metadataToken,
         request.taste,
+        request.view,
         request.contextId),
   queryTypeSource: (operationId, request) => request.kind === "platform"
     ? inspectPlatformTypeSource(
@@ -4222,7 +4225,11 @@ let typeExplorerViewport = {
   outlineTop: 0,
 };
 type AnnotatedSourceModalOrigin =
-  | { readonly kind: "embedded" }
+  | { readonly kind: "member-source" }
+  | {
+      readonly kind: "member-facts";
+      readonly instanceKey: number;
+    }
   | {
       readonly kind: "type-explorer";
       readonly revision: string;
@@ -7676,8 +7683,6 @@ async function loadSelectedMemberOverview(): Promise<void> {
 function loadMemberSectionContent(id: MemberSection) {
   if (id === "source")
     observeAsync(loadSelectedMemberSource(), "Loading member source");
-  else if (id === "annotated")
-    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts")
@@ -8600,12 +8605,6 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     && currentPendingGraphMember() === null
     && (memberOverloadPicker
       || memberSectionUsesWorkingSurface(state.memberSection));
-  const annotatedPageContext =
-    activeScope === "member"
-    && state.memberSection === "annotated"
-    && memberSourceHasConcreteOverload();
-  const annotatedWorkingSurface =
-    annotatedPageContext && state.memberAnnotatedEmbedded !== null;
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment =>
     [segment.label, segment.targetFramework, segment.qualifier]
@@ -8643,8 +8642,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || annotatedPageContext || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
+          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${memberDiffExploreTarget
                 ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
                 : ""}
@@ -8654,16 +8653,16 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
-              ${annotatedPageContext
-                ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
-                : ""}
               ${sourcePageKind
                 ? renderSourcePageActions({
                     source: sourcePageSource,
                     typeCodeView,
                     typeView: state.typeSourceView,
+                    memberView: state.memberSourceView,
                     memberSource: sourcePageMemberSource,
                     selectedMemberPart: selectedSourcePart,
+                    exploreBusy: sourcePageKind === "member"
+                      && state.memberAnnotatedLoading,
                     copyButtonId: sourcePageKind === "member"
                       ? "copy-source"
                       : "copy-type-source",
@@ -8709,7 +8708,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface || libraryMetricsWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface || libraryMetricsWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
@@ -11126,11 +11125,18 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
 }
 
 function renderMemberSourceHtml() {
+  const exploreError = state.memberAnnotatedError
+    ? `<div class="graph-drill-error" role="alert">${escapeHtml(state.memberAnnotatedError)}</div>`
+    : "";
   switch (state.memberSource.status) {
     case "idle":
-      return `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>No source result was returned.</p></section>`;
+      return exploreError
+        + `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>No source result was returned.</p></section>`;
     case "loading":
-      return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+      return exploreError
+        + `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>${state.memberSourceView === "decompiler-source"
+          ? "Running dotnet-inspect decompilation."
+          : "Trying PDB-checksum-verified authored source, then dotnet-inspect decompilation."}</p></section>`;
     case "ready":
       {
         const type = selectedType();
@@ -11147,12 +11153,13 @@ function renderMemberSourceHtml() {
           state.memberSource,
           signature);
         if (source === null) {
-          return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+          return exploreError
+            + `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2></section>`;
         }
         const selectedPart = memberSourcePartSelector.current(
           signature,
           source);
-        return renderSourceResult({
+        return exploreError + renderSourceResult({
           source: source.source,
           text: memberSourceText(source, selectedPart),
           leftJustify: source.parts.length > 0,
@@ -11161,7 +11168,8 @@ function renderMemberSourceHtml() {
         });
       }
     case "failed":
-      return `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSource.error || "No source result was returned.")}</p></section>`;
+      return exploreError
+        + `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSource.error || "No source result was returned.")}</p></section>`;
     default:
       return assertNever(state.memberSource, "member source result state");
   }
@@ -11646,18 +11654,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(state);
-  } else if (state.memberSection === "annotated") {
-    const destinationError = state.annotatedDestinationError
-      ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
-      : "";
-    const selectionError = state.memberFindingSelectionError
-      ? `<div id="finding-selection-error" class="graph-drill-error" role="alert">${escapeHtml(state.memberFindingSelectionError)}</div>`
-      : "";
-    content = destinationError + selectionError + (state.memberAnnotatedLoading
-      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Annotating member…</h2><p>Raising the selected overload to C#, interleaving its IL, and collecting the facts observed about it.</p></section>`
-      : state.memberAnnotated
-        ? renderAnnotatedSource(state.memberAnnotated)
-        : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`);
   } else if (state.memberSection === "source") {
     content = renderMemberSourceHtml();
   } else if (state.memberSection === "compare") {
@@ -11699,25 +11695,6 @@ function memberReceiverPrefix(receiver: string): string {
   }
 }
 
-// The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
-// lines from its text buffer, structural segments from its nodes, and the fact -> target -> node ->
-// span walk it defines. Coordinates, validation, and segmentation belong to document-model.ts.
-function renderAnnotatedSource(result: AnnotatedSourceResult) {
-  try {
-    const session = state.memberAnnotatedEmbedded
-      ?? createEmbeddedSession(createAnnotatedSourceViewerModel(result));
-    return renderAnnotatedSourcePure({
-      result,
-      session,
-      escapeHtml,
-      highlightCSharp: annotatedSourceHighlighter,
-    });
-  } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-    return renderAnnotatedSourceRejection(error);
-  }
-}
-
 function renderAnnotatedSourceModal() {
   if (!state.memberAnnotated || !state.memberAnnotatedModal) return "";
   try {
@@ -11737,13 +11714,6 @@ function renderAnnotatedSourceModal() {
       escapeHtml,
     );
   }
-}
-
-function renderAnnotatedSourceRejection(error: TypeError) {
-  return `<section class="document-section empty-member-section">
-    <h2 id="annotated-source-rejection-title" tabindex="-1">Annotated source document rejected</h2>
-    <p>${escapeHtml(errorMessage(error))}</p>
-  </section>`;
 }
 
 type FactSummaryRow =
@@ -12143,6 +12113,12 @@ function bindTypePanelEvents() {
           "source copied");
       }
     },
+    onMemberSourceViewSelect: view => {
+      if (state.memberSourceView === view) return;
+      state.memberSourceView = view;
+      state.memberSource = { status: "idle" };
+      observeAsync(loadSelectedMemberSource(), "Loading member source view");
+    },
     onMemberSourcePartSelect: part => {
       const type = selectedType();
       const member = selectedMember(type);
@@ -12187,9 +12163,14 @@ function bindTypePanelEvents() {
       observeAsync(loadSelectedTypeSource(), "Loading type code view");
     },
     onExploreSource: () => {
-      if (scope() === "type" && state.lens === "source")
+      if (scope() === "type" && state.lens === "source") {
         openTypeExplorerRoute();
-      else openSettings("source");
+      } else if (scope() === "member"
+        && state.memberSection === "source") {
+        observeAsync(
+          exploreSelectedMemberAnnotatedSource(),
+          "Opening annotated source");
+      }
     },
     onKindSelect: kind => {
       state.kindFilter = kind;
@@ -12633,12 +12614,11 @@ function openAnnotatedSourceModal() {
   invalidateMemberDestinationWork(state);
   state.annotatedDestinationError = "";
   const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
-  const embedded = state.memberAnnotatedEmbedded
-    ?? createEmbeddedSession(model);
+  const embedded = createEmbeddedSession(model);
   const opened = openModalSession(model, embedded);
   state.memberAnnotatedEmbedded = opened.embedded;
   state.memberAnnotatedModal = opened.modal;
-  annotatedSourceModalOrigin = { kind: "embedded" };
+  annotatedSourceModalOrigin = { kind: "member-source" };
   syncFindingSelectionFromAnnotatedSession(opened.modal);
   spotlight.reset();
   sourceInspection.clearGraphSource();
@@ -12690,7 +12670,8 @@ function scheduleTypeExplorerDismissalFocus(
 
 function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
   if (!state.memberAnnotated || !state.memberAnnotatedModal) return false;
-  const origin = annotatedSourceModalOrigin ?? { kind: "embedded" };
+  const origin =
+    annotatedSourceModalOrigin ?? { kind: "member-source" };
   let model: AnnotatedSourceViewerModel;
   try {
     model = createAnnotatedSourceViewerModel(state.memberAnnotated);
@@ -12699,11 +12680,13 @@ function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
     state.memberAnnotatedEmbedded = null;
     state.memberAnnotatedModal = null;
     annotatedSourceModalOrigin = null;
-    if (restoreExploreFocus && origin.kind === "type-explorer") {
-      render();
-      scheduleTypeExplorerDismissalFocus(origin);
-    } else if (restoreExploreFocus) {
-      renderAndFocusAnnotated("#annotated-source-rejection-title", "embedded");
+    if (restoreExploreFocus) {
+      if (origin.kind === "type-explorer") {
+        render();
+        scheduleTypeExplorerDismissalFocus(origin);
+      } else {
+        restoreMemberAnnotatedOriginFocus(origin);
+      }
     }
     return true;
   }
@@ -12723,8 +12706,25 @@ function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
   state.memberAnnotatedModal = null;
   annotatedSourceModalOrigin = null;
   syncFindingSelectionFromAnnotatedSession(state.memberAnnotatedEmbedded);
-  if (restoreExploreFocus) renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+  if (restoreExploreFocus) restoreMemberAnnotatedOriginFocus(origin);
   return true;
+}
+
+function restoreMemberAnnotatedOriginFocus(
+  origin: Exclude<
+    AnnotatedSourceModalOrigin,
+    { readonly kind: "type-explorer" }
+  >,
+) {
+  const selector = origin.kind === "member-source"
+    ? "#explore-source"
+    : `[data-finding-instance="${origin.instanceKey}"]`;
+  render();
+  requestAnimationFrame(() => {
+    const opener = document.querySelector<HTMLElement>(selector);
+    if (opener) opener.focus({ preventScroll: true });
+    else focusLevelOneHeading();
+  });
 }
 
 function syncFindingSelectionFromAnnotatedSession(
@@ -12976,8 +12976,7 @@ function openFindingInstanceFromFacts(receipt: string, instanceKey: number) {
   state.memberFindingInteraction = transition.interaction;
   state.memberFindingSelectionError = "";
   const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
-  const embedded = state.memberAnnotatedEmbedded
-    ?? createEmbeddedSession(model);
+  const embedded = createEmbeddedSession(model);
   const opened = openModalSession(model, embedded);
   const modal = selectFinding(opened.modal, {
     kind: "inspector",
@@ -12985,8 +12984,10 @@ function openFindingInstanceFromFacts(receipt: string, instanceKey: number) {
   });
   state.memberAnnotatedEmbedded = opened.embedded;
   state.memberAnnotatedModal = modal;
-  annotatedSourceModalOrigin = { kind: "embedded" };
-  state.memberSection = "annotated";
+  annotatedSourceModalOrigin = {
+    kind: "member-facts",
+    instanceKey,
+  };
   contentFramePane = "detail";
   renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
 }
@@ -16069,7 +16070,6 @@ async function loadSelectionData() {
   }
   switch (state.memberSection) {
     case "source": await loadSelectedMemberSource(); return;
-    case "annotated": await loadSelectedMemberAnnotatedSource(); return;
     case "call-graph": await loadSelectedMemberCallGraph(); return;
     case "facts": await loadSelectedMemberFactsSurface(); return;
     case "compare": return;
@@ -19866,6 +19866,7 @@ async function loadSelectedMemberSource() {
   }
   const signature = memberRequestSignature(type, overload, false, true);
   const pkg = currentPackage();
+  const view = state.memberSourceView;
   const selection = {
     signature,
     type: type.definitionId ?? type.id,
@@ -19877,11 +19878,13 @@ async function loadSelectedMemberSource() {
     metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
     taste: JSON.stringify(state.taste),
-    isCurrent: () => memberRequestIsCurrent(signature, false, true),
+    view,
+    isCurrent: () => state.memberSourceView === view
+      && memberRequestIsCurrent(signature, false, true),
   };
   if (pkg.isRuntimePack) {
     const row = platformLibraryForRequest(pkg, type.assemblyId);
-    return sourceInspection.loadMemberSource({
+    await sourceInspection.loadMemberSource({
       ...selection,
       kind: "platform",
       framework: pkg.activeFramework,
@@ -19890,15 +19893,24 @@ async function loadSelectedMemberSource() {
       pack: row.pack,
       contextId: platformDemoContextIdFor(pkg),
     });
+  } else {
+    await sourceInspection.loadMemberSource({
+      ...selection,
+      kind: "package",
+      packageId: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: type.assembly,
+    });
   }
-  return sourceInspection.loadMemberSource({
-    ...selection,
-    kind: "package",
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
-  });
+  if (view === "source"
+    && state.memberSourceView === view
+    && state.memberSource.status === "ready"
+    && state.memberSource.signature === signature
+    && state.memberSource.source.source.provider === "decompiled") {
+    state.memberSourceView = "decompiler-source";
+    renderPreservingMemberFocus();
+  }
 }
 
 async function loadSelectedMemberAnnotatedSource() {
@@ -19934,6 +19946,16 @@ async function loadSelectedMemberAnnotatedSource() {
     taste: JSON.stringify(state.taste),
     isCurrent: () => memberRequestIsCurrent(signature, true, true),
   });
+}
+
+async function exploreSelectedMemberAnnotatedSource() {
+  state.memberAnnotatedError = "";
+  await loadSelectedMemberAnnotatedSource();
+  if (state.memberSection === "source"
+    && state.memberAnnotated !== null
+    && !state.memberAnnotatedLoading) {
+    openAnnotatedSourceModal();
+  }
 }
 
 function memberRequestSignature(
@@ -21431,7 +21453,10 @@ function showGraphNavigationFailureOutsideCallGraph(
       return false;
     case "annotated":
       state.annotatedDestinationError = message;
-      renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+      renderAndFocusAnnotated(
+        "#annotated-destination-error",
+        "modal",
+      );
       return true;
     case "retained":
       showRetainedGraphNavigationError(message);
@@ -24502,14 +24527,8 @@ const graphSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && graphSourceIsOpen(state.graphSource);
 const annotatedSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.memberAnnotatedModal !== null;
-const embeddedAnnotatedSourceDetailContextIsActive = () =>
-  workspaceKeyboardContextIsActive()
-  && !workbenchOverlayOwnsFocus()
-  && state.memberSection === "annotated"
-  && Boolean(state.memberAnnotatedEmbedded?.detail);
 const annotatedSourceEscapeContextIsActive = () =>
-  annotatedSourceContextIsActive()
-  || embeddedAnnotatedSourceDetailContextIsActive();
+  annotatedSourceContextIsActive();
 const documentViewerContextIsActive = () =>
   workspaceModalContextIsAvailable() && documentViewerIsOpen(state.docViewer);
 const spotlightContextIsActive = () =>

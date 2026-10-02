@@ -1,6 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
-import type { TypeSourceView } from "../src/source-inspection.ts";
+import type {
+  MemberSourceView,
+  TypeSourceView,
+} from "../src/source-inspection.ts";
 import {
   sourceDiffPayloadDecoder,
   type BrowserSourceComparisonResult,
@@ -365,7 +368,11 @@ test.describe("published authored Source comparison transport", () => {
       }
 
       async function memberSource(
-        targetPage: Page, version: string, typeName = "Counter", name = "Value",
+        targetPage: Page,
+        version: string,
+        typeName = "Counter",
+        name = "Value",
+        view: MemberSourceView = "source",
       ) {
         const selected = await memberRequest(targetPage, name, version, typeName);
         return targetPage.evaluate(async request => {
@@ -373,8 +380,8 @@ test.describe("published authored Source comparison transport", () => {
           return source.queryMemberSource(
             request.packageId, request.beforeVersion, request.framework,
             request.assembly, request.typeIdentity, request.memberName,
-            request.selectorKey, request.metadataToken, "[]");
-        }, selected);
+            request.selectorKey, request.metadataToken, "[]", request.view);
+        }, { ...selected, view });
       }
 
       async function typeSource(
@@ -393,6 +400,12 @@ test.describe("published authored Source comparison transport", () => {
       }
 
       const authoredMember = await memberSource(page, "1.0.0");
+      const decompiledMember = await memberSource(
+        page,
+        "1.0.0",
+        "Counter",
+        "Value",
+        "decompiler-source");
       const authoredType = await typeSource(page, "1.0.0");
       const decompiledType = await typeSource(
         page,
@@ -430,6 +443,14 @@ test.describe("published authored Source comparison transport", () => {
         throw new Error("Authored fixture member did not publish its body part.");
       }
       const expectedBody = body.spans.map(span =>
+        span.leadingIndentation
+        + authoredMember.source.text.slice(span.start, span.end)).join("\n");
+      const declaration = authoredMember.parts.find(
+        part => part.kind === "Declaration");
+      if (!declaration) {
+        throw new Error("Authored fixture member did not publish its declaration part.");
+      }
+      const expectedDeclaration = declaration.spans.map(span =>
         span.leadingIndentation
         + authoredMember.source.text.slice(span.start, span.end)).join("\n");
       const member = authoredMember.parts.find(
@@ -497,11 +518,15 @@ test.describe("published authored Source comparison transport", () => {
 
       const selector =
         applicationPage.getByLabel("Select member source part");
-      await expect(selector).toHaveValue("Member", { timeout: 60_000 });
+      await expect(selector).toHaveValue("Declaration", { timeout: 60_000 });
       const sourceCode = applicationPage.locator(".source-result code");
       await expect.poll(() => sourceCode.textContent())
-        .toBe(expectedMember);
+        .toBe(expectedDeclaration);
       const settledSourceFetchCount = sourceFetchCount;
+      await selector.selectOption("Member");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(expectedMember);
+      expect(sourceFetchCount).toBe(settledSourceFetchCount);
       await selector.selectOption("XmlDocumentation");
       await expect.poll(() => sourceCode.textContent())
         .toBe(expectedDocumentation);
@@ -521,12 +546,32 @@ test.describe("published authored Source comparison transport", () => {
           __copiedMemberSource?: string;
         }).__copiedMemberSource)).toBe(expectedBody);
       expect(sourceFetchCount).toBe(settledSourceFetchCount);
+      const authoredSource = applicationPage.getByRole("button", {
+        name: "Authored",
+      });
+      const decompiledSource = applicationPage.getByRole("button", {
+        name: "Decompiled",
+      });
+      await decompiledSource.click();
+      await expect(decompiledSource).toHaveAttribute("aria-pressed", "true");
+      await expect(selector).toHaveCount(0);
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(decompiledMember.source.text);
+      await authoredSource.click();
+      await expect(authoredSource).toHaveAttribute("aria-pressed", "true");
+      await expect(selector).toHaveValue("Body");
+      await expect.poll(() => sourceCode.textContent()).toBe(expectedBody);
       await applicationPage.locator("#explore-source").click();
-      await expect(applicationPage.locator("#settings-backdrop")).toBeVisible();
       await expect(
-        applicationPage.locator("#settings-decompiler-title"),
+        applicationPage.locator("#annotated-source-backdrop"),
+      ).toBeVisible({ timeout: 60_000 });
+      await expect(
+        applicationPage.locator("#annotated-modal-title"),
       ).toBeFocused();
-      await applicationPage.locator("#settings-close").click();
+      await expect(
+        applicationPage.locator(".annotated-source-signature"),
+      ).toContainText("public int Value()");
+      await applicationPage.locator("#annotated-modal-close").click();
       await expect(applicationPage.locator("#explore-source")).toBeFocused();
       await chooseSubject(applicationPage, "type");
       const typeApiUrl = applicationPage.url();
@@ -776,7 +821,8 @@ test.describe("published authored Source comparison transport", () => {
       const fallbackType = await typeSource(unavailablePage, "2.0.0");
       await unavailablePage.close();
       const evidence = {
-        authoredMember, fallbackMember, authoredType, decompiledType,
+        authoredMember, decompiledMember, fallbackMember,
+        authoredType, decompiledType,
         fallbackType, apiType, allType,
         initializedGetter, declinedGetter,
         changed, exact, moved, movedAndEdited, unavailable,

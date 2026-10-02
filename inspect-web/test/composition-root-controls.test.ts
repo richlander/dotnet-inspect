@@ -172,7 +172,7 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
     ["overview", "call-graph", "source"]);
@@ -183,12 +183,11 @@ test("platform type and member navigation hides package-only operations", () => 
       "call-graph",
       "facts",
       "source",
-      "annotated",
       "compare",
     ]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "compare"]);
 });
 
 test("implementation evidence remains subtle member-list heat", () => {
@@ -1978,10 +1977,6 @@ test("annotated source owns its rendered control bindings", () => {
 test("annotated source validation failures stay visible at the shell boundary", () => {
   assert.match(
     appSource,
-    /function renderAnnotatedSource\(result: AnnotatedSourceResult\) \{\s*try \{[\s\S]*renderAnnotatedSourcePure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*return renderAnnotatedSourceRejection\(error\)/,
-  );
-  assert.match(
-    appSource,
     /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*return renderAnnotatedSourceRejectionModal\(\s*errorMessage\(error\),\s*escapeHtml,\s*\)/,
   );
   assert.match(
@@ -1990,11 +1985,7 @@ test("annotated source validation failures stay visible at the shell boundary", 
   );
   assert.match(
     appSource,
-    /function renderAnnotatedSourceRejection\(error: TypeError\) \{[\s\S]*Annotated source document rejected[\s\S]*escapeHtml\(errorMessage\(error\)\)/,
-  );
-  assert.match(
-    appSource,
-    /function dismissAnnotatedSourceModal\(restoreExploreFocus: boolean\) \{[\s\S]*try \{\s*model = createAnnotatedSourceViewerModel\(state\.memberAnnotated\);\s*\} catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*state\.memberAnnotatedEmbedded = null;\s*state\.memberAnnotatedModal = null;[\s\S]*renderAndFocusAnnotated\("#annotated-source-rejection-title", "embedded"\);[\s\S]*return true;\s*\}[\s\S]*dismissModalSession\(model, state\.memberAnnotatedModal\)/,
+    /function dismissAnnotatedSourceModal\(restoreExploreFocus: boolean\) \{[\s\S]*try \{\s*model = createAnnotatedSourceViewerModel\(state\.memberAnnotated\);\s*\} catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*state\.memberAnnotatedEmbedded = null;\s*state\.memberAnnotatedModal = null;[\s\S]*restoreMemberAnnotatedOriginFocus\(origin\);[\s\S]*return true;\s*\}[\s\S]*dismissModalSession\(model, state\.memberAnnotatedModal\)/,
   );
   assert.match(
     appSource,
@@ -2009,7 +2000,10 @@ test("annotated source validation failures stay visible at the shell boundary", 
 test("annotated source Escape and history ownership track the mounted surface", () => {
   assert.match(
     appSource,
-    /const embeddedAnnotatedSourceDetailContextIsActive = \(\) =>\s*workspaceKeyboardContextIsActive\(\)\s*&& !workbenchOverlayOwnsFocus\(\)\s*&& state\.memberSection === "annotated"\s*&& Boolean\(state\.memberAnnotatedEmbedded\?\.detail\);\s*const annotatedSourceEscapeContextIsActive = \(\) =>\s*annotatedSourceContextIsActive\(\)\s*\|\| embeddedAnnotatedSourceDetailContextIsActive\(\)/);
+    /const annotatedSourceEscapeContextIsActive = \(\) =>\s*annotatedSourceContextIsActive\(\);/);
+  assert.doesNotMatch(
+    appSource,
+    /embeddedAnnotatedSourceDetailContextIsActive/);
 
   const dismiss =
     appSource.match(

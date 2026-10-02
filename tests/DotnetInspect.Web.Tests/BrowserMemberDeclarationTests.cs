@@ -781,6 +781,7 @@ public sealed class BrowserMemberDeclarationTests
                         .CreateSelector(type, member).Key,
                     member.MetadataToken ?? 0,
                     "[]",
+                    "source",
                     Assert.IsType<string>(resolution.ContextId));
             BrowserMemberSource source =
                 JsonSerializer.Deserialize(

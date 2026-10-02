@@ -237,7 +237,7 @@ test("member request identity distinguishes colliding type queries", () => {
 test("annotated source request identity includes the selected body", () => {
   const annotatedLoader =
     appSource.match(
-      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nasync function exploreSelectedMemberAnnotatedSource/)?.[0]
     ?? "";
   assert.match(
     annotatedLoader,
@@ -284,7 +284,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     ?? "";
   const annotatedLoader =
     appSource.match(
-      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nasync function exploreSelectedMemberAnnotatedSource/)?.[0]
     ?? "";
   const factsLoader =
     appSource.match(
@@ -423,7 +423,7 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(autoLoadBody, /openGraphSource\(/);
   const annotatedLoader =
     appSource.match(
-      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nasync function exploreSelectedMemberAnnotatedSource/)?.[0]
     ?? "";
   assert.match(
     annotatedLoader,
@@ -482,9 +482,9 @@ test("source operations cancel when superseded or hidden", () => {
       ...visible,
       lens: "api",
       selectedMemberKey: "M",
-      memberSection: "annotated"
+      memberSection: "source"
     }),
-    "annotated");
+    "member");
   assert.equal(
     sourceReloadKind({
       ...visible,
@@ -506,7 +506,7 @@ test("source operations cancel when superseded or hidden", () => {
       ...visible,
       lens: "api",
       selectedMemberKey: "M",
-      memberSection: "annotated"
+      memberSection: "source"
     }, false),
     null);
   assert.equal(
@@ -515,7 +515,7 @@ test("source operations cancel when superseded or hidden", () => {
       settings: true,
       lens: "api",
       selectedMemberKey: "M",
-      memberSection: "annotated"
+      memberSection: "source"
     }),
     null);
   assert.equal(
@@ -651,7 +651,7 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
     ["overview", "call-graph", "source"]);
@@ -753,7 +753,7 @@ test("source requests carry exact type and member identities", () => {
     /typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson/);
   assert.match(
     platformMemberBridge,
-    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson, contextId/);
+    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson, view, contextId/);
   assert.match(
     memberLoader,
     /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformAssemblyRequest\(row\)[\s\S]*pack: row\.pack,[\s\S]*contextId: platformDemoContextIdFor\(pkg\)[\s\S]*kind: "package"/);

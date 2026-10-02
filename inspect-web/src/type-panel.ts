@@ -4,7 +4,9 @@ import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import {
+  memberSourceView,
   typeSourceView,
+  type MemberSourceView,
   type SourceResultState,
   type TypeSourceView,
 } from "./source-inspection.ts";
@@ -276,17 +278,21 @@ export interface MemberSourcePartSelector {
 
 export function createMemberSourcePartSelector(): MemberSourcePartSelector {
   let selectedSignature = "";
-  let selectedPart: MemberSourcePartSelection = "Member";
+  let selectedPart: MemberSourcePartSelection = "Declaration";
   return {
     current(signature, source) {
       if (selectedSignature !== signature) {
         selectedSignature = signature;
-        selectedPart = "Member";
+        selectedPart = "Declaration";
       }
       if (source !== null
+        && source.parts.some(part => part.spans.length > 0)
         && !source.parts.some(
           part => part.kind === selectedPart && part.spans.length > 0)) {
-        selectedPart = "Member";
+        selectedPart = source.parts.some(
+          part => part.kind === "Declaration" && part.spans.length > 0)
+          ? "Declaration"
+          : "Member";
       }
       return selectedPart;
     },
@@ -310,6 +316,7 @@ export interface TypePanelBindingActions {
     anchor: "selector" | "digest" | "canonical" | undefined,
   ) => void;
   onCopyMemberSource: () => void;
+  onMemberSourceViewSelect: (view: MemberSourceView) => void;
   onMemberSourcePartSelect: (part: MemberSourcePartSelection) => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
@@ -458,6 +465,11 @@ export function bindTypePanel(
   root.querySelector("#copy-source")?.addEventListener(
     "click",
     actions.onCopyMemberSource);
+  root.querySelectorAll<HTMLElement>("[data-member-source-view]")
+    .forEach(button => button.addEventListener("click", () => {
+      const view = memberSourceView(button.dataset.memberSourceView ?? "");
+      if (view !== null) actions.onMemberSourceViewSelect(view);
+    }));
   const memberSourcePart =
     root.querySelector<HTMLSelectElement>("#member-source-part");
   memberSourcePart?.addEventListener("change", () => {
@@ -1153,8 +1165,10 @@ export interface RenderSourcePageActionsOptions {
   source: TypeSourceResult | null;
   typeCodeView?: BrowserTypeCodeView | null;
   typeView?: TypeSourceView;
+  memberView?: MemberSourceView;
   memberSource?: BrowserMemberSource | null;
   selectedMemberPart?: MemberSourcePartSelection;
+  exploreBusy?: boolean;
   copyButtonId: "copy-source" | "copy-type-source";
   escapeHtml: EscapeHtml;
 }
@@ -1166,8 +1180,10 @@ export function renderSourcePageActions(
     source,
     typeCodeView = null,
     typeView = "source",
+    memberView = "source",
     memberSource = null,
-    selectedMemberPart = "Member",
+    selectedMemberPart = "Declaration",
+    exploreBusy = false,
     copyButtonId,
     escapeHtml,
   } = options;
@@ -1175,6 +1191,14 @@ export function renderSourcePageActions(
     ? []
     : availableMemberSourceParts(memberSource.parts);
   return `
+    ${copyButtonId === "copy-source"
+      ? `<div class="source-origin-selector" role="group" aria-label="Source origin">
+          <button type="button" data-member-source-view="source"
+            aria-pressed="${memberView === "source"}">Authored</button>
+          <button type="button" data-member-source-view="decompiler-source"
+            aria-pressed="${memberView === "decompiler-source"}">Decompiled</button>
+        </div>`
+      : ""}
     ${copyButtonId === "copy-type-source"
       ? `<label class="source-part-picker">
           <span>View</span>
@@ -1203,7 +1227,11 @@ export function renderSourcePageActions(
       || typeView === "source"
       || typeView === "decompiler-source"
       ? `<button id="explore-source" class="primary-action" type="button"
-          title="Explore source options">Explore</button>`
+          title="${copyButtonId === "copy-source"
+            ? "Explore annotated source"
+            : "Explore type source"}"${exploreBusy ? " disabled" : ""}>${
+              exploreBusy ? "Exploring…" : "Explore"
+            }</button>`
       : ""}`;
 }
 
@@ -1321,6 +1349,7 @@ function memberSourcePartSelection(
   value: string | number,
 ): MemberSourcePartSelection | null {
   switch (value) {
+    case "Declaration":
     case "Member":
     case "XmlDocumentation":
     case "Attributes":
@@ -1334,6 +1363,8 @@ function memberSourcePartSelection(
 
 function memberSourcePartLabel(part: MemberSourcePartSelection): string {
   switch (part) {
+    case "Declaration":
+      return "Declaration";
     case "Member":
       return "Member";
     case "XmlDocumentation":

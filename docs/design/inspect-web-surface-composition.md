@@ -17,8 +17,8 @@ This owner defines:
 - Home's page-level hierarchy, wide and narrow composition, and relationship to
   the data bar;
 - which working surfaces exist (Type API, Member API, Type Metadata, Compare,
-  Source, Annotated Source, Member Diff, Package query, Package activity,
-  Diagnostics) and their page-level placement relative to Type/Member
+  Source, Member Diff, Package query, Package activity, Diagnostics) and their
+  page-level placement relative to Type/Member
   navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
@@ -29,8 +29,8 @@ This owner defines:
   contracts are
   [`package-query-experience.md`](package-query-experience.md) and
   [`package-activity-experience.md`](package-activity-experience.md);
-- Source, Annotated Source, and Member Diff pane placement and independent
-  scrolling;
+- Source and Member Diff pane placement and independent scrolling, plus
+  Source's transient full-bleed Annotated Source destination;
 - Unified Settings' section composition (Appearance, Decompiler style,
   Package sources) and contextual entry;
 - package-source presentation placement (feed tabs absence, producer-label
@@ -223,11 +223,11 @@ elision inside its allocation.
 
 The optional working-surface action region exists only when the active surface
 supplies page-level contextual actions. It is not part of either navigation
-group and does not add items to the Application menu. Source supplies Copy and
-optional Open plus Explore there; Annotated Source supplies Copy and Explore
-there; Member Diff supplies its mode, change navigation and position, and any
-authorized Before or After Open actions there. The target yields space while
-the complete action group remains visible.
+group and does not add items to the Application menu. Source supplies its
+origin and part selectors, Copy, optional Open, and Explore there. Member Diff
+supplies its mode, change navigation and position, and any authorized Before
+or After Open actions there. The target yields space while the complete action
+group remains visible.
 
 The menu surface is placed in the shared top-level overlay layer, anchored to
 the button's inline end and constrained to the viewport. It may cover the
@@ -257,18 +257,16 @@ never enter the Application menu. Full-area source surfaces use the dedicated
 page-level working-surface action region; result-local surfaces retain their
 actions in the result:
 
-- Source places `Copy`, optional `Open`, and `Explore` in the working-surface
-  action region while source content starts at the top of its pane and compact
-  provenance stays attached to the bottom. Type Source `Explore` requests the
-  routed whole-Type experience owned by
+- Source places its applicable selectors, `Copy`, optional `Open`, and
+  `Explore` in the working-surface action region while source content starts at
+  the top of its pane and compact provenance stays attached to the bottom. Type
+  Source `Explore` requests the routed whole-Type experience owned by
   [Inspect Web Type Explorer](inspect-web-type-explorer.md); this document owns
-  only the action's placement. Member Source retains its existing contextual
-  Settings destination; changing that destination is outside Type Explorer.
-  Member Source is available for package and platform implementation members;
-  the platform route resolves the selected implementation assembly through the
-  platform workspace rather than treating it as a package coordinate.
-- Annotated Source places `Copy` and `Explore` in the working-surface action
-  region while product provenance stays attached to the bottom.
+  only the action's placement. Member Source `Explore` opens the transient
+  full-bleed Annotated Source viewer. Member Source is available for package
+  and platform implementation members; the platform route resolves the
+  selected implementation assembly through the platform workspace rather than
+  treating it as a package coordinate.
 - Member Diff places the viewer-owned mode control, `Previous`, current change
   position, `Next`, and any authorized Before or After `Open` actions in the
   working-surface action region while comparison rows retain the full pane.
@@ -285,10 +283,10 @@ recreated in another region. A resize changes layout only: a contextual
 control that owns focus keeps focus, and a modal it opened returns to that same
 logical surface action when the surface still exists.
 
-An independently scrolling source or annotated-content pane begins at the top
-of the working surface, while its page-level actions remain outside the
-scroller. A result collection may scroll as a unit; per-result actions remain
-inside their result row because that row is the context they act on.
+An independently scrolling source pane begins at the top of the working
+surface, while its page-level actions remain outside the scroller. A result
+collection may scroll as a unit; per-result actions remain inside their result
+row because that row is the context they act on.
 
 Member Diff has a larger page-level action inventory than Source. At wide
 widths its supplied controls remain one trailing group in this order: mode,
@@ -332,10 +330,11 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 ## Working surfaces
 
 Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
-Library Metadata, Compare, Source, Annotated Source, Member Diff, and
-Diagnostics are working surfaces rather than documents inset inside a general
-page. The Metadata Explorer retains its separately owned full-bleed
-composition.
+Library Metadata, Compare, Source, Member Diff, and Diagnostics are working
+surfaces rather than documents inset inside a general page. Annotated Source is
+a transient full-bleed viewer reached from Source or exact Finding actions, not
+a persistent Member inspector. The Metadata Explorer retains its separately
+owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -756,9 +755,9 @@ placement, available/unavailable nodes, pending completion, projection replaceme
 and type navigation; published Wasm evidence covers the real action row and typed
 destination.
 
-Member Source and Annotated Source remain the heading-free full-area exceptions
-defined below. Loading and failure states stay visible and do not become
-success-shaped empty surfaces.
+Member Source remains a heading-free full-area exception defined below.
+Loading and failure states stay visible and do not become success-shaped empty
+surfaces.
 
 At narrow widths, Type and Member header identity and status may elide, but the
 member count, overload count, or selected overload ordinal is not selectively
@@ -1348,48 +1347,47 @@ enter the generic inventory/detail pane swap. The persistent subject and
 inspector groups may independently adapt to Choosers. Member retains the
 existing narrow navigation/detail composition, and Explore remains full-bleed.
 
-### Source and Annotated Source
+### Source and Annotated Source viewer
 
-Source and Annotated Source use the full area to the right of Type or Member
-navigation. They do not retain the old breadcrumb row, subject hero, metadata
-summary, centered maximum-width column, or inset source card.
+Source uses the full area to the right of Type or Member navigation. It does
+not retain the old breadcrumb row, subject hero, metadata summary, centered
+maximum-width column, or inset source card.
 
 Their layout is:
 
 ```text
-Working-surface actions                        Copy   Open   Explore
+Working-surface actions   Authored | Decompiled   View   Copy   Open   Explore
 Types or Members | source content
                  | source provenance
-
-Working-surface actions                               Copy   Explore
-Types or Members | annotated source content
-                 | product provenance
 ```
 
-Source and Annotated Source give the page-owned working-surface action region
-their contextual actions. Source keeps compact provenance as a footer attached
-to the source pane; Annotated Source keeps product provenance in the same
-position. Neither adds another visible title or presentation summary inside
-the pane. The navigation pane and source content may scroll independently.
-Collapsing navigation gives the working surface the full viewport width.
+Source gives the page-owned working-surface action region its contextual
+actions and keeps compact provenance as a footer attached to the source pane.
+It adds no visible title or presentation summary inside the pane. The
+navigation pane and source content may scroll independently. Collapsing
+navigation gives the working surface the full viewport width.
 
-Annotated Source appears inline by default and may open the full-bleed modal
-viewer governed by the shared transient-surface contract. This document owns
-the inline/full-bleed placement decision; C# highlighting fidelity to the
-product document's exact text and coordinates, and every other viewer-internal
-behavior, are owned by
+Member Source presents **Authored / Decompiled** as a two-state segmented
+control. Authored source additionally offers **Declaration**, **Member**, and
+any other available product-issued parts. Declaration is preferred and omits
+attached XML documentation; Member retains the complete authored member.
+Explicit Decompiled runs the decompiler even when authored source exists and
+has no authored part selector.
+
+Member Source **Explore** lazily acquires the annotated document and opens the
+full-bleed modal governed by the shared transient-surface contract. Exact
+Findings from Member Facts open the same viewer at their selected instance.
+Annotated Source has no inline working surface or persistent inspector.
+C# highlighting fidelity to the product document's exact text and coordinates,
+and every other viewer-internal behavior, are owned by
 [Annotated Source viewer interaction](annotated-source-viewer-interaction.md).
 
 Decompiler style is contextual:
 
 - Settings owns the persistent Decompiler style preference.
-- Decompiled Source, Annotated Source, and decompiled call-graph source may
+- Decompiled Source and decompiled call-graph source may
   link directly to that Settings section.
 - PDB Source does not show the control because authored source is unaffected.
-
-From the full-bleed Annotated Source viewer, that action closes the viewer and
-opens Settings. Closing Settings returns to inline Annotated Source without
-reopening the viewer; any changed style regenerates the affected inline output.
 
 Changing style regenerates only affected decompiler output. The preference is
 not part of either persistent shell row, and a
@@ -1400,7 +1398,7 @@ recipient.
 
 Member Diff is the body-dependent, same-member PDB-versus-decompiled comparison
 from [Member source diff presentation](member-source-diff-presentation.md). It
-occupies the same full detail area as Source and Annotated Source when the
+occupies the same full detail area as Source when the
 product-issued Member inspector inventory makes it active:
 
 ```text
@@ -1512,7 +1510,7 @@ One information hierarchy adapts across viewport sizes:
   navigation. Switching panes does not change the selected coordinate,
   subject, lens, filters, canonical packet, URL, or browser history;
 - the return button shares the quiet 40-pixel working-surface header when one
-  exists. Heading-free Source, Annotated Source, and Member Diff, plus
+  exists. Heading-free Source and Member Diff, plus
   document-style package surfaces use a narrow-only local navigation band
   rather than inventing a working-surface title;
 - both persistent shell rows remain one line;
@@ -1696,17 +1694,16 @@ outcomes.
 7. Focus the Application menu button and resize repeatedly. Confirm that the
    same row-one control remains focused and is not cloned or included in
    either navigation group.
-8. Confirm that Source and Annotated Source actions occupy a dedicated row-two
-   group without entering either navigation inventory or the Application menu.
+8. Confirm that Source actions occupy a dedicated row-two group without
+   entering either navigation inventory or the Application menu.
    Confirm that Package query and contextual Decompiler style
    actions remain with their result. At a narrow viewport, confirm that Source
    Copy and optional Open remain visible, result-local action groups move
    together below descriptive text when needed, and focused actions retain
    focus.
-9. Confirm that source and annotated content begin at the top of their working
-   surfaces and scroll independently of their page-level action groups.
-   Confirm that result overflow remains within its contextual action
-   placement.
+9. Confirm that source content begins at the top of its working surface and
+   scrolls independently of its page-level action group. Confirm that the
+   full-bleed Annotated Source viewer has no duplicate inline working surface.
 
 ### Package-source composition
 
@@ -1818,6 +1815,10 @@ with the absence of a synthesized `Default feed` control.
 4. Open PDB Source and confirm that no Decompiler style control appears.
 5. Open Decompiled Source and confirm that its style action opens the shared
    Settings section.
+6. Open Member Source and confirm that Declaration is preferred, Member retains
+   attached XML documentation, and Authored/Decompiled explicitly requests
+   either acquisition mode. Activate Explore and confirm that the full-bleed
+   Annotated Source viewer opens without adding another Member inspector.
 
 ### Member Diff working surface
 
