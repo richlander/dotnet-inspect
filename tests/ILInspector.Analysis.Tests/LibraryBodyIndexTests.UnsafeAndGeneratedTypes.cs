@@ -331,8 +331,14 @@ public partial class LibraryBodyIndexTests
                 nestedLeaf.ToQualifiedDisplayString());
             Assert.Contains(generated, type => type.Equals(namespaceLeaf));
             Assert.DoesNotContain(generated, type => type.Equals(nestedLeaf));
-            Assert.True(index.CompatibilityIndex().IsGeneratedFrameworkType(namespaceLeaf));
-            Assert.False(index.CompatibilityIndex().IsGeneratedFrameworkType(nestedLeaf));
+            Assert.True(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    namespaceLeaf));
+            Assert.False(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    nestedLeaf));
         }
         finally
         {
@@ -445,9 +451,17 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(["GenStub", "Inner"], nested.Resolution!.Type.Segments);
             Assert.Equal(["GenStub+LiteralPlus"], literalPlus.Resolution!.Type.Segments);
 
-            Assert.Contains(index.CompatibilityIndex().GeneratedFrameworkTypes, type => type.Equals(stub));
-            Assert.True(index.CompatibilityIndex().IsGeneratedFrameworkType(nested));
-            Assert.False(index.CompatibilityIndex().IsGeneratedFrameworkType(literalPlus));
+            IReadOnlySet<TypeRef> generated =
+                index.CompatibilityIndex().GeneratedFrameworkTypes;
+            Assert.Contains(generated, type => type.Equals(stub));
+            Assert.True(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    nested));
+            Assert.False(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    literalPlus));
         }
         finally
         {

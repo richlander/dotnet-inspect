@@ -378,23 +378,6 @@ public sealed class LibraryBodyIndex
     public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
         => _optimization.GeneratedFrameworkTypes;
 
-    /// <summary>
-    /// True when <paramref name="type"/> is in
-    /// <see cref="GeneratedFrameworkTypes"/> or is a metadata nested type of one.
-    /// </summary>
-    public bool IsGeneratedFrameworkType(TypeRef type)
-        => IsGeneratedFrameworkType(GeneratedFrameworkTypes, type);
-
-    /// <summary>
-    /// True when <paramref name="type"/> is a classified generated-framework type
-    /// or a metadata nested type of one. Prefers decoder segment structure over
-    /// flattened <c>+</c> names; does not parse qualified display text.
-    /// </summary>
-    public static bool IsGeneratedFrameworkType(
-        IReadOnlySet<TypeRef> generatedFrameworkTypes,
-        TypeRef type)
-        => GeneratedFrameworkTypeAnalysis.Contains(generatedFrameworkTypes, type);
-
     public static LibraryBodyIndex Open(string path)
         => LibraryBodyAnalysisService.AnalyzePath(
             path,
