@@ -157,8 +157,10 @@ Without a finite window, every layer is searched and layers may run
 concurrently; each layer carries its ordinal. Existing blocking Find output
 groups broadened Member rows before Type Results, so nearest-first order is
 preserved within each result kind, not as one visible cross-kind sequence.
-The unified Find result-stream design will replace this kind-grouped
-presentation with layer-ordered rows and progressive TSV output. So
+Default unbounded TSV publishes one unified table, with each settled layer's
+rows before the next layer. Explicit Markdown retains the kind grouping;
+selection-bearing TSV requests retain the established buffered selection
+order until the row-selection owner adopts the stream. So
 `find '.Add*' --ecosystem aspire -n 20`
 loads no platform population when Aspire's own layer fills the window. This is
 ordinary nearest-scope-first lookup: a weak match in a nearer layer ranks

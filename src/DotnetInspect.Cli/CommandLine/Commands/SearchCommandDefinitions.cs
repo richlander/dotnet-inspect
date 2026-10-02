@@ -129,6 +129,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(literalOption);
         findCommand.Options.Add(typeFilterOption);
         findCommand.Options.Add(opts.Json);
+        findCommand.Options.Add(opts.Markdown);
         findCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(findCommand);
         findCommand.Options.Add(packagePrefixOption);

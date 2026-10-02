@@ -373,6 +373,51 @@ preventing repeated observations of one declaration from spending capacity.
 
 ### Result and presentation boundary
 
+#### Progressive TSV
+
+TSV is Find's default format. It presents one stable table for Type and Member
+matches, including implicit Member matches. The columns are `Coordinate`,
+`Kind` (`type` or `member`), `Source`, `Library`, `Pattern`, `Declaration`,
+`Signature`, `Match`, and `Ecosystem`. Coordinate is a display address, not a
+new identity: a full Type name or a declaring Type plus Member name. Signature
+distinguishes overload presentations; existing owner-issued identity remains
+with the search result. Empty optional cells do not change the header.
+
+The shared presentation layer owns this table vocabulary and Markout lowering.
+The CLI binds its existing typed search results to that presentation, writes
+one header unless `--no-header` is requested, and flushes settled rows without
+waiting for later sources or layers. TSV cells use Markout's existing inert
+text and control-character encoding; diagnostics never enter the table.
+
+Progressive does not mean provisional. Direct Member and wildcard Type
+matches can settle while sources are searched. Type answers whose implicit
+Member fallback can supersede weak candidates wait for that classification
+boundary. Ecosystem searches publish each settled layer before starting the
+next. Requests with semantic row selection retain the existing buffered
+selection path: this slice neither changes selection semantics nor claims
+that Tail or strict Window can stream before their required census completes.
+Count still emits only its final scalar.
+
+Explicit Markdown, JSON, JSONL, and pretty table retain their existing shapes.
+This is an intentional default-format change, authorized in #9128; it does
+not migrate those formats to a unified result contract. Streaming retains
+already printed rows if a later source fails; existing warnings and exit
+status report failures, while cancellation or operation-wide failure remains
+an error rather than a successful empty stream.
+
+The motivating production examples are Runtime's `System.Text.Json` and
+`Aspire.Hosting` 13.6.0 in layered Find. This CLI adoption is one implementation
+slice; the presentation is host-neutral, while Inspect Web has no TSV Find
+surface and this operator-approved slice does not add one. Row-selection
+execution remains separately owned by #9100. Existing Find views remain for
+explicit formats; no second search or metadata decoder is introduced.
+
+`FindProgressiveTsvTests` is the PR-fast Release gate for the stable mixed-kind
+header, per-row visibility, projection, safe cell framing, source callbacks,
+cancellation after a printed source, and buffered strict-Window failure.
+The existing Find command and service suites enforce explicit-format
+compatibility and the retained selection behavior.
+
 `TypeFindMatchKind` gains `Exact`, `Prefix`, and `Substring`. Exact candidate
 rows that previously used `Direct` now expose the more precise class. Prefix
 and Substring rows carry similarity `1.0`; Partial retains its measured score.
@@ -381,7 +426,7 @@ These are corrective typed-JSON changes under
 
 The command composes the Type search result with the broadened band's member
 rows as a separate `FindSearchResult<MemberFindResult>` component, retaining
-its own failures and completion. Default Markdown renders them as a `Members`
+its own failures and completion. Explicit Markdown renders them as a `Members`
 section before `Results`, using the Member Find view. This section enters the
 default `-v:m` view only because it is the command's single high-value section
 when it appears: it is present only when no Exact, Direct, Namespace, or
@@ -400,7 +445,7 @@ answer in presented order when implicit Member fallback runs: member rows
 first, then Type rows. A window that crosses the boundary keeps the tail of
 `Members` and the head of `Results`. A pure `-n N` that already settled on N
 Type rows has no Member component to reorder. Formats that omit member rows
-(plain `--json` and table formats) select over the Type rows they present. The
+(plain `--json`, JSONL, and pretty table) select over the Type rows they present. The
 reported row count is the number of selected rows presented.
 
 ## Limits and work

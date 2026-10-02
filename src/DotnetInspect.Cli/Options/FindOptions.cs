@@ -21,6 +21,10 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 
     internal EcosystemPackId[]? Ecosystems { get; init; }
 
+    internal Action<TypeFindResult>? OnTypeRow { get; init; }
+
+    internal Action<MemberFindResult>? OnMemberRow { get; init; }
+
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.
     /// </summary>

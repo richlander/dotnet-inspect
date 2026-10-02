@@ -13,6 +13,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
 using Markout;
+using DotnetInspector.Presentation;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
@@ -48,7 +49,10 @@ public class FindCommand
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
-                var schema = options.Members
+                var schema = options.Tsv && !options.Count
+                    ? new DocumentSchema()
+                        .Add("Results", "column", [.. FindDiscoveryTsvWriter.Columns])
+                    : options.Members
                     ? new DocumentSchema()
                         .Add("Members", "column", options.Ecosystems is null
                             ? ["Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source"]
@@ -82,10 +86,46 @@ public class FindCommand
             }
             FindOptions searchOptions =
                 CreateSearchOptions(options, patterns);
+            using FindDiscoveryTsvWriter? tsv =
+                options.Tsv && !options.Count
+                    ? new(Console.Out, !options.NoHeader,
+                        OutputFormatter.BuildProjection(options.Columns, options.Fields))
+                    : null;
+            bool progressive = tsv is not null && rowSelection is null;
+            int streamedTypes = 0;
+            int streamedMembers = 0;
+            if (progressive && options.Ecosystems is null)
+            {
+                if (options.Members)
+                {
+                    searchOptions = searchOptions with
+                    {
+                        OnMemberRow = row =>
+                        {
+                            tsv!.Write(FindDiscoveryOutput.Project(row));
+                            streamedMembers++;
+                        },
+                    };
+                }
+                else if (patterns.Length == 1
+                    && TypeMatcher.IsTypeGlobPattern(patterns[0])
+                    && !patterns[0].EndsWith(".*", StringComparison.Ordinal))
+                {
+                    searchOptions = searchOptions with
+                    {
+                        OnTypeRow = row =>
+                        {
+                            tsv!.Write(FindDiscoveryOutput.Project(row));
+                            streamedTypes++;
+                        },
+                    };
+                }
+            }
             LayeredFindResult? layered = options.Ecosystems is null
                 ? null
                 : await SearchLayersAsync(
-                    searchOptions, patterns, context, cancellationToken);
+                    searchOptions, patterns, context, cancellationToken,
+                    progressive ? tsv : null);
 
             PlatformFindSearchWorkspace? platformWorkspace = null;
             if (layered is null && searchOptions.UsesImplicitPlatform)
@@ -122,7 +162,11 @@ public class FindCommand
                     cancellationToken,
                     platformWorkspace,
                     explicitWorkspace,
-                    layered?.MemberSearch);
+                    layered?.MemberSearch,
+                    tsv,
+                    layered is not null && progressive
+                        ? layered.MemberSearch.Rows.Count
+                        : streamedMembers);
             }
 
             FindSearchResult<TypeFindResult> search =
@@ -152,7 +196,7 @@ public class FindCommand
             bool rendersMembers =
                 !options.Count
                 && !options.JsonOutput
-                && !options.Tabular;
+                && (!options.Tabular || options.Tsv);
             if (options.Count
                 && (members.Count > 0
                     || memberTier?.HasFailures is true
@@ -201,6 +245,22 @@ public class FindCommand
                 if (!WriteCount(results, title, options))
                     return new(1, RowCount: null);
             }
+            else if (tsv is not null)
+            {
+                if (layered is null || !progressive)
+                {
+                    foreach (MemberFindResult row in members.Skip(streamedMembers))
+                        tsv.Write(FindDiscoveryOutput.Project(row));
+                    foreach (TypeFindResult row in results.Skip(streamedTypes))
+                    {
+                        if (row.Match != TypeFindMatchKind.NotFound)
+                            tsv.Write(FindDiscoveryOutput.Project(row));
+                    }
+                }
+                if (members.Count == 0
+                    && results.All(row => row.Match == TypeFindMatchKind.NotFound))
+                    CommandError.WriteLine("No types found matching the pattern.");
+            }
             else if (options.JsonOutput)
             {
                 // --fields/--columns name post-lowering vocabulary (computed table columns), so
@@ -225,7 +285,10 @@ public class FindCommand
                 WriteOutput(results, title, options, members);
             }
 
-            return new(0, results.Count + (rendersMembers ? members.Count : 0));
+            return new(0, (tsv is not null
+                    ? results.Count(row => row.Match != TypeFindMatchKind.NotFound)
+                    : results.Count)
+                + (rendersMembers ? members.Count : 0));
         }
         catch (Exception ex)
         {
@@ -316,7 +379,8 @@ public class FindCommand
         FindOptions options,
         string[] patterns,
         CommandContext context,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        FindDiscoveryTsvWriter? tsv = null)
     {
         var layers = GetNamedLayers(options.Ecosystems!);
         var types = new List<TypeFindResult>();
@@ -382,8 +446,12 @@ public class FindCommand
                             scoped, memberPatterns, context.Logger,
                             context.HttpClient, cancellationToken, platform,
                             explicitWorkspace);
-                    members.AddRange(found.Rows.Select(row =>
-                        row with { Ecosystem = layer.Id.Value }));
+                    foreach (MemberFindResult row in found.Rows)
+                    {
+                        MemberFindResult attributed = row with { Ecosystem = layer.Id.Value };
+                        members.Add(attributed);
+                        tsv?.Write(FindDiscoveryOutput.Project(attributed));
+                    }
                     failures |= found.HasFailures;
                     incomplete |= found.SourceSelectionIncomplete;
                     continue;
@@ -433,10 +501,19 @@ public class FindCommand
                         }
                     }
                 }
-                types.AddRange(WithoutSupersededWeakRows(foundTypes.Rows, band)
-                    .Select(row => row with { Ecosystem = layer.Id.Value }));
-                members.AddRange(band.Select(row =>
-                    row with { Ecosystem = layer.Id.Value }));
+                foreach (MemberFindResult row in band)
+                {
+                    MemberFindResult attributed = row with { Ecosystem = layer.Id.Value };
+                    members.Add(attributed);
+                    tsv?.Write(FindDiscoveryOutput.Project(attributed));
+                }
+                foreach (TypeFindResult row in WithoutSupersededWeakRows(foundTypes.Rows, band))
+                {
+                    TypeFindResult attributed = row with { Ecosystem = layer.Id.Value };
+                    types.Add(attributed);
+                    if (row.Match != TypeFindMatchKind.NotFound)
+                        tsv?.Write(FindDiscoveryOutput.Project(attributed));
+                }
                 failures |= foundTypes.HasFailures || foundMembers?.HasFailures is true;
                 incomplete |= foundTypes.SourceSelectionIncomplete
                     || foundMembers?.SourceSelectionIncomplete is true;
@@ -472,7 +549,7 @@ public class FindCommand
             options.Members
             || (!options.Count
                 && !options.JsonOutput
-                && !options.Tabular);
+                && (!options.Tabular || options.Tsv));
         return typeCount + (memberRowsArePresented ? memberCount : 0);
     }
 
@@ -618,7 +695,7 @@ public class FindCommand
         {
             CommandError.WriteNote(
                 $"{group.Count()} member matches for '{group.Key}' appear "
-                + "only in Markdown output. Use "
+                + "in TSV and Markdown output. Use "
                 + $"'find .{group.Key}' for member rows in this format.");
         }
     }
@@ -648,7 +725,9 @@ public class FindCommand
         CancellationToken cancellationToken,
         PlatformFindSearchWorkspace? platformWorkspace,
         ExplicitFindSearchWorkspace? explicitWorkspace,
-        FindSearchResult<MemberFindResult>? preparedSearch = null)
+        FindSearchResult<MemberFindResult>? preparedSearch = null,
+        FindDiscoveryTsvWriter? tsv = null,
+        int streamedRows = 0)
     {
         // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
         // the member named "Serialize". ".ctor"/".cctor" are preserved (they are real member names).
@@ -700,6 +779,13 @@ public class FindCommand
             }
             if (!WriteMemberCount(results, title, options))
                 return new(1, RowCount: null);
+        }
+        else if (tsv is not null)
+        {
+            foreach (MemberFindResult row in results.Skip(streamedRows))
+                tsv.Write(FindDiscoveryOutput.Project(row));
+            if (results.Count == 0)
+                CommandError.WriteLine("No members found matching the pattern.");
         }
         else if (options.JsonOutput)
         {

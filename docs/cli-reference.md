@@ -959,7 +959,23 @@ dotnet-inspect find System.Text.Json.JsonSerializer \
   --tfm net10.0
 ```
 
-Default Markdown, tips, table formats, and plain type-search JSON retain their
+Find defaults to TSV, with one stable header and unified Type and Member rows:
+`Coordinate`, `Kind`, `Source`, `Library`, `Pattern`, `Declaration`, `Signature`,
+`Match`, and `Ecosystem`. `Kind` is `type` or `member`; `Declaration` describes
+the class, method, property, or other declaration category. Coordinates are
+display addresses, not substitutes for the internally retained declaration
+identity. Implicit Member matches are included in TSV. `--columns` selects
+columns and `--no-header` suppresses the header.
+
+Settled Member and wildcard Type rows print progressively during source
+search. Ordinary Type patterns wait when implicit Member fallback could
+supersede a weak match. Ecosystem searches publish each settled layer before
+searching the next. Semantic row-selection requests (`-n`, `--rows`, `--tail`)
+retain the existing buffered selection behavior; Count emits its final scalar.
+Diagnostics stay on stderr, and already printed rows remain available if a
+later source fails.
+
+Explicit `--markdown`, table, JSONL, and plain type-search JSON retain their
 existing shapes; plain JSON remains a root result array. When a selected
 Package row feeds Type or Member inspection internally, the handoff preserves
 the selected package-relative implementation asset and compatible TFM rather
@@ -986,10 +1002,11 @@ This searches Aspire's core packages first and, when they fill the window,
 does not realize ASP.NET Core or Runtime. Only named populations are searched:
 registered package prefixes do not trigger package-prefix discovery. If the
 entire selection has no named populations, Find fails with a prefix hint.
-Current Markdown output retains Find's existing Members-before-Results
-sections; rows remain nearest-first within each kind. A follow-on design will
-unify Type and Member result rows and make layer-ordered TSV the progressive
-default for all Find invocations.
+Explicit Markdown output retains Find's existing Members-before-Results
+sections; rows remain nearest-first within each kind. Unbounded default TSV
+instead publishes each layer's settled unified rows before the next layer.
+Selection-bearing requests keep the existing selection order until the
+separately owned row-selection work adopts the unified stream.
 
 ### Package Query over selected implementation libraries
 
