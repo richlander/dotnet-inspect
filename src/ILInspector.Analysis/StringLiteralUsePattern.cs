@@ -138,7 +138,8 @@ public sealed record StringLiteralUseOccurrence
         StringLiteralInstructionAddress address,
         int userStringToken,
         int literalCharacterCount,
-        InertString literalText)
+        InertString literalText,
+        string literalIdentityKey)
     {
         if ((userStringToken & unchecked((int)0xFF000000)) != 0x70000000
             || (userStringToken & 0x00FFFFFF) == 0)
@@ -153,6 +154,8 @@ public sealed record StringLiteralUseOccurrence
         UserStringToken = userStringToken;
         LiteralCharacterCount = literalCharacterCount;
         LiteralText = literalText;
+        LiteralIdentityKey = literalIdentityKey
+            ?? throw new ArgumentNullException(nameof(literalIdentityKey));
     }
 
     public StringLiteralInstructionAddress Address { get; }
@@ -162,6 +165,8 @@ public sealed record StringLiteralUseOccurrence
     public int LiteralCharacterCount { get; }
 
     public InertString LiteralText { get; }
+
+    internal string LiteralIdentityKey { get; }
 }
 
 /// <summary>Completed charged work for one producer attempt.</summary>

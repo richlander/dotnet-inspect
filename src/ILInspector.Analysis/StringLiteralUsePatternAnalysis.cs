@@ -246,6 +246,8 @@ public static class StringLiteralUsePatternAnalysis
                                     literal.Length,
                                     new InertString(
                                         TextPolicy.Field,
+                                        literal),
+                                    StringLiteralUseFindings.CreateIdentityKey(
                                         literal)));
                                 break;
                             }

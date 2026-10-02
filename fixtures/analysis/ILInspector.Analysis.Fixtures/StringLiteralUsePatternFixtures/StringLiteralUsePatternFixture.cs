@@ -36,6 +36,12 @@ public static class StringLiteralUsePatternFixture
 
     public static string EmbeddedNull() =>
         "embedded\0nul-literal-marker";
+
+    public static string RepeatedOperandWithinLiteral() =>
+        "https://first.example and https://second.example";
+
+    public static string UnpairedHighSurrogate() =>
+        "unpaired-\uD800-literal-marker";
 }
 
 public abstract class StringLiteralUseBodylessFixture
