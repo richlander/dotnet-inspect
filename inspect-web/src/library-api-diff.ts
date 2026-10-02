@@ -1814,7 +1814,7 @@ function renderMemberSubject(
   };
 }
 
-export function renderLibraryApiDiffMemberChanges(
+function renderLibraryApiDiffMemberChanges(
   type: BrowserLibraryApiDiffType,
   member: BrowserLibraryApiDiffMember,
   escapeHtml: (value: unknown) => string,
