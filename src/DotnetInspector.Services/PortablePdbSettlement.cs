@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Net;
+using System.Text;
 
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -155,6 +157,7 @@ public sealed class SettledPortablePdbContent
     private readonly AcquiredPortablePdb? _storedContent;
     private readonly IPdbStore? _positiveStore;
     private readonly string? _positiveStoreKey;
+    private readonly string? _positiveStoreSymbolServer;
 
     internal SettledPortablePdbContent(
         ImmutableArray<byte> embeddedImage)
@@ -168,7 +171,8 @@ public sealed class SettledPortablePdbContent
 
     internal SettledPortablePdbContent(
         IPdbStore positiveStore,
-        string positiveStoreKey)
+        string positiveStoreKey,
+        string? symbolServer)
     {
         _positiveStore =
             positiveStore
@@ -176,6 +180,7 @@ public sealed class SettledPortablePdbContent
         _positiveStoreKey =
             positiveStoreKey
             ?? throw new ArgumentNullException(nameof(positiveStoreKey));
+        _positiveStoreSymbolServer = symbolServer;
     }
 
     public async ValueTask<Stream> OpenReadAsync(
@@ -225,7 +230,9 @@ public sealed class SettledPortablePdbContent
         return stream;
     }
 
-    internal string? SymbolServer => _storedContent?.SymbolServer;
+    internal string? SymbolServer =>
+        _storedContent?.SymbolServer
+        ?? _positiveStoreSymbolServer;
 }
 
 /// <summary>The typed outcome of one exact Portable PDB settlement.</summary>
@@ -252,6 +259,7 @@ public abstract record PortablePdbSettlementResult
             PortablePdbContentIdentity portablePdbIdentity,
             SettledPortablePdbContent content,
             PortablePdbSettlementSource source,
+            InertString? providerCoordinates,
             PortablePdbPositiveStoreDisposition positiveStore,
             bool networkOccurred,
             ImmutableArray<PortablePdbSettlementReceipt> receipts)
@@ -259,12 +267,14 @@ public abstract record PortablePdbSettlementResult
         {
             Content = content;
             Source = source;
+            ProviderCoordinates = providerCoordinates;
             PositiveStore = positiveStore;
             NetworkOccurred = networkOccurred;
         }
 
         public SettledPortablePdbContent Content { get; }
         public PortablePdbSettlementSource Source { get; }
+        public InertString? ProviderCoordinates { get; }
         public PortablePdbPositiveStoreDisposition PositiveStore { get; }
         public bool NetworkOccurred { get; }
 
@@ -359,14 +369,27 @@ public abstract record PortablePdbSettlementResult
 /// </summary>
 public static class PortablePdbSettlement
 {
+    private const int MaxProvenanceBytes = 4096;
+    private const uint ProvenanceMagic = 0x31564450;
+
+    private sealed record PositiveStoreProvenance(
+        PortablePdbSettlementSource Source,
+        InertString? Coordinates,
+        string? SymbolServer);
+
     private sealed record PositiveStoreProbe(
         SettledPortablePdbContent? Content,
+        PositiveStoreProvenance? Provenance,
         PortablePdbStoreFailureKind? Failure,
         bool Incomplete)
     {
         internal static PositiveStoreProbe Missing { get; } =
-            new(null, null, false);
+            new(null, null, null, false);
     }
+
+    private readonly record struct ProvenancePublicationResult(
+        PortablePdbStoreFailureKind? Failure,
+        bool Canceled);
 
     public static async Task<PortablePdbSettlementResult> SettleAsync(
         PortablePdbSettlementRequest request,
@@ -378,7 +401,163 @@ public static class PortablePdbSettlement
             ImmutableArray.CreateBuilder<
                 PortablePdbSettlementReceipt>();
         CodeViewInfo? codeView = request.Context.PdbId;
-        if (request.Context.HasPdb)
+        PortablePdbContentIdentity? requestedIdentity =
+            codeView is null
+                ? null
+                : new(codeView.Guid, codeView.Stamp);
+        using CancellationTokenSource? timeout =
+            CreateTimeoutSource(
+                request.Timeout,
+                cancellationToken);
+        CancellationToken operationToken =
+            timeout?.Token ?? cancellationToken;
+        if (operationToken.IsCancellationRequested)
+        {
+            bool callerCanceled =
+                cancellationToken.IsCancellationRequested;
+            receipts.Add(new(
+                PortablePdbSettlementCandidate.Embedded,
+                callerCanceled
+                    ? PortablePdbSettlementAttemptOutcome.Canceled
+                    : PortablePdbSettlementAttemptOutcome.Incomplete));
+            receipts.Add(Skipped(
+                PortablePdbSettlementCandidate.PositiveStore,
+                PortablePdbSettlementSkipReason.OperationStopped));
+            receipts.Add(Skipped(
+                ExternalCandidate(request.Assembly),
+                PortablePdbSettlementSkipReason.OperationStopped));
+            return callerCanceled
+                ? new PortablePdbSettlementResult.Canceled(
+                    request.Assembly,
+                    requestedIdentity,
+                    receipts.ToImmutable())
+                : requestedIdentity is { } timeoutIdentity
+                    ? new PortablePdbSettlementResult.Incomplete(
+                        request.Assembly,
+                        timeoutIdentity,
+                        receipts.ToImmutable())
+                    : new PortablePdbSettlementResult.Failed(
+                        request.Assembly,
+                        portablePdbIdentity: null,
+                        PortablePdbSettlementFailureKind
+                            .InvalidEmbeddedContent,
+                        storeFailure: null,
+                        receipts.ToImmutable());
+        }
+
+        bool embeddedCandidate =
+            request.Context.HasEmbeddedPdb
+            || request.Context.HasPdb
+                && string.Equals(
+                    request.Context.PdbLocation,
+                    "Embedded",
+                    StringComparison.Ordinal);
+        if (embeddedCandidate)
+        {
+            try
+            {
+                if (!request.Context.HasPdb)
+                {
+                    int maxEmbeddedPdbBytes =
+                        request.Limits is null
+                            ? int.MaxValue
+                            : checked((int)request.Limits
+                                .MaxPortablePdbBytes);
+                    _ = request.Context.TryLoadEmbeddedPortablePdb(
+                        maxEmbeddedPdbBytes);
+                }
+            }
+            catch (PdbResourceLimitException)
+            {
+                receipts.Add(new(
+                    PortablePdbSettlementCandidate.Embedded,
+                    PortablePdbSettlementAttemptOutcome.Incomplete));
+                receipts.Add(Skipped(
+                    PortablePdbSettlementCandidate.PositiveStore,
+                    PortablePdbSettlementSkipReason.OperationStopped));
+                receipts.Add(Skipped(
+                    ExternalCandidate(request.Assembly),
+                    PortablePdbSettlementSkipReason.OperationStopped));
+                return requestedIdentity is { } limitedIdentity
+                    ? new PortablePdbSettlementResult.Incomplete(
+                        request.Assembly,
+                        limitedIdentity,
+                        receipts.ToImmutable())
+                    : new PortablePdbSettlementResult.Failed(
+                        request.Assembly,
+                        portablePdbIdentity: null,
+                        PortablePdbSettlementFailureKind
+                            .InvalidEmbeddedContent,
+                        storeFailure: null,
+                        receipts.ToImmutable());
+            }
+            catch (BadImageFormatException)
+            {
+                receipts.Add(new(
+                    PortablePdbSettlementCandidate.Embedded,
+                    PortablePdbSettlementAttemptOutcome.Failed));
+                return new PortablePdbSettlementResult.Failed(
+                    request.Assembly,
+                    requestedIdentity,
+                    PortablePdbSettlementFailureKind
+                        .InvalidEmbeddedContent,
+                    storeFailure: null,
+                    receipts.ToImmutable());
+            }
+            catch (IOException)
+            {
+                receipts.Add(new(
+                    PortablePdbSettlementCandidate.Embedded,
+                    PortablePdbSettlementAttemptOutcome.Failed));
+                return new PortablePdbSettlementResult.Failed(
+                    request.Assembly,
+                    requestedIdentity,
+                    PortablePdbSettlementFailureKind
+                        .InvalidEmbeddedContent,
+                    storeFailure: null,
+                    receipts.ToImmutable());
+            }
+        }
+
+        if (operationToken.IsCancellationRequested)
+        {
+            bool callerCanceled =
+                cancellationToken.IsCancellationRequested;
+            receipts.Add(new(
+                PortablePdbSettlementCandidate.Embedded,
+                callerCanceled
+                    ? PortablePdbSettlementAttemptOutcome.Canceled
+                    : PortablePdbSettlementAttemptOutcome.Incomplete));
+            receipts.Add(Skipped(
+                PortablePdbSettlementCandidate.PositiveStore,
+                PortablePdbSettlementSkipReason.OperationStopped));
+            receipts.Add(Skipped(
+                ExternalCandidate(request.Assembly),
+                PortablePdbSettlementSkipReason.OperationStopped));
+            return callerCanceled
+                ? new PortablePdbSettlementResult.Canceled(
+                    request.Assembly,
+                    requestedIdentity,
+                    receipts.ToImmutable())
+                : requestedIdentity is { } timeoutIdentity
+                    ? new PortablePdbSettlementResult.Incomplete(
+                        request.Assembly,
+                        timeoutIdentity,
+                        receipts.ToImmutable())
+                    : new PortablePdbSettlementResult.Failed(
+                        request.Assembly,
+                        portablePdbIdentity: null,
+                        PortablePdbSettlementFailureKind
+                            .InvalidEmbeddedContent,
+                        storeFailure: null,
+                        receipts.ToImmutable());
+        }
+
+        if (request.Context.HasPdb
+            && string.Equals(
+                request.Context.PdbLocation,
+                "Embedded",
+                StringComparison.Ordinal))
         {
             ImmutableArray<byte>? image =
                 request.Context.GetPortablePdbImage();
@@ -400,6 +579,25 @@ public static class PortablePdbSettlement
                     receipts.ToImmutable());
             }
 
+            if (request.Limits is not null
+                && embeddedImage.Length
+                    > request.Limits.MaxPortablePdbBytes)
+            {
+                receipts.Add(new(
+                    PortablePdbSettlementCandidate.Embedded,
+                    PortablePdbSettlementAttemptOutcome.Incomplete));
+                receipts.Add(Skipped(
+                    PortablePdbSettlementCandidate.PositiveStore,
+                    PortablePdbSettlementSkipReason.OperationStopped));
+                receipts.Add(Skipped(
+                    ExternalCandidate(request.Assembly),
+                    PortablePdbSettlementSkipReason.OperationStopped));
+                return new PortablePdbSettlementResult.Incomplete(
+                    request.Assembly,
+                    embeddedIdentity.Value,
+                    receipts.ToImmutable());
+            }
+
             receipts.Add(new(
                 PortablePdbSettlementCandidate.Embedded,
                 PortablePdbSettlementAttemptOutcome.Acquired));
@@ -416,6 +614,7 @@ public static class PortablePdbSettlement
                 embeddedIdentity.Value,
                 new SettledPortablePdbContent(embeddedImage),
                 PortablePdbSettlementSource.Embedded,
+                providerCoordinates: null,
                 PortablePdbPositiveStoreDisposition.NotUsed,
                 networkOccurred: false,
                 receipts.ToImmutable());
@@ -462,19 +661,11 @@ public static class PortablePdbSettlement
 
         string positiveStoreKey =
             PositiveStoreKey(identity);
-        var identityStore =
-            new IdentityScopedPdbStore(
-                request.PositiveStore,
-                positiveStoreKey);
+        string positiveStoreProvenanceKey =
+            PositiveStoreProvenanceKey(identity);
         var evidence =
             new PortablePdbAcquisitionEvidenceCollector();
         PortablePdbAcquisitionResult? acquisition;
-        using CancellationTokenSource? timeout =
-            CreateTimeoutSource(
-                request.Timeout,
-                cancellationToken);
-        CancellationToken operationToken =
-            timeout?.Token ?? cancellationToken;
         PositiveStoreProbe storeProbe =
             PositiveStoreProbe.Missing;
         bool storeProbeCompleted = false;
@@ -484,6 +675,7 @@ public static class PortablePdbSettlement
                 await ProbePositiveStoreAsync(
                     request.PositiveStore,
                     positiveStoreKey,
+                    positiveStoreProvenanceKey,
                     identity,
                     request.Limits,
                     request.Log,
@@ -493,7 +685,9 @@ public static class PortablePdbSettlement
             {
                 receipts.Add(new(
                     PortablePdbSettlementCandidate.PositiveStore,
-                    PortablePdbSettlementAttemptOutcome.Acquired));
+                    PortablePdbSettlementAttemptOutcome.Acquired,
+                    Coordinates:
+                        storeProbe.Provenance?.Coordinates));
                 receipts.Add(Skipped(
                     request.Assembly.Provenance
                         is AssemblyResolutionProvenance.PlatformAsset
@@ -514,7 +708,8 @@ public static class PortablePdbSettlement
                     request.Assembly,
                     identity,
                     storeProbe.Content,
-                    PortablePdbSettlementSource.PositiveStore,
+                    storeProbe.Provenance!.Source,
+                    storeProbe.Provenance.Coordinates,
                     PortablePdbPositiveStoreDisposition.Reused,
                     networkOccurred: false,
                     receipts.ToImmutable());
@@ -565,6 +760,12 @@ public static class PortablePdbSettlement
                     receipts.ToImmutable());
             }
 
+            var identityStore =
+                new IdentityScopedPdbStore(
+                    request.PositiveStore,
+                    positiveStoreKey,
+                    allowInitialRead:
+                        storeProbe.Failure is null);
             acquisition =
                 await PdbAcquisitionService.AcquireContentAsync(
                     request.Context,
@@ -578,6 +779,12 @@ public static class PortablePdbSettlement
                     operationToken,
                     request.Limits,
                     evidence).ConfigureAwait(false);
+        }
+        catch (PdbStoreAcquisitionException exception)
+        {
+            evidence.RecordStoreFailure(
+                exception.StoreFailure);
+            acquisition = null;
         }
         catch (OperationCanceledException)
         {
@@ -633,25 +840,69 @@ public static class PortablePdbSettlement
 
         PortablePdbAcquisitionEvidenceDocument document =
             evidence.ToDocument();
-        PortablePdbStoreFailureKind? storeFailure =
-            storeProbe.Failure ?? document.StoreFailure;
+        PortablePdbStoreFailureKind? blockingStoreFailure =
+            acquisition
+                is PortablePdbAcquisitionResult.Acquired
+                    ? null
+                    : acquisition?.StoreFailure
+                        ?? document.StoreFailure;
         bool fromCache =
             acquisition is PortablePdbAcquisitionResult.Acquired
             {
                 Pdb.FromCache: true,
             };
-        receipts.Add(new(
-            PortablePdbSettlementCandidate.PositiveStore,
-            fromCache
-                ? PortablePdbSettlementAttemptOutcome.Acquired
-                : storeFailure is not null
-                    ? PortablePdbSettlementAttemptOutcome.Failed
-                    : PortablePdbSettlementAttemptOutcome.Unavailable,
-            StoreFailure: storeFailure));
         int supplyingAttempt =
             acquisition is PortablePdbAcquisitionResult.Acquired
                 ? LastSucceededAttempt(document.NetworkAttempts)
                 : -1;
+        PositiveStoreProvenance? acquiredProvenance = null;
+        bool provenancePublicationCanceled = false;
+        if (acquisition
+            is PortablePdbAcquisitionResult.Acquired acquiredContent)
+        {
+            if (fromCache || supplyingAttempt < 0)
+            {
+                blockingStoreFailure ??=
+                    PortablePdbStoreFailureKind
+                        .ProvenanceUnavailable;
+            }
+            else
+            {
+                PortablePdbNetworkAttemptEvidence attempt =
+                    document.NetworkAttempts[supplyingAttempt];
+                acquiredProvenance = new(
+                    Source(attempt.Route),
+                    attempt.Url,
+                    acquiredContent.Pdb.SymbolServer);
+                ProvenancePublicationResult publication =
+                    await PublishPositiveStoreProvenanceAsync(
+                        request.PositiveStore,
+                        positiveStoreProvenanceKey,
+                        acquiredProvenance,
+                        operationToken).ConfigureAwait(false);
+                blockingStoreFailure ??=
+                    publication.Failure;
+                provenancePublicationCanceled =
+                    publication.Canceled;
+            }
+        }
+        else
+        {
+            blockingStoreFailure ??=
+                storeProbe.Failure;
+        }
+
+        PortablePdbStoreFailureKind? observedStoreFailure =
+            storeProbe.Failure ?? blockingStoreFailure;
+
+        receipts.Add(new(
+            PortablePdbSettlementCandidate.PositiveStore,
+            fromCache && blockingStoreFailure is null
+                ? PortablePdbSettlementAttemptOutcome.Acquired
+                : observedStoreFailure is not null
+                    ? PortablePdbSettlementAttemptOutcome.Failed
+                    : PortablePdbSettlementAttemptOutcome.Unavailable,
+            StoreFailure: observedStoreFailure));
         for (int i = 0; i < document.NetworkAttempts.Length; i++)
         {
             PortablePdbNetworkAttemptEvidence attempt =
@@ -659,9 +910,16 @@ public static class PortablePdbSettlement
             PortablePdbSettlementAttemptOutcome attemptOutcome =
                 Outcome(
                     attempt.Outcome,
-                    admitted: i == supplyingAttempt,
+                    admitted:
+                        i == supplyingAttempt
+                        && blockingStoreFailure is null
+                        && !provenancePublicationCanceled,
                     failedAfterTransfer:
-                        acquisition?.StoreFailure is not null);
+                        attempt.Outcome
+                            == PortablePdbNetworkAttemptOutcome
+                                .Succeeded
+                        && (blockingStoreFailure is not null
+                            || provenancePublicationCanceled));
             receipts.Add(new(
                 Candidate(attempt.Route),
                 attemptOutcome,
@@ -699,32 +957,17 @@ public static class PortablePdbSettlement
 
         ImmutableArray<PortablePdbSettlementReceipt>
             settledReceipts = receipts.ToImmutable();
-        if (acquisition
-            is PortablePdbAcquisitionResult.Acquired acquired)
+        if (provenancePublicationCanceled)
         {
-            PortablePdbSettlementSource source =
-                acquired.Pdb.FromCache
-                    ? PortablePdbSettlementSource.PositiveStore
-                    : Source(document.NetworkAttempts);
-            return new PortablePdbSettlementResult.Acquired(
-                request.Assembly,
-                identity,
-                new SettledPortablePdbContent(acquired.Pdb),
-                source,
-                acquired.Pdb.FromCache
-                    ? PortablePdbPositiveStoreDisposition.Reused
-                    : PortablePdbPositiveStoreDisposition.Published,
-                document.NetworkAttempts.Any(
-                    static attempt => attempt.RequestCount > 0),
-                settledReceipts);
-        }
-
-        if (acquisition is null)
-        {
-            return new PortablePdbSettlementResult.Unavailable(
-                request.Assembly,
-                identity,
-                settledReceipts);
+            return cancellationToken.IsCancellationRequested
+                ? new PortablePdbSettlementResult.Canceled(
+                    request.Assembly,
+                    identity,
+                    settledReceipts)
+                : new PortablePdbSettlementResult.Incomplete(
+                    request.Assembly,
+                    identity,
+                    settledReceipts);
         }
 
         if (document.NetworkAttempts.Any(
@@ -738,13 +981,37 @@ public static class PortablePdbSettlement
                 settledReceipts);
         }
 
-        if (storeFailure is { } retainedStoreFailure)
+        if (blockingStoreFailure
+            is { } retainedStoreFailure)
         {
             return new PortablePdbSettlementResult.Failed(
                 request.Assembly,
                 identity,
                 PortablePdbSettlementFailureKind.PositiveStoreFailed,
                 retainedStoreFailure,
+                settledReceipts);
+        }
+
+        if (acquisition
+            is PortablePdbAcquisitionResult.Acquired acquired)
+        {
+            return new PortablePdbSettlementResult.Acquired(
+                request.Assembly,
+                identity,
+                new SettledPortablePdbContent(acquired.Pdb),
+                acquiredProvenance!.Source,
+                acquiredProvenance.Coordinates,
+                PortablePdbPositiveStoreDisposition.Published,
+                document.NetworkAttempts.Any(
+                    static attempt => attempt.RequestCount > 0),
+                settledReceipts);
+        }
+
+        if (acquisition is null)
+        {
+            return new PortablePdbSettlementResult.Unavailable(
+                request.Assembly,
+                identity,
                 settledReceipts);
         }
 
@@ -789,6 +1056,15 @@ public static class PortablePdbSettlement
             _ => throw new ArgumentOutOfRangeException(nameof(route)),
         };
 
+    private static PortablePdbSettlementCandidate ExternalCandidate(
+        ResolvedAssemblyReference assembly)
+        => assembly.Provenance
+            is AssemblyResolutionProvenance.PlatformAsset
+                ? PortablePdbSettlementCandidate
+                    .MicrosoftSymbolServer
+                : PortablePdbSettlementCandidate
+                    .ExternalProviders;
+
     private static PortablePdbSettlementReceipt Skipped(
         PortablePdbSettlementCandidate candidate,
         PortablePdbSettlementSkipReason reason,
@@ -822,10 +1098,18 @@ public static class PortablePdbSettlement
             + identity.Stamp.ToString("X8")
             + ".pdb";
 
+    private static string PositiveStoreProvenanceKey(
+        PortablePdbContentIdentity identity)
+        => "portable/"
+            + identity.Guid.ToString("N").ToUpperInvariant()
+            + identity.Stamp.ToString("X8")
+            + ".provenance";
+
     private static async Task<PositiveStoreProbe>
         ProbePositiveStoreAsync(
         IPdbStore store,
         string key,
+        string provenanceKey,
         PortablePdbContentIdentity identity,
         SymbolAcquisitionLimits? limits,
         Action<string>? log,
@@ -843,12 +1127,14 @@ public static class PortablePdbSettlement
         {
             return new(
                 null,
+                null,
                 PortablePdbStoreFailureKind.ReadFailed,
                 Incomplete: false);
         }
         catch (UnauthorizedAccessException)
         {
             return new(
+                null,
                 null,
                 PortablePdbStoreFailureKind.ReadFailed,
                 Incomplete: false);
@@ -866,6 +1152,7 @@ public static class PortablePdbSettlement
                 {
                     return new(
                         null,
+                        null,
                         PortablePdbStoreFailureKind.ReadFailed,
                         Incomplete: false);
                 }
@@ -874,6 +1161,7 @@ public static class PortablePdbSettlement
                     && stream.Length > limits.MaxPortablePdbBytes)
                 {
                     return new(
+                        null,
                         null,
                         Failure: null,
                         Incomplete: true);
@@ -886,13 +1174,33 @@ public static class PortablePdbSettlement
                         log);
                 if (match == PortablePdbIdentityMatch.Match)
                 {
+                    PositiveStoreProvenance? provenance =
+                        await TryReadPositiveStoreProvenanceAsync(
+                            store,
+                            provenanceKey,
+                            cancellationToken).ConfigureAwait(false);
+                    if (provenance is null)
+                    {
+                        return new(
+                            null,
+                            null,
+                            PortablePdbStoreFailureKind
+                                .ProvenanceUnavailable,
+                            Incomplete: false);
+                    }
+
                     return new(
-                        new SettledPortablePdbContent(store, key),
+                        new SettledPortablePdbContent(
+                            store,
+                            key,
+                            provenance.SymbolServer),
+                        provenance,
                         Failure: null,
                         Incomplete: false);
                 }
 
                 return new(
+                    null,
                     null,
                     PortablePdbStoreFailureKind.InvalidCachedContent,
                     Incomplete: false);
@@ -902,6 +1210,7 @@ public static class PortablePdbSettlement
         {
             return new(
                 null,
+                null,
                 PortablePdbStoreFailureKind.ReadFailed,
                 Incomplete: false);
         }
@@ -909,33 +1218,344 @@ public static class PortablePdbSettlement
         {
             return new(
                 null,
+                null,
                 PortablePdbStoreFailureKind.ReadFailed,
                 Incomplete: false);
         }
     }
 
+    private static async Task<ProvenancePublicationResult>
+        PublishPositiveStoreProvenanceAsync(
+        IPdbStore store,
+        string key,
+        PositiveStoreProvenance provenance,
+        CancellationToken cancellationToken)
+    {
+        byte[] content = SerializeProvenance(provenance);
+        try
+        {
+            using var stream =
+                new MemoryStream(content, writable: false);
+            await store.PutAsync(
+                key,
+                stream,
+                cancellationToken).ConfigureAwait(false);
+            PositiveStoreProvenance? retained =
+                await TryReadPositiveStoreProvenanceAsync(
+                    store,
+                    key,
+                    cancellationToken).ConfigureAwait(false);
+            if (!SameProvenance(provenance, retained))
+            {
+                return new(
+                    PortablePdbStoreFailureKind
+                        .ProvenanceUnavailable,
+                    Canceled: false);
+            }
+
+            return new(Failure: null, Canceled: false);
+        }
+        catch (OperationCanceledException)
+        {
+            return new(Failure: null, Canceled: true);
+        }
+        catch (InvalidDataException)
+        {
+            return new(
+                PortablePdbStoreFailureKind.PublicationNotRetained,
+                Canceled: false);
+        }
+        catch (IOException)
+        {
+            return new(
+                PortablePdbStoreFailureKind.PublicationNotRetained,
+                Canceled: false);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new(
+                PortablePdbStoreFailureKind.PublicationNotRetained,
+                Canceled: false);
+        }
+        catch (ArgumentException)
+        {
+            return new(
+                PortablePdbStoreFailureKind.PublicationNotRetained,
+                Canceled: false);
+        }
+    }
+
+    private static async Task<PositiveStoreProvenance?>
+        TryReadPositiveStoreProvenanceAsync(
+        IPdbStore store,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        Stream? stream;
+        try
+        {
+            stream =
+                await store.TryOpenAsync(
+                    key,
+                    cancellationToken).ConfigureAwait(false);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+
+        if (stream is null)
+            return null;
+
+        await using (stream.ConfigureAwait(false))
+        {
+            if (!stream.CanRead)
+                return null;
+
+            long? declaredLength =
+                stream.CanSeek
+                    ? stream.Length - stream.Position
+                    : null;
+            byte[] bytes;
+            try
+            {
+                bytes =
+                    await BoundedContentReader.ReadAllBytesAsync(
+                        stream,
+                        MaxProvenanceBytes,
+                        declaredLength,
+                        cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+
+            return ParseProvenance(bytes);
+        }
+    }
+
+    private static byte[] SerializeProvenance(
+        PositiveStoreProvenance provenance)
+    {
+        string? encodedCoordinates =
+            provenance.Coordinates?.ToString();
+        byte[] coordinates =
+            encodedCoordinates is null
+                ? []
+                : Encoding.UTF8.GetBytes(
+                    encodedCoordinates);
+        byte[] symbolServer =
+            provenance.SymbolServer is null
+                ? []
+                : Encoding.UTF8.GetBytes(
+                    provenance.SymbolServer);
+        int length =
+            13 + coordinates.Length + symbolServer.Length;
+        if (length > MaxProvenanceBytes)
+        {
+            throw new InvalidDataException(
+                "Portable PDB supplying provenance exceeds the settlement limit.");
+        }
+
+        byte[] content = new byte[length];
+        Span<byte> span = content;
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            span,
+            ProvenanceMagic);
+        span[4] = checked((byte)provenance.Source);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            span[5..],
+            provenance.Coordinates is null
+                ? -1
+                : coordinates.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            span[9..],
+            provenance.SymbolServer is null
+                ? -1
+                : symbolServer.Length);
+        coordinates.CopyTo(span[13..]);
+        symbolServer.CopyTo(
+            span[(13 + coordinates.Length)..]);
+        return content;
+    }
+
+    private static PositiveStoreProvenance? ParseProvenance(
+        ReadOnlySpan<byte> content)
+    {
+        if (content.Length < 13
+            || BinaryPrimitives.ReadUInt32LittleEndian(content)
+                != ProvenanceMagic)
+        {
+            return null;
+        }
+
+        var source =
+            (PortablePdbSettlementSource)content[4];
+        if (!Enum.IsDefined(source)
+            || source
+                is PortablePdbSettlementSource.Embedded
+                    or PortablePdbSettlementSource.PositiveStore)
+        {
+            return null;
+        }
+
+        int coordinatesLength =
+            BinaryPrimitives.ReadInt32LittleEndian(
+                content[5..]);
+        int symbolServerLength =
+            BinaryPrimitives.ReadInt32LittleEndian(
+                content[9..]);
+        if (coordinatesLength < -1
+            || symbolServerLength < -1)
+        {
+            return null;
+        }
+
+        int encodedCoordinatesLength =
+            Math.Max(0, coordinatesLength);
+        int encodedSymbolServerLength =
+            Math.Max(0, symbolServerLength);
+        if (13 + encodedCoordinatesLength
+                + encodedSymbolServerLength
+            != content.Length)
+        {
+            return null;
+        }
+
+        InertString? coordinates =
+            coordinatesLength < 0
+                ? null
+                : InertString.FromEncoded(
+                    TextPolicy.Field,
+                    Encoding.UTF8.GetString(
+                        content.Slice(
+                            13,
+                            encodedCoordinatesLength)));
+        string? symbolServer =
+            symbolServerLength < 0
+                ? null
+                : new InertString(
+                    TextPolicy.Field,
+                    Encoding.UTF8.GetString(
+                        content.Slice(
+                            13 + encodedCoordinatesLength,
+                            encodedSymbolServerLength)))
+                    .ToString();
+        return new(source, coordinates, symbolServer);
+    }
+
+    private static bool SameProvenance(
+        PositiveStoreProvenance expected,
+        PositiveStoreProvenance? actual)
+        => actual is not null
+            && expected.Source == actual.Source
+            && string.Equals(
+                expected.Coordinates?.ToString(),
+                actual.Coordinates?.ToString(),
+                StringComparison.Ordinal)
+            && string.Equals(
+                expected.SymbolServer,
+                actual.SymbolServer,
+                StringComparison.Ordinal);
+
     private sealed class IdentityScopedPdbStore(
         IPdbStore store,
-        string identityKey) : IPdbStore
+        string identityKey,
+        bool allowInitialRead) : IPdbStore
     {
-        public ValueTask<Stream?> TryOpenAsync(
+        private bool _allowRead = allowInitialRead;
+
+        public async ValueTask<Stream?> TryOpenAsync(
             string key,
             CancellationToken cancellationToken = default)
-            => store.TryOpenAsync(
-                identityKey,
-                cancellationToken);
+        {
+            if (!Volatile.Read(ref _allowRead))
+                return null;
 
-        public ValueTask PutAsync(
+            try
+            {
+                return await store.TryOpenAsync(
+                    identityKey,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+                when (exception
+                    is InvalidDataException
+                        or IOException
+                        or UnauthorizedAccessException
+                        or ArgumentException)
+            {
+                throw new PdbStoreAcquisitionException(
+                    PortablePdbStoreFailureKind.ReadFailed,
+                    exception);
+            }
+        }
+
+        public async ValueTask PutAsync(
             string key,
             Stream content,
             CancellationToken cancellationToken = default)
-            => store.PutAsync(
-                identityKey,
-                content,
-                cancellationToken);
+        {
+            try
+            {
+                await store.PutAsync(
+                    identityKey,
+                    content,
+                    cancellationToken).ConfigureAwait(false);
+                Volatile.Write(ref _allowRead, true);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+                when (exception
+                    is InvalidDataException
+                        or IOException
+                        or UnauthorizedAccessException
+                        or ArgumentException)
+            {
+                throw new PdbStoreAcquisitionException(
+                    PortablePdbStoreFailureKind
+                        .PublicationNotRetained,
+                    exception);
+            }
+        }
 
         public string? TryGetLocalPath(string key)
-            => store.TryGetLocalPath(identityKey);
+        {
+            if (!Volatile.Read(ref _allowRead))
+                return null;
+
+            try
+            {
+                return store.TryGetLocalPath(identityKey);
+            }
+            catch (Exception exception)
+                when (exception
+                    is InvalidDataException
+                        or IOException
+                        or UnauthorizedAccessException
+                        or ArgumentException)
+            {
+                throw new PdbStoreAcquisitionException(
+                    PortablePdbStoreFailureKind.ReadFailed,
+                    exception);
+            }
+        }
     }
 
     private static PortablePdbSettlementAttemptOutcome Outcome(
@@ -979,14 +1599,8 @@ public static class PortablePdbSettlement
     }
 
     private static PortablePdbSettlementSource Source(
-        ImmutableArray<PortablePdbNetworkAttemptEvidence> attempts)
-    {
-        PortablePdbNetworkAttemptEvidence? succeeded =
-            attempts.LastOrDefault(
-                static attempt =>
-                    attempt.Outcome
-                    == PortablePdbNetworkAttemptOutcome.Succeeded);
-        return succeeded?.Route switch
+        PortablePdbAcquisitionNetworkRoute route)
+        => route switch
         {
             PortablePdbAcquisitionNetworkRoute
                 .MicrosoftSymbolServer =>
@@ -999,5 +1613,4 @@ public static class PortablePdbSettlement
             _ => throw new InvalidDataException(
                 "Acquired Portable PDB content has no successful provider receipt."),
         };
-    }
 }

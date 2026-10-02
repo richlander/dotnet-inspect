@@ -215,6 +215,8 @@ public static class PdbAcquisitionService
                 "The PDB store returned malformed or mismatched cached content.",
             PortablePdbStoreFailureKind.PublicationNotRetained =>
                 "The PDB store did not retain verified Portable PDB content.",
+            PortablePdbStoreFailureKind.ProvenanceUnavailable =>
+                "The PDB store could not reproduce the supplying provenance for verified Portable PDB content.",
             _ => "The PDB store could not provide verified Portable PDB content.",
         };
 
