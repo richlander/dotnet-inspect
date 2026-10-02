@@ -26,14 +26,12 @@ type CodeEvidenceViewerBody =
       className?: string;
     };
 
-export interface CodeEvidenceViewerOptions {
-  backdropId: string;
+export interface CodeEvidenceViewerFrameOptions {
   viewerId: string;
   labelledBy: string;
   header: string;
   body: CodeEvidenceViewerBody;
   escapeHtml: (value: unknown) => string;
-  backdropClassName?: string;
   viewerClassName?: string;
   headerClassName?: string;
   notice?: string;
@@ -41,53 +39,73 @@ export interface CodeEvidenceViewerOptions {
   detail?: string;
 }
 
+export interface CodeEvidenceViewerOptions
+  extends CodeEvidenceViewerFrameOptions {
+  backdropId: string;
+  backdropClassName?: string;
+}
+
 export function renderCodeEvidenceViewer(
   options: CodeEvidenceViewerOptions,
+): string {
+  return `
+    <div id="${options.escapeHtml(options.backdropId)}"
+      class="${classes(
+        "code-evidence-viewer-backdrop",
+        options.backdropClassName,
+      )}">
+      ${renderFrame(options, true)}
+    </div>`;
+}
+
+export function renderCodeEvidenceViewerFrame(
+  options: CodeEvidenceViewerFrameOptions,
+): string {
+  return renderFrame(options, false);
+}
+
+function renderFrame(
+  options: CodeEvidenceViewerFrameOptions,
+  ownsModalSemantics: boolean,
 ): string {
   const {
     body,
     escapeHtml,
   } = options;
-  return `
-    <div id="${escapeHtml(options.backdropId)}"
-      class="${classes(
-        "code-evidence-viewer-backdrop",
-        options.backdropClassName,
-      )}">
-      <section id="${escapeHtml(options.viewerId)}"
-        class="${classes("code-evidence-viewer", options.viewerClassName)}"
-        role="dialog" aria-modal="true"
-        aria-labelledby="${escapeHtml(options.labelledBy)}">
-        <header class="${classes(
-          "code-evidence-viewer-header",
-          options.headerClassName,
-        )}">
-          ${options.header}
-        </header>
-        ${options.notice ?? ""}
-        ${options.controls
-          ? `<div class="${classes(
-              "code-evidence-viewer-controls",
-              options.controls.className,
-            )}"${scrollAttribute(
-              options.controls.scrollAttribute,
-              options.controls.scrollKey,
-              escapeHtml,
-            )}>
-              ${options.controls.html}
-            </div>`
-          : ""}
-        ${body.kind === "workspace"
-          ? renderWorkspace(body, escapeHtml)
-          : `<section class="${classes(
-              "code-evidence-viewer-failure",
-              body.className,
-            )}" role="alert">
-              ${body.html}
-            </section>`}
-        ${options.detail ?? ""}
-      </section>
-    </div>`;
+  return `<section id="${escapeHtml(options.viewerId)}"
+    class="${classes("code-evidence-viewer", options.viewerClassName)}"${
+      ownsModalSemantics ? ' role="dialog" aria-modal="true"' : ""
+    }
+    aria-labelledby="${escapeHtml(options.labelledBy)}">
+    <header class="${classes(
+      "code-evidence-viewer-header",
+      options.headerClassName,
+    )}">
+      ${options.header}
+    </header>
+    ${options.notice ?? ""}
+    ${options.controls
+      ? `<div class="${classes(
+          "code-evidence-viewer-controls",
+          options.controls.className,
+        )}"${scrollAttribute(
+          options.controls.scrollAttribute,
+          options.controls.scrollKey,
+          escapeHtml,
+        )}>
+          ${options.controls.html}
+        </div>`
+      : ""}
+    ${body.kind === "workspace"
+      ? renderWorkspace(body, escapeHtml)
+      : `<section class="${classes(
+          "code-evidence-viewer-failure",
+          body.className,
+        )}" role="alert">
+          ${body.html}
+        </section>`}
+    ${options.detail ?? ""}
+  </section>`;
 }
 
 function renderWorkspace(
