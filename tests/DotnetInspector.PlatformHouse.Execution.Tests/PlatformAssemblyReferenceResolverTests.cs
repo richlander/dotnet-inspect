@@ -1,7 +1,13 @@
+using System.Collections.Immutable;
 using System.Reflection;
+using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.PlatformQueries;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
+using NuGetFetch;
 
 namespace DotnetInspector.PlatformHouse.Tests;
 
@@ -193,6 +199,267 @@ public sealed class PlatformAssemblyReferenceResolverTests
         Assert.Same(
             input.Contribution,
             Assert.Single(completion.SourceSettlements).Contribution);
+    }
+
+    [Fact]
+    public async Task
+        ExternalSupplierCompositionMapsResolvedPlatform()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity targetIdentity =
+            Descriptor(image).Identity;
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
+        var input = Input(
+            sourceIdentity,
+            image,
+            static () => true,
+            static () => { },
+            cancellationToken,
+            materializedIdentity: targetIdentity,
+            bindingDemand: true);
+        var platform = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    input.Request,
+                    input.Item,
+                    input.Consumed));
+        AssemblyBindingRequest request = BindingRequest(input.Request);
+        PackageAssemblyReferenceSupplierOutcome.Missing package =
+            await CompletePackageMissAsync(
+                request,
+                cancellationToken);
+
+        var completed = Assert.IsType<
+            ExternalAssemblyReferenceSupplierOutcome.PlatformOwned>(
+                ExternalAssemblyReferenceSupplierAssociation
+                    .CompletePlatform(
+                        request,
+                        package,
+                        platform));
+
+        Assert.Same(platform, completed.Platform);
+        Assert.Equal(targetIdentity, completed.Binding.Candidate.Identity);
+    }
+
+    [Fact]
+    public async Task
+        ExternalSupplierCompositionRetainsPlatformOwnedMiss()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity targetIdentity =
+            Descriptor(image).Identity;
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with
+            {
+                Version = new Version(8, 0, 0, 0),
+                PublicKeyToken = "0000000000000000",
+            };
+        var input = Input(
+            sourceIdentity,
+            image,
+            static () => true,
+            static () => { },
+            cancellationToken,
+            materializedIdentity: targetIdentity,
+            bindingDemand: true);
+        var platform = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    input.Request,
+                    input.Item,
+                    input.Consumed));
+        AssemblyBindingRequest request = BindingRequest(input.Request);
+        PackageAssemblyReferenceSupplierOutcome.Missing package =
+            await CompletePackageMissAsync(
+                request,
+                cancellationToken);
+
+        var missing = Assert.IsType<
+            ExternalAssemblyReferenceSupplierOutcome.NameOwnedNoMatch>(
+                ExternalAssemblyReferenceSupplierAssociation
+                    .CompletePlatform(
+                        request,
+                        package,
+                        platform));
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            missing.Binding.Disposition);
+    }
+
+    [Fact]
+    public async Task
+        ExternalSupplierCompositionMapsCompletePlatformAbsence()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformHouseRequest platformRequest = Request(
+            identity,
+            [capability],
+            PlatformSourceSelectionMode.Precedence,
+            cancellationToken,
+            maxSourceOperations: 1,
+            maxAssemblies: 0,
+            maxBytes: 0);
+        var absent = TerminalAttempt(
+            platformRequest,
+            capability,
+            PlatformSourceContributionKind.Unavailable,
+            PlatformSourceUnavailabilityKind.Absent);
+        var platform = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    platformRequest,
+                    [absent],
+                    Consumed(
+                        sourceOperations: 1,
+                        assemblies: 0,
+                        bytes: 0)));
+        AssemblyBindingRequest request =
+            BindingRequest(platformRequest);
+        PackageAssemblyReferenceSupplierOutcome.Missing package =
+            await CompletePackageMissAsync(
+                request,
+                cancellationToken);
+
+        var missing = Assert.IsType<
+            ExternalAssemblyReferenceSupplierOutcome.NoSupplier>(
+                ExternalAssemblyReferenceSupplierAssociation
+                    .CompletePlatform(
+                        request,
+                        package,
+                        platform));
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Binding.Disposition);
+    }
+
+    [Fact]
+    public async Task
+        ExternalSupplierCompositionInvokesPlatformAfterCompletePackageMiss()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity targetIdentity =
+            Descriptor(image).Identity;
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
+        var input = Input(
+            sourceIdentity,
+            image,
+            static () => true,
+            static () => { },
+            cancellationToken,
+            materializedIdentity: targetIdentity,
+            bindingDemand: true);
+        var platform = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    input.Request,
+                    input.Item,
+                    input.Consumed));
+        AssemblyBindingRequest request = BindingRequest(input.Request);
+        PackageAssemblyReferenceSupplierAssociation package =
+            EmptyPackageAssociation(
+                PackageDependencyTraversalRootCompletion.Complete);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(
+                static _ => throw new InvalidOperationException(
+                    "A complete empty Package closure performs no source work."));
+        using PackageSourceOperationLease operation =
+            root.IssueOperationLease(cancellationToken);
+        int platformCalls = 0;
+
+        var completed = Assert.IsType<
+            ExternalAssemblyReferenceSupplierOutcome.PlatformOwned>(
+                await ExternalAssemblyReferenceSupplierAssociation
+                    .ExecuteAsync(
+                        package,
+                        request,
+                        AssemblyBindingSelection.NameNotOwned(),
+                        new PackageHouse(
+                            new UnusedPackageAuthorization()),
+                        operation,
+                        (continuedRequest, continuedCancellationToken) =>
+                        {
+                            platformCalls++;
+                            Assert.Same(request, continuedRequest);
+                            Assert.Equal(
+                                cancellationToken,
+                                continuedCancellationToken);
+                            return ValueTask.FromResult<
+                                PlatformHouseOutcome<
+                                    AssemblyBindingDecision>>(
+                                        platform);
+                        },
+                        cancellationToken));
+
+        Assert.Equal(1, platformCalls);
+        Assert.Same(platform, completed.Platform);
+    }
+
+    [Fact]
+    public async Task
+        ExternalSupplierCompositionDoesNotInvokePlatformAfterIncompletePackage()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        var input = Input(
+            Descriptor(image).Identity,
+            image,
+            static () => true,
+            static () => { },
+            cancellationToken,
+            bindingDemand: true);
+        AssemblyBindingRequest request = BindingRequest(input.Request);
+        PackageAssemblyReferenceSupplierAssociation package =
+            EmptyPackageAssociation(
+                PackageDependencyTraversalRootCompletion.DepthBounded);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(
+                static _ => throw new InvalidOperationException(
+                    "Incomplete traversal must stop before source work."));
+        using PackageSourceOperationLease operation =
+            root.IssueOperationLease(cancellationToken);
+        int platformCalls = 0;
+
+        var incomplete = Assert.IsType<
+            ExternalAssemblyReferenceSupplierOutcome.Incomplete>(
+                await ExternalAssemblyReferenceSupplierAssociation
+                    .ExecuteAsync(
+                        package,
+                        request,
+                        AssemblyBindingSelection.NameNotOwned(),
+                        new PackageHouse(
+                            new UnusedPackageAuthorization()),
+                        operation,
+                        (_, _) =>
+                        {
+                            platformCalls++;
+                            throw new InvalidOperationException(
+                                "Platform must not run after incomplete Package evidence.");
+                        },
+                        cancellationToken));
+
+        Assert.Equal(0, platformCalls);
+        Assert.Null(incomplete.Platform);
     }
 
     [Fact]
@@ -1620,6 +1887,93 @@ public sealed class PlatformAssemblyReferenceResolverTests
                 : throw new IOException(
                     "The original Platform source is retired.");
         }
+    }
+
+    static AssemblyBindingRequest BindingRequest(
+        PlatformHouseRequest request) =>
+        Assert.IsAssignableFrom<
+            PlatformHouseOperation.ResolveAssemblyReference>(
+                request.Operation).Request;
+
+    static async Task<
+        PackageAssemblyReferenceSupplierOutcome.Missing>
+        CompletePackageMissAsync(
+            AssemblyBindingRequest request,
+            CancellationToken cancellationToken)
+    {
+        PackageAssemblyReferenceSupplierAssociation association =
+            EmptyPackageAssociation(
+                PackageDependencyTraversalRootCompletion.Complete);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(
+                static _ => throw new InvalidOperationException(
+                    "A complete empty Package closure performs no source work."));
+        using PackageSourceOperationLease operation =
+            root.IssueOperationLease(cancellationToken);
+        return Assert.IsType<
+            PackageAssemblyReferenceSupplierOutcome.Missing>(
+                await association.ResolveAsync(
+                    request,
+                    AssemblyBindingSelection.NameNotOwned(),
+                    new PackageHouse(new UnusedPackageAuthorization()),
+                    operation));
+    }
+
+    static PackageAssemblyReferenceSupplierAssociation
+        EmptyPackageAssociation(
+            PackageDependencyTraversalRootCompletion completion)
+    {
+        var traversal = new PackageDependencyTraversalOutcome(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            [
+                new PackageDependencyTraversalRootResult(
+                    OccurrenceIndex: 0,
+                    Occurrence: null!,
+                    NodeIndex: 0,
+                    ProjectionIndex: 0,
+                    completion),
+            ],
+            [
+                new PackageDependencyTraversalReachability(
+                    ImmutableDictionary<int, int>.Empty,
+                    ImmutableDictionary<int, int>.Empty,
+                    ImmutableDictionary<int, int>.Empty),
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            new PackageDependencyTraversalSummary(
+                CompleteRoots:
+                    completion
+                        == PackageDependencyTraversalRootCompletion.Complete
+                            ? 1
+                            : 0,
+                DepthBoundedRoots:
+                    completion
+                        == PackageDependencyTraversalRootCompletion.DepthBounded
+                            ? 1
+                            : 0,
+                SourceBoundedRoots: 0,
+                PartialRoots: 0));
+        return PackageAssemblyReferenceSupplierAssociation.Create(
+                new PackageAssemblyReferenceSupplierAssociationRequest(
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    []));
+    }
+
+    sealed class UnusedPackageAuthorization :
+        IPackageSourceAuthorization
+    {
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId) =>
+            throw new InvalidOperationException(
+                "A complete empty Package closure performs no authorization work.");
     }
 
     static PlatformHouseRequest Request(
