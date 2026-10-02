@@ -36,19 +36,19 @@ public partial class LibraryBodyIndexTests
         bool expectedPresence)
     {
         string path = FixtureCatalog.Get(fixtureId).AssemblyPath();
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         DirectCall call = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             candidate => candidate.Caller.Name == callerName
                 && candidate.Callee.Name == "Invoke");
 
-        Assert.Empty(index.Diagnostics);
+        Assert.Empty(index.Receipt.Diagnostics);
         Assert.Equal(expectedMode, call.TargetCallerUnsafeMode);
         Assert.Equal(
             expectedMode == CallerUnsafeMode.Explicit,
-            index.UnsafeEvidence.Any(evidence =>
+            index.Safety.Evidence.Any(evidence =>
                 evidence.Member.Name == callerName
                 && evidence.Reason == "Unsafe call"));
         Assert.Equal(
@@ -62,17 +62,17 @@ public partial class LibraryBodyIndexTests
     public void
         SameImageCalls_AttributedLocalUsesPhysicalGenericScope()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             FixtureCatalog
                 .Get(FixtureIds.AnalysisCallGenericScope)
                 .AssemblyPath());
         MethodIdentity caller = Assert.Single(
-            index.Methods,
+            index.CallGraph.Methods,
             method =>
                 method.Name
                     == "CallAttributedLocal");
         MethodIdentity target = Assert.Single(
-            index.Methods,
+            index.CallGraph.Methods,
             method =>
                 method.DeclaringType.Name
                     == "Target`1"
@@ -86,7 +86,7 @@ public partial class LibraryBodyIndexTests
             node =>
                 node.Member.Name == "Invoke");
         MethodLeverage leverage = Assert.Single(
-            index.TopLeverage(
+            index.Leverage.Top(
                 count: 1,
                 scope: method =>
                     method.MetadataToken
@@ -103,11 +103,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void SameImageCalls_UseNormalizedCallerContracts()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
 
         DirectCall pointerNone = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call =>
                 call.Caller.DeclaringType.Name
                     == "MemorySafetySpellingFixture"
@@ -117,13 +117,13 @@ public partial class LibraryBodyIndexTests
             CallerUnsafeMode.None,
             pointerNone.TargetCallerUnsafeMode);
         Assert.DoesNotContain(
-            index.UnsafeEvidence,
+            index.Safety.Evidence,
             evidence =>
                 evidence.Member.Name == "CallPointerNoneMethod"
                 && evidence.Reason == "Unsafe call");
 
         DirectCall pointerFreeExplicit = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call =>
                 call.Caller.DeclaringType.Name
                     == "MemorySafetySpellingFixture"
@@ -134,7 +134,7 @@ public partial class LibraryBodyIndexTests
             CallerUnsafeMode.Explicit,
             pointerFreeExplicit.TargetCallerUnsafeMode);
         Assert.Contains(
-            index.UnsafeEvidence,
+            index.Safety.Evidence,
             evidence =>
                 evidence.Member.Name
                     == "CallPointerFreeUnsafeMethod"
@@ -150,7 +150,7 @@ public partial class LibraryBodyIndexTests
         })
         {
             DirectCall call = Assert.Single(
-                index.DirectCalls,
+                index.CallGraph.DirectCalls,
                 item =>
                     item.Caller.DeclaringType.Name
                         == "AccessorContractFixtures"
@@ -160,7 +160,7 @@ public partial class LibraryBodyIndexTests
                 CallerUnsafeMode.Explicit,
                 call.TargetCallerUnsafeMode);
             Assert.Contains(
-                index.UnsafeEvidence,
+                index.Safety.Evidence,
                 evidence =>
                     evidence.Member.Name == caller
                     && evidence.Reason == "Unsafe call"
@@ -168,7 +168,7 @@ public partial class LibraryBodyIndexTests
         }
 
         DirectCall setter = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call =>
                 call.Caller.DeclaringType.Name
                     == "AccessorContractFixtures"
@@ -178,13 +178,13 @@ public partial class LibraryBodyIndexTests
             CallerUnsafeMode.None,
             setter.TargetCallerUnsafeMode);
         Assert.DoesNotContain(
-            index.UnsafeEvidence,
+            index.Safety.Evidence,
             evidence =>
                 evidence.Member.Name == "WriteProperty"
                 && evidence.Reason == "Unsafe call");
 
         DirectCall constructedGeneric = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call =>
                 call.Caller.DeclaringType.Name
                     == "GenericCallerContractCalls"
@@ -197,7 +197,7 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(
             CallerUnsafeMode.None,
             Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method =>
                     method.DeclaringType.Name
                         == "GenericCallerContractFixture`1"
@@ -207,7 +207,7 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(
             CallerUnsafeMode.Explicit,
             Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method =>
                     method.DeclaringType.Name
                         == "GenericCallerContractFixture`1"
@@ -215,7 +215,7 @@ public partial class LibraryBodyIndexTests
                     && method.GenericArity == 1)
                 .CallerUnsafeMode);
         Assert.Contains(
-            index.UnsafeEvidence,
+            index.Safety.Evidence,
             evidence =>
                 evidence.Member.Name == "CallConstructedInstance"
                 && evidence.Reason == "Unsafe call"
@@ -226,11 +226,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void SameImageCalls_LegacyPointerContractRemainsImplicit()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
         DirectCall call = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             item =>
                 item.Caller.Name
                     == nameof(
@@ -243,7 +243,7 @@ public partial class LibraryBodyIndexTests
             CallerUnsafeMode.Implicit,
             call.TargetCallerUnsafeMode);
         Assert.Contains(
-            index.UnsafeEvidence,
+            index.Safety.Evidence,
             evidence =>
                 evidence.Member.Name
                     == nameof(
@@ -256,11 +256,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void SameImageCalls_UnavailableContractRemainsVisible()
     {
-        LibraryBodyIndex index =
+        LibraryBodyAnalysisExecution index =
             OpenMemorySafetyContractImage(2, 1);
 
         DirectCall call = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             item =>
                 item.Caller.Name == "CallsPointerOnly"
                 && item.Callee.Name == "PointerOnly");
@@ -268,7 +268,7 @@ public partial class LibraryBodyIndexTests
             CallerUnsafeMode.Unavailable,
             call.TargetCallerUnsafeMode);
         Assert.DoesNotContain(
-            index.UnsafeEvidence,
+            index.Safety.Evidence,
             evidence =>
                 evidence.Member.Name == "CallsPointerOnly"
                 && evidence.Reason == "Unsafe call");
@@ -353,13 +353,13 @@ public partial class LibraryBodyIndexTests
         try
         {
             File.WriteAllBytes(path, image);
-            LibraryBodyIndex index = LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures.MethodEvidence
                     | LibraryBodyAnalysisFeatures
                         .ImplementationProfiles);
             DirectCall call = Assert.Single(
-                index.DirectCalls,
+                index.CallGraph.DirectCalls,
                 candidate => candidate.Caller.Name == "ModuleAlias");
 
             Assert.Equal(
@@ -372,19 +372,19 @@ public partial class LibraryBodyIndexTests
                 call.TargetCallerUnsafeMode);
             Assert.Equal(
                 expected,
-                index.UnsafeEvidence.Any(evidence =>
+                index.Safety.Evidence.Any(evidence =>
                     evidence.Member.Name == "ModuleAlias"
                     && evidence.Reason == "Unsafe call"
                     && evidence.OperandToken == call.OperandToken));
             MethodIdentity target = Assert.Single(
-                index.Methods,
+                index.CallGraph.Methods,
                 method =>
                     method.Name == "ModuleAlias"
                     && method.MetadataToken
                         != call.Caller.MetadataToken);
             Assert.Equal(
                 expected,
-                index.OverloadRelationships().Any(
+                index.ImplementationProfiles.OverloadRelationships.Any(
                     relationship =>
                         relationship.Caller.MetadataToken
                             == call.Caller.MetadataToken
@@ -393,9 +393,9 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(
                 expected ? 1 : 0,
                 Assert.Single(
-                    index.ImplementationProfiles(
-                        method =>
-                            method.MetadataToken
+                    index.ImplementationProfiles.Profiles.Where(
+                        profile =>
+                            profile.Method.MetadataToken
                                 == target.MetadataToken))
                     .IncomingOverloadCallerCount);
             LibraryBodyAnalysisExecution execution =
@@ -425,7 +425,7 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(
                 expected ? 1 : 0,
                 Assert.Single(
-                    index.TopLeverage(
+                    index.Leverage.Top(
                         count: int.MaxValue,
                         scope: method =>
                             method.MetadataToken
@@ -487,14 +487,14 @@ public partial class LibraryBodyIndexTests
         try
         {
             File.WriteAllBytes(path, image);
-            LibraryBodyIndex index = LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures.MethodEvidence);
             DirectCall call = Assert.Single(
-                index.DirectCalls,
+                index.CallGraph.DirectCalls,
                 candidate => candidate.Caller.Name == "CallsAssemblyAlias");
 
-            Assert.Empty(index.Diagnostics);
+            Assert.Empty(index.Receipt.Diagnostics);
             Assert.Equal(
                 expected,
                 Planning.UnsafeEvidencePresence.HasEvidence(
@@ -505,7 +505,7 @@ public partial class LibraryBodyIndexTests
                 call.TargetCallerUnsafeMode);
             Assert.Equal(
                 expected,
-                index.UnsafeEvidence.Any(evidence =>
+                index.Safety.Evidence.Any(evidence =>
                     evidence.Member.Name == "CallsAssemblyAlias"
                     && evidence.Reason == "Unsafe call"
                     && evidence.OperandToken == call.OperandToken));
@@ -553,10 +553,10 @@ public partial class LibraryBodyIndexTests
             Directory.CreateDirectory(
                 Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, image);
-            LibraryBodyIndex index =
-                LibraryBodyIndex.Open(path);
+            LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.Open(path);
             DirectCall call = Assert.Single(
-                index.DirectCalls,
+                index.CallGraph.DirectCalls,
                 candidate =>
                     candidate.Caller.Name
                         == "CallsLiteralPlusConstructed");
@@ -593,14 +593,14 @@ public partial class LibraryBodyIndexTests
             Directory.CreateDirectory(
                 Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, image);
-            LibraryBodyIndex index =
-                LibraryBodyIndex.Open(path);
+            LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.Open(path);
             MethodIdentity target = Assert.Single(
-                index.Methods,
+                index.CallGraph.Methods,
                 method =>
                     method.Name == "AttributeOnly");
             MethodLeverage leverage = Assert.Single(
-                index.TopLeverage(
+                index.Leverage.Top(
                     count: 1,
                     scope: method =>
                         method.MetadataToken
@@ -634,11 +634,11 @@ public partial class LibraryBodyIndexTests
             Directory.CreateDirectory(
                 Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, image);
-            LibraryBodyIndex index = LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures.MethodEvidence);
             MethodIdentity caller = Assert.Single(
-                index.Methods,
+                index.CallGraph.Methods,
                 method =>
                     method.Name
                         == "CallsBodilessModuleAlias");
@@ -680,12 +680,12 @@ public partial class LibraryBodyIndexTests
             Directory.CreateDirectory(
                 Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, image);
-            LibraryBodyIndex index = LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures.MethodEvidence);
 
             DirectCall call = Assert.Single(
-                index.DirectCalls,
+                index.CallGraph.DirectCalls,
                 candidate =>
                     candidate.Caller.Name
                         == "CallsVarArgAttributeOnly");
