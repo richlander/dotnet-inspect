@@ -265,6 +265,34 @@ of the published result and does not require `LibraryBodyIndex`.
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.
 
+`LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
+publishes Analysis's declared-source association for any method, including
+call targets and methods that make no calls. Focused consumers call it
+directly; `LibraryBodyIndex` does not forward it.
+
+- **Where Analysis authenticates the ultimate owner** (lifted lambdas, local
+  functions, and async `MoveNext`), it returns that owner. This is the same
+  association `DirectCall.Caller` carries.
+- **Async `MoveNext` ignores scope:** one whose ultimate owner authenticates is
+  associated module-wide, even when it lies outside a scoped result's body
+  scope.
+- **One exception, in an unscoped result:** an async `MoveNext` whose lifted
+  source's owner cannot be resolved maps to that immediate lifted source,
+  unless the source's compiler-generated name is malformed. The calls made by
+  that `MoveNext` keep the physical `MoveNext` as `DirectCall.Caller`.
+- **Scoped results withhold that fallback:** they return `null` for it, and for
+  lambdas and local functions outside the scope.
+- **Never associated:** sync iterators, and state-machine or display-class
+  constructors.
+
+Its first production consumer is Library Dependency Structure, which uses it to
+attribute call targets. Gates:
+
+- `DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource`: the module-wide
+  async association.
+- `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`:
+  the unscoped fallback and the scoped `null`, on the focused result.
+
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
 until their focused owner and consumer move. The adapter must not become the

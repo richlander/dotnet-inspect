@@ -2892,6 +2892,8 @@ public partial class LibraryBodyIndexTests
                     && opportunity.Method == kickoff
                     && opportunity.EvidenceMethodToken
                         == moveNext.MetadataToken);
+            // The focused result publishes the same unscoped fallback, while
+            // DirectCall.Caller for MoveNext's own calls stays physical.
             Assert.Equal(
                 kickoff,
                 full.CallGraph.ResolveDeclaredMethod(moveNext));
