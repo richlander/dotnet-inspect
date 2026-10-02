@@ -1768,8 +1768,17 @@ public static partial class AssemblyContextSourceQuery
                     != HandleKind.MethodDefinition
                 || (metadataToken is { } expectedToken
                     && token != expectedToken)
-                || ApiMemberIdentity.GetMemberAnchor(type, candidate)
-                    != member)
+                || (metadataToken is { }
+                    ? !session.MethodAnchorMatches(
+                        typeName,
+                        token,
+                        member)
+                        && ApiMemberIdentity.GetMemberAnchor(
+                            type,
+                            candidate) != member
+                    : ApiMemberIdentity.GetMemberAnchor(
+                        type,
+                        candidate) != member))
             {
                 continue;
             }

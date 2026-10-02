@@ -62,7 +62,8 @@ public static partial class MetadataExports
                                 group,
                                 member,
                                 AssemblyContextLibraryRole.ApiOnly,
-                                s_memberGroupMaterializationLimits,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
                     spelling,
@@ -98,7 +99,8 @@ public static partial class MetadataExports
                                 group,
                                 member,
                                 AssemblyContextLibraryRole.Implementation,
-                                s_memberGroupMaterializationLimits,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
                     spelling,
@@ -123,7 +125,8 @@ public static partial class MetadataExports
                         declaredName,
                         ImmutableArray.CreateRange(content),
                         AssemblyContextLibraryRole.Implementation,
-                        s_memberGroupMaterializationLimits),
+                        BrowserExactMemberPolicy
+                            .MaterializationLimits),
                     typeIdentity,
                     spelling,
                     accessibility)
@@ -140,7 +143,8 @@ public static partial class MetadataExports
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         MetadataTypeMemberPopulationRequest request = new(
-            ParseTypeIdentity(typeIdentity),
+            BrowserExactMemberPolicy.ParseTypeIdentity(
+                typeIdentity),
             ParseSpelling(spelling),
             includeHidden: false,
             ParseAccessibility(accessibility));
@@ -157,7 +161,8 @@ public static partial class MetadataExports
                                         new(
                                             reference,
                                             request,
-                                            s_memberGroupBounds),
+                                            BrowserExactMemberPolicy
+                                                .Bounds),
                                         lease)))
                     .ConfigureAwait(false);
         if (run.Failure is { } failure)

@@ -2165,6 +2165,7 @@ async function installFacades(
         member,
         selector,
         token,
+        documentFingerprint,
         taste,
         contextId
       ) {
@@ -2178,6 +2179,7 @@ async function installFacades(
             member,
             selector,
             token,
+            documentFingerprint,
             taste,
             contextId,
           ]);

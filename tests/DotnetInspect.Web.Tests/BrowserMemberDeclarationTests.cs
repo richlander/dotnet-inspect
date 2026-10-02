@@ -9,6 +9,7 @@ using DotnetInspector.Sections;
 using DotnetInspect.Web.Interop.Metadata;
 using DotnetInspect.Web.Interop.Source;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using NuGetFetch;
 using Analysis = ILInspector.Analysis;
 
@@ -780,6 +781,7 @@ public sealed class BrowserMemberDeclarationTests
                     Analysis.CallGraphMemberResolver
                         .CreateSelector(type, member).Key,
                     member.MetadataToken ?? 0,
+                    "",
                     "[]",
                     Assert.IsType<string>(resolution.ContextId));
             BrowserMemberSource source =
@@ -795,6 +797,46 @@ public sealed class BrowserMemberDeclarationTests
                 source.Source.Text,
                 StringComparison.Ordinal);
             Assert.Empty(source.Parts);
+            Assert.Equal(requests, handler.Requests);
+
+            Assert.True(
+                ApiMemberMetadataAnchor.TryResolve(
+                    FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+                    type,
+                    member,
+                    member.MetadataToken,
+                    out MemberAnchor? metadataAnchor,
+                    out string? anchorError),
+                anchorError);
+            string documentJson =
+                await SourceExports.QueryPlatformMemberSource(
+                    framework,
+                    version,
+                    AssemblyFileName,
+                    "netcore.app",
+                    type.DefinitionName!.ToEscapedFullName(),
+                    member.Name,
+                    Analysis.CallGraphMemberResolver
+                        .CreateSelector(type, member).Key,
+                    member.MetadataToken ?? 0,
+                    metadataAnchor!.Fingerprint,
+                    "[]",
+                    Assert.IsType<string>(resolution.ContextId));
+            BrowserMemberSource documentSource =
+                JsonSerializer.Deserialize(
+                    documentJson,
+                    BrowserSourceJsonContext.Default.BrowserMemberSource)
+                ?? throw new InvalidOperationException(
+                    "The platform Member document Source export returned null.");
+
+            Assert.Equal(
+                "decompiled",
+                documentSource.Source.Provider);
+            Assert.Contains(
+                "PointerFreeUnsafeMethod",
+                documentSource.Source.Text,
+                StringComparison.Ordinal);
+            Assert.Empty(documentSource.Parts);
             Assert.Equal(requests, handler.Requests);
         }
         finally

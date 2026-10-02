@@ -1588,6 +1588,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "M",
     "selector",
     0x06000001,
+    "",
     "[]",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
@@ -1610,6 +1611,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "Clone",
     "Clone()",
     0x06000001,
+    "",
     "[]",
     "platform-context",
   );

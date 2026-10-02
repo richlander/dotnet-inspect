@@ -1,9 +1,11 @@
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using Markout;
@@ -80,10 +82,41 @@ internal static class MemberDocumentOutput
                 memberName) is not null;
     }
 
+    internal static bool IsSourceSelected(
+        ApiType type,
+        MemberOptions options)
+    {
+        bool hasOrdinal = options.OverloadIndex.HasValue;
+        bool hasFingerprint =
+            !string.IsNullOrWhiteSpace(options.MemberDigest);
+        if ((!options.SourceParts && options.SourcePart is null)
+            || type.DefinitionName is null
+            || options.MemberFilter.Count != 1
+            || hasOrdinal == hasFingerprint
+            || options.MemberGenericArity.HasValue
+            || options.KindFilter.Count > 0
+            || options.IncludeAll
+            || options.UnsafeOnly)
+        {
+            return false;
+        }
+
+        string memberName = options.MemberFilter.Single();
+        return !memberName.Contains('*', StringComparison.Ordinal)
+            && !memberName.Contains('?', StringComparison.Ordinal)
+            && MemberGroupDocumentOutput.ResolveCanonicalMethodName(
+                type,
+                memberName) is not null;
+    }
+
     internal static async Task<int> WriteAsync(
         ApiType type,
         MemberOptions options,
         string assemblyPath,
+        ResolvedAssemblyReference? sourceAssembly,
+        string? packageName,
+        string? packageVersion,
+        HttpClient symbolClient,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(type);
@@ -112,9 +145,54 @@ internal static class MemberDocumentOutput
             documentation:
                 options.ShowDocs
                     ? new(DocumentationDemand.CompiledXml)
+                    : null,
+            source:
+                options.SourceParts || options.SourcePart is not null
+                    ? new(
+                        includeAuthoredParts: true,
+                        allowDecompiledFallback: false)
                     : null);
+        MemberSourceAttachmentProvider? sourceProvider =
+            plan.Source is null
+                ? null
+                : async (request, token) =>
+                {
+                    ResolvedAssemblyReference? participantAssembly =
+                        sourceAssembly?.Path is { } sourceAssemblyPath
+                        && LibraryMetadataService
+                            .ReferenceTreePathComparer(
+                                OperatingSystem.IsWindows())
+                            .Equals(
+                                Path.GetFullPath(sourceAssemblyPath),
+                                Path.GetFullPath(assemblyPath))
+                            ? sourceAssembly
+                            : null;
+                    var (participant, context) =
+                        AuthoredSourceDocumentPrinter.CreateContext(
+                            assemblyPath,
+                            options,
+                            participantAssembly,
+                            packageName,
+                            packageVersion,
+                            symbolClient);
+                    await using var workspace =
+                        new InspectionWorkspace();
+                    using AssemblyContextGroup group =
+                        workspace.CreateAssemblyContextGroup(
+                            [participant]);
+                    InspectionEnvelope<AssemblyMemberSourceEntry>
+                        sourceInspection =
+                            await MemberSourceInspection.ExecuteAsync(
+                                    group,
+                                    participant,
+                                    request,
+                                    context,
+                                    token)
+                                .ConfigureAwait(false);
+                    return sourceInspection.Content;
+                };
         InspectionEnvelope<MemberDocumentInspectionOutcome>? inspection =
-            plan.Documentation is null
+            plan.Documentation is null && plan.Source is null
                 ? await ExactLibraryInspectionExecutor.ExecuteAsync<
                     InspectionEnvelope<MemberDocumentInspectionOutcome>>(
                     assemblyPath,
@@ -131,6 +209,7 @@ internal static class MemberDocumentOutput
                     session =>
                         session.ExecuteMemberDocumentAsync(
                             plan,
+                            sourceProvider,
                             cancellationToken),
                     cancellationToken);
         if (inspection is null)
@@ -149,6 +228,19 @@ internal static class MemberDocumentOutput
         }
 
         MemberDocument document = available.Document;
+        if (plan.Source is not null)
+        {
+            MemberSourceAttachment attachment =
+                document.Source
+                ?? throw new InvalidOperationException(
+                    "The requested Member source attachment was not produced.");
+            return MemberSourcePartsOutput.WriteAttached(
+                document,
+                attachment.Outcome,
+                options,
+                Console.Out);
+        }
+
         string signature =
             $"{document.Accessibility} "
                 + ReceiverPrefix(document.Receiver)

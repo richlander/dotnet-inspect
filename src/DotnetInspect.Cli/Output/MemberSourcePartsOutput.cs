@@ -122,7 +122,7 @@ internal static class MemberSourcePartsOutput
             inspection = await MemberSourceInspection.ExecuteAsync(group, participant, request, context);
         }
         if (inspection.Content is not AssemblyMemberSourceEntry.Available
-            { Source: AssemblyMemberSource.Pdb { MemberDocument: { } document } source })
+            { Source: AssemblyMemberSource.Pdb { MemberDocument: not null } source })
         {
             string detail = inspection.Content switch
             {
@@ -139,35 +139,113 @@ internal static class MemberSourcePartsOutput
             return 1;
         }
 
-        var catalog = MemberSourcePartsProjection.CreateCatalog(document.Parts);
-        var result = Location(type, selectedMember, options) with
+        return WriteAvailable(
+            Location(type, selectedMember, options),
+            source,
+            selectedIndex,
+            options,
+            output);
+    }
+
+    internal static int WriteAttached(
+        MemberDocument member,
+        AssemblyMemberSourceEntry outcome,
+        MemberOptions options,
+        TextWriter output)
+    {
+        if (outcome is not AssemblyMemberSourceEntry.Available
+            {
+                Source:
+                    AssemblyMemberSource.Pdb
+                    {
+                        MemberDocument: not null,
+                    } source,
+            })
         {
-            Document = new(source.Inspection.Document!.OriginalPath,
-                Url(source.Inspection.Mapping!.ResolvedUrl, options)),
-            PdbSpan = new(source.Inspection.Mapping.StartLine, source.Inspection.Mapping.EndLine),
+            CommandError.Write(
+                $"Could not acquire verified member parts: "
+                    + DescribeUnavailable(outcome));
+            return 1;
+        }
+
+        return WriteAvailable(
+            new(
+                member.CanonicalSignature.ToString(),
+                new(null, null),
+                null),
+            source,
+            selectedIndex: 0,
+            options,
+            output);
+    }
+
+    private static int WriteAvailable(
+        MemberSourceLocationContent location,
+        AssemblyMemberSource.Pdb source,
+        int selectedIndex,
+        MemberOptions options,
+        TextWriter output)
+    {
+        var document =
+            source.MemberDocument
+            ?? throw new InvalidOperationException(
+                "The available authored member source has no parts document.");
+        IReadOnlyList<MemberSourcePart> catalog =
+            MemberSourcePartsProjection.CreateCatalog(
+                document.Parts);
+        MemberSourceLocationContent result = location with
+        {
+            Document = new(
+                source.Inspection.Document!.OriginalPath,
+                Url(
+                    source.Inspection.Mapping!.ResolvedUrl,
+                    options)),
+            PdbSpan = new(
+                source.Inspection.Mapping.StartLine,
+                source.Inspection.Mapping.EndLine),
             Parts = catalog.ToDictionary(
-                part => MemberSourcePartsProjection.Name(part.Kind).Replace('-', '_'),
+                part =>
+                    MemberSourcePartsProjection.Name(
+                            part.Kind)
+                        .Replace('-', '_'),
                 part => new MemberSourcePartRange(
                     part.Spans[0].Lines.StartLine,
                     part.Spans[^1].Lines.EndLine,
                     part.Spans.Length > 1
-                        ? part.Spans.Select(span => new MemberSourceLineRange(
-                            span.Lines.StartLine, span.Lines.EndLine)).ToArray()
+                        ? part.Spans.Select(span =>
+                            new MemberSourceLineRange(
+                                span.Lines.StartLine,
+                                span.Lines.EndLine))
+                            .ToArray()
                         : null)),
         };
         if (options.SourcePart is { } kind)
         {
-            MemberSourcePart? part = catalog.FirstOrDefault(part => part.Kind == kind);
+            MemberSourcePart? part =
+                catalog.FirstOrDefault(
+                    part => part.Kind == kind);
             if (part is null)
             {
-                CommandError.Write($"The selected member has no '{MemberSourcePartsProjection.Name(kind)}' part.");
+                CommandError.Write(
+                    $"The selected member has no "
+                        + $"'{MemberSourcePartsProjection.Name(kind)}' part.");
                 return 1;
             }
-            string text = MemberSourcePartsProjection.GetText(document, part);
-            result = result with { Part = MemberSourcePartsProjection.Name(kind), Content = text };
-            if (options.JsonOutput || options.Jsonl || options.JsonArray)
+            string text =
+                MemberSourcePartsProjection.GetText(
+                    document,
+                    part);
+            result = result with
             {
-                ProjectionAudit.MarkHonored(ProjectionAudit.Print);
+                Part = MemberSourcePartsProjection.Name(kind),
+                Content = text,
+            };
+            if (options.JsonOutput
+                || options.Jsonl
+                || options.JsonArray)
+            {
+                ProjectionAudit.MarkHonored(
+                    ProjectionAudit.Print);
                 WriteJson([result], options, output);
                 return 0;
             }
@@ -178,7 +256,9 @@ internal static class MemberSourcePartsOutput
                 $"{result.Member} ({result.Part})",
                 result.Document.Path,
                 result.Document.Url,
-                MemberSourcePartsProjection.GetDisplayText(document.Text, part))
+                MemberSourcePartsProjection.GetDisplayText(
+                    document.Text,
+                    part))
             {
                 Language = "csharp",
             };
@@ -190,22 +270,34 @@ internal static class MemberSourcePartsOutput
                     Jsonl: false,
                     JsonArray: false,
                     Destination: new(null, options.Rows),
-                    Markdown: options.UsesMarkdownPayloadFormat));
+                    Markdown:
+                        options.UsesMarkdownPayloadFormat));
         }
 
         if (options.JsonOutput)
             WriteJson([result], options, output);
         else
         {
-            var writer = new MarkoutWriter(output,
-                options.PlainText ? new PlainTextFormatter() : new MarkdownFormatter());
-            writer.WriteTable(["Part", "Start Line", "End Line"], ["part", "start_line", "end_line"],
-                catalog.SelectMany(part => part.Spans.Select(span => new[]
-                {
-                    MemberSourcePartsProjection.Name(part.Kind),
-                    span.Lines.StartLine.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    span.Lines.EndLine.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                })).ToArray());
+            var writer = new MarkoutWriter(
+                output,
+                options.PlainText
+                    ? new PlainTextFormatter()
+                    : new MarkdownFormatter());
+            writer.WriteTable(
+                ["Part", "Start Line", "End Line"],
+                ["part", "start_line", "end_line"],
+                catalog.SelectMany(part =>
+                    part.Spans.Select(span => new[]
+                    {
+                        MemberSourcePartsProjection.Name(
+                            part.Kind),
+                        span.Lines.StartLine.ToString(
+                            System.Globalization
+                                .CultureInfo.InvariantCulture),
+                        span.Lines.EndLine.ToString(
+                            System.Globalization
+                                .CultureInfo.InvariantCulture),
+                    })).ToArray());
             writer.Flush();
         }
         return 0;
@@ -223,6 +315,29 @@ internal static class MemberSourcePartsOutput
 
     private static string? Url(string? url, MemberOptions options) =>
         options.PreferRenderedUrls && url is not null ? GitHubUrlResolver.ConvertRawToBlobUrl(url) : url;
+
+    private static string DescribeUnavailable(
+        AssemblyMemberSourceEntry outcome) =>
+        outcome switch
+        {
+            AssemblyMemberSourceEntry.Unavailable
+                {
+                    PdbAttempt.Lines.Value:
+                        FindingInspection<string>.Failed failed,
+                } => failed.Error.Reason,
+            AssemblyMemberSourceEntry.Unavailable
+                {
+                    PdbAttempt.Lines.Value:
+                        FindingInspection<string>.Absent absent,
+                } => absent.Detail
+                    ?? "The selected authored member is unavailable.",
+            AssemblyMemberSourceEntry.Unavailable unavailable =>
+                unavailable.Failure.Detail,
+            AssemblyMemberSourceEntry.Rejected rejected =>
+                rejected.Failure.ToString(),
+            _ => throw new InvalidOperationException(
+                "Unexpected authored member-parts result."),
+        };
 
     private static void WriteJson(MemberSourceLocationContent[] records, MemberOptions options, TextWriter output)
     {

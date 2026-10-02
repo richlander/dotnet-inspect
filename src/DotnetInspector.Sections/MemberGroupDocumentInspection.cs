@@ -149,6 +149,7 @@ public static class MemberGroupDocumentInspectionOperation
                         available.Document.Subject,
                         row.Binding,
                         row.MetadataToken,
+                        row.Anchor,
                         row.BaselineOrdinal,
                         row.Fingerprint,
                         row.DocumentationId)),

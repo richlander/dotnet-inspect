@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
@@ -805,6 +806,55 @@ public sealed class AssemblyInspectionSession :
     {
         _image.EnsureAlive();
         return _declarationIndex.Value.Probe(name);
+    }
+
+    /// <summary>
+    /// Reports whether one exact MethodDef carries the supplied metadata-owned
+    /// member identity in this immutable assembly image.
+    /// </summary>
+    public bool MethodAnchorMatches(
+        MetadataTypeDefinitionName declaringType,
+        int methodDefinitionToken,
+        MemberAnchor anchor)
+    {
+        ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentNullException.ThrowIfNull(anchor);
+        _image.EnsureAlive();
+
+        int row = methodDefinitionToken & 0x00FFFFFF;
+        MetadataReader reader = _image.GetMetadataReader();
+        if ((methodDefinitionToken & unchecked((int)0xFF000000))
+                != 0x06000000
+            || row == 0
+            || row > reader.MethodDefinitions.Count
+            || _declarationIndex.Value.Probe(declaringType)
+                is not TypeDeclarationResult.Defined defined)
+        {
+            return false;
+        }
+
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                MetadataTokens.MethodDefinitionHandle(row));
+        if (MetadataTokens.GetToken(method.GetDeclaringType())
+            != defined.Definition.Value)
+        {
+            return false;
+        }
+
+        MemberAnchor ordinary =
+            ApiMemberIdentity.CreateMethodAnchor(
+                reader,
+                method.GetDeclaringType(),
+                method,
+                isExtensionMethod: false);
+        return ordinary == anchor
+            || ApiMemberIdentity.CreateMethodAnchor(
+                    reader,
+                    method.GetDeclaringType(),
+                    method,
+                    isExtensionMethod: true)
+                == anchor;
     }
 
     /// <summary>

@@ -363,6 +363,47 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
+    public void MethodAnchorMatches_AcceptsMetadataOwnedPrimitiveSpelling()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        ApiType type = Assert.Single(
+            session.ApiSurface(includeAll: true).Types,
+            candidate =>
+                candidate.MetadataToken
+                    == typeof(MethodBodyFixture).MetadataToken);
+        ApiMember method = Assert.Single(
+            type.Members,
+            static candidate =>
+                candidate.Name == nameof(MethodBodyFixture.Overloaded)
+                && candidate.SignatureModel?.Parameters
+                    is [{ EffectiveCanonicalType: "int" }]);
+        int token = Assert.IsType<int>(method.MetadataToken);
+        Assert.True(
+            ApiMemberMetadataAnchor.TryResolve(
+                SelfPath,
+                type,
+                method,
+                token,
+                out MemberAnchor? metadataAnchor,
+                out string? error),
+            error);
+
+        MemberAnchor projected =
+            ApiMemberIdentity.GetMemberAnchor(type, method);
+        Assert.NotEqual(projected, metadataAnchor);
+        Assert.True(
+            session.MethodAnchorMatches(
+                type.DefinitionName!,
+                token,
+                metadataAnchor));
+        Assert.False(
+            session.MethodAnchorMatches(
+                type.DefinitionName!,
+                token,
+                projected));
+    }
+
+    [Fact]
     public void MethodBodies_ReturnCopiedDataAndValidatedSelection()
     {
         using var session = AssemblyInspectionSession.Open(SelfPath);

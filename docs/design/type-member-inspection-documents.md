@@ -898,6 +898,16 @@ Source remains an explicit exact-subject attachment owned by SourceHouse.
 Returned exact-overload Rows may request independently settled source
 attachments under an explicit row-attachment policy.
 
+An exact Member source request uses the `MemberAnchor` and MethodDef token
+issued by the Metadata population row. The document retains that identity;
+hosts do not reconstruct it from display signatures, names, or digests.
+Composition validates that the SourceHouse result corresponds to the same
+request and Library assembly identity.
+
+Source non-success remains an attached typed SourceHouse outcome. Rejection or
+unavailability does not become null source and does not turn an otherwise
+available Member document into a success-shaped empty attachment.
+
 Type-level or Member-group source aggregation requires its own focused owner;
 this design does not infer one source document from several declarations or
 physical bodies. A Type or Member-group population may expose exact source
@@ -1247,6 +1257,12 @@ owns the revised counted path:
 
 Each implementation or adoption remains a focused owner change. This design
 and tracker connect them without approving one broad implementation PR.
+
+Steps 1 through 6 are implemented. CLI exact declaration source-parts and
+Inspect Web ordinary-method declaration source now compose through the shared
+`MemberDocument` attachment. Physical accessor and other body-target source
+remain on their existing body-resolution path because those targets are not
+additional declaration documents.
 
 ## Required evidence
 

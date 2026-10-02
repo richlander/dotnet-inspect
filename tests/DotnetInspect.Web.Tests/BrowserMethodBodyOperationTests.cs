@@ -11,6 +11,7 @@ using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
+using DotnetInspect.Web.Interop.Metadata;
 using DotnetInspect.Web.Interop.Source;
 using InspectWeb.MethodBodyFixtures;
 using NuGetFetch;
@@ -99,6 +100,38 @@ public sealed class BrowserMethodBodyOperationTests
             Assert.Equal(getter.MetadataToken, producer.Before.MetadataToken);
             Assert.Equal(setter.MetadataToken, producer.After.MetadataToken);
         });
+    }
+
+    [Fact]
+    public async Task
+        MemberSourceExport_DeclarationUsesExactMemberDocumentAttachment()
+    {
+        await using Fixture fixture =
+            await Fixture.Open(reference: true);
+        BrowserMethodBodySelection selection = fixture.Launch;
+
+        string json =
+            await SourceExports.QueryMemberSource(
+                fixture.PackageId,
+                "1.0.0",
+                Framework,
+                AssemblyName,
+                selection.TypeIdentity,
+                selection.MemberName,
+                selection.SelectorKey,
+                selection.MetadataToken,
+                fixture.DocumentFingerprint,
+                "[]");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement source =
+            document.RootElement.GetProperty("source");
+        Assert.Equal(
+            "decompiled",
+            source.GetProperty("provider").GetString());
+        Assert.Contains(
+            "Compute",
+            source.GetProperty("text").GetString());
     }
 
     [Fact]
@@ -369,10 +402,14 @@ public sealed class BrowserMethodBodyOperationTests
         string packageId,
         BrowserInspectionScope scope,
         BrowserMethodBodySelection launch,
+        string documentFingerprint,
         string implementationModuleVersionId) : IAsyncDisposable
     {
+        internal string PackageId => packageId;
         internal BrowserInspectionScope Scope => scope;
         internal BrowserMethodBodySelection Launch => launch;
+        internal string DocumentFingerprint =>
+            documentFingerprint;
         internal string ImplementationModuleVersionId =>
             implementationModuleVersionId;
 
@@ -416,6 +453,27 @@ public sealed class BrowserMethodBodyOperationTests
                         ? File.ReadAllBytes(FixtureCatalog.InspectWebMethodBodies.AssetPath("package"))
                         : bytes.ToArray(),
                     fromCache: false));
+            BrowserMemberGroupDocumentInspection groupDocument =
+                JsonSerializer.Deserialize(
+                    await MetadataExports
+                        .QueryMemberGroupDocument(
+                            id,
+                            "1.0.0",
+                            Framework,
+                            AssemblyName,
+                            typeof(Left).FullName!,
+                            nameof(Left.Compute)),
+                    BrowserMetadataJsonContext.Default
+                        .BrowserMemberGroupDocumentInspection)!;
+            BrowserMemberGroupDocumentRow documentRow =
+                Assert.Single(
+                    Assert.IsType<BrowserMemberGroupDocument>(
+                            groupDocument.Document)
+                        .Rows,
+                    static row =>
+                        row.CanonicalSignature.EndsWith(
+                            "(System.Int32)",
+                            StringComparison.Ordinal));
             await using BrowserScopeLease<BrowserInspectionScope> lease =
                 await BrowserPackageWorkspace.OpenScopeAsync(id, "1.0.0", Framework);
             BrowserInspectionScope scope = lease.Scope;
@@ -428,6 +486,7 @@ public sealed class BrowserMethodBodyOperationTests
             CallGraphMemberBodySelector body = Assert.Single(CallGraphMemberResolver.CreateBodySelectors(type, method));
             return new(id, scope, new(type.DefinitionName!.ToEscapedFullName(),
                 body.MemberName, body.SelectorKey, body.BodyToken, "Launch"),
+                documentRow.Fingerprint,
                 implementationModuleVersionId);
         }
 

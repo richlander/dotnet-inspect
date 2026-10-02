@@ -33,6 +33,7 @@ interface MemberSourceSelection {
   member: string;
   selectorKey: string;
   metadataToken: number;
+  documentFingerprint: string;
   taste: string;
 }
 

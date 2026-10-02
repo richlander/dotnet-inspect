@@ -276,6 +276,7 @@ public static class MemberOverloadPopulationInspectionOperation
                             (row, index) =>
                                 new MemberOverloadShape(
                                     row.MetadataToken,
+                                    row.Anchor,
                                     checked(
                                         startOrdinal + index + 1),
                                     Field(row.DisplaySignature),

@@ -62,7 +62,8 @@ public static partial class MetadataExports
                                 group,
                                 member,
                                 AssemblyContextLibraryRole.ApiOnly,
-                                s_memberGroupMaterializationLimits,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName)
@@ -97,7 +98,8 @@ public static partial class MetadataExports
                                 group,
                                 member,
                                 AssemblyContextLibraryRole.Implementation,
-                                s_memberGroupMaterializationLimits,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName)
@@ -120,34 +122,13 @@ public static partial class MetadataExports
                         declaredName,
                         ImmutableArray.CreateRange(content),
                         AssemblyContextLibraryRole.Implementation,
-                        s_memberGroupMaterializationLimits),
+                        BrowserExactMemberPolicy
+                            .MaterializationLimits),
                     typeIdentity,
                     memberName)
                 .ConfigureAwait(false));
         return SerializeMemberGroupDocument(inspection);
     }
-
-    private const long MemberGroupMaxAssemblyImageBytes =
-        64L * 1024 * 1024;
-
-    private static readonly ApiSurfaceExtractionBounds s_memberGroupBounds =
-        new(
-            maxTypes: BrowserApiSurfacePolicy.MaxTypes,
-            maxMembers: BrowserApiSurfacePolicy.MaxMembers,
-            maxInspectionFailures:
-                BrowserApiSurfacePolicy.MaxInspectionFailures,
-            maxTypeForwarders:
-                BrowserApiSurfacePolicy.MaxTypeForwarders,
-            maxMetadataRows:
-                BrowserApiSurfacePolicy.MaxMetadataRows,
-            maxRetainedTextCharacters:
-                BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
-
-    private static readonly AssemblyContextLibraryMaterializationLimits
-        s_memberGroupMaterializationLimits =
-            new(
-                MemberGroupMaxAssemblyImageBytes,
-                MemberGroupMaxAssemblyImageBytes);
 
     private static async Task<
         InspectionEnvelope<MemberGroupDocumentInspectionOutcome>>
@@ -158,17 +139,20 @@ public static partial class MetadataExports
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
-        MetadataTypeDefinitionName type = ParseTypeIdentity(typeIdentity);
+        MetadataTypeDefinitionName type =
+            BrowserExactMemberPolicy.ParseTypeIdentity(
+                typeIdentity);
         var plan = new MemberOverloadPopulationInspectionPlan(
             new MemberGroupSubject(type, memberName),
             new MemberOverloadPopulationRequest(
                 new MemberOverloadCountRequest(),
                 new MemberOverloadRowsRequest(
-                    maximumRows: s_memberGroupBounds.MaxMembers),
+                    maximumRows:
+                        BrowserExactMemberPolicy.Bounds.MaxMembers),
                 MemberOverloadAccessibilityFilter.Public,
                 MemberOverloadReceiverFilter.All,
                 includeHidden: false),
-            s_memberGroupBounds);
+            BrowserExactMemberPolicy.Bounds);
         AssemblyContextLibraryInspectionRun<
             InspectionEnvelope<MemberGroupDocumentInspectionOutcome>> run =
                 await AssemblyContextLibraryInspection.ExecuteAsync(
@@ -205,21 +189,6 @@ public static partial class MetadataExports
                         InspectionDiagnosticSeverity.Warning,
                         failure))));
     }
-
-    private static MetadataTypeDefinitionName ParseTypeIdentity(
-        string typeIdentity) =>
-        MetadataTypeDefinitionName.ParseSerialized(typeIdentity) switch
-        {
-            MetadataTypeDefinitionNameResult.Valid valid =>
-                valid.Name,
-            MetadataTypeDefinitionNameResult.Rejected rejected =>
-                throw new ArgumentException(
-                    $"The exact Type identity is invalid "
-                        + $"({rejected.Rejection.Kind}).",
-                    nameof(typeIdentity)),
-            _ => throw new InvalidOperationException(
-                "Unknown exact Type identity parse result."),
-        };
 
     private static BrowserMemberGroupDocumentInspection
         ProjectMemberGroupDocument(

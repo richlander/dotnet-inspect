@@ -326,6 +326,7 @@ test("member source publishes only for the current member selection", async () =
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentFingerprint: "",
     taste: "[\"expression-bodied-members\"]",
     isCurrent: () => current,
   });
@@ -365,6 +366,7 @@ test("current member source failures remain visible and restore focus", async ()
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentFingerprint: "",
     taste: "[]",
     isCurrent: () => true,
   });
@@ -399,6 +401,7 @@ test("empty member source failure remains settled", async () => {
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentFingerprint: "",
     taste: "[]",
     isCurrent: () => true,
   });
@@ -448,6 +451,7 @@ test("member source caches one authored catalog without another query", async ()
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentFingerprint: "",
     taste: "[]",
     isCurrent: () => true,
   };
@@ -677,6 +681,7 @@ test("legacy member source takeover cancels the authoritative type operation fir
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentFingerprint: "",
     taste: "[]",
     isCurrent: () => true,
   });

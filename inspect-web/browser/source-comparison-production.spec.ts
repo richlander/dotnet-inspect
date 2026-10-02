@@ -373,7 +373,7 @@ test.describe("published authored Source comparison transport", () => {
           return source.queryMemberSource(
             request.packageId, request.beforeVersion, request.framework,
             request.assembly, request.typeIdentity, request.memberName,
-            request.selectorKey, request.metadataToken, "[]");
+            request.selectorKey, request.metadataToken, "", "[]");
         }, selected);
       }
 

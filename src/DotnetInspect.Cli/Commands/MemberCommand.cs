@@ -556,7 +556,10 @@ public static class MemberCommand
             if (MemberDocumentOutput.IsSelected(
                         apiType,
                         effectiveOptions,
-                        executionPlan))
+                        executionPlan)
+                || MemberDocumentOutput.IsSourceSelected(
+                    apiType,
+                    effectiveOptions))
             {
                 string? memberAssemblyPath =
                     apiType.SourceAssemblyPath
@@ -573,6 +576,10 @@ public static class MemberCommand
                     apiType,
                     effectiveOptions,
                     memberAssemblyPath,
+                    sourceAssembly,
+                    packageName,
+                    packageVersion,
+                    context.HttpClient,
                     CancellationToken.None);
             }
 

@@ -40,6 +40,7 @@ public enum MetadataMethodGroupInspectionBound
 
 public sealed record MetadataMethodGroupRow(
     int MetadataToken,
+    MemberAnchor Anchor,
     string DisplaySignature,
     string CanonicalSignature,
     string DocumentationId,
@@ -240,6 +241,7 @@ internal static class MetadataMethodGroupInspection
                     documentationSignature.XmlDocumentationIsVararg);
             return new(
                 MetadataTokens.GetToken(handle),
+                anchor,
                 MetadataDeclarationQuery.GetMethodSignatureText(
                     declaration),
                 anchor.CanonicalSignature,
@@ -420,6 +422,9 @@ internal static class MetadataMethodGroupInspection
                     retainedTextCharacters
                         + row.DisplaySignature.Length
                         + row.CanonicalSignature.Length
+                        + row.Anchor.StableSelector.Length
+                        + row.Anchor.TypeFullName.Length
+                        + row.Anchor.MemberName.Length
                         + row.Fingerprint.Length
                         + row.Accessibility.Length);
                 if (retainedTextCharacters

@@ -3456,6 +3456,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.member,
         request.selectorKey,
         request.metadataToken,
+        request.documentFingerprint,
         request.taste)
     : inspectPlatformMemberSource(
         request.framework,
@@ -3466,6 +3467,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.member,
         request.selectorKey,
         request.metadataToken,
+        request.documentFingerprint,
         request.taste,
         request.contextId),
   queryTypeSource: (operationId, request) => request.kind === "platform"
@@ -19889,6 +19891,12 @@ async function loadSelectedMemberSource() {
     // correspondence handles differing ref/lib row numbers.
     metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+    documentFingerprint:
+      member.kind === "method"
+        && !overload.graphOnly
+        && state.selectedBodyTarget === null
+        ? overload.anchorDigest
+        : "",
     taste: JSON.stringify(state.taste),
     isCurrent: () => memberRequestIsCurrent(signature, false, true),
   };
