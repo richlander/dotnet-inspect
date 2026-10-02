@@ -3976,16 +3976,6 @@ test.describe("bounded network-backed Worker smoke", () => {
         pack,
       );
     await querySalience();
-    const methodLeverage = await engine.queryPlatformTypeMethodLeverage(
-      framework,
-      platformVersion,
-      assembly,
-      pack,
-      "System.String",
-    );
-    expect(methodLeverage.outcome).toBe("available");
-    expect(methodLeverage.content?.typeDefinitionId).toBe("System.String");
-    expect(methodLeverage.content?.methodCount).toBeGreaterThan(0);
 
     async function measure<T>(operation: () => Promise<T>) {
       const start = performance.now();
@@ -4040,6 +4030,24 @@ test.describe("bounded network-backed Worker smoke", () => {
         measurements.map(measurement => measurement.milliseconds),
       ),
     }));
+    await page.evaluate(() => window.__adoption!.dispose());
+  });
+
+  test("answers platform Type method leverage over real Wasm", async ({
+    page,
+  }) => {
+    await boot(page);
+    const engine = driver(page);
+    const methodLeverage = await engine.queryPlatformTypeMethodLeverage(
+      "net11.0",
+      "11.0.0-rc.1.26425.128",
+      "System.Private.CoreLib.dll",
+      "netcore.app",
+      "System.String",
+    );
+    expect(methodLeverage.outcome).toBe("available");
+    expect(methodLeverage.content?.typeDefinitionId).toBe("System.String");
+    expect(methodLeverage.content?.methodCount).toBeGreaterThan(0);
     await page.evaluate(() => window.__adoption!.dispose());
   });
 
