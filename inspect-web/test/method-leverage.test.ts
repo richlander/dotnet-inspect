@@ -6,6 +6,7 @@ import type {
 } from "../src/facades/inspect-web-analysis.d.ts";
 import {
   createTypeMethodLeverageCoordinator,
+  filterMemberGroupsByMethodLeverage,
   methodLeverageFor,
   methodLeverageEmptyStateMessage,
   projectTypeMethodLeverage,
@@ -208,5 +209,92 @@ test("method leverage coordinator caches one exact Type result", async () => {
   assert.equal(
     typeMethodLeverageCacheKey(request),
     typeMethodLeverageCacheKey({ ...request }),
+  );
+});
+
+test("method leverage retry reacquires typed non-available outcomes", async () => {
+  for (const outcome of ["rejected", "failed", "unavailable"] as const) {
+    const state: TypeMethodLeverageStateHost = {
+      typeMethodLeverage: { status: "idle" },
+    };
+    let queries = 0;
+    const coordinator = createTypeMethodLeverageCoordinator({
+      state,
+      operationAuthority: createOperationAuthorityPage(),
+      query: async () => {
+        queries++;
+        if (queries > 1) return available();
+        const result = available();
+        return {
+          ...result,
+          outcome,
+          subject: outcome === "unavailable" ? null : result.subject,
+          content: null,
+          failure: {
+            kind: outcome,
+            detail: `typed ${outcome}`,
+            metadataRootReason: null,
+          },
+          share: outcome === "unavailable" ? null : result.share,
+        };
+      },
+      whenWorkerIdle: () => Promise.resolve(),
+      describeError: String,
+      reportOperationDiagnostic: () => undefined,
+      render: () => undefined,
+    });
+
+    coordinator.request(request, () => true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(state.typeMethodLeverage.status, "failed");
+
+    coordinator.retry(request, () => true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(state.typeMethodLeverage.status, "ready");
+    assert.equal(queries, 2);
+  }
+});
+
+test("top leverage filtering preserves ordinary groups until ready", () => {
+  const groups = [{
+    key: "method:Run",
+    name: "Run",
+    kind: "method",
+    sourceOverloadCount: 2,
+    overloads: [
+      {
+        signature: "void Run()",
+        stableSelector: "HiddenWinner~1234567890",
+      },
+      {
+        signature: "void Run(int value)",
+        stableSelector: "Other~1234567890",
+      },
+    ],
+  }];
+  const loading = {
+    status: "loading",
+    request,
+    isCurrent: () => true,
+  } as const;
+
+  assert.deepEqual(
+    filterMemberGroupsByMethodLeverage(groups, { status: "idle" }),
+    groups,
+  );
+  assert.deepEqual(filterMemberGroupsByMethodLeverage(groups, loading), groups);
+
+  const ready = {
+    status: "ready",
+    request,
+    isCurrent: () => true,
+    presentation: projectTypeMethodLeverage(available(), request),
+  } as const;
+  const filtered = filterMemberGroupsByMethodLeverage(groups, ready);
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0]?.sourceOverloadCount, 2);
+  assert.deepEqual(
+    filtered[0]?.overloads.map(overload => overload.stableSelector),
+    ["HiddenWinner~1234567890"],
   );
 });

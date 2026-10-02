@@ -285,6 +285,38 @@ export function methodLeverageFor(
     : null;
 }
 
+interface MethodLeverageFilterGroup {
+  readonly overloads: readonly {
+    readonly stableSelector?: string | null;
+  }[];
+}
+
+type MethodLeverageFilteredGroup<TGroup extends MethodLeverageFilterGroup> =
+  Omit<TGroup, "overloads"> & {
+    overloads: Array<TGroup["overloads"][number]>;
+  };
+
+export function filterMemberGroupsByMethodLeverage<
+  TGroup extends MethodLeverageFilterGroup,
+>(
+  groups: readonly TGroup[],
+  state: TypeMethodLeverageState,
+): Array<MethodLeverageFilteredGroup<TGroup>> {
+  if (state.status !== "ready") {
+    return groups.map(group => ({
+      ...group,
+      overloads: [...group.overloads],
+    }));
+  }
+  return groups.flatMap(group => {
+    const overloads = group.overloads.filter(overload =>
+      methodLeverageFor(state, overload.stableSelector) !== null);
+    return overloads.length === 0
+      ? []
+      : [{ ...group, overloads }];
+  });
+}
+
 export interface TypeMethodLeverageCoordinatorDependencies {
   readonly state: TypeMethodLeverageStateHost;
   readonly operationAuthority: OperationAuthorityPage;
@@ -553,7 +585,7 @@ export function createTypeMethodLeverageCoordinator(
   return {
     request: requestLeverage,
     retry(request, isCurrent) {
-      cache.retry(request);
+      cache.retry(request, result => result.outcome !== "available");
       requestLeverage(request, isCurrent);
     },
   };

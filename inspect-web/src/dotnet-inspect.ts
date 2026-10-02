@@ -278,6 +278,7 @@ import {
 } from "./implementation-heat.ts";
 import {
   createTypeMethodLeverageCoordinator,
+  filterMemberGroupsByMethodLeverage,
   methodLeverageEmptyStateMessage,
   methodLeverageFor,
   type PackageTypeMethodLeverageRequest,
@@ -6501,18 +6502,9 @@ function visibleMemberGroups(type: AppTypeSurface) {
   const sourceGroups = selectedMemberGroups(type);
   const filtered = filterMemberGroups(sourceGroups, memberFilterState());
   if (state.memberLeverageFilter !== "top-leverage") return filtered;
-  const leverage = currentTypeMethodLeverageState();
-  if (leverage.status !== "ready") return [];
-  return filtered.flatMap(group => {
-    const overloads = group.overloads.filter(overload =>
-      methodLeverageFor(leverage, overload.stableSelector ?? "") !== null);
-    return overloads.length === 0
-      ? []
-      : [{
-          ...group,
-          overloads,
-        }];
-  });
+  return filterMemberGroupsByMethodLeverage(
+    filtered,
+    currentTypeMethodLeverageState());
 }
 
 function methodLeverageAchievements(
