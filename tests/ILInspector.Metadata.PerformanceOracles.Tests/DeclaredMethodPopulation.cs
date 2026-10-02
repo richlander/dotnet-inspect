@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using InertText;
 using NLinq;
 using QuerySpace.Composition;
 
@@ -41,6 +42,18 @@ public sealed record PreparedQuerySpaceScorecardResult(
     int Count,
     IReadOnlyList<PreparedQuerySpaceScorecardCell> Cells);
 
+public sealed record PreparedProducerScorecardCell(
+    string Boundary,
+    double Microseconds,
+    long AllocatedBytes);
+
+public sealed record PreparedProducerScorecardResult(
+    string TypeName,
+    int Count,
+    int LatencyCrossoverOperations,
+    int AllocationCrossoverOperations,
+    IReadOnlyList<PreparedProducerScorecardCell> Cells);
+
 public static class DeclaredMethodPopulation
 {
     private const int OperationsPerSample = 256;
@@ -53,6 +66,21 @@ public static class DeclaredMethodPopulation
             MethodSignaturesDecoded: 0,
             MethodAttributesDecoded: 0,
             ProjectedRows: 0);
+    private static readonly TypeDeclaredMethodPopulationQueryResult.Accepted
+        s_countPlan = CanonicalPlan(
+            QuerySpaceTerminalRequirement.Count);
+    private static readonly TypeDeclaredMethodPopulationQueryResult.Accepted
+        s_rowsPlan = CanonicalPlan(
+            QuerySpaceTerminalRequirement.Rows);
+
+    private static TypeDeclaredMethodPopulationQueryResult.Accepted
+        CanonicalPlan(QuerySpaceTerminalRequirement terminal) =>
+            TypeDeclaredMethodPopulationQuery.ResolveRequest(
+                TypeDeclaredMethodPopulationQuery.CreateRequest(
+                    terminal))
+                as TypeDeclaredMethodPopulationQueryResult.Accepted
+            ?? throw new InvalidOperationException(
+                $"Expected canonical {terminal} QuerySpace plan.");
 
     public static DeclaredMethodScorecardCheck Check(
         string path,
@@ -168,6 +196,71 @@ public static class DeclaredMethodPopulation
                     Median(allocations[measurementCase])))]);
     }
 
+    public static PreparedProducerScorecardResult
+        MeasurePreparedProducer(
+            string path,
+            MetadataTypeDefinitionName type)
+    {
+        using var asset = Asset.Open(path, type);
+        int count = AssertSectionsCounted(
+            asset.ExecuteNLinqOperationOutcomeCount()).Count;
+
+        for (int warmup = 0; warmup < 10; warmup++)
+        {
+            GC.KeepAlive(asset.PrepareDeclaredMethodProducer());
+            GC.KeepAlive(
+                asset.PrepareAndExecuteCountEnvelope());
+            GC.KeepAlive(
+                asset.ExecuteDiscoveryQuerySpacePlan(
+                    QuerySpaceTerminalRequirement.Count));
+            GC.KeepAlive(
+                asset.ExecuteCurrentQuerySpace(
+                    QuerySpaceTerminalRequirement.Count));
+        }
+
+        Measurement preparation =
+            Measure(asset.PrepareDeclaredMethodProducer);
+        Measurement firstCount =
+            Measure(asset.PrepareAndExecuteCountEnvelope);
+        Measurement readyCount =
+            Measure(
+                () => asset.ExecuteDiscoveryQuerySpacePlan(
+                    QuerySpaceTerminalRequirement.Count));
+        Measurement currentCount =
+            Measure(
+                () => asset.ExecuteCurrentQuerySpace(
+                    QuerySpaceTerminalRequirement.Count));
+        return new(
+            DisplayName(type),
+            count,
+            Crossover(
+                preparation.Microseconds,
+                currentCount.Microseconds,
+                readyCount.Microseconds),
+            Crossover(
+                preparation.AllocatedBytes,
+                currentCount.AllocatedBytes,
+                readyCount.AllocatedBytes),
+            [
+                new(
+                    "Prepare from admitted session",
+                    preparation.Microseconds,
+                    preparation.AllocatedBytes),
+                new(
+                    "Prepare + first Count + handoff",
+                    firstCount.Microseconds,
+                    firstCount.AllocatedBytes),
+                new(
+                    "Ready Count + handoff",
+                    readyCount.Microseconds,
+                    readyCount.AllocatedBytes),
+                new(
+                    "Current Count operation",
+                    currentCount.Microseconds,
+                    currentCount.AllocatedBytes),
+            ]);
+    }
+
     public static string Report(DeclaredMethodScorecardResult result)
     {
         using var writer = new StringWriter(
@@ -252,6 +345,34 @@ public static class DeclaredMethodPopulation
         return writer.ToString();
     }
 
+    public static string ReportPreparedProducer(
+        PreparedProducerScorecardResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        using var writer = new StringWriter(
+            System.Globalization.CultureInfo.InvariantCulture);
+        writer.WriteLine(
+            $"# Prepared producer — {result.TypeName}");
+        writer.WriteLine(
+            $"# answer: {result.Count:N0} declared MethodDefs");
+        writer.WriteLine(
+            $"# crossover: {result.LatencyCrossoverOperations:N0} "
+                + "operations by latency; "
+                + $"{result.AllocationCrossoverOperations:N0} "
+                + "operations by allocation");
+        writer.WriteLine("| Boundary | Median | Allocated |");
+        writer.WriteLine("| --- | ---: | ---: |");
+        foreach (PreparedProducerScorecardCell cell in result.Cells)
+        {
+            writer.WriteLine(
+                $"| {cell.Boundary} | "
+                    + $"{cell.Microseconds:F3} us | "
+                    + $"{cell.AllocatedBytes:N0} B |");
+        }
+        writer.WriteLine();
+        return writer.ToString();
+    }
+
     private static DeclaredMethodScorecardCheck Check(Asset asset)
     {
         var rows = AssertRead(
@@ -283,6 +404,10 @@ public static class DeclaredMethodPopulation
             asset.ExecutePreparedBorrowNLinqOutcomeCount());
         var preparedBorrowNLinqOutcomeRows = AssertRead(
             asset.ExecutePreparedBorrowNLinqOutcomeRows());
+        var nlinqOperationCount = AssertSectionsCounted(
+            asset.ExecuteNLinqOperationOutcomeCount());
+        var nlinqOperationRows = AssertSectionsRead(
+            asset.ExecuteNLinqOperationOutcomeRows());
         if (count.Count != rows.Count
             || count.Count != rows.Rows.Length)
         {
@@ -342,6 +467,17 @@ public static class DeclaredMethodPopulation
             throw new InvalidOperationException(
                 "Prepared-borrow NLinq declared MethodDef "
                     + "results disagree.");
+        }
+        if (nlinqOperationCount.Count != count.Count
+            || nlinqOperationRows.Count != rows.Count
+            || !nlinqOperationRows.Rows.AsSpan()
+                .SequenceEqual(rows.Rows.AsSpan())
+            || nlinqOperationCount.Receipt != count.Receipt
+            || nlinqOperationRows.Receipt != rows.Receipt)
+        {
+            throw new InvalidOperationException(
+                "Host-neutral NLinq declared MethodDef outcomes "
+                    + "disagree.");
         }
 
         return new(
@@ -446,6 +582,39 @@ public static class DeclaredMethodPopulation
                 "Prepared QuerySpace envelopes disagree with the "
                     + "current product operation.");
         }
+
+        TypeDeclaredMethodPopulationOutcome rejected =
+            asset.ExecutePreparedRejected();
+        TypeDeclaredMethodPopulationOutcome failed =
+            asset.ExecutePreparedFailed();
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome>
+            rejectedEnvelope =
+                asset.ExecutePreparedRejectedEnvelope();
+        InspectionEnvelope<TypeDeclaredMethodPopulationOutcome>
+            failedEnvelope =
+                asset.ExecutePreparedFailedEnvelope();
+        if (rejected
+                is not TypeDeclaredMethodPopulationOutcome.Rejected
+                {
+                    Reason:
+                        TypeDeclaredMethodPopulationRejection
+                            .BindingRejected,
+                }
+            || failed
+                is not TypeDeclaredMethodPopulationOutcome.Failed
+            || !ReferenceEquals(
+                rejected,
+                asset.ExecutePreparedRejected())
+            || !ReferenceEquals(
+                failed,
+                asset.ExecutePreparedFailed())
+            || !ReferenceEquals(rejected, rejectedEnvelope.Content)
+            || !ReferenceEquals(failed, failedEnvelope.Content))
+        {
+            throw new InvalidOperationException(
+                "Prepared rejection and failure states were not "
+                    + "settled once.");
+        }
     }
 
     private static bool Equivalent(
@@ -546,6 +715,16 @@ public static class DeclaredMethodPopulation
                 GC.KeepAlive(
                     asset.ExecutePreparedBorrowNLinqOutcomeRows());
                 break;
+            case DeclaredMethodScorecardCase
+                .NLinqOperationOutcomeCount:
+                GC.KeepAlive(
+                    asset.ExecuteNLinqOperationOutcomeCount());
+                break;
+            case DeclaredMethodScorecardCase
+                .NLinqOperationOutcomeRows:
+                GC.KeepAlive(
+                    asset.ExecuteNLinqOperationOutcomeRows());
+                break;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(measurementCase));
@@ -593,6 +772,12 @@ public static class DeclaredMethodPopulation
                 .PreparedBorrowNLinqOutcomeRows =>
                 Measure(
                     asset.ExecutePreparedBorrowNLinqOutcomeRows),
+            DeclaredMethodScorecardCase
+                .NLinqOperationOutcomeCount =>
+                Measure(asset.ExecuteNLinqOperationOutcomeCount),
+            DeclaredMethodScorecardCase
+                .NLinqOperationOutcomeRows =>
+                Measure(asset.ExecuteNLinqOperationOutcomeRows),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -643,6 +828,20 @@ public static class DeclaredMethodPopulation
                     asset.ExecuteDiscoveryQuerySpacePlan(
                         QuerySpaceTerminalRequirement.Rows));
                 break;
+            case PreparedQuerySpaceScorecardCase.RejectedOutcome:
+                GC.KeepAlive(asset.ExecutePreparedRejected());
+                break;
+            case PreparedQuerySpaceScorecardCase.FailedOutcome:
+                GC.KeepAlive(asset.ExecutePreparedFailed());
+                break;
+            case PreparedQuerySpaceScorecardCase.RejectedEnvelope:
+                GC.KeepAlive(
+                    asset.ExecutePreparedRejectedEnvelope());
+                break;
+            case PreparedQuerySpaceScorecardCase.FailedEnvelope:
+                GC.KeepAlive(
+                    asset.ExecutePreparedFailedEnvelope());
+                break;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(measurementCase));
@@ -686,6 +885,14 @@ public static class DeclaredMethodPopulation
                 Measure(
                     () => asset.ExecuteDiscoveryQuerySpacePlan(
                         QuerySpaceTerminalRequirement.Rows)),
+            PreparedQuerySpaceScorecardCase.RejectedOutcome =>
+                Measure(asset.ExecutePreparedRejected),
+            PreparedQuerySpaceScorecardCase.FailedOutcome =>
+                Measure(asset.ExecutePreparedFailed),
+            PreparedQuerySpaceScorecardCase.RejectedEnvelope =>
+                Measure(asset.ExecutePreparedRejectedEnvelope),
+            PreparedQuerySpaceScorecardCase.FailedEnvelope =>
+                Measure(asset.ExecutePreparedFailedEnvelope),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -740,6 +947,32 @@ public static class DeclaredMethodPopulation
             ? value == 0 ? 1 : double.PositiveInfinity
             : (double)value / baseline;
 
+    private static int Crossover(
+        double preparation,
+        double current,
+        double ready)
+    {
+        double saving = current - ready;
+        return saving <= 0
+            ? int.MaxValue
+            : Math.Max(
+                1,
+                checked((int)Math.Ceiling(preparation / saving)));
+    }
+
+    private static int Crossover(
+        long preparation,
+        long current,
+        long ready)
+    {
+        long saving = current - ready;
+        return saving <= 0
+            ? int.MaxValue
+            : Math.Max(
+                1,
+                checked((int)((preparation + saving - 1) / saving)));
+    }
+
     private static string FormatRatio(
         long value,
         long baseline) =>
@@ -767,6 +1000,14 @@ public static class DeclaredMethodPopulation
                 or PreparedQuerySpaceScorecardCase
                     .DiscoveryPlanRows =>
                 "Prepared discovery + handoff",
+            PreparedQuerySpaceScorecardCase.RejectedOutcome =>
+                "Settled rejection outcome",
+            PreparedQuerySpaceScorecardCase.FailedOutcome =>
+                "Settled failure outcome",
+            PreparedQuerySpaceScorecardCase.RejectedEnvelope =>
+                "Settled rejection + handoff",
+            PreparedQuerySpaceScorecardCase.FailedEnvelope =>
+                "Settled failure + handoff",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -789,6 +1030,12 @@ public static class DeclaredMethodPopulation
                 or PreparedQuerySpaceScorecardCase
                     .DiscoveryPlanRows =>
                 "Rows",
+            PreparedQuerySpaceScorecardCase.RejectedOutcome
+                or PreparedQuerySpaceScorecardCase.RejectedEnvelope =>
+                "Rejected",
+            PreparedQuerySpaceScorecardCase.FailedOutcome
+                or PreparedQuerySpaceScorecardCase.FailedEnvelope =>
+                "Failed",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -845,6 +1092,10 @@ public static class DeclaredMethodPopulation
                 or DeclaredMethodScorecardCase
                     .PreparedBorrowNLinqOutcomeRows =>
                 "NLinq prepared-borrow outcome",
+            DeclaredMethodScorecardCase.NLinqOperationOutcomeCount
+                or DeclaredMethodScorecardCase
+                    .NLinqOperationOutcomeRows =>
+                "NLinq operation outcome",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -862,7 +1113,9 @@ public static class DeclaredMethodPopulation
                 or DeclaredMethodScorecardCase
                     .PreparedBorrowNLinqCount
                 or DeclaredMethodScorecardCase
-                    .PreparedBorrowNLinqOutcomeCount =>
+                    .PreparedBorrowNLinqOutcomeCount
+                or DeclaredMethodScorecardCase
+                    .NLinqOperationOutcomeCount =>
                 "Count",
             DeclaredMethodScorecardCase.MetadataRows
                 or DeclaredMethodScorecardCase.NLinqRows
@@ -873,7 +1126,9 @@ public static class DeclaredMethodPopulation
                 or DeclaredMethodScorecardCase
                     .PreparedBorrowNLinqRows
                 or DeclaredMethodScorecardCase
-                    .PreparedBorrowNLinqOutcomeRows =>
+                    .PreparedBorrowNLinqOutcomeRows
+                or DeclaredMethodScorecardCase
+                    .NLinqOperationOutcomeRows =>
                 "Rows",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
@@ -895,6 +1150,8 @@ public static class DeclaredMethodPopulation
         PreparedBorrowNLinqRows,
         PreparedBorrowNLinqOutcomeCount,
         PreparedBorrowNLinqOutcomeRows,
+        NLinqOperationOutcomeCount,
+        NLinqOperationOutcomeRows,
     }
 
     private enum PreparedQuerySpaceScorecardCase
@@ -907,6 +1164,10 @@ public static class DeclaredMethodPopulation
         DiscoveryRequestRows,
         DiscoveryPlanCount,
         DiscoveryPlanRows,
+        RejectedOutcome,
+        FailedOutcome,
+        RejectedEnvelope,
+        FailedEnvelope,
     }
 
     private readonly record struct Measurement(
@@ -930,10 +1191,9 @@ public static class DeclaredMethodPopulation
         private readonly InspectionShare.NonProjectable _share;
         private readonly MetadataDeclaredMethodPopulationReceipt
             _rowsReceipt;
-        private readonly TypeDeclaredMethodPopulationQueryResult.Accepted
-            _countPlan;
-        private readonly TypeDeclaredMethodPopulationQueryResult.Accepted
-            _rowsPlan;
+        private readonly PreparedDeclaredMethodProducer _prepared;
+        private readonly PreparedDeclaredMethodProducer _rejectedPrepared;
+        private readonly PreparedDeclaredMethodProducer _failedPrepared;
         private readonly AssemblyImageCallback<int>
             _borrowedNLinqCount;
         private readonly AssemblyImageCallback<ImmutableArray<int>>
@@ -980,12 +1240,32 @@ public static class DeclaredMethodPopulation
                 MethodSignaturesDecoded: 0,
                 MethodAttributesDecoded: 0,
                 ProjectedRows: _methods.Count);
-            _countPlan = Resolve(
-                TypeDeclaredMethodPopulationQuery.CreateRequest(
-                    QuerySpaceTerminalRequirement.Count));
-            _rowsPlan = Resolve(
-                TypeDeclaredMethodPopulationQuery.CreateRequest(
-                    QuerySpaceTerminalRequirement.Rows));
+            _prepared =
+                new ReadyDeclaredMethodProducer(
+                    session,
+                    _methods,
+                    _subject,
+                    _typeName,
+                    _sectionsBinding,
+                    _share,
+                    _rowsReceipt);
+            _rejectedPrepared =
+                new SettledDeclaredMethodProducer(
+                    new TypeDeclaredMethodPopulationOutcome.Rejected(
+                        _subject,
+                        _typeName,
+                        TypeDeclaredMethodPopulationRejection
+                            .BindingRejected),
+                    _share);
+            _failedPrepared =
+                new SettledDeclaredMethodProducer(
+                    new TypeDeclaredMethodPopulationOutcome.Failed(
+                        _subject,
+                        _typeName,
+                        new InertString(
+                            TextPolicy.Field,
+                            "Prepared metadata admission failed.")),
+                    _share);
             _borrowedNLinqCount = BorrowedNLinqCount;
             _borrowedNLinqRows = BorrowedNLinqRows;
             _borrowedNLinqOutcomeCount =
@@ -1176,9 +1456,9 @@ public static class DeclaredMethodPopulation
                     terminal switch
                     {
                         QuerySpaceTerminalRequirement.Count =>
-                            _countPlan,
+                            s_countPlan,
                         QuerySpaceTerminalRequirement.Rows =>
-                            _rowsPlan,
+                            s_rowsPlan,
                         _ => throw new ArgumentOutOfRangeException(
                             nameof(terminal)),
                     });
@@ -1202,9 +1482,9 @@ public static class DeclaredMethodPopulation
                     terminal switch
                     {
                         QuerySpaceTerminalRequirement.Count =>
-                            _countPlan,
+                            s_countPlan,
                         QuerySpaceTerminalRequirement.Rows =>
-                            _rowsPlan,
+                            s_rowsPlan,
                         _ => throw new ArgumentOutOfRangeException(
                             nameof(terminal)),
                     });
@@ -1237,25 +1517,7 @@ public static class DeclaredMethodPopulation
             ExecuteDiscoveryQuerySpace(
                 TypeDeclaredMethodPopulationQueryResult.Accepted
                     accepted) =>
-                accepted.Terminal switch
-                {
-                    QuerySpaceTerminalRequirement.Count =>
-                        HandoffDiscoveryCount(
-                            _session.SnapshotOperation(
-                                this,
-                                static access =>
-                                    access.Operation
-                                        .DiscoveryCount())),
-                    QuerySpaceTerminalRequirement.Rows =>
-                        HandoffDiscoveryRows(
-                            _session.SnapshotOperation(
-                                this,
-                                static access =>
-                                    access.Operation
-                                        .DiscoveryRows())),
-                    _ => throw new InvalidOperationException(
-                        "Unknown discovery QuerySpace terminal."),
-                };
+                _prepared.ExecuteEnvelope(accepted);
 
         private InspectionEnvelope<
             TypeDeclaredMethodPopulationOutcome>
@@ -1288,61 +1550,74 @@ public static class DeclaredMethodPopulation
                     read.Receipt));
         }
 
-        private int DiscoveryCount()
-        {
-            var methods = new MethodHandles(_methods);
-            return methods.Count<
-                MethodHandles,
-                MethodDefinitionHandle>();
-        }
+        internal TypeDeclaredMethodPopulationOutcome
+            ExecuteNLinqOperationOutcomeCount() =>
+                _prepared.ExecuteCountOutcome();
 
-        private InspectionEnvelope<
+        internal TypeDeclaredMethodPopulationOutcome
+            ExecuteNLinqOperationOutcomeRows() =>
+                _prepared.ExecuteRowsOutcome();
+
+        internal TypeDeclaredMethodPopulationOutcome
+            ExecutePreparedRejected() =>
+                _rejectedPrepared.ExecuteCountOutcome();
+
+        internal TypeDeclaredMethodPopulationOutcome
+            ExecutePreparedFailed() =>
+                _failedPrepared.ExecuteCountOutcome();
+
+        internal InspectionEnvelope<
             TypeDeclaredMethodPopulationOutcome>
-            HandoffDiscoveryCount(int count) =>
-            new(
-                new TypeDeclaredMethodPopulationOutcome.Counted(
-                    _subject,
-                    _typeName,
-                    _sectionsBinding,
-                    count,
-                    s_countReceipt),
-                _share,
-                ImmutableArray<InspectionDiagnostic>.Empty);
+            ExecutePreparedRejectedEnvelope() =>
+                _rejectedPrepared.ExecuteEnvelope(s_countPlan);
 
-        private InspectionEnvelope<
+        internal InspectionEnvelope<
             TypeDeclaredMethodPopulationOutcome>
-            HandoffDiscoveryRows(ImmutableArray<int> rows) =>
-            new(
-                new TypeDeclaredMethodPopulationOutcome.Read(
-                    _subject,
-                    _typeName,
-                    _sectionsBinding,
-                    rows.Length,
-                    rows,
-                    _rowsReceipt),
-                _share,
-                ImmutableArray<InspectionDiagnostic>.Empty);
+            ExecutePreparedFailedEnvelope() =>
+                _failedPrepared.ExecuteEnvelope(s_countPlan);
 
-        private ImmutableArray<int> DiscoveryRows()
+        internal object PrepareDeclaredMethodProducer() =>
+            PrepareReadyProducer();
+
+        internal InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome>
+            PrepareAndExecuteCountEnvelope() =>
+                PrepareReadyProducer().ExecuteCountEnvelope();
+
+        private ReadyDeclaredMethodProducer PrepareReadyProducer()
         {
-            int[] tokens =
-                GC.AllocateUninitializedArray<int>(_methods.Count);
-            var methods = new MethodHandles(_methods);
-            TokenBuffer buffer =
-                methods.Fold<
-                    MethodHandles,
-                    MethodDefinitionHandle,
-                    TokenBuffer,
-                    WriteToken>(
-                    new(tokens.AsSpan()),
-                    new WriteToken());
-            if (buffer.Count != tokens.Length)
-            {
-                throw new InvalidOperationException(
-                    "Prepared MethodDef Rows did not fill the exact "
-                        + "output buffer.");
-            }
-            return ImmutableCollectionsMarshal.AsImmutableArray(tokens);
+            MethodDefinitionHandleCollection methods =
+                PrepareMethods(_reader, _type);
+            var subject =
+                new TypeDeclaredMethodPopulationSubject(
+                    _assembly.Identity,
+                    _assembly.Provenance);
+            var binding =
+                new TypeDeclaredMethodPopulationBinding(
+                    _type.ModuleVersionId,
+                    _type.Definition.Value);
+            var share =
+                new InspectionShare.NonProjectable(
+                    "type-declared-method-population/share",
+                    "Raw declared MethodDefs do not yet have a "
+                        + "portable Workspace scenario.");
+            var rowsReceipt =
+                new MetadataDeclaredMethodPopulationReceipt(
+                    TypeDefinitionRowsRead: 1,
+                    MethodDefinitionHandlesVisited: methods.Count,
+                    MethodDefinitionRowsRead: 0,
+                    MethodNamesDecoded: 0,
+                    MethodSignaturesDecoded: 0,
+                    MethodAttributesDecoded: 0,
+                    ProjectedRows: methods.Count);
+            return new(
+                _session,
+                methods,
+                subject,
+                _typeName,
+                binding,
+                share,
+                rowsReceipt);
         }
 
         private TypeDeclaredMethodPopulationInspectionRequest Request(
@@ -1521,6 +1796,158 @@ public static class DeclaredMethodPopulation
                 }
             }
         }
+    }
+
+    private abstract class PreparedDeclaredMethodProducer
+    {
+        private readonly InspectionShare _share;
+
+        protected PreparedDeclaredMethodProducer(InspectionShare share)
+        {
+            ArgumentNullException.ThrowIfNull(share);
+            _share = share;
+        }
+
+        internal abstract TypeDeclaredMethodPopulationOutcome
+            ExecuteCountOutcome();
+
+        internal abstract TypeDeclaredMethodPopulationOutcome
+            ExecuteRowsOutcome();
+
+        internal InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome> ExecuteEnvelope(
+                TypeDeclaredMethodPopulationQueryResult.Accepted
+                    accepted) =>
+            new(
+                accepted.Terminal switch
+                {
+                    QuerySpaceTerminalRequirement.Count =>
+                        ExecuteCountOutcome(),
+                    QuerySpaceTerminalRequirement.Rows =>
+                        ExecuteRowsOutcome(),
+                    _ => throw new InvalidOperationException(
+                        "Unknown prepared QuerySpace terminal."),
+                },
+                _share,
+                ImmutableArray<InspectionDiagnostic>.Empty);
+
+        internal InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome> ExecuteCountEnvelope() =>
+            new(
+                ExecuteCountOutcome(),
+                _share,
+                ImmutableArray<InspectionDiagnostic>.Empty);
+    }
+
+    private sealed class ReadyDeclaredMethodProducer
+        : PreparedDeclaredMethodProducer
+    {
+        private readonly AssemblyInspectionSession _session;
+        private readonly MethodDefinitionHandleCollection _methods;
+        private readonly TypeDeclaredMethodPopulationSubject _subject;
+        private readonly MetadataTypeDefinitionName _typeName;
+        private readonly TypeDeclaredMethodPopulationBinding _binding;
+        private readonly MetadataDeclaredMethodPopulationReceipt
+            _rowsReceipt;
+
+        internal ReadyDeclaredMethodProducer(
+            AssemblyInspectionSession session,
+            MethodDefinitionHandleCollection methods,
+            TypeDeclaredMethodPopulationSubject subject,
+            MetadataTypeDefinitionName typeName,
+            TypeDeclaredMethodPopulationBinding binding,
+            InspectionShare share,
+            MetadataDeclaredMethodPopulationReceipt rowsReceipt)
+            : base(share)
+        {
+            _session = session;
+            _methods = methods;
+            _subject = subject;
+            _typeName = typeName;
+            _binding = binding;
+            _rowsReceipt = rowsReceipt;
+        }
+
+        internal override TypeDeclaredMethodPopulationOutcome
+            ExecuteCountOutcome() =>
+            _session.SnapshotOperation(
+                this,
+                static access =>
+                    access.Operation.Count());
+
+        internal override TypeDeclaredMethodPopulationOutcome
+            ExecuteRowsOutcome() =>
+            _session.SnapshotOperation(
+                this,
+                static access =>
+                    access.Operation.Rows());
+
+        private TypeDeclaredMethodPopulationOutcome Count()
+        {
+            var methods = new MethodHandles(_methods);
+            int count = methods.Count<
+                MethodHandles,
+                MethodDefinitionHandle>();
+            return new TypeDeclaredMethodPopulationOutcome.Counted(
+                _subject,
+                _typeName,
+                _binding,
+                count,
+                s_countReceipt);
+        }
+
+        private TypeDeclaredMethodPopulationOutcome Rows()
+        {
+            int[] tokens =
+                GC.AllocateUninitializedArray<int>(_methods.Count);
+            var methods = new MethodHandles(_methods);
+            TokenBuffer buffer =
+                methods.Fold<
+                    MethodHandles,
+                    MethodDefinitionHandle,
+                    TokenBuffer,
+                    WriteToken>(
+                    new(tokens.AsSpan()),
+                    new WriteToken());
+            if (buffer.Count != tokens.Length)
+            {
+                throw new InvalidOperationException(
+                    "Prepared MethodDef Rows did not fill the exact "
+                        + "output buffer.");
+            }
+            ImmutableArray<int> rows =
+                ImmutableCollectionsMarshal.AsImmutableArray(tokens);
+            return new TypeDeclaredMethodPopulationOutcome.Read(
+                _subject,
+                _typeName,
+                _binding,
+                rows.Length,
+                rows,
+                _rowsReceipt);
+        }
+    }
+
+    private sealed class SettledDeclaredMethodProducer
+        : PreparedDeclaredMethodProducer
+    {
+        private readonly TypeDeclaredMethodPopulationOutcome _outcome;
+
+        internal SettledDeclaredMethodProducer(
+            TypeDeclaredMethodPopulationOutcome outcome,
+            InspectionShare share)
+            : base(share)
+        {
+            ArgumentNullException.ThrowIfNull(outcome);
+            _outcome = outcome;
+        }
+
+        internal override TypeDeclaredMethodPopulationOutcome
+            ExecuteCountOutcome() =>
+            _outcome;
+
+        internal override TypeDeclaredMethodPopulationOutcome
+            ExecuteRowsOutcome() =>
+            _outcome;
     }
 
     private struct MethodHandles

@@ -197,3 +197,34 @@ constructs the final outcome and envelope. No Metadata outcome is constructed
 solely to be reprojected. This separation makes analysis the discovery
 computation rather than acquisition, admission, authentication, planning, or
 host handoff.
+
+The completed prototype removes the remaining semantic asymmetry between the
+NLinq control and QuerySpace. The narrow prepared producer directly returns
+`TypeDeclaredMethodPopulationOutcome`: subject, type, authenticated binding,
+Count or Rows, and the structural receipt. QuerySpace invokes that producer
+and places the returned outcome into `InspectionEnvelope<T>` without an
+intermediate Metadata outcome or a result translation. The direct NLinq
+measurement therefore reports the exact result-plus-receipt object consumed by
+QuerySpace; the QuerySpace measurement adds only envelope handoff.
+
+Count and Rows use canonical immutable accepted plans shared by every prepared
+producer. Request construction and route resolution remain separately measured
+for callers that have not already selected a plan. Canonical plans contain no
+participant, binding, source, or execution state.
+
+The prototype narrows the reusable execution surface to a prepared declared
+method producer. Its ready state owns only the admitted session borrow
+capability, authenticated MethodDef range, stable output context, receipts, and
+Share. It does not expose the full session to QuerySpace. Its settled rejected
+and failed states retain one typed outcome and return the same object on every
+execution. Repeated failure observation therefore does not reacquire, readmit,
+reauthenticate, or reconstruct the failure; only an explicitly requested
+envelope handoff allocates.
+
+A separate preparation scorecard starts from an already admitted session. It
+measures authenticated MethodDef-range formation, narrow producer construction,
+first Count plus handoff, warm Count plus handoff, and the repeated-operation
+crossover against the current operation. This boundary intentionally does not
+measure retained snapshot admission or session construction. Productization
+must measure that earlier boundary and the participant's retained memory before
+choosing eager, selected, or lazy preparation.
