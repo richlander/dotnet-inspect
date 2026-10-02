@@ -563,8 +563,9 @@ classification.
 The leading dot is the ownership marker. A dotted token after `-E` belongs to
 the option; an unrelated undotted token retains ordinary positional ownership.
 The former undotted spellings `-E tips` and `-E references` receive focused
-replacement diagnostics. Lowercase `-e`, repeated `-E`, unknown dotted children, and inline forms such
-as `-E=.tips` are invalid and fail before acquisition.
+replacement diagnostics. Lowercase `-e`, repeated `-E`, unknown dotted
+children, and inline forms such as `-E=.tips` are invalid and fail before
+acquisition.
 
 This implementation slice admits only `-E .tips`. Bare `-E` and
 `-E .references` remain reserved and fail visibly until contextual explanation
@@ -575,12 +576,12 @@ owned by
 
 ### `-E .tips`
 
-`-E .tips` is an optional post-success host projection. It does not select sections,
-change semantic rows, alter the command's stdout Content, or enter another
-inspection domain. The CLI writes the bounded related-gesture block to
-`stderr` after successful ordinary or explanation output. Ordinary `stdout`
-completes and flushes first; the related-gesture block is the final successful
-host projection and is never suppressed by another output format.
+`-E .tips` is an optional post-success host projection. It does not select
+sections, change semantic rows, alter the command's stdout Content, or enter
+another inspection domain. The CLI writes the bounded related-gesture block
+to `stderr` after successful ordinary or explanation output. Ordinary
+`stdout` completes and flushes first; the related-gesture block is the final
+successful host projection and is never suppressed by another output format.
 
 No long alias or inline value is accepted. `-T`, `--tips`, `-e`, `-T:q`,
 `-T:m`, `-T:d`, `-E=.tips`, and `-E:.tips` are invalid input rather than
