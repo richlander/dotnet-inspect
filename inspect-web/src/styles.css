@@ -4787,7 +4787,7 @@ kbd {
 /* Annotated Source keeps the portable text selectable while Findings and source-node
    selection use explicit controls and non-underline treatments. */
 .annotated-reader { position: relative; min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto auto; overflow: hidden; background: var(--panel); }
-.annotated-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.code-evidence-viewer-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .annotated-modal-head h2,
 .annotated-inspector-section h3,
 .annotated-detail h3,
@@ -4863,10 +4863,10 @@ kbd {
 .annotated-structure-mark { display: inline-flex; align-items: center; padding: 4px 7px; border-left: 3px solid var(--blue); border-radius: 3px; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--muted); font: 11px var(--mono); }
 .annotated-finding-toggle[aria-pressed="true"] { background: var(--panel-active); color: var(--text); }
 
-.annotated-modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; background: var(--overlay-scrim); }
-.annotated-modal { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); margin: 10px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg); box-shadow: var(--shadow-dialog); }
-.annotated-modal-head { background: var(--panel); }
-.annotated-modal-controls { display: flex; align-items: stretch; gap: 10px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--panel); }
+.code-evidence-viewer-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; background: var(--overlay-scrim); }
+.code-evidence-viewer { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; margin: 10px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg); box-shadow: var(--shadow-dialog); }
+.code-evidence-viewer-header { background: var(--panel); }
+.code-evidence-viewer-controls { display: flex; flex: none; align-items: stretch; gap: 10px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--panel); }
 .annotated-control-group { min-width: max-content; margin: 0; padding: 5px 8px 8px; border: 1px solid var(--line); border-radius: 3px; }
 .annotated-control-group legend { padding: 0 4px; color: var(--dim); font: 10px var(--mono); text-transform: uppercase; }
 .annotated-control-group legend span { color: var(--text); }
@@ -4878,11 +4878,13 @@ kbd {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.annotated-modal-workspace { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(290px, 360px); overflow: hidden; }
-.annotated-modal-source { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
+.code-evidence-viewer-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(290px, 360px); overflow: hidden; }
+.code-evidence-viewer-workspace-full { grid-template-columns: minmax(0, 1fr); }
+.code-evidence-viewer-content { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
+.code-evidence-viewer-workspace-full > .code-evidence-viewer-content { border-right: 0; }
+.code-evidence-viewer-rail { min-height: 0; overflow: auto; background: var(--panel); }
 .annotated-modal-source .annotated-source-code { min-height: 100%; }
-.annotated-modal-inspector { min-height: 0; overflow: auto; background: var(--panel); }
-.annotated-modal-failure { grid-row: 2 / 4; padding: 24px; overflow: auto; }
+.code-evidence-viewer-failure { flex: 1; min-height: 0; padding: 24px; overflow: auto; }
 .annotated-modal-failure p { color: var(--muted); }
 .annotated-inspector-section { padding: 14px; border-bottom: 1px solid var(--line); }
 .annotated-selection-empty { display: grid; gap: 5px; margin-top: 10px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--panel-raised); }
@@ -4983,9 +4985,9 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
 .annotated-detail-capabilities p { margin: 5px 0 0; color: var(--dim); font: 11px/1.5 var(--mono); }
 
 @media (max-width: 820px) {
-  .annotated-modal-workspace { grid-template-columns: 1fr; }
-  .annotated-modal-inspector { border-top: 1px solid var(--line); }
-  .annotated-modal-source { border-right: 0; }
+  .code-evidence-viewer-workspace { grid-template-columns: 1fr; overflow: auto; }
+  .code-evidence-viewer-rail { border-top: 1px solid var(--line); }
+  .code-evidence-viewer-content { border-right: 0; }
 }
 
 :root[data-theme="light"] .annotated-source-code .token.comment { color: #6a7268; }

@@ -1982,7 +1982,11 @@ test("annotated source validation failures stay visible at the shell boundary", 
   );
   assert.match(
     appSource,
-    /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;[\s\S]*Annotated source document rejected[\s\S]*data-annotated-action="close-modal"/,
+    /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*return renderAnnotatedSourceRejectionModal\(\s*errorMessage\(error\),\s*escapeHtml,\s*\)/,
+  );
+  assert.match(
+    annotatedSourceModule,
+    /export function renderAnnotatedSourceRejectionModal\([\s\S]*Annotated source document rejected[\s\S]*data-annotated-action="close-modal"/,
   );
   assert.match(
     appSource,
