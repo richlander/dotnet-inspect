@@ -6026,6 +6026,35 @@ public class CfgSampleClass
     }
 }
 
+public static class StaticLocalFunctionDependencyClosureSamples
+{
+    public static int DependencyExposedByIteratorMember(
+        bool stop,
+        System.Collections.Generic.IEnumerable<int> source)
+    {
+        return Root(stop, source);
+
+        static int Root(
+            bool shouldStop,
+            System.Collections.Generic.IEnumerable<int> values)
+            => System.Linq.Enumerable.Sum(Iterator(shouldStop, values));
+
+        static System.Collections.Generic.IEnumerable<int> Iterator(
+            bool shouldStop,
+            System.Collections.Generic.IEnumerable<int> values)
+        {
+            if (shouldStop)
+                yield break;
+
+            foreach (int item in values)
+                yield return Leaf(item);
+        }
+
+        static int Leaf(int value)
+            => value + 1;
+    }
+}
+
 public static class StructuringRegionExitSamples
 {
     public static int PrefixedRegionExitWithExternalEntry(int a)

@@ -971,38 +971,17 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
         try
         {
-            while (pending.TryDequeue(out var identity))
+            if (!TryDiscoverStaticDependencies(
+                    context,
+                    entries,
+                    pending,
+                    openedScopes,
+                    discoveryOrder,
+                    componentIdentities))
             {
-                var entry = entries[identity];
-                foreach (var reference in entry.Body.Descendants
-                    .Select(LocalFunctionReference)
-                    .Where(static method => method is not null)
-                    .Select(static method => method!))
-                {
-                    var dependencyIdentity = Identity(reference);
-                    componentIdentities.Add(dependencyIdentity);
-                    if (entries.ContainsKey(dependencyIdentity))
-                        continue;
-                    if (!GeneratedCodeIdentity.IsLocalFunctionMethod(reference)
-                        || !context.TryEnterCrossMethodPipeline(reference, out var scope))
-                    {
-                        componentIdentities =
-                            RootStronglyConnectedIdentities(entries, rootIdentity);
-                        return false;
-                    }
-                    var body = scope.Import();
-                    if (body is null)
-                    {
-                        scope.Dispose();
-                        componentIdentities =
-                            RootStronglyConnectedIdentities(entries, rootIdentity);
-                        return false;
-                    }
-                    openedScopes.Add(scope);
-                    entries.Add(dependencyIdentity, new(reference, body, scope));
-                    discoveryOrder.Add(dependencyIdentity);
-                    pending.Enqueue(dependencyIdentity);
-                }
+                componentIdentities =
+                    RootStronglyConnectedIdentities(entries, rootIdentity);
+                return false;
             }
 
             if (componentIdentities.Count <= 1)
@@ -1010,7 +989,6 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 componentIdentities = [];
                 return false;
             }
-            var componentOrder = discoveryOrder;
             if (componentIdentities.Any(identity =>
                     SameLocalFunctionDefinition(identity, host)))
             {
@@ -1019,28 +997,59 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 return false;
             }
 
-            foreach (var identity in componentOrder)
+            int validatedCount = 0;
+            while (validatedCount < discoveryOrder.Count)
             {
-                var entry = entries[identity];
-                if (entry.Method.HasThis
-                    || entry.Method.ParameterTypes.Any(IsDisplayClassParameter)
-                    || entry.Body.Signature.HasThis
-                    || entry.Body.Signature.ReturnType.Kind == TypeRefKind.Unsupported
-                    || !HasOnlyRewritableComponentReferences(entry.Body, componentIdentities))
+                if (!IsAdmissibleStaticDependencyEntry(
+                        entries[discoveryOrder[validatedCount]],
+                        componentIdentities))
                 {
                     componentIdentities =
                         RootStronglyConnectedIdentities(entries, rootIdentity);
                     return false;
                 }
+                validatedCount++;
             }
 
-            foreach (var identity in componentOrder)
+            for (int pipelineIndex = 0;
+                pipelineIndex < discoveryOrder.Count;
+                pipelineIndex++)
             {
-                if (rootPipelineHasRun && identity == rootIdentity)
-                    continue;
-                entries[identity].Scope.Run(entries[identity].Body, IrPasses.Default);
+                var identity = discoveryOrder[pipelineIndex];
+                if (!(rootPipelineHasRun && identity == rootIdentity))
+                    entries[identity].Scope.Run(entries[identity].Body, IrPasses.Default);
+
+                pending.Enqueue(identity);
+                if (!TryDiscoverStaticDependencies(
+                        context,
+                        entries,
+                        pending,
+                        openedScopes,
+                        discoveryOrder,
+                        componentIdentities)
+                    || componentIdentities.Any(componentIdentity =>
+                        SameLocalFunctionDefinition(componentIdentity, host)))
+                {
+                    componentIdentities =
+                        RootStronglyConnectedIdentities(entries, rootIdentity);
+                    return false;
+                }
+
+                while (validatedCount < discoveryOrder.Count)
+                {
+                    if (!IsAdmissibleStaticDependencyEntry(
+                            entries[discoveryOrder[validatedCount]],
+                            componentIdentities))
+                    {
+                        componentIdentities =
+                            RootStronglyConnectedIdentities(entries, rootIdentity);
+                        return false;
+                    }
+                    validatedCount++;
+                }
             }
 
+            var componentOrder = discoveryOrder;
             var componentReferences = componentOrder.ToDictionary(
                 static identity => identity,
                 identity => hostReferences.TryGetValue(identity, out var references)
@@ -1063,6 +1072,56 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     componentReferences[referenceIdentity].Add(reference);
                 }
             }
+
+            static bool TryDiscoverStaticDependencies(
+                PassContext context,
+                Dictionary<(TypeRef Type, string Name), ComponentEntry> entries,
+                Queue<(TypeRef Type, string Name)> pending,
+                List<PassContext.CrossMethodPipelineScope> openedScopes,
+                List<(TypeRef Type, string Name)> discoveryOrder,
+                HashSet<(TypeRef Type, string Name)> componentIdentities)
+            {
+                while (pending.TryDequeue(out var identity))
+                {
+                    foreach (var reference in entries[identity].Body.Descendants
+                        .Select(LocalFunctionReference)
+                        .Where(static method => method is not null)
+                        .Select(static method => method!))
+                    {
+                        var dependencyIdentity = Identity(reference);
+                        componentIdentities.Add(dependencyIdentity);
+                        if (entries.ContainsKey(dependencyIdentity))
+                            continue;
+                        if (!GeneratedCodeIdentity.IsLocalFunctionMethod(reference)
+                            || !context.TryEnterCrossMethodPipeline(reference, out var scope))
+                        {
+                            return false;
+                        }
+                        var body = scope.Import();
+                        if (body is null)
+                        {
+                            scope.Dispose();
+                            return false;
+                        }
+                        openedScopes.Add(scope);
+                        entries.Add(dependencyIdentity, new(reference, body, scope));
+                        discoveryOrder.Add(dependencyIdentity);
+                        pending.Enqueue(dependencyIdentity);
+                    }
+                }
+                return true;
+            }
+
+            static bool IsAdmissibleStaticDependencyEntry(
+                ComponentEntry entry,
+                HashSet<(TypeRef Type, string Name)> componentIdentities)
+                => !entry.Method.HasThis
+                    && !entry.Method.ParameterTypes.Any(IsDisplayClassParameter)
+                    && !entry.Body.Signature.HasThis
+                    && entry.Body.Signature.ReturnType.Kind != TypeRefKind.Unsupported
+                    && HasOnlyRewritableComponentReferences(
+                        entry.Body,
+                        componentIdentities);
 
             foreach (var identity in componentOrder)
             {

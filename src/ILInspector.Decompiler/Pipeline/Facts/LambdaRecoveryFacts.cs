@@ -33,7 +33,7 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("generated-method:local-function", "GeneratedCodeIdentity.IsLocalFunctionMethod"),
                 new FactPrimitive("cross-method-import", "PassContext.ImportMethodBody"),
             ],
-            PositiveCoverage: "LocalFunctionRaisingPassTests static, self-recursive, closed static dependency-component, mutually recursive static, static local-bodied, and capturing fixtures, each called once and more than once where applicable",
+            PositiveCoverage: "LocalFunctionRaisingPassTests static, self-recursive, fixed-point static dependency-closure including iterator-exposed members, mutually recursive static, static local-bodied, and capturing fixtures, each called once and more than once where applicable",
             AdversarialCoverage: "LocalFunctionRaisingPass guards reject shared environments, unavailable dependency members, non-call component references, direct component nesting, post-mutation captures, unsupported bodies, and capturing local-bodied forms",
             MissingDiscriminator: "capturing dependency components, nested local functions outside admitted static components, and environments spread across statements are still owed"),
     ];

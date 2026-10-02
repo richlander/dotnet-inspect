@@ -614,6 +614,31 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void DependencyExposedByIteratorMemberPipeline_JoinsClosure()
+    {
+        string output = PrintRaised(
+            nameof(StaticLocalFunctionDependencyClosureSamples.DependencyExposedByIteratorMember),
+            function =>
+            {
+                Assert.Equal(3, function.Descendants.OfType<LocalFunctionStatement>().Count());
+                Assert.Single(function.Descendants.OfType<ForeachStatement>());
+                Assert.Single(function.Descendants.OfType<YieldBreak>());
+                Assert.Single(function.Descendants.OfType<YieldReturn>());
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+            },
+            fixtureType: typeof(StaticLocalFunctionDependencyClosureSamples));
+
+        Assert.Contains("return Root(stop, source);", output);
+        Assert.Contains("static int Root(", output);
+        Assert.Contains("static IEnumerable<int> Iterator(", output);
+        Assert.Contains("yield return Leaf(item);", output);
+        Assert.Contains("static int Leaf(int value)", output);
+        Assert.DoesNotContain(
+            "__DependencyExposedByIteratorMember_g__",
+            output);
+    }
+
+    [Fact]
     public void MutuallyRecursiveStaticLocalFunctionsOnGenericOwner_RaiseAtomically()
     {
         string output = PrintRaised(
@@ -669,6 +694,22 @@ public class LocalFunctionRaisingPassTests
             candidate => candidate == type.FullName,
             method => method.Method
                 == nameof(CfgSampleClass.RecursiveLocalFunctionWithHelper)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void DependencyExposedByIteratorMemberPipeline_CompileBackExactly()
+    {
+        var type = typeof(StaticLocalFunctionDependencyClosureSamples);
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            type.Assembly.Location,
+            candidate => candidate == type.FullName,
+            method => method.Method
+                == nameof(StaticLocalFunctionDependencyClosureSamples.DependencyExposedByIteratorMember)));
 
         Assert.True(
             result.Status == FidelityCheck.CompileBackStatus.Exact,
