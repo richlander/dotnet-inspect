@@ -12,10 +12,6 @@ public enum TypeDeclaredMethodPopulationRejection
 {
     QueryRejected,
     ParticipantRejected,
-    TypeMissing,
-    TypeAmbiguous,
-    TypeNotLocalDefinition,
-    TypeResolutionRejected,
     BindingRejected,
 }
 
@@ -90,10 +86,10 @@ public abstract record TypeDeclaredMethodPopulationOutcome(
     public sealed record Incomplete(
         TypeDeclaredMethodPopulationSubject Subject,
         MetadataTypeDefinitionName Type,
-        TypeDeclaredMethodPopulationBinding? Binding,
-        int? Count,
+        TypeDeclaredMethodPopulationBinding Binding,
+        int Count,
         long Limit,
-        MetadataDeclaredMethodPopulationReceipt? Receipt)
+        MetadataDeclaredMethodPopulationReceipt Receipt)
         : TypeDeclaredMethodPopulationOutcome(Subject, Type);
 
     public sealed record Rejected(
@@ -115,18 +111,21 @@ public sealed record TypeDeclaredMethodPopulationInspectionRequest
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         MetadataTypeDefinitionName type,
+        MetadataTypeDefinitionBinding binding,
         QuerySpaceRequest query,
         int maximumRows = int.MaxValue)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(participant);
         ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(binding);
         ArgumentNullException.ThrowIfNull(query);
         ArgumentOutOfRangeException.ThrowIfNegative(maximumRows);
 
         Group = group;
         Participant = participant;
         Type = type;
+        Binding = binding;
         Query = query;
         MaximumRows = maximumRows;
     }
@@ -136,6 +135,8 @@ public sealed record TypeDeclaredMethodPopulationInspectionRequest
     public AssemblyContextParticipant Participant { get; }
 
     public MetadataTypeDefinitionName Type { get; }
+
+    public MetadataTypeDefinitionBinding Binding { get; }
 
     public QuerySpaceRequest Query { get; }
 
@@ -176,26 +177,27 @@ public static class TypeDeclaredMethodPopulationInspectionOperation
                 ? MetadataDeclaredMethodPopulationTerminal.Count
                 : MetadataDeclaredMethodPopulationTerminal.Rows;
         AssemblyContextEntry<
-            AssemblyContextDeclaredMethodPopulationResult> entry =
+            MetadataDeclaredMethodPopulationOutcome> entry =
                 AssemblyContextDeclaredMethodPopulationQuery
                     .ExecuteParticipant(
                         request.Group,
                         request.Participant,
-                        request.Type,
+                        request.Binding,
                         terminal,
                         request.MaximumRows,
                         cancellationToken);
         return entry switch
         {
             AssemblyContextEntry<
-                AssemblyContextDeclaredMethodPopulationResult>
+                MetadataDeclaredMethodPopulationOutcome>
                 .Available available =>
                     Project(
                         Subject(available.Subject),
                         request.Type,
+                        Binding(request.Binding),
                         available.Value),
             AssemblyContextEntry<
-                AssemblyContextDeclaredMethodPopulationResult>
+                MetadataDeclaredMethodPopulationOutcome>
                 .Rejected rejected =>
                     Envelope(
                         new TypeDeclaredMethodPopulationOutcome.Rejected(
@@ -204,7 +206,7 @@ public static class TypeDeclaredMethodPopulationInspectionOperation
                             TypeDeclaredMethodPopulationRejection
                                 .ParticipantRejected)),
             AssemblyContextEntry<
-                AssemblyContextDeclaredMethodPopulationResult>
+                MetadataDeclaredMethodPopulationOutcome>
                 .Failed failed =>
                     Envelope(
                         new TypeDeclaredMethodPopulationOutcome.Failed(
@@ -215,57 +217,6 @@ public static class TypeDeclaredMethodPopulationInspectionOperation
                 "Unknown assembly-context declared-method outcome."),
         };
     }
-
-    private static InspectionEnvelope<
-        TypeDeclaredMethodPopulationOutcome> Project(
-            TypeDeclaredMethodPopulationSubject subject,
-            MetadataTypeDefinitionName type,
-            AssemblyContextDeclaredMethodPopulationResult result) =>
-        result switch
-        {
-            AssemblyContextDeclaredMethodPopulationResult.Available
-                available =>
-                    Project(
-                        subject,
-                        type,
-                        Binding(available.Binding),
-                        available.Population),
-            AssemblyContextDeclaredMethodPopulationResult.Missing =>
-                Rejected(
-                    subject,
-                    type,
-                    TypeDeclaredMethodPopulationRejection.TypeMissing),
-            AssemblyContextDeclaredMethodPopulationResult.Ambiguous =>
-                Rejected(
-                    subject,
-                    type,
-                    TypeDeclaredMethodPopulationRejection.TypeAmbiguous),
-            AssemblyContextDeclaredMethodPopulationResult
-                .NotLocalDefinition =>
-                    Rejected(
-                        subject,
-                        type,
-                        TypeDeclaredMethodPopulationRejection
-                            .TypeNotLocalDefinition),
-            AssemblyContextDeclaredMethodPopulationResult.Incomplete
-                incomplete =>
-                    Envelope(
-                        new TypeDeclaredMethodPopulationOutcome.Incomplete(
-                            subject,
-                            type,
-                            Binding: null,
-                            Count: null,
-                            incomplete.Budget,
-                            Receipt: null)),
-            AssemblyContextDeclaredMethodPopulationResult.Rejected =>
-                Rejected(
-                    subject,
-                    type,
-                    TypeDeclaredMethodPopulationRejection
-                        .TypeResolutionRejected),
-            _ => throw new InvalidOperationException(
-                "Unknown declared-method type resolution result."),
-        };
 
     private static InspectionEnvelope<
         TypeDeclaredMethodPopulationOutcome> Project(

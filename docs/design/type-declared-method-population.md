@@ -29,10 +29,10 @@ than interpreted against the current image.
 lowerings, typed outcomes, and structural work receipt. It has no QuerySpace or
 host dependency.
 
-`DotnetInspector.Queries` owns the assembly-context adapter. It resolves one
-structured metadata type name while the participant session is alive, creates
-the authenticated binding, executes the Metadata population, and detaches the
-outcome before the session closes.
+`DotnetInspector.Queries` owns the assembly-context adapter. It accepts the
+owner-issued authenticated TypeDef binding, executes the Metadata population
+while the participant session is alive, and detaches the outcome before the
+session closes.
 
 `DotnetInspector.Sections` owns the `exact-type` to `declared-method`
 QuerySpace route and the host-neutral inspection operation. The initial query
@@ -45,9 +45,16 @@ space:
 - returns a non-projectable `InspectionEnvelope<T>` because no portable
   Workspace scenario has yet been named.
 
-The operation keeps type lookup, participant-open, malformed metadata,
-binding, and bounded-Rows failures visible as typed outcomes. It never turns a
-failed or incomplete population into zero or an empty Rows success.
+The authenticated binding is required input to the operation. Accepting only a
+type name would repeat locator work for every terminal, merge identity lookup
+with population execution, and hide the source-native closing behind unrelated
+TypeDef scans and allocations.
+
+The operation keeps participant-open, malformed metadata, binding, and
+bounded-Rows failures visible as typed outcomes. Type lookup is a separate
+locator concern: missing, ambiguous, forwarded, or rejected names do not form a
+declared-method population request. The operation never turns a failed or
+incomplete population into zero or an empty Rows success.
 
 ## Boundaries
 
@@ -94,9 +101,9 @@ only when every MethodDef-specific counter is zero.
 ## Production adoption and evidence
 
 The performance harness is the first production caller of the host-neutral
-operation. It must exercise the QuerySpace-routed Sections path for correctness
-and preserve a focused Metadata measurement for the physical Count/Rows
-comparison.
+operation. It resolves the exact Type once, then measures the QuerySpace-routed
+Sections path from the resulting authenticated binding. It also preserves a
+focused Metadata measurement for the physical Count/Rows comparison.
 
 The adoption gate is one pinned real assembly on one Linux NativeAOT
 performance host. Count must show a material latency and allocation collapse

@@ -101,16 +101,19 @@ if (args[0] == "declared-check")
 
 if (args[0] == "declared-time")
 {
-    int operationCount =
-        await DeclaredMethodOperationCheck.CheckAsync(path);
+    DeclaredMethodOperationScorecardResult operationResult =
+        await DeclaredMethodOperationCheck.MeasureAsync(path);
     DeclaredMethodScorecardResult declaredResult =
         DeclaredMethodPopulation.Measure(path);
-    if (operationCount != declaredResult.Check.Count)
+    if (operationResult.Count != declaredResult.Check.Count)
     {
         Console.Error.WriteLine(
             "QuerySpace operation and source-native scorecard disagree.");
         return 1;
     }
+    Console.Write(
+        DeclaredMethodOperationCheck.Report(operationResult));
+    Console.WriteLine("# Metadata kernel");
     Console.Write(
         DeclaredMethodPopulation.Report(declaredResult));
     return 0;

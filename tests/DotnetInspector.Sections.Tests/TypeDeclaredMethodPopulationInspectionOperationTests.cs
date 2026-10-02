@@ -149,7 +149,7 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
     }
 
     [Fact]
-    public async Task MissingType_RemainsVisible()
+    public async Task ForeignBinding_RemainsVisible()
     {
         await using var workspace = new InspectionWorkspace();
         (
@@ -158,19 +158,23 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
                 CreateGroup(workspace);
         using (group)
         {
+            MetadataTypeDefinitionName type =
+                Name("System.Text.Json", "JsonSerializer");
+            MetadataTypeDefinitionBinding valid = Binding(type);
             TypeDeclaredMethodPopulationOutcome.Rejected rejected =
                 Assert.IsType<
                     TypeDeclaredMethodPopulationOutcome.Rejected>(
                         Execute(
                             group,
                             participant,
-                            Name(
-                                "System.Text.Json",
-                                "DefinitelyMissing"),
-                            QuerySpaceTerminalRequirement.Count).Content);
+                            type,
+                            QuerySpaceTerminalRequirement.Count,
+                            binding: new(
+                                Guid.NewGuid(),
+                                valid.Definition)).Content);
 
             Assert.Equal(
-                TypeDeclaredMethodPopulationRejection.TypeMissing,
+                TypeDeclaredMethodPopulationRejection.BindingRejected,
                 rejected.Reason);
             Assert.NotNull(rejected.Subject);
         }
@@ -186,6 +190,8 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
                 CreateGroup(workspace);
         using (group)
         {
+            MetadataTypeDefinitionName type =
+                Name("System.Text.Json", "JsonSerializer");
             QuerySpaceRequest foreign =
                 MemberOverloadPopulationQuery.CreateRequest(
                     MemberOverloadAccessibilityFilter.Public,
@@ -197,9 +203,8 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
                 new TypeDeclaredMethodPopulationInspectionRequest(
                     group,
                     participant,
-                    Name(
-                        "System.Text.Json",
-                        "JsonSerializer"),
+                    type,
+                    Binding(type),
                     foreign);
 
             TypeDeclaredMethodPopulationOutcome.Rejected rejected =
@@ -264,12 +269,14 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
             AssemblyContextParticipant participant,
             MetadataTypeDefinitionName type,
             QuerySpaceTerminalRequirement terminal,
-            int maximumRows = int.MaxValue) =>
+            int maximumRows = int.MaxValue,
+            MetadataTypeDefinitionBinding? binding = null) =>
         TypeDeclaredMethodPopulationInspectionOperation.Execute(
             new(
                 group,
                 participant,
                 type,
+                binding ?? Binding(type),
                 TypeDeclaredMethodPopulationQuery.CreateRequest(terminal),
                 maximumRows),
             TestContext.Current.CancellationToken);
@@ -298,6 +305,25 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
             "RealAssets",
             "LibraryOverview",
             "System.Text.Json.dll");
+
+    private static MetadataTypeDefinitionBinding Binding(
+        MetadataTypeDefinitionName type)
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(SystemTextJsonPath());
+        TypeDefinitionToken definition =
+            session.ProbeDeclaration(type) switch
+            {
+                TypeDeclarationResult.Defined defined =>
+                    defined.Definition,
+                TypeDeclarationResult.DefinitionKindUnavailable
+                    unavailable =>
+                    unavailable.Definition,
+                _ => throw new InvalidOperationException(
+                    "The test Type must resolve to a local TypeDef."),
+            };
+        return new(session.ModuleVersionId(), definition);
+    }
 
     private static MetadataTypeDefinitionName Name(
         string @namespace,
