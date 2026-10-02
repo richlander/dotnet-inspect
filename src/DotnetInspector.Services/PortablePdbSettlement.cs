@@ -327,7 +327,7 @@ public abstract record PortablePdbSettlementResult
     {
         internal Incomplete(
             ResolvedAssemblyReference assembly,
-            PortablePdbContentIdentity portablePdbIdentity,
+            PortablePdbContentIdentity? portablePdbIdentity,
             ImmutableArray<PortablePdbSettlementReceipt> receipts)
             : base(assembly, portablePdbIdentity, receipts)
         {
@@ -431,18 +431,10 @@ public static class PortablePdbSettlement
                     request.Assembly,
                     requestedIdentity,
                     receipts.ToImmutable())
-                : requestedIdentity is { } timeoutIdentity
-                    ? new PortablePdbSettlementResult.Incomplete(
-                        request.Assembly,
-                        timeoutIdentity,
-                        receipts.ToImmutable())
-                    : new PortablePdbSettlementResult.Failed(
-                        request.Assembly,
-                        portablePdbIdentity: null,
-                        PortablePdbSettlementFailureKind
-                            .InvalidEmbeddedContent,
-                        storeFailure: null,
-                        receipts.ToImmutable());
+                : new PortablePdbSettlementResult.Incomplete(
+                    request.Assembly,
+                    requestedIdentity,
+                    receipts.ToImmutable());
         }
 
         bool embeddedCandidate =
@@ -478,18 +470,10 @@ public static class PortablePdbSettlement
                 receipts.Add(Skipped(
                     ExternalCandidate(request.Assembly),
                     PortablePdbSettlementSkipReason.OperationStopped));
-                return requestedIdentity is { } limitedIdentity
-                    ? new PortablePdbSettlementResult.Incomplete(
-                        request.Assembly,
-                        limitedIdentity,
-                        receipts.ToImmutable())
-                    : new PortablePdbSettlementResult.Failed(
-                        request.Assembly,
-                        portablePdbIdentity: null,
-                        PortablePdbSettlementFailureKind
-                            .InvalidEmbeddedContent,
-                        storeFailure: null,
-                        receipts.ToImmutable());
+                return new PortablePdbSettlementResult.Incomplete(
+                    request.Assembly,
+                    requestedIdentity,
+                    receipts.ToImmutable());
             }
             catch (BadImageFormatException)
             {
@@ -1131,7 +1115,23 @@ public static class PortablePdbSettlement
                 PortablePdbStoreFailureKind.ReadFailed,
                 Incomplete: false);
         }
+        catch (InvalidDataException)
+        {
+            return new(
+                null,
+                null,
+                PortablePdbStoreFailureKind.ReadFailed,
+                Incomplete: false);
+        }
         catch (UnauthorizedAccessException)
+        {
+            return new(
+                null,
+                null,
+                PortablePdbStoreFailureKind.ReadFailed,
+                Incomplete: false);
+        }
+        catch (ArgumentException)
         {
             return new(
                 null,
@@ -1214,7 +1214,23 @@ public static class PortablePdbSettlement
                 PortablePdbStoreFailureKind.ReadFailed,
                 Incomplete: false);
         }
+        catch (InvalidDataException)
+        {
+            return new(
+                null,
+                null,
+                PortablePdbStoreFailureKind.ReadFailed,
+                Incomplete: false);
+        }
         catch (UnauthorizedAccessException)
+        {
+            return new(
+                null,
+                null,
+                PortablePdbStoreFailureKind.ReadFailed,
+                Incomplete: false);
+        }
+        catch (ArgumentException)
         {
             return new(
                 null,
@@ -1231,9 +1247,9 @@ public static class PortablePdbSettlement
         PositiveStoreProvenance provenance,
         CancellationToken cancellationToken)
     {
-        byte[] content = SerializeProvenance(provenance);
         try
         {
+            byte[] content = SerializeProvenance(provenance);
             using var stream =
                 new MemoryStream(content, writable: false);
             await store.PutAsync(

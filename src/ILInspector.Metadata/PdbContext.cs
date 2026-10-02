@@ -383,7 +383,7 @@ public partial class PdbContext : IDisposable
         }
 
         ValidateDebugDirectoryBounds();
-        bool embeddedPdbFound = false;
+        DebugDirectoryEntry? embeddedPdbEntry = null;
         foreach (DebugDirectoryEntry entry
             in _peReader.ReadDebugDirectory())
         {
@@ -394,20 +394,23 @@ public partial class PdbContext : IDisposable
             }
 
             HasEmbeddedPdb = true;
-            if (embeddedPdbFound)
+            if (embeddedPdbEntry is not null)
             {
                 throw new BadImageFormatException(
                     "The PE image carries multiple embedded portable PDB entries.");
             }
 
-            embeddedPdbFound = true;
-            LoadEmbeddedPortablePdbEntry(
-                entry,
-                maxEmbeddedPdbBytes,
-                expansionBudget);
+            embeddedPdbEntry = entry;
         }
 
-        return embeddedPdbFound;
+        if (embeddedPdbEntry is not { } selectedEntry)
+            return false;
+
+        LoadEmbeddedPortablePdbEntry(
+            selectedEntry,
+            maxEmbeddedPdbBytes,
+            expansionBudget);
+        return true;
     }
 
     /// <summary>
