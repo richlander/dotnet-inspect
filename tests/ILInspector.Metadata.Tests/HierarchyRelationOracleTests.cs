@@ -126,6 +126,74 @@ public sealed class HierarchyRelationOracleTests
         Assert.Empty(result.Relations.Evidence);
     }
 
+    [Theory]
+    [InlineData(MetadataOperationDimension.StructuredNodes)]
+    [InlineData(MetadataOperationDimension.RetainedText)]
+    public void IndexedRowsContainProjectionBudgetFailure(
+        MetadataOperationDimension dimension)
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "PinnedArtifacts",
+                    "System.Private.CoreLib.dll"));
+        MetadataHierarchyRelationIndex index =
+            RequireIndex(
+                session.PrepareHierarchyRelationIndex(
+                    MetadataOperationPolicy.Unbounded,
+                    TestContext.Current.CancellationToken));
+        var target =
+            new MetadataHierarchyTargetSelection(
+                TypeName("System", "Object"),
+                MetadataHierarchyRelationKind.BaseType);
+        var policy = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxStructuredNodes:
+                dimension == MetadataOperationDimension.StructuredNodes
+                    ? 0
+                    : long.MaxValue,
+            maxRetainedText:
+                dimension == MetadataOperationDimension.RetainedText
+                    ? 0
+                    : long.MaxValue);
+
+        MetadataHierarchyRelationAnalysisResult rows =
+            RequireAvailable(
+                index.Analyze(
+                    new(target, policy),
+                    TestContext.Current.CancellationToken));
+        MetadataHierarchyRelationAnalysisResult count =
+            RequireAvailable(
+                index.Analyze(
+                    new(
+                        target,
+                        policy,
+                        materializeRows: false),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            rows.Relations.Disposition);
+        Assert.Empty(rows.Relations.Evidence);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(
+                rows.Relations.Diagnostics,
+                static diagnostic =>
+                    diagnostic.Kind
+                        == MetadataRelationDiagnosticKind.Limit);
+        Assert.Equal(dimension, diagnostic.BudgetDimension);
+        Assert.True(rows.Relations.Coverage?.Limited > 0);
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            count.Relations.Disposition);
+        Assert.True(count.CandidateCount > 0);
+        Assert.Empty(count.Relations.Evidence);
+        Assert.Equal(0, count.Receipt.Counters.StructuredNodes);
+        Assert.Equal(0, count.Receipt.Counters.RetainedText);
+    }
+
     [Fact]
     public void RetentionLimitProducesTypedPartialIndex()
     {

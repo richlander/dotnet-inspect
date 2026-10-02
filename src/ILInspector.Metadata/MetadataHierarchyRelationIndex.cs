@@ -408,108 +408,126 @@ internal static partial class MetadataRelationInspection
         int excluded = 0;
         int unavailable = 0;
         int matched = 0;
+        bool limited = false;
         bool stopped = false;
 
-        foreach (MetadataHierarchyRelationIndexCandidate candidate
-            in candidates)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            considered++;
-            MetadataHierarchyRelationIndexSource source =
-                data.Sources[candidate.SourceIndex];
-
-            if (!request.IncludeNonPublic)
+            foreach (MetadataHierarchyRelationIndexCandidate candidate
+                in candidates)
             {
-                if (source.VisibilityFailure is { } visibilityFailure)
-                {
-                    unavailable++;
-                    diagnostics.Add(
-                        MalformedDiagnostic(
-                            MetadataRelationFamily.Hierarchy,
-                            MetadataTokens.GetToken(source.Handle),
-                            visibilityFailure));
-                    continue;
-                }
-                if (source.IsExternallyVisible is not true)
-                {
-                    excluded++;
-                    continue;
-                }
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                considered++;
+                MetadataHierarchyRelationIndexSource source =
+                    data.Sources[candidate.SourceIndex];
 
-            if (!request.IncludeHidden)
-            {
-                if (source.HiddenFailure is { } hiddenFailure)
+                if (!request.IncludeNonPublic)
                 {
-                    unavailable++;
-                    diagnostics.Add(
-                        MalformedDiagnostic(
-                            MetadataRelationFamily.Hierarchy,
-                            MetadataTokens.GetToken(source.Handle),
-                            hiddenFailure));
-                    continue;
+                    if (source.VisibilityFailure is { } visibilityFailure)
+                    {
+                        unavailable++;
+                        diagnostics.Add(
+                            MalformedDiagnostic(
+                                MetadataRelationFamily.Hierarchy,
+                                MetadataTokens.GetToken(source.Handle),
+                                visibilityFailure));
+                        continue;
+                    }
+                    if (source.IsExternallyVisible is not true)
+                    {
+                        excluded++;
+                        continue;
+                    }
                 }
-                if (source.IsHidden is true)
-                {
-                    excluded++;
-                    continue;
-                }
-            }
 
-            if (request.MaterializeRows)
-            {
-                MetadataTypeDefinitionNameReadResult read =
-                    MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        source.Handle,
-                        beforeMaterialize: amount =>
-                            operation.Charge(
-                                MetadataOperationDimension.StructuredNodes,
-                                amount),
-                        chargeChain: amount =>
-                            operation.Charge(
-                                MetadataOperationDimension.RelationshipEdges,
-                                amount),
-                        chargeCharacters: amount =>
-                            operation.Charge(
-                                MetadataOperationDimension.RetainedText,
-                                amount));
-                if (read
-                    is MetadataTypeDefinitionNameReadResult.Rejected rejected)
+                if (!request.IncludeHidden)
                 {
-                    unavailable++;
-                    diagnostics.Add(
-                        MalformedDiagnostic(
-                            MetadataRelationFamily.Hierarchy,
-                            MetadataTokens.GetToken(source.Handle),
-                            rejected.Failure.Detail));
-                    continue;
+                    if (source.HiddenFailure is { } hiddenFailure)
+                    {
+                        unavailable++;
+                        diagnostics.Add(
+                            MalformedDiagnostic(
+                                MetadataRelationFamily.Hierarchy,
+                                MetadataTokens.GetToken(source.Handle),
+                                hiddenFailure));
+                        continue;
+                    }
+                    if (source.IsHidden is true)
+                    {
+                        excluded++;
+                        continue;
+                    }
                 }
-                var sourceName =
-                    (MetadataTypeDefinitionNameReadResult.Read)read;
-                operation.Charge(
-                    MetadataOperationDimension.StructuredNodes);
-                rows.Add(
-                    new(
-                        MetadataTypeDefinitionAddress.FromHandle(
+
+                if (request.MaterializeRows)
+                {
+                    MetadataTypeDefinitionNameReadResult read =
+                        MetadataTypeDefinitionNameReader.Read(
                             reader,
-                            source.Handle),
-                        sourceName.Name,
-                        candidate.Kind,
-                        candidate.OccurrenceTokens));
-            }
+                            source.Handle,
+                            beforeMaterialize: amount =>
+                                operation.Charge(
+                                    MetadataOperationDimension
+                                        .StructuredNodes,
+                                    amount),
+                            chargeChain: amount =>
+                                operation.Charge(
+                                    MetadataOperationDimension
+                                        .RelationshipEdges,
+                                    amount),
+                            chargeCharacters: amount =>
+                                operation.Charge(
+                                    MetadataOperationDimension
+                                        .RetainedText,
+                                    amount));
+                    if (read
+                        is MetadataTypeDefinitionNameReadResult.Rejected
+                            rejected)
+                    {
+                        unavailable++;
+                        diagnostics.Add(
+                            MalformedDiagnostic(
+                                MetadataRelationFamily.Hierarchy,
+                                MetadataTokens.GetToken(source.Handle),
+                                rejected.Failure.Detail));
+                        continue;
+                    }
+                    var sourceName =
+                        (MetadataTypeDefinitionNameReadResult.Read)read;
+                    operation.Charge(
+                        MetadataOperationDimension.StructuredNodes);
+                    rows.Add(
+                        new(
+                            MetadataTypeDefinitionAddress.FromHandle(
+                                reader,
+                                source.Handle),
+                            sourceName.Name,
+                            candidate.Kind,
+                            candidate.OccurrenceTokens));
+                }
 
-            examined++;
-            matched++;
-            if (request.ForwardPlan is { } forward
-                && matched >= forward.MaximumCandidates
-                && considered < candidates.Length)
-            {
-                stopped = true;
-                break;
+                examined++;
+                matched++;
+                if (request.ForwardPlan is { } forward
+                    && matched >= forward.MaximumCandidates
+                    && considered < candidates.Length)
+                {
+                    stopped = true;
+                    break;
+                }
             }
         }
+        catch (MetadataOperationBudgetExceededException exception)
+        {
+            limited = true;
+            diagnostics.Add(
+                LimitDiagnostic(
+                    MetadataRelationFamily.Hierarchy,
+                    exception));
+        }
 
+        int remaining =
+            considered - examined - excluded - unavailable;
         MetadataRelationFamilyResult<
             MetadataHierarchyRelationAnalysisRow> relations =
                 CompleteOrPartial(
@@ -520,7 +538,7 @@ internal static partial class MetadataRelationInspection
                         examined,
                         excluded,
                         unavailable,
-                        limited: 0));
+                        limited ? remaining : 0));
         if (stopped)
         {
             relations = new(

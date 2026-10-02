@@ -1529,6 +1529,7 @@ uses the following Release gates:
   reports preparation separately from warm terminal cells.
 - `IndependentColumnsAgreeOnRoslynHierarchyAssets`,
   `IndexedCountDoesNotMaterializeSourceNames`,
+  `IndexedRowsContainProjectionBudgetFailure`,
   `RetentionLimitProducesTypedPartialIndex`,
   `CompleteIndexCertifiesExactAbsence`, and
   `IndexRejectsUseAfterIssuingSessionIsDisposed`,
@@ -1536,9 +1537,10 @@ uses the following Release gates:
   `VisibilityFailureOnlyLimitsPublicFilteredLookup`, and
   `UnsupportedTargetShapePreventsExactAbsence` in
   `HierarchyRelationOracleTests` gate independent answer equivalence, lazy row
-  projection, retained-relation bounds, complete-census absence, session
-  lifetime, physical occurrence grouping, policy-scoped classification
-  failures, and conservative unsupported-shape coverage.
+  projection, typed lookup-time projection-budget containment,
+  retained-relation bounds, complete-census absence, session lifetime,
+  physical occurrence grouping, policy-scoped classification failures, and
+  conservative unsupported-shape coverage.
 - `MetadataFormatAdmissionTests` and
   `HierarchyAnalysisRejectsNativeImageBeforeProducerExecution` in
   `MetadataRelationInspectionTests` retain the session admission, lifetime,
