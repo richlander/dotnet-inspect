@@ -108,9 +108,71 @@ public class LambdaRaisingPassTests
         Assert.Contains("for (", result.Output);
         Assert.DoesNotContain("___TryReadResponseFile_g__ExpandResponseFile_6_0_d", result.Output);
         Assert.DoesNotContain("GetEnumerator", result.Output);
-        // The generated method is inspected directly; composing its separate local-function
-        // dependency graph into TryReadResponseFile remains outside this focused slice.
+        // The generated method is inspected directly, so no enclosing source method owns
+        // the sibling declarations or their source-level binding.
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void PublishedSystemCommandLineResponseFile_RaisesClosedLocalFunctionDependencyComponent()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "NestedLambda",
+            "System.CommandLine.dll");
+        Assert.Equal(
+            "CA11ED514C992D6AD8127C154C7D921BEC2D98F1845E34325AF98E627D985793",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "System.CommandLine.Parsing.StringExtensions",
+            "TryReadResponseFile");
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(2, function!.Descendants.OfType<LocalFunctionStatement>().Count());
+        Assert.Equal(3, function.Descendants.OfType<ForeachStatement>().Count());
+        Assert.Equal(3, function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.Contains("static IEnumerable<string> ExpandResponseFile(", result.Output);
+        Assert.Contains("static IEnumerable<string> SplitLine(", result.Output);
+        Assert.Contains("ExpandResponseFile(filePath)", result.Output);
+        Assert.Contains("SplitLine(lines[i])", result.Output);
+        Assert.Contains("for (", result.Output);
+        Assert.Equal(3, CountOccurrences(result.Output!, "foreach ("));
+        Assert.Equal(3, CountOccurrences(result.Output!, "yield return"));
+        Assert.Contains("yield break;", result.Output);
+        Assert.DoesNotContain("<TryReadResponseFile>g__", result.Output);
+        Assert.DoesNotContain("___TryReadResponseFile_g__", result.Output);
+        Assert.DoesNotContain("GetEnumerator", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void PublishedSystemCommandLineResponseFile_CompileBackExactly()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "NestedLambda",
+            "System.CommandLine.dll");
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            path,
+            candidate =>
+                candidate == "System.CommandLine.Parsing.StringExtensions",
+            method => method.Method == "TryReadResponseFile"));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
     }
 
     [Fact]
