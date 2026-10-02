@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 
 using DotnetInspector.PerformanceOracles;
+using DotnetInspector.ResearchQueries;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -49,18 +50,18 @@ static partial class FidelityCheck
                     ArrayEnumerator<ReturnToSenderCandidateRow>,
                     IsEligible>,
                 ReturnToSenderCandidateRow,
-                CompileBackTarget,
+                ReturnToSenderTarget,
                 ToTarget>(default);
-        List<CompileBackTarget> targets = eligibleRows.ToList<
+        List<ReturnToSenderTarget> targets = eligibleRows.ToList<
             Map<
                 ReturnToSenderCandidateRow,
-                CompileBackTarget,
+                ReturnToSenderTarget,
                 Filter<
                     ReturnToSenderCandidateRow,
                     ArrayEnumerator<ReturnToSenderCandidateRow>,
                     IsEligible>,
                 ToTarget>,
-            CompileBackTarget>();
+            ReturnToSenderTarget>();
 
         var excludedRows = rows
             .AsNLinq()
@@ -119,13 +120,14 @@ static partial class FidelityCheck
             using var source =
                 MetadataSource.Open(assemblyPath, context: metadata);
             RegisterSourceContext(source, metadata);
+            using var assembly =
+                AssemblyInspectionSession.Open(assemblyPath);
+            using var targetSource =
+                new ReturnToSenderTargetSourceSession(
+                    assemblyPath,
+                    assembly,
+                    profile);
             MetadataReader reader = source.Reader;
-            TargetApiEvidence targetApiEvidence =
-                CreateTargetApiEvidence(
-                    source.Pe,
-                    includeCompilerGenerated: true);
-            using var declarations =
-                new ReturnToSenderDeclarationSession(assemblyPath);
             foreach (TypeDefinitionHandle typeHandle
                 in reader.TypeDefinitions)
             {
@@ -154,15 +156,10 @@ static partial class FidelityCheck
                             overload,
                             typeHandle,
                             methodHandle);
-                    ReturnToSenderCandidateDecision? decision =
-                        DecideStandaloneReturnToSenderCandidate(
-                            assemblyPath,
-                            reader,
+                    ReturnToSenderTargetDecision? decision =
+                        targetSource.Decide(
                             candidate,
                             typeFilter,
-                            targetApiEvidence,
-                            declarations,
-                            profile,
                             out bool declarationCandidate);
                     if (!declarationCandidate)
                         continue;
@@ -196,7 +193,7 @@ static partial class FidelityCheck
         int ScannedBodyCount);
 
     readonly record struct ReturnToSenderCandidateRow(
-        CompileBackTarget? Target,
+        ReturnToSenderTarget? Target,
         ReturnToSenderTargetExclusion? Exclusion);
 
     readonly struct IsEligible :
@@ -214,9 +211,9 @@ static partial class FidelityCheck
     }
 
     readonly struct ToTarget :
-        IFunc<ReturnToSenderCandidateRow, CompileBackTarget>
+        IFunc<ReturnToSenderCandidateRow, ReturnToSenderTarget>
     {
-        public CompileBackTarget Invoke(
+        public ReturnToSenderTarget Invoke(
             ReturnToSenderCandidateRow row) =>
             row.Target
             ?? throw new InvalidOperationException(

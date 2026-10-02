@@ -1284,6 +1284,8 @@ public partial class AuthoredCorpusHarnessProcessTests
         ("--validity-predicate-scan", ["--validity-predicate-scan"]),
         ("--fidelity-check", ["--fidelity-check"]),
         ("--fidelity-check", ["--fidelity-method-delta", "SomeType.SomeMethod"]),
+        ("--return-to-sender-target-count",
+            ["--return-to-sender-target-count"]),
         ("--return-to-sender", ["--return-to-sender"]),
         ("--return-address", ["--return-address"]),
         ("--return-address", ["--emit-return-address-snapshot", UnusedOutputPath]),
