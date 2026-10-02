@@ -33,9 +33,13 @@ test("structural salience preserves issued orders and exact interactions", async
   await expect(salience).toContainText("Structural Salience");
   await expect(salience).toContainText("Example · 7 external source Types");
   await expect(salience.locator(".metrics-salience-order").first())
+    .toContainText("Incoming peers");
+  await expect(salience.locator(".metrics-salience-order").first())
     .toContainText("A");
   await expect(salience.locator(".metrics-salience-order").first())
     .toContainText("7 incoming peers · foundation");
+  await expect(salience.locator(".metrics-salience-order").nth(1))
+    .toContainText("Outgoing peers");
   await expect(salience.locator(".metrics-salience-order").nth(1))
     .toContainText("6 outgoing peers · orchestrator");
   await expect(salience.locator(".metrics-salience-type.sea-level").first())
@@ -44,11 +48,22 @@ test("structural salience preserves issued orders and exact interactions", async
     salience.locator(".metrics-salience-type.mountain-peak").first(),
   ).toContainText("mountain peak");
   await expect(salience.locator(".sea-level.mountain-peak")).toHaveCount(0);
-  await expect(salience.locator(".sea-level .metrics-salience-pole").first())
-    .toHaveText("▁");
-  await expect(
-    salience.locator(".mountain-peak .metrics-salience-pole").first(),
-  ).toHaveText("▲");
+  const seaMask = await salience.locator(
+    ".sea-level .item-achievement-glyph",
+  ).first().evaluate(
+    element => getComputedStyle(element).maskImage,
+  );
+  const mountainMask = await salience.locator(
+    ".mountain-peak .item-achievement-glyph",
+  ).first().evaluate(
+    element => getComputedStyle(element).maskImage,
+  );
+  expect(seaMask).not.toBe("none");
+  expect(mountainMask).not.toBe("none");
+  expect(seaMask).not.toBe(mountainMask);
+  await expect(salience.locator(
+    ".item-achievement-rail[aria-hidden=true] .item-achievement-glyph",
+  )).toHaveCount(0);
   await salience.screenshot({
     path: testInfo.outputPath("structural-salience-poles.png"),
   });
@@ -65,12 +80,12 @@ test("structural salience preserves issued orders and exact interactions", async
     .toHaveText("Example.Tools");
 });
 
-test("a sole zero-leverage namespace can trigger exact shard demand", async ({
+test("a sole zero-leverage namespace remains selected", async ({
   page,
 }) => {
   await page.goto("/browser/library-metrics.html?zero-top");
   const select = page.locator("[data-metrics-salience-namespace]");
-  await expect(select).toHaveValue("__choose_namespace__");
+  await expect(select).toHaveValue("Only");
   await select.selectOption("Only");
   await expect(page.locator("#metrics-selected-namespace"))
     .toHaveText("Only");

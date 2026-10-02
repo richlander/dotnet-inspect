@@ -1,9 +1,9 @@
 import type {
-  BrowserLibraryNamespaceLeverage,
+  BrowserLibraryNamespaceLeverageIndex,
   BrowserLibraryNamespaceLeverageRow,
   BrowserLibrarySignatureUseCoverage,
+  BrowserLibraryStructuralSalience,
   BrowserLibraryTypeLeverageRow,
-  BrowserLibraryTypeLeverageShard,
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
   OperationAuthorityPage,
@@ -47,7 +47,6 @@ export interface TypeLeveragePresentation {
   readonly disposition: string;
   readonly coverage: BrowserLibrarySignatureUseCoverage;
   readonly diagnostics: readonly string[];
-  readonly loadedNamespaces: readonly string[];
 }
 
 export type TypeLeverageLoadState =
@@ -70,15 +69,8 @@ export interface TypeLeverageCoordinatorDependencies<TRequest> {
   readonly operationAuthority: OperationAuthorityPage;
   key(request: TRequest): string;
   libraryKey(request: TRequest): string;
-  queryIndex(request: TRequest): Promise<BrowserLibraryNamespaceLeverage>;
-  selectNamespaces(
-    request: TRequest,
-    index: BrowserLibraryNamespaceLeverage,
-  ): readonly string[];
-  queryShard(
-    request: TRequest,
-    exactNamespace: string,
-  ): Promise<BrowserLibraryTypeLeverageShard>;
+  operationLane?(request: TRequest): string;
+  queryDocument(request: TRequest): Promise<BrowserLibraryStructuralSalience>;
   isCurrent(request: TRequest): boolean;
   describeError(error: unknown): string;
   reportOperationDiagnostic(diagnostic: OperationDiagnostic): undefined;
@@ -89,32 +81,24 @@ export interface TypeLeverageCoordinator<TRequest> {
   request(request: TRequest): void;
   retry(request: TRequest): void;
   presentation(key: string): TypeLeveragePresentation | null;
+  pending(key: string): boolean;
 }
 
-function availableIndex(result: BrowserLibraryNamespaceLeverage): void {
+function availableDocument(
+  result: BrowserLibraryStructuralSalience,
+): asserts result is BrowserLibraryStructuralSalience & {
+  readonly methodologyVersion: string;
+  readonly evidenceMode: string;
+  readonly namespaceIndex: BrowserLibraryNamespaceLeverageIndex;
+} {
   if (result.schemaVersion !== 1)
-    throw new Error("Unsupported namespace-leverage schema version.");
+    throw new Error("Unsupported structural-salience schema version.");
   if (result.outcome !== "available"
     || result.methodologyVersion === null
     || result.evidenceMode === null
-    || result.disposition === null
-    || result.coverage === null
+    || result.namespaceIndex === null
     || result.failure !== null) {
-    throw new Error(result.failure ?? "Namespace leverage is unavailable.");
-  }
-}
-
-function availableShard(result: BrowserLibraryTypeLeverageShard): void {
-  if (result.schemaVersion !== 2)
-    throw new Error("Unsupported Type-leverage shard schema version.");
-  if (result.outcome !== "available"
-    || result.methodologyVersion === null
-    || result.evidenceMode === null
-    || result.namespace === null
-    || result.disposition === null
-    || result.coverage === null
-    || result.failure !== null) {
-    throw new Error(result.failure ?? "Namespace Type leverage is unavailable.");
+    throw new Error(result.failure ?? "Structural salience is unavailable.");
   }
 }
 
@@ -173,12 +157,15 @@ function sumCoverage(
 }
 
 export function projectTypeLeverage(
-  index: BrowserLibraryNamespaceLeverage,
-  shards: readonly BrowserLibraryTypeLeverageShard[],
+  document: BrowserLibraryStructuralSalience,
 ): TypeLeveragePresentation {
-  availableIndex(index);
-  const methodologyVersion = index.methodologyVersion!;
-  const evidenceMode = index.evidenceMode!;
+  availableDocument(document);
+  const methodologyVersion = document.methodologyVersion;
+  const evidenceMode = document.evidenceMode;
+  const index = document.namespaceIndex;
+  const shards = document.typeLeverageShards;
+  if (shards.length !== index.namespaces.length)
+    throw new Error("Structural salience does not cover every namespace.");
   const byNamespace = new Map<string, NamespaceLeverageCue>();
   for (const row of index.namespaces) {
     if (byNamespace.has(row.namespace))
@@ -197,28 +184,24 @@ export function projectTypeLeverage(
   const shardsByNamespace =
     new Map<string, TypeLeverageShardPresentation>();
   const seenTypeIds = new Set<string>();
-  const loadedNamespaces = new Set<string>();
   const diagnostics = [...index.diagnostics];
-  const coverages = [index.coverage!];
-  let disposition = index.disposition!;
+  const coverages = [index.coverage];
+  let disposition = index.disposition;
   let seaLevelCount = 0;
   let mountainPeakCount = 0;
-  for (const shard of shards) {
-    availableShard(shard);
-    if (shard.methodologyVersion !== methodologyVersion
-      || shard.evidenceMode !== evidenceMode) {
+  for (let indexPosition = 0; indexPosition < shards.length; indexPosition++) {
+    const shard = shards[indexPosition]!;
+    const expectedNamespace = index.namespaces[indexPosition]!.namespace;
+    if (shard.namespace !== expectedNamespace) {
       throw new Error(
-        `Type-leverage shard '${shard.namespace}' does not match its namespace index.`,
+        `Expected Type-leverage shard '${expectedNamespace}' at index ${indexPosition}; received '${shard.namespace}'.`,
       );
     }
-    if (!byNamespace.has(shard.namespace!))
+    if (!byNamespace.has(shard.namespace))
       throw new Error(`Unknown Type-leverage namespace '${shard.namespace}'.`);
-    if (loadedNamespaces.has(shard.namespace!))
-      throw new Error(`Duplicate Type-leverage shard '${shard.namespace}'.`);
-    loadedNamespaces.add(shard.namespace!);
-    if (shard.disposition!.toLowerCase() !== "complete")
-      disposition = shard.disposition!;
-    coverages.push(shard.coverage!);
+    if (shard.disposition.toLowerCase() !== "complete")
+      disposition = shard.disposition;
+    coverages.push(shard.coverage);
     diagnostics.push(...shard.diagnostics);
 
     const rows = new Map<string, BrowserLibraryTypeLeverageRow>();
@@ -244,8 +227,8 @@ export function projectTypeLeverage(
       row => row.pole === "MountainPeak",
       "Mountain-peak",
     );
-    shardsByNamespace.set(shard.namespace!, {
-      namespace: shard.namespace!,
+    shardsByNamespace.set(shard.namespace, {
+      namespace: shard.namespace,
       seaLevelOrder: shard.seaLevelOrder.map(id => rows.get(id)!),
       mountainPeakOrder: shard.mountainPeakOrder.map(id => rows.get(id)!),
     });
@@ -280,7 +263,6 @@ export function projectTypeLeverage(
     disposition,
     coverage: sumCoverage(coverages),
     diagnostics,
-    loadedNamespaces: [...loadedNamespaces].sort(),
   };
 }
 
@@ -323,12 +305,20 @@ export function createTypeLeverageCoordinator<TRequest>(
 
   const presentations = new Map<string, TypeLeveragePresentation>();
   const presentationLibraries = new Map<string, string>();
-  const indexes = new Map<string, BrowserLibraryNamespaceLeverage>();
-  const shards = new Map<string, BrowserLibraryTypeLeverageShard>();
+  const pendingPresentations = new Map<
+    string,
+    { readonly libraryKey: string; readonly cacheGeneration: number }
+  >();
+  const documents = new Map<string, BrowserLibraryStructuralSalience>();
+  const pendingDocuments = new Map<
+    string,
+    {
+      readonly cacheGeneration: number;
+      readonly promise: Promise<BrowserLibraryStructuralSalience>;
+    }
+  >();
   const cacheGenerations = new Map<string, number>();
   const inputs = new Map<OperationId, Input>();
-  const shardKey = (libraryKey: string, exactNamespace: string) =>
-    JSON.stringify([libraryKey, exactNamespace]);
   const cacheGeneration = (libraryKey: string) =>
     cacheGenerations.get(libraryKey) ?? 0;
   const ownsCacheGeneration = (input: Input) =>
@@ -338,6 +328,37 @@ export function createTypeLeverageCoordinator<TRequest>(
     if (input === undefined)
       throw new Error("Type leverage operation context is unavailable.");
     return input;
+  };
+  const clearPendingPresentation = (input: Input) => {
+    const pending = pendingPresentations.get(input.key);
+    if (pending?.libraryKey === input.libraryKey
+        && pending.cacheGeneration === input.cacheGeneration) {
+      pendingPresentations.delete(input.key);
+    }
+  };
+  const documentFor = (input: Input) => {
+    const cached = documents.get(input.libraryKey);
+    if (cached !== undefined) return Promise.resolve(cached);
+    const existing = pendingDocuments.get(input.libraryKey);
+    if (existing?.cacheGeneration === input.cacheGeneration)
+      return existing.promise;
+    const pending = {
+      cacheGeneration: input.cacheGeneration,
+      promise: dependencies.queryDocument(input.request).then(document => {
+        availableDocument(document);
+        if (ownsCacheGeneration(input))
+          documents.set(input.libraryKey, document);
+        if (pendingDocuments.get(input.libraryKey) === pending)
+          pendingDocuments.delete(input.libraryKey);
+        return document;
+      }, (error: unknown) => {
+        if (pendingDocuments.get(input.libraryKey) === pending)
+          pendingDocuments.delete(input.libraryKey);
+        throw error;
+      }),
+    };
+    pendingDocuments.set(input.libraryKey, pending);
+    return pending.promise;
   };
   const publish = (event: FeatureEvent): undefined => {
     switch (event.kind) {
@@ -373,13 +394,21 @@ export function createTypeLeverageCoordinator<TRequest>(
     }
     return undefined;
   };
-  const session: Session = dependencies.operationAuthority.createSession({
-    feature: { publish },
-    diagnostic: {
-      report: diagnostic =>
-        dependencies.reportOperationDiagnostic(diagnostic),
-    },
-  });
+  const sessions = new Map<string, Session>();
+  const sessionFor = (requestValue: TRequest) => {
+    const lane = dependencies.operationLane?.(requestValue) ?? "default";
+    let session = sessions.get(lane);
+    if (session !== undefined) return session;
+    session = dependencies.operationAuthority.createSession({
+      feature: { publish },
+      diagnostic: {
+        report: diagnostic =>
+          dependencies.reportOperationDiagnostic(diagnostic),
+      },
+    });
+    sessions.set(lane, session);
+    return session;
+  };
   const adapter: OperationProducerAdapter<
     Input,
     TypeLeveragePresentation,
@@ -389,6 +418,10 @@ export function createTypeLeverageCoordinator<TRequest>(
   > = {
     prepare: (identity, input, sink) => {
       inputs.set(identity.id, input);
+      pendingPresentations.set(input.key, {
+        libraryKey: input.libraryKey,
+        cacheGeneration: input.cacheGeneration,
+      });
       let quiesced = false;
       const quiesce = (): undefined => {
         if (quiesced) return undefined;
@@ -398,6 +431,7 @@ export function createTypeLeverageCoordinator<TRequest>(
         return undefined;
       };
       const finish = (value: TypeLeveragePresentation): undefined => {
+        clearPendingPresentation(input);
         if (ownsCacheGeneration(input)) {
           presentations.set(input.key, value);
           presentationLibraries.set(input.key, input.libraryKey);
@@ -410,6 +444,7 @@ export function createTypeLeverageCoordinator<TRequest>(
         return quiesce();
       };
       const fail = (error: unknown): undefined => {
+        clearPendingPresentation(input);
         if (dependencies.isCurrent(input.request)) {
           sink.reportUnexpectedTerminal(error, error);
         } else {
@@ -425,37 +460,9 @@ export function createTypeLeverageCoordinator<TRequest>(
         binding: {
           requestCancellation: () => undefined,
           activate: () => {
-            void (async () => {
-              let index = indexes.get(input.libraryKey);
-              if (index === undefined) {
-                index = await dependencies.queryIndex(input.request);
-                availableIndex(index);
-                if (ownsCacheGeneration(input))
-                  indexes.set(input.libraryKey, index);
-              }
-              const requested = [
-                ...new Set(
-                  dependencies.selectNamespaces(input.request, index),
-                ),
-              ].sort();
-              const selectedShards = await Promise.all(
-                requested.map(async exactNamespace => {
-                  const key = shardKey(input.libraryKey, exactNamespace);
-                  let shard = shards.get(key);
-                  if (shard === undefined) {
-                    shard = await dependencies.queryShard(
-                      input.request,
-                      exactNamespace,
-                    );
-                    availableShard(shard);
-                    if (ownsCacheGeneration(input))
-                      shards.set(key, shard);
-                  }
-                  return shard;
-                }),
-              );
-              return projectTypeLeverage(index, selectedShards);
-            })().then(finish, fail);
+            void documentFor(input)
+              .then(projectTypeLeverage)
+              .then(finish, fail);
             return undefined;
           },
           abandon: () => {
@@ -480,7 +487,7 @@ export function createTypeLeverageCoordinator<TRequest>(
       }
       return;
     }
-    const result = session.start({
+    const result = sessionFor(requestValue).start({
       request: requestValue,
       key,
       libraryKey: dependencies.libraryKey(requestValue),
@@ -512,15 +519,19 @@ export function createTypeLeverageCoordinator<TRequest>(
           presentationLibraries.delete(key);
         }
       }
-      indexes.delete(libraryKey);
-      for (const key of shards.keys()) {
-        if (key.startsWith(`[${JSON.stringify(libraryKey)},`))
-          shards.delete(key);
+      for (const [key, pending] of pendingPresentations) {
+        if (pending.libraryKey === libraryKey)
+          pendingPresentations.delete(key);
       }
+      documents.delete(libraryKey);
+      pendingDocuments.delete(libraryKey);
       request(requestValue);
     },
     presentation(key) {
       return presentations.get(key) ?? null;
+    },
+    pending(key) {
+      return pendingPresentations.has(key);
     },
   };
 }
