@@ -495,6 +495,15 @@ test("side-by-side Source rendering top-aligns asymmetric changed blocks", () =>
     (html.match(/class="source-diff-viewer-split-empty"/g) ?? []).length,
     1,
   );
+  assert.match(
+    html,
+    /class="source-diff-viewer-split-empty" role="cell" aria-colindex="1">[\s\S]*Before; no line/,
+  );
+  assert.match(
+    html,
+    /class="source-diff-viewer-split-source" role="cell" aria-colindex="2">[\s\S]*After; Added; line 3/,
+  );
+  assert.match(html, /aria-colcount="2"/);
   assert.equal(
     (html.match(/class="source-diff-viewer-terminator"/g) ?? []).length,
     4,

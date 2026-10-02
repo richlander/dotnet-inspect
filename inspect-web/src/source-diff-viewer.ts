@@ -290,17 +290,29 @@ function unifiedRow(
 function splitSourceCell(
   side: "before" | "after",
   index: number | null,
+  changed: boolean,
   change: BrowserSourceDiffChange | null,
   diff: BrowserSourceDiff,
   relations: SourceRelationLookup,
   escapeHtml: (value: unknown) => string,
 ): string {
-  if (index === null)
-    return '<span class="source-diff-viewer-split-empty" aria-hidden="true"></span>';
+  const sideLabel = side === "before" ? "Before" : "After";
+  const columnIndex = side === "before" ? 1 : 2;
+  if (index === null) {
+    return `<span class="source-diff-viewer-split-empty" role="cell" aria-colindex="${columnIndex}">
+      <span class="visually-hidden">${sideLabel}; no line</span>
+    </span>`;
+  }
+  const changeLabel = !changed
+    ? "Context"
+    : side === "before"
+      ? "Removed"
+      : "Added";
   const text = diff[side].lines[index] ?? "";
-  return `<span class="source-diff-viewer-split-source">
-    <span class="member-diff-source-number source-diff-viewer-number" role="rowheader">${index + 1}</span>
-    <code role="cell">${highlightedLine(
+  return `<span class="source-diff-viewer-split-source" role="cell" aria-colindex="${columnIndex}">
+    <span class="visually-hidden">${sideLabel}; ${changeLabel}; line ${index + 1}</span>
+    <span class="member-diff-source-number source-diff-viewer-number" aria-hidden="true">${index + 1}</span>
+    <code>${highlightedLine(
       text,
       changedSpans(change, side, index),
       escapeHtml,
@@ -354,6 +366,7 @@ function splitRows(
         ${splitSourceCell(
           "before",
           row.beforeIndex,
+          false,
           null,
           diff,
           relations,
@@ -362,6 +375,7 @@ function splitRows(
         ${splitSourceCell(
           "after",
           row.afterIndex,
+          false,
           null,
           diff,
           relations,
@@ -393,6 +407,7 @@ function splitRows(
         ${splitSourceCell(
           "before",
           removal?.beforeIndex ?? null,
+          true,
           changeForHighlight,
           diff,
           relations,
@@ -401,6 +416,7 @@ function splitRows(
         ${splitSourceCell(
           "after",
           addition?.afterIndex ?? null,
+          true,
           changeForHighlight,
           diff,
           relations,
@@ -479,7 +495,7 @@ export function renderSourceDiffViewer(
   )).join("");
   const split = compact
     ? ""
-    : `<div class="member-diff-source-diff source-diff-viewer-split" role="table" aria-label="Side-by-side authored Source diff" aria-rowcount="${splitRowCount(model)}">
+    : `<div class="member-diff-source-diff source-diff-viewer-split" role="table" aria-label="Side-by-side authored Source diff" aria-rowcount="${splitRowCount(model)}" aria-colcount="2">
       ${splitRows(model, diff, relations, escapeHtml)}
     </div>`;
   const responsiveNote = compact

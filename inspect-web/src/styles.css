@@ -2185,6 +2185,19 @@ kbd {
 .member-diff-source-provenance a { color: var(--blue); }
 .member-diff-source-text { margin: 8px 0 0; padding: 8px; overflow-x: auto; background: var(--code-bg); }
 .source-diff-viewer { min-width: 0; container: source-diff-viewer / inline-size; }
+.source-diff-viewer .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+  user-select: none;
+}
 .source-diff-viewer-summary { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px 12px; padding: 8px 10px; border: 1px solid var(--line); border-bottom: 0; color: var(--muted); font: 10px var(--mono); }
 .source-diff-viewer-controls { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 10px; border: 1px solid var(--line); border-bottom: 0; background: var(--panel); font: 10px var(--mono); }
 .source-diff-viewer-controls button { padding: 3px 7px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--panel-raised); color: var(--text); cursor: pointer; }
@@ -2215,10 +2228,10 @@ kbd {
 .source-diff-viewer-relations { user-select: none; }
 .source-diff-viewer-terminator { align-self: center; margin-right: 8px; padding: 0 4px; color: var(--yellow); font: 9px var(--mono); white-space: nowrap; user-select: none; }
 .source-diff-viewer-terminator-shared { grid-column: 5; justify-self: end; }
-.source-diff-viewer-split { display: none; }
+.source-diff-viewer-split { display: none; grid-template-columns: repeat(2, minmax(340px, max-content)); }
 .source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-unified { display: none; }
-.source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-split { display: block; }
-.source-diff-viewer-split-row { display: grid; min-width: max-content; grid-template-columns: minmax(340px, 1fr) minmax(340px, 1fr); border-bottom: 1px solid var(--line); }
+.source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-split { display: grid; }
+.source-diff-viewer-split-row { display: grid; min-width: 0; grid-column: 1 / -1; grid-template-columns: subgrid; border-bottom: 1px solid var(--line); }
 .source-diff-viewer-split-row:last-child { border-bottom: 0; }
 .source-diff-viewer-split-row.source-diff-viewer-row-change { background: color-mix(in srgb, var(--yellow) 4%, transparent); }
 .source-diff-viewer-split-source { display: grid; min-width: 0; grid-template-columns: 44px minmax(280px, 1fr) auto auto; border-right: 1px solid var(--line); }
