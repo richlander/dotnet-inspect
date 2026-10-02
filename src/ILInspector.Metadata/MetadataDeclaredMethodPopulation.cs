@@ -226,16 +226,19 @@ public sealed class MetadataDeclaredMethodPopulationSource
     private readonly AssemblyInspectionSession _session;
     private readonly MethodDefinitionHandleCollection _methods;
     private readonly int _methodDefinitionRowCount;
+    private readonly bool _validateMethodPointers;
     private readonly MetadataDeclaredMethodPopulationReceipt _rowsReceipt;
 
     internal MetadataDeclaredMethodPopulationSource(
         AssemblyInspectionSession session,
         MethodDefinitionHandleCollection methods,
-        int methodDefinitionRowCount)
+        int methodDefinitionRowCount,
+        bool validateMethodPointers)
     {
         _session = session;
         _methods = methods;
         _methodDefinitionRowCount = methodDefinitionRowCount;
+        _validateMethodPointers = validateMethodPointers;
         _rowsReceipt =
             MetadataDeclaredMethodPopulationInspection.RowsReceipt(
                 methods.Count);
@@ -260,6 +263,7 @@ public sealed class MetadataDeclaredMethodPopulationSource
                     access.Operation._methods,
                     limit,
                     access.Operation._methodDefinitionRowCount,
+                    access.Operation._validateMethodPointers,
                     access.Operation._rowsReceipt));
     }
 }
@@ -308,6 +312,7 @@ internal static class MetadataDeclaredMethodPopulationInspection
                         methods,
                         request.MaximumRows,
                         reader.GetTableRowCount(TableIndex.MethodDef),
+                        reader.GetTableRowCount(TableIndex.MethodPtr) > 0,
                         RowsReceipt(methods.Count));
         return result.Kind switch
         {
@@ -358,7 +363,8 @@ internal static class MetadataDeclaredMethodPopulationInspection
             new MetadataDeclaredMethodPopulationSource(
                 session,
                 methods,
-                reader.GetTableRowCount(TableIndex.MethodDef)));
+                reader.GetTableRowCount(TableIndex.MethodDef),
+                reader.GetTableRowCount(TableIndex.MethodPtr) > 0));
     }
 
     internal static MetadataDeclaredMethodPopulationResult Count(
@@ -371,6 +377,7 @@ internal static class MetadataDeclaredMethodPopulationInspection
         MethodDefinitionHandleCollection methods,
         int maximumRows,
         int methodDefinitionRowCount,
+        bool validateMethodPointers,
         MetadataDeclaredMethodPopulationReceipt rowsReceipt)
     {
         int count = methods.Count;
@@ -386,17 +393,25 @@ internal static class MetadataDeclaredMethodPopulationInspection
         {
             int[] tokens = GC.AllocateUninitializedArray<int>(count);
             int index = 0;
-            foreach (MethodDefinitionHandle method in methods)
+            if (validateMethodPointers)
             {
-                int row = MetadataTokens.GetRowNumber(method);
-                if (row <= 0
-                    || row > methodDefinitionRowCount)
+                foreach (MethodDefinitionHandle method in methods)
                 {
-                    return MetadataDeclaredMethodPopulationResult.Failed(
-                        $"MethodPtr row resolved to MethodDef row {row}, "
-                        + $"outside 1..{methodDefinitionRowCount}.");
+                    int row = MetadataTokens.GetRowNumber(method);
+                    if (row <= 0
+                        || row > methodDefinitionRowCount)
+                    {
+                        return MetadataDeclaredMethodPopulationResult.Failed(
+                            $"MethodPtr row resolved to MethodDef row {row}, "
+                            + $"outside 1..{methodDefinitionRowCount}.");
+                    }
+                    tokens[index++] = MetadataTokens.GetToken(method);
                 }
-                tokens[index++] = MetadataTokens.GetToken(method);
+            }
+            else
+            {
+                foreach (MethodDefinitionHandle method in methods)
+                    tokens[index++] = MetadataTokens.GetToken(method);
             }
             return MetadataDeclaredMethodPopulationResult.Read(
                 ImmutableCollectionsMarshal.AsImmutableArray(tokens),

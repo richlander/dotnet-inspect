@@ -98,6 +98,8 @@ valid while one pointer names no MethodDef row. Count still closes that range
 without traversal. Rows validates each visited handle against the MethodDef
 table and converts pointer decoding or range failures into the typed `Failed`
 result rather than returning an invalid token or escaping an exception.
+MethodPtr-free ranges use direct token projection because O(1) preparation has
+already bounded their contiguous MethodDef extent.
 
 Both terminals return a product-owned work receipt. The receipt separately
 reports TypeDef rows read, MethodDef handles visited, MethodDef rows read,
@@ -247,8 +249,8 @@ physical result:
   invariant receipts. It remains usable only while its issuing
   `AssemblyInspectionSession` is alive.
 - Count and Rows execution return an allocation-free value result. Rows owns
-  only its exact detached token array and validates only the handles it visits;
-  Count visits no handles.
+  only its exact detached token array and validates visited handles only for
+  MethodPtr-backed ranges; Count visits no handles.
 - Queries owns one prepared session per participant and one source per exact
   TypeDef binding. It releases those derived resources before the
   participant's immutable snapshot.
