@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
@@ -381,6 +383,63 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
         Assert.NotNull(rejected.Subject);
     }
 
+    [Fact]
+    public async Task DescendingMethodRange_RemainsVisibleAsSettledFailure()
+    {
+        MetadataTypeDefinitionName type =
+            Name("System.Text.Json", "JsonSerializer");
+        MetadataTypeDefinitionBinding binding = Binding(type);
+        string path = CreateDescendingMethodRange(binding);
+        try
+        {
+            await using var workspace = new InspectionWorkspace();
+            (
+                AssemblyContextGroup group,
+                AssemblyContextParticipant participant) =
+                    CreateGroup(workspace, path);
+            using (group)
+            using (TypeDeclaredMethodPopulationPreparedInspection prepared =
+                TypeDeclaredMethodPopulationInspectionOperation.Prepare(
+                    group,
+                    participant,
+                    type,
+                    binding,
+                    TestContext.Current.CancellationToken))
+            {
+                QuerySpaceRequest count =
+                    TypeDeclaredMethodPopulationQuery.CreateRequest(
+                        QuerySpaceTerminalRequirement.Count);
+                QuerySpaceRequest rows =
+                    TypeDeclaredMethodPopulationQuery.CreateRequest(
+                        QuerySpaceTerminalRequirement.Rows);
+                TypeDeclaredMethodPopulationOutcome countOutcome =
+                    TypeDeclaredMethodPopulationInspectionOperation.Execute(
+                        prepared,
+                        count,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken).Content;
+                TypeDeclaredMethodPopulationOutcome rowsOutcome =
+                    TypeDeclaredMethodPopulationInspectionOperation.Execute(
+                        prepared,
+                        rows,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken).Content;
+
+                Assert.Same(countOutcome, rowsOutcome);
+                var failed = Assert.IsType<
+                    TypeDeclaredMethodPopulationOutcome.Failed>(countOutcome);
+                Assert.Contains(
+                    "descending MethodDef range",
+                    failed.Detail.ToString(),
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static InspectionEnvelope<
         TypeDeclaredMethodPopulationOutcome> Execute(
             AssemblyContextGroup group,
@@ -402,11 +461,12 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
     private static (
         AssemblyContextGroup Group,
         AssemblyContextParticipant Participant) CreateGroup(
-            InspectionWorkspace workspace)
+            InspectionWorkspace workspace,
+            string? path = null)
     {
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromPath(
-                SystemTextJsonPath(),
+                path ?? SystemTextJsonPath(),
                 AssemblyResolutionProvenance.Local(
                     "declared-method population test"));
         var participant = new AssemblyContextParticipant(
@@ -441,6 +501,58 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
                     "The test Type must resolve to a local TypeDef."),
             };
         return new(session.ModuleVersionId(), definition);
+    }
+
+    private static string CreateDescendingMethodRange(
+        MetadataTypeDefinitionBinding binding)
+    {
+        byte[] image = File.ReadAllBytes(SystemTextJsonPath());
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        var type = (TypeDefinitionHandle)MetadataTokens.EntityHandle(
+            binding.Definition.Value);
+        MethodDefinitionHandleCollection methods =
+            reader.GetTypeDefinition(type).GetMethods();
+        var enumerator = methods.GetEnumerator();
+        Assert.True(enumerator.MoveNext());
+        int firstMethodRow =
+            MetadataTokens.GetRowNumber(enumerator.Current);
+        int typeRow = MetadataTokens.GetRowNumber(type);
+        Assert.True(typeRow < reader.GetTableRowCount(TableIndex.TypeDef));
+
+        int methodIndexSize =
+            reader.GetTableRowCount(TableIndex.MethodDef) < (1 << 16)
+                ? sizeof(ushort)
+                : sizeof(uint);
+        int typeRowSize = reader.GetTableRowSize(TableIndex.TypeDef);
+        int nextTypeRowOffset =
+            pe.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef)
+            + (typeRow * typeRowSize);
+        Span<byte> methodList =
+            image.AsSpan(
+                nextTypeRowOffset + typeRowSize - methodIndexSize,
+                methodIndexSize);
+        int descendingStart = firstMethodRow - 1;
+        if (methodIndexSize == sizeof(ushort))
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                methodList,
+                checked((ushort)descendingStart));
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                methodList,
+                checked((uint)descendingStart));
+        }
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"declared-method-range-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        return path;
     }
 
     private static MetadataTypeDefinitionName Name(

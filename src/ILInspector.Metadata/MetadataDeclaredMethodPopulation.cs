@@ -407,6 +407,13 @@ internal static class MetadataDeclaredMethodPopulationInspection
             methods = reader.GetTypeDefinition(
                     (TypeDefinitionHandle)entity)
                 .GetMethods();
+            if (methods.Count < 0)
+            {
+                methods = default;
+                failure =
+                    "The TypeDef declares a descending MethodDef range.";
+                return false;
+            }
             return true;
         }
         catch (Exception exception)
