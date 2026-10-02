@@ -75,7 +75,7 @@ public partial class CommandExecutionTests
         "System.Decimal",
         "System.Runtime",
         "Explicit Interface Implementations",
-        88)]
+        47)]
     [InlineData(
         "System.Span<T>",
         "System.Runtime",
