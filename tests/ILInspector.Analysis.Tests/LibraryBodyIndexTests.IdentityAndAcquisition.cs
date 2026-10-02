@@ -473,7 +473,7 @@ public partial class LibraryBodyIndexTests
                 policy,
                 [new CatalogCallGraphParticipant(index, assembly)]);
             CallTreeNode catalogTree = scope.BuildCallTree(
-                index,
+                index.CallGraphAnalysis,
                 methodToken);
 
             Assert.Equal(
@@ -483,7 +483,7 @@ public partial class LibraryBodyIndexTests
 
             CallTreeNode truncatedCatalogTree =
                 scope.BuildCallTree(
-                    index,
+                    index.CallGraphAnalysis,
                     methodToken,
                     maxNodes: 1);
             Assert.Equal(

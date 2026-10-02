@@ -440,6 +440,7 @@ import {
   bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   renderAnnotatedSourceModal as renderAnnotatedSourceModalPure,
+  renderAnnotatedSourceRejectionModal,
   restoreAnnotatedSourceScroll,
   type AnnotatedSourceAction,
   type AnnotatedSourceResult,
@@ -11990,24 +11991,10 @@ function renderAnnotatedSourceModal() {
     });
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
-    return `<div id="annotated-source-backdrop" class="annotated-modal-backdrop">
-      <section id="annotated-source-modal" class="annotated-modal"
-        role="dialog" aria-modal="true" aria-labelledby="annotated-modal-title">
-        <header class="annotated-modal-head">
-          <div>
-            <p class="section-eyebrow">Explore Annotated Source</p>
-            <h2 id="annotated-modal-title" tabindex="-1">Annotated source document rejected</h2>
-          </div>
-          <div class="annotated-modal-head-actions">
-            <button id="annotated-modal-close" type="button"
-              data-annotated-action="close-modal">Close</button>
-          </div>
-        </header>
-        <section class="annotated-modal-failure" role="alert">
-          <p>${escapeHtml(errorMessage(error))}</p>
-        </section>
-      </section>
-    </div>`;
+    return renderAnnotatedSourceRejectionModal(
+      errorMessage(error),
+      escapeHtml,
+    );
   }
 }
 

@@ -130,6 +130,7 @@ public static class FixtureIds
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
     public const string AnalysisCallOverloads = "analysis.call-overloads";
     public const string AnalysisCallGenericScope = "analysis.call-generic-scope";
+    public const string AnalysisCalleeResolution = "analysis.callee-resolution";
     public const string AnalysisCallFunctionPointerScope = "analysis.call-function-pointer-scope";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
@@ -634,6 +635,13 @@ public static class FixtureCatalog
         FixtureIds.AnalysisCallGenericScope,
         "ILInspector.Analysis.CallGenericScopeFixtures",
         "ILInspector.Analysis.CallGenericScopeFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "same-image-calls");
+
+    public static readonly FixtureDefinition AnalysisCalleeResolution = Fixture(
+        FixtureIds.AnalysisCalleeResolution,
+        "ILInspector.Analysis.CalleeResolutionFixtures",
+        "ILInspector.Analysis.CalleeResolutionFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "same-image-calls");
 
@@ -1204,6 +1212,7 @@ public static class FixtureCatalog
         AnalysisOwnershipFlow,
         AnalysisCallOverloads,
         AnalysisCallGenericScope,
+        AnalysisCalleeResolution,
         AnalysisCallFunctionPointerScope,
         AnalysisTopLevelAsync,
         AnalysisTopLevelClassicAsync,
@@ -1309,6 +1318,7 @@ public static class FixtureCatalog
             AnalysisOwnershipFlow,
             AnalysisCallOverloads,
             AnalysisCallGenericScope,
+            AnalysisCalleeResolution,
             AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
             AnalysisAllocationLifetime,
@@ -1683,6 +1693,7 @@ public static class FixtureCatalog
             "ILInspector.Analysis.OwnershipFlowFixtures" => "fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures",
             "ILInspector.Analysis.CallOverloadFixtures" => "fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures",
             "ILInspector.Analysis.CallGenericScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures",
+            "ILInspector.Analysis.CalleeResolutionFixtures" => "fixtures/analysis/ILInspector.Analysis.CalleeResolutionFixtures",
             "ILInspector.Analysis.CallFunctionPointerScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures",
             "ILInspector.Analysis.ProtobufFixtures" => "fixtures/analysis/ILInspector.Analysis.ProtobufFixtures",
             "ILInspector.Analysis.RenderFixtures" => "fixtures/analysis/ILInspector.Analysis.RenderFixtures",

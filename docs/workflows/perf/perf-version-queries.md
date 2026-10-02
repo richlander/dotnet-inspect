@@ -350,4 +350,6 @@ grep 'not found'
 
 ## Profiling
 
-See the [performance testing skill](../../../skills/workflow-scenarios/performance-testing.md) for dotnet-trace profiling and diagnosing unexpected network access.
+See the
+[performance testing reference](../../../.github/skills/workflow-scenarios/performance-testing.md)
+for dotnet-trace profiling and diagnosing unexpected network access.

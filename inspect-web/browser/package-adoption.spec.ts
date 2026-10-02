@@ -3056,15 +3056,17 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
       .toContainText("First");
     expect(page.url()).toBe(memberLocation);
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-content"))
+      .toHaveCount(1);
     await expect(memberDiffExplorer.locator(".member-diff-explorer-pane"))
-      .toHaveCount(3);
+      .toHaveCount(0);
     await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
       .toContainText("First");
-    await expect(memberDiffExplorer).toContainText(
+    await expect(memberDiffExplorer).not.toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
     );
-    await expect(memberDiffExplorer.locator(".member-diff-declaration-unavailable"))
-      .toBeVisible();
+    await expect(memberDiffExplorer).not.toContainText("Declaration");
+    await expect(memberDiffExplorer).not.toContainText("What changed");
     await expect(memberDiffExplorer.locator(
       ".member-diff-source-endpoint",
     ).first()).toContainText("Not present on this side.");
@@ -3119,6 +3121,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(explore).toBeVisible();
     await explore.click();
     await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-content"))
+      .toHaveCount(1);
+    await expect(memberDiffExplorer).not.toContainText("What changed");
+    await expect(memberDiffExplorer).not.toContainText("Declaration");
     await expect(memberDiffExplorer.locator(
       ".member-diff-explorer-source .member-diff-source-endpoint",
     ))
@@ -3188,12 +3194,15 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
     ).click();
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    const addedTypeReturnLocation = await settledLocationAfter(libraryLocation);
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
       .click();
     await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
+    await settledLocationAfter(addedTypeReturnLocation);
 
     // Back restores the Type inventory with Compare and Diff still active.
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(addedTypeReturnLocation);
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator('[data-compare-mode="diff"]'))
