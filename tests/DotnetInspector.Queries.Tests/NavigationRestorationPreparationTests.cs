@@ -99,6 +99,108 @@ public sealed class NavigationRestorationPreparationTests
 
     [Fact]
     public async Task
+        CanonicalRestoration_EcosystemMaintenanceRetainsSubjectAndLens()
+    {
+        await using EcosystemFixture fixture =
+            await EcosystemFixture.CreateAsync("ecosystem.aspire");
+        NavigationEcosystemEvaluation ecosystem =
+            fixture.Evaluation("ecosystem.aspire");
+        NavigationEvaluationFacts facts = fixture.Facts(ecosystem);
+        StructuralSubjectIdentity.EcosystemSubject subject =
+            fixture.Subject(ecosystem);
+        var lens = new NavigationLensIdentity(
+            subject,
+            new ViewFacetId("ecosystem.overview"));
+        NavigationRestorationPreparationResult.Prepared prepared =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    fixture.Workspace.Identity,
+                    facts,
+                    fixture.Registry,
+                    new(subject, Lens: lens)));
+        NavigationState acknowledged =
+            Acknowledge(prepared.Initialization);
+
+        NavigationTransition queued =
+            NavigationTransitions.QueueMaintenance(acknowledged);
+        NavigationTransition begun =
+            NavigationTransitions.Advance(queued.State);
+        NavigationEvaluationRequest work = begun.Work!;
+        NavigationEvaluationResult evaluation =
+            NavigationTransitions.Evaluate(
+                work,
+                new NavigationPreparation.Ready(facts),
+                fixture.Registry);
+        NavigationTransition completed =
+            NavigationTransitions.Complete(
+                begun.State,
+                work,
+                evaluation);
+
+        Assert.Equal(
+            NavigationOutcomeKind.Applied,
+            completed.Result!.Consumer.Outcome.Kind);
+        NavigationWorkspaceSnapshot snapshot =
+            completed.State.CurrentSnapshot;
+        Assert.Equal(subject, snapshot.ActiveSubject);
+        Assert.Same(subject.Occurrence, snapshot.Ecosystem!.Occurrence);
+        Assert.Equal(lens, snapshot.LensOutcome.EffectiveLens);
+    }
+
+    [Fact]
+    public async Task
+        CanonicalRestoration_WorkspaceCanActivatePreparedEcosystem()
+    {
+        await using EcosystemFixture fixture =
+            await EcosystemFixture.CreateAsync("ecosystem.aspire");
+        NavigationEcosystemEvaluation ecosystem =
+            fixture.Evaluation("ecosystem.aspire");
+        NavigationEvaluationFacts facts = fixture.Facts(ecosystem);
+        StructuralSubjectIdentity.WorkspaceSubject workspace =
+            StructuralSubjectIdentity.ForWorkspace(
+                fixture.Workspace.Identity);
+        NavigationRestorationPreparationResult.Prepared prepared =
+            Assert.IsType<
+                NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    fixture.Workspace.Identity,
+                    facts,
+                    fixture.Registry,
+                    new(workspace)));
+        NavigationAction action =
+            prepared.Initialization.Result.Consumer.Snapshot.Hierarchy
+                .Single(row =>
+                    row.Kind == StructuralSubjectKind.Ecosystem)
+                .Action!;
+
+        NavigationTransition begun =
+            NavigationTransitions.Begin(
+                prepared.Initialization.State,
+                action);
+        NavigationEvaluationRequest work = begun.Work!;
+        NavigationEvaluationResult evaluation =
+            NavigationTransitions.Evaluate(
+                work,
+                new NavigationPreparation.Ready(facts),
+                fixture.Registry);
+        NavigationTransition completed =
+            NavigationTransitions.Complete(
+                begun.State,
+                work,
+                evaluation);
+
+        Assert.Equal(
+            NavigationOutcomeKind.Applied,
+            completed.Result!.Consumer.Outcome.Kind);
+        StructuralSubjectIdentity.EcosystemSubject subject =
+            Assert.IsType<StructuralSubjectIdentity.EcosystemSubject>(
+                completed.State.CurrentSnapshot.ActiveSubject);
+        Assert.Same(ecosystem.Occurrence, subject.Occurrence);
+    }
+
+    [Fact]
+    public async Task
         CanonicalRestoration_RejectsForeignEcosystemFacts()
     {
         await using EcosystemFixture first =
@@ -1162,6 +1264,20 @@ public sealed class NavigationRestorationPreparationTests
             ],
             scope.Closure,
             scope.Preparing);
+
+    static NavigationState Acknowledge(
+        NavigationOperationInitialization initialization)
+    {
+        NavigationEffectAuthority authority =
+            initialization.Result.Consumer.Authority!;
+        NavigationState posted =
+            NavigationTransitions.RecordConsumerPosting(
+                initialization.State,
+                authority).State;
+        return NavigationTransitions.Acknowledge(
+            posted,
+            authority).State;
+    }
 
     sealed class EcosystemFixture : IAsyncDisposable
     {

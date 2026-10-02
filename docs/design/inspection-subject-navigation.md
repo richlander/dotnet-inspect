@@ -2148,6 +2148,10 @@ Package evaluation, or retained Package context. Navigation verifies the
 evaluation belongs to the exact Workspace, permits only that exact Ecosystem or
 the Workspace as the explicit active subject, and otherwise defaults to the
 exact Ecosystem. An optional exact lens must bind that same Ecosystem subject.
+Ordinary maintenance and subject actions consume the same exact evaluation:
+maintenance retains the active Ecosystem and exact lens only while the same
+occurrence remains available, and an explicitly selected Workspace may
+activate that prepared Ecosystem through its ordinary issued action.
 The existing pure snapshot evaluator supplies the Ecosystem hierarchy slot,
 default Overview recommendation, Registry availability, and detached consumer
 projection. Canonical restoration never reconstructs the occurrence from its
@@ -2202,6 +2206,8 @@ The focused Release gates
 `CanonicalRestoration_ExactEcosystemPairIsPrepared`,
 `CanonicalRestoration_EcosystemFactsDefaultToExactSubject`,
 `CanonicalRestoration_EcosystemFactsCanSelectWorkspace`,
+`CanonicalRestoration_EcosystemMaintenanceRetainsSubjectAndLens`,
+`CanonicalRestoration_WorkspaceCanActivatePreparedEcosystem`,
 `CanonicalRestoration_RejectsForeignEcosystemFacts`,
 `CanonicalRestoration_RejectsMismatchedEcosystemSubject`,
 `CanonicalRestoration_RejectsEcosystemWithPackageFacts`,
