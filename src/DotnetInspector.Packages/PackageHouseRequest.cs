@@ -404,6 +404,36 @@ public sealed class PackageHouseRequest
                 "Package-wide content narrowing does not carry a target context.",
                 nameof(targetContext));
         }
+        if (contentQuery?.Narrowing
+                is PackageHouseContentNarrowing.TfmWide tfmWide
+            && !ReferenceEquals(tfmWide.Target, targetContext))
+        {
+            throw new ArgumentException(
+                "TFM-wide content narrowing requires its exact target context.",
+                nameof(targetContext));
+        }
+        if (contentQuery?.RetainedFileList is { } retainedFileList)
+        {
+            PackageSourceCoordinate? requestedCoordinate = demand switch
+            {
+                PackageHouseDemand.Exact exact => exact.Coordinate,
+                PackageHouseDemand.Candidate candidate =>
+                    candidate.Value.Coordinate,
+                _ => null,
+            };
+            if (requestedCoordinate is null
+                || requestedCoordinate
+                    != retainedFileList
+                        .Narrowing
+                        .Acquisition
+                        .Candidate
+                        .Coordinate)
+            {
+                throw new ArgumentException(
+                    "Retained File List evidence requires its exact package coordinate.",
+                    nameof(contentQuery));
+            }
+        }
 
         if (evidenceDemand != PackageHouseEvidenceDemand.None
             && (!realizes

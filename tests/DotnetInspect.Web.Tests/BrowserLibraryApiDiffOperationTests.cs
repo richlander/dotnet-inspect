@@ -862,6 +862,72 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotNull(result.Inspection);
     }
 
+    [Theory]
+    [InlineData("property", ApiMemberAnchorKind.Property)]
+    [InlineData("field", ApiMemberAnchorKind.Field)]
+    [InlineData("event", ApiMemberAnchorKind.Event)]
+    public void MembersWithoutATextModeDoNotReceiveExploreDestinations(
+        string memberKind,
+        ApiMemberAnchorKind anchorKind)
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(
+                    memberCount: 1,
+                    memberKind: memberKind,
+                    anchorKind: anchorKind),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffMember member = Assert.Single(
+            Assert.Single(result.Value!.Types).Members);
+        Assert.Null(member.Explore);
+    }
+
+    [Theory]
+    [InlineData("method")]
+    [InlineData("constructor")]
+    [InlineData("operator")]
+    [InlineData("finalizer")]
+    [InlineData("explicit-interface-implementation")]
+    [InlineData("extension-method")]
+    public void MethodAnchorsReceiveExploreDestinations(string memberKind)
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(
+                    memberCount: 1,
+                    memberKind: memberKind),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffMember member = Assert.Single(
+            Assert.Single(result.Value!.Types).Members);
+        Assert.NotNull(member.Explore);
+    }
+
+    [Fact]
+    public void EveryPresentEndpointMustHaveAMethodAnchor()
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(
+                    memberCount: 1,
+                    memberKind: "operator",
+                    anchorKind: ApiMemberAnchorKind.Method,
+                    afterMemberKind: "property",
+                    afterAnchorKind: ApiMemberAnchorKind.Property),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffMember member = Assert.Single(
+            Assert.Single(result.Value!.Types).Members);
+        Assert.Null(member.Explore);
+    }
+
     [Fact]
     public void CompleteMemberBaselineCanExceedTransportBeforeViewProjection()
     {
@@ -1506,7 +1572,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
 
     static InspectionEnvelope<DiffAnalysisDocument> AvailableWithMembers(
         int memberCount,
-        string? memberDisplay = null)
+        string? memberDisplay = null,
+        string memberKind = "method",
+        ApiMemberAnchorKind anchorKind = ApiMemberAnchorKind.Method,
+        string? afterMemberKind = null,
+        ApiMemberAnchorKind? afterAnchorKind = null)
     {
         AssemblyReferenceIdentity identity = AssemblyIdentity();
         var endpoint = new LibraryApiDiffEndpointSummary(
@@ -1531,16 +1601,24 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     MemberAnchor.ComputeFingerprint(canonicalSignature),
                     typeIdentity.Identifier,
                     memberName);
-                var memberIdentity = new LibraryApiMemberIdentity(
+                var beforeIdentity = new LibraryApiMemberIdentity(
                     typeIdentity,
                     anchor,
+                    anchorKind,
+                    memberKind,
+                    memberDisplay ?? memberName);
+                var afterIdentity = new LibraryApiMemberIdentity(
+                    typeIdentity,
+                    anchor,
+                    afterAnchorKind ?? anchorKind,
+                    afterMemberKind ?? memberKind,
                     memberDisplay ?? memberName);
                 return new LibraryApiMemberDiff(
                     new LibraryApiMemberRelation(
                         $"member-relation:{index}",
                         LibraryApiMemberPairKind.Changed,
-                        memberIdentity,
-                        memberIdentity,
+                        beforeIdentity,
+                        afterIdentity,
                         Match: null),
                     LibraryApiMemberRelationRole.Both);
             }),
