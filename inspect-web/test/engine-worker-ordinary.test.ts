@@ -223,6 +223,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("cancelMemberSourceComparison"),
     queryMemberFindingCensus: () =>
       unexpected("queryMemberFindingCensus"),
+    queryPlatformMemberFindingCensus: () =>
+      unexpected("queryPlatformMemberFindingCensus"),
   },
   callGraph: {
     queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
@@ -2274,6 +2276,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "cancelMethodBodyComparison",
       "cancelSourceQuery",
       "queryMemberFindingCensus",
+      "queryPlatformMemberFindingCensus",
       "queryMemberSource",
       "queryMemberSourceComparison",
       "queryMethodBodyComparison",
@@ -2328,7 +2331,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 104);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 105);
 
   const state = fixture();
   const groups = [

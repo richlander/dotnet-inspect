@@ -22,6 +22,12 @@ const beforePackage = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_PACKAGE;
 const afterPackage = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_PACKAGE;
 const beforeSource = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_SOURCE;
 const afterSource = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_SOURCE;
+const systemTextJsonPackage =
+  process.env.INSPECT_WEB_SOURCE_DIFF_SYSTEM_TEXT_JSON_PACKAGE;
+const systemTextJsonPdb =
+  process.env.INSPECT_WEB_SOURCE_DIFF_SYSTEM_TEXT_JSON_PDB;
+const systemTextJsonSource =
+  process.env.INSPECT_WEB_SOURCE_DIFF_SYSTEM_TEXT_JSON_SOURCE;
 
 type SourceComparisonGateWindow = Window & {
   __inspectWebSourceComparison?: PublishedSourceComparisonBridge;
@@ -157,6 +163,133 @@ test.describe("published authored Source comparison transport", () => {
         pdbResponseReleased = true;
         releasePdbResponse();
       }
+    });
+
+  test("System.Text.Json TryParseValue production member parts preserve attributes without XML",
+    async ({ page }, testInfo) => {
+      test.skip(
+        !systemTextJsonPackage || !systemTextJsonPdb || !systemTextJsonSource,
+        "Set the exact System.Text.Json package, PDB, and source assets.");
+      await page.route(
+        "**/system.text.json.11.0.0-preview.7.26381.103.nupkg",
+        route => route.fulfill({
+          path: systemTextJsonPackage!,
+          contentType: "application/octet-stream",
+          headers: { "access-control-allow-origin": "*" },
+        }));
+      await page.route(
+        "**/api/msdl/System.Text.Json.pdb/**",
+        route => route.fulfill({
+          path: systemTextJsonPdb!,
+          contentType: "application/octet-stream",
+          headers: { "access-control-allow-origin": "*" },
+        }));
+      await page.route(
+        "https://raw.githubusercontent.com/dotnet/dotnet/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonDocument.Parse.cs",
+        route => route.fulfill({
+          path: systemTextJsonSource!,
+          contentType: "text/plain",
+          headers: { "access-control-allow-origin": "*" },
+        }));
+      await openPublishedSite(page);
+      const evidence = await page.evaluate(async () => {
+        const packages = await import("/inspect-web-package.js");
+        const source = await import("/inspect-web-source.js");
+        const loadResult = await packages.queryPackage(
+          "System.Text.Json", "11.0.0-preview.7.26381.103", "net10.0",
+        );
+        const surface = loadResult.surface;
+        if (surface === null) {
+          throw new Error(
+            loadResult.versionSettlement.content.failure?.reason
+              ?? "System.Text.Json settlement did not produce a surface.",
+          );
+        }
+        const type = surface.types.find(candidate =>
+          candidate.definitionId === "System.Text.Json.JsonDocument");
+        const member = type?.api.find(candidate =>
+          candidate.name === "TryParseValue");
+        const body = member?.bodySelectors.find(candidate =>
+          candidate.token === member.metadataToken)
+          ?? member?.bodySelectors[0];
+        if (!type || !member || !body) {
+          throw new Error(
+            "System.Text.Json does not expose JsonDocument.TryParseValue.",
+          );
+        }
+        const result = await source.queryMemberSource(
+          surface.package,
+          surface.version,
+          surface.activeFramework,
+          type.assemblyId,
+          type.definitionId,
+          body.memberName,
+          body.selectorKey,
+          body.token,
+          "[]",
+          "source",
+        );
+        return {
+          framework: surface.activeFramework,
+          member: body.memberName,
+          result,
+        };
+      });
+      const partText = (
+        part: (typeof evidence.result.parts)[number],
+      ) => part.spans.map(span =>
+        span.leadingIndentation
+        + evidence.result.source.text.slice(span.start, span.end)).join("\n");
+      const declaration = evidence.result.parts.find(
+        part => part.kind === "Declaration");
+      const member = evidence.result.parts.find(
+        part => part.kind === "Member");
+      const documentation = evidence.result.parts.find(
+        part => part.kind === "XmlDocumentation");
+      const signature = evidence.result.parts.find(
+        part => part.kind === "Signature");
+      const body = evidence.result.parts.find(
+        part => part.kind === "Body");
+      if (!declaration || !member || !documentation || !signature || !body) {
+        throw new Error(
+          "JsonDocument.TryParseValue did not publish its complete part catalog: "
+            + `${evidence.result.source.provider}; `
+            + `${evidence.result.source.pdbSourceLimitation ?? "no limitation"}; `
+            + evidence.result.parts.map(part => part.kind).join(", "),
+        );
+      }
+      const declarationText = partText(declaration);
+      const memberText = partText(member);
+      const documentationText = partText(documentation);
+      const signatureText = partText(signature);
+      const bodyText = partText(body);
+
+      expect(evidence.result.source.provider).toBe("pdb");
+      expect(declarationText).not.toContain("<summary>");
+      expect(declarationText).not.toContain("///");
+      expect(declarationText).toContain("[NotNullWhen(true)]");
+      expect(memberText).toContain("<summary>");
+      expect(memberText).toContain("[NotNullWhen(true)]");
+      expect(documentationText).toContain("<summary>");
+      expect(documentationText.split("\n").length).toBeGreaterThan(10);
+      expect(signatureText).toContain("[NotNullWhen(true)]");
+      expect(bodyText).toContain("{");
+
+      const evidencePath =
+        testInfo.outputPath("system-text-json-member-parts.json");
+      await writeFile(evidencePath, JSON.stringify({
+        framework: evidence.framework,
+        member: evidence.member,
+        provider: evidence.result.source.provider,
+        parts: evidence.result.parts.map(part => ({
+          kind: part.kind,
+          text: partText(part),
+        })),
+      }, null, 2));
+      await testInfo.attach("system-text-json-member-parts.json", {
+        path: evidencePath,
+        contentType: "application/json",
+      });
     });
 
   test("public package versions retain independent Source outcomes",

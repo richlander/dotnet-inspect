@@ -124,7 +124,8 @@ type SourceOperationName =
   | "cancelMethodBodyComparison"
   | "queryMemberSourceComparison"
   | "cancelMemberSourceComparison"
-  | "queryMemberFindingCensus";
+  | "queryMemberFindingCensus"
+  | "queryPlatformMemberFindingCensus";
 
 type CallGraphOperationName =
   | "queryMemberCallGraph"
@@ -1704,6 +1705,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<SourceFacade["queryMemberFindingCensus"]>
       ) => facades.source.queryMemberFindingCensus(...args),
     ),
+    queryPlatformMemberFindingCensus: valueOperation(
+      "ordinary-source-query-platform-member-finding-census",
+      12,
+      (
+        facades,
+        ...args: Parameters<SourceFacade["queryPlatformMemberFindingCensus"]>
+      ) => facades.source.queryPlatformMemberFindingCensus(...args),
+    ),
   },
   callGraph: {
     queryMemberCallGraph: valueOperation(
@@ -2359,6 +2368,10 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryMemberFindingCensus: bind(
         engineWorkerOrdinaryOperations.source.queryMemberFindingCensus,
+      ),
+      queryPlatformMemberFindingCensus: bind(
+        engineWorkerOrdinaryOperations.source
+          .queryPlatformMemberFindingCensus,
       ),
     },
     callGraph: {

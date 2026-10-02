@@ -310,7 +310,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDocumentation\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*documentationId\)\s*:\s*inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
   assert.match(
     coordinator,
-    /inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
+    /request\.kind === "platform"\s*\?\s*inspectPlatformMemberFindingCensus\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.pack,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.contextId\)\s*:\s*inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
   assert.match(
     coordinator,
     /const document = result\.annotatedSource\.document;\s*validateAnnotatedSourceDocument\(document\);[\s\S]*annotatedSource: \{\s*\.\.\.result\.annotatedSource,\s*document/);
@@ -328,7 +328,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /memberDetailInspection\.loadDeclaration\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*isRuntimePack: pkg\.isRuntimePack,\s*platformPack,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: overload\.name,\s*selectorKey: overload\.graphSelectorKey,\s*metadataToken:\s*overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,\s*implementationMember: Boolean\(overload\.graphOnly\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     annotatedLoader,
-    /loadFindingCensus\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
+    /const request = \{\s*signature,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\),[\s\S]*if \(pkg\.isRuntimePack\) \{[\s\S]*kind: "platform",[\s\S]*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),[\s\S]*kind: "package",\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly/);
   assert.match(
     factsLoader,
     /const signature = memberRequestSignature\(type, overload, true\)/);
@@ -630,6 +630,7 @@ test("generated source wrappers parse their JSON envelopes", () => {
     "queryMemberFindingCensus",
     "queryMemberFacts",
     "queryMemberSource",
+    "queryPlatformMemberFindingCensus",
     "queryTypeMemberSource",
   ]) {
     assert.match(

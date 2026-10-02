@@ -1187,10 +1187,15 @@ public static partial class SourceExports
 
     static InertString DecompiledProvenance(
         WorkspaceContextMember participant) =>
+        PlatformProvenance("dotnet-inspect from", participant);
+
+    static InertString PlatformProvenance(
+        string prefix,
+        WorkspaceContextMember participant) =>
         participant.Realized is RealizedMemberCoordinate.Platform platform
             ? new InertString(
                 TextPolicy.Field,
-                $"dotnet-inspect from {platform.Family} "
+                $"{prefix} {platform.Family} "
                 + $"{platform.Version} {platform.Assembly ?? "platform"}")
             : throw new InvalidOperationException(
                 "Platform member source requires a realized platform coordinate.");

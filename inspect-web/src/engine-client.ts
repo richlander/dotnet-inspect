@@ -99,6 +99,7 @@ type SourceOperations =
   | "cancelSourceQuery"
   | "queryMemberFindingCensus"
   | "queryMemberSource"
+  | "queryPlatformMemberFindingCensus"
   | "queryPlatformMemberSource"
   | "queryPlatformTypeSource"
   | "queryMethodBodyComparison"

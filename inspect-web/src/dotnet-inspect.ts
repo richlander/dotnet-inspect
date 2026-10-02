@@ -913,6 +913,8 @@ let cancelTypeExplorerInspection:
 let inspectMemberFindingCensus:
   EngineClient["source"]["queryMemberFindingCensus"];
 let inspectMemberSource: EngineClient["source"]["queryMemberSource"];
+let inspectPlatformMemberFindingCensus:
+  EngineClient["source"]["queryPlatformMemberFindingCensus"];
 let inspectPlatformMemberSource:
   EngineClient["source"]["queryPlatformMemberSource"];
 let inspectTypeMemberSource:
@@ -1095,6 +1097,8 @@ async function loadEngineModule() {
       cancelSourceQuery: cancelSourceInspection,
       queryMemberFindingCensus: inspectMemberFindingCensus,
       queryMemberSource: inspectMemberSource,
+      queryPlatformMemberFindingCensus:
+        inspectPlatformMemberFindingCensus,
       queryPlatformMemberSource: inspectPlatformMemberSource,
       queryTypeMemberSource: inspectTypeMemberSource,
       queryTypeSource: inspectTypeSource,
@@ -3653,18 +3657,32 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.assembly,
           documentationId),
   queryFindingCensus: async request => {
-    const result = await inspectMemberFindingCensus(
-      request.packageId,
-      request.version,
-      request.framework,
-      request.assembly,
-      request.typeIdentity,
-      request.type,
-      request.member,
-      request.memberSignature,
-      request.selectorKey,
-      request.metadataToken,
-      request.taste);
+    const result = await (request.kind === "platform"
+      ? inspectPlatformMemberFindingCensus(
+          request.framework,
+          request.version,
+          request.assembly,
+          request.pack,
+          request.typeIdentity,
+          request.type,
+          request.member,
+          request.memberSignature,
+          request.selectorKey,
+          request.metadataToken,
+          request.taste,
+          request.contextId)
+      : inspectMemberFindingCensus(
+          request.packageId,
+          request.version,
+          request.framework,
+          request.assembly,
+          request.typeIdentity,
+          request.type,
+          request.member,
+          request.memberSignature,
+          request.selectorKey,
+          request.metadataToken,
+          request.taste));
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
     const findingEvidenceDocuments =
@@ -17943,12 +17961,8 @@ async function inspectTypeExplorerBody(
   };
   focusTypeExplorerBodyAfterRender(request);
   render({ synchronizeUrl: false });
-  await memberDetailInspection.loadFindingCensus({
+  const censusRequest = {
     signature,
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
     typeIdentity: type.definitionId ?? type.id,
     type: type.queryId ?? type.id,
     member: request.destination.member.memberName,
@@ -17960,7 +17974,28 @@ async function inspectTypeExplorerBody(
     isCurrent: () =>
       sequence === typeExplorerBodyRequestSequence
       && typeExplorerBodyRequestIsCurrent(request),
-  });
+  };
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, type.assemblyId);
+    await memberDetailInspection.loadFindingCensus({
+      ...censusRequest,
+      kind: "platform",
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: platformAssemblyRequest(row),
+      pack: row.pack,
+      contextId: platformDemoContextIdFor(pkg),
+    });
+  } else {
+    await memberDetailInspection.loadFindingCensus({
+      ...censusRequest,
+      kind: "package",
+      packageId: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: type.assembly,
+    });
+  }
   if (sequence !== typeExplorerBodyRequestSequence
     || !typeExplorerBodyRequestIsCurrent(request)
     || state.memberAnnotatedKey !== signature) {
@@ -19818,12 +19853,8 @@ async function loadSelectedMemberAnnotatedSource() {
   }
   const signature = memberRequestSignature(type, overload, true, true);
   const pkg = currentPackage();
-  return memberDetailInspection.loadFindingCensus({
+  const request = {
     signature,
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
     typeIdentity: type.definitionId ?? type.id,
     type: type.queryId ?? type.id,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
@@ -19834,6 +19865,26 @@ async function loadSelectedMemberAnnotatedSource() {
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
     taste: JSON.stringify(state.taste),
     isCurrent: () => memberRequestIsCurrent(signature, true, true),
+  };
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, type.assemblyId);
+    return memberDetailInspection.loadFindingCensus({
+      ...request,
+      kind: "platform",
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: platformAssemblyRequest(row),
+      pack: row.pack,
+      contextId: platformDemoContextIdFor(pkg),
+    });
+  }
+  return memberDetailInspection.loadFindingCensus({
+    ...request,
+    kind: "package",
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
   });
 }
 

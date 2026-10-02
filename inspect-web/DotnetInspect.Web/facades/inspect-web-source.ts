@@ -799,6 +799,7 @@ type $ManagedExports = {
             readonly "QueryMemberSourceComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+            readonly "QueryPlatformMemberFindingCensus.861956385": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, contextId: string | null) => Promise<string>;
             readonly "QueryPlatformMemberSource.21698126": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, view: string, contextId: string | null) => Promise<string>;
             readonly "QueryPlatformTypeSource.65947390": (operationId: string, targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, styleOptionsJson: string, view: string, contextId: string | null) => Promise<string>;
             readonly "QueryRetainedMethodBodyComparison.1330709314": (operationId: string, retainedDefinitionId: string, realizationId: string, navigationId: string, requestJson: string) => Promise<string>;
@@ -985,6 +986,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryMethodBodyComparisonTargets.642387634");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMethodBodyComparisonTargets.642387634\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Source");
+    value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryPlatformMemberFindingCensus.861956385");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryPlatformMemberFindingCensus.861956385\u0027 is not callable.");
     }
   }
   {
@@ -1183,6 +1196,12 @@ export async function queryMethodBodyComparisonTargets(operationId: string, pack
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMethodBodyComparisonTargets.642387634"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMethodBodyTargetsResult;
+}
+
+export async function queryPlatformMemberFindingCensus(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, contextId: string | null): Promise<BrowserMemberFindingCensus> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryPlatformMemberFindingCensus.861956385"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson, contextId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserMemberFindingCensus;
 }
 
 export async function queryPlatformMemberSource(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, view: string, contextId: string | null): Promise<BrowserMemberSource> {

@@ -103,6 +103,17 @@ metadata-only default, shared completed acquisition, exact selection, absent
 parts, checksum failure, and neighboring whole-document/decompiled behavior.
 Frontend cases gate selected rendering, Copy, and stale-result handling.
 
+The Browser pathological case is
+`System.Text.Json@11.0.0-preview.7.26381.103`,
+`System.Text.Json.JsonDocument.TryParseValue`. Its large attached XML block is
+excluded from Declaration while `[NotNullWhen(true)]`, the signature, and the
+body remain; Member retains the complete authored text. The parameter attribute
+is part of Signature rather than a standalone member-level Attributes part.
+The published Browser/Wasm gate acquires the immutable package, portable PDB,
+and exact SourceLink revision for that real member, while the cataloged
+`InspectWeb.SourceComparisonFixture` case supplies deterministic neighboring
+coverage for selection, Copy, explicit decompilation, and modal Explore.
+
 The local-PDB/no-SourceLink checksum theory
 `Member_SourceParts_LocalPdbNeedsNoMapAndRejectsMismatchedText` inherits
 `Speed=Slow` from `CommandExecutionTests`. Daily Deep Inspect retains this

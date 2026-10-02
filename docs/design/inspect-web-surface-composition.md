@@ -1258,6 +1258,8 @@ Member Source **Explore** lazily acquires the annotated document and opens the
 full-bleed modal governed by the shared transient-surface contract. Exact
 Findings from Member Facts open the same viewer at their selected instance.
 Annotated Source has no inline working surface or persistent inspector.
+Package and platform members acquire that document through their corresponding
+workspace; a platform selection never falls through package acquisition.
 C# highlighting fidelity to the product document's exact text and coordinates,
 and every other viewer-internal behavior, are owned by
 [Annotated Source viewer interaction](annotated-source-viewer-interaction.md).
