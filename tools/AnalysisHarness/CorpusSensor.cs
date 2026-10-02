@@ -29,12 +29,14 @@ public sealed record CorpusDiff(
 }
 
 /// <summary>
-/// The analysis corpus stability sensor (#1818, Layer 2). It sweeps <see cref="LibraryBodyIndex"/>
-/// over a fixed corpus and reports the mechanically-checkable signals — did every assembly open,
-/// did the analyzer choke (recoverable diagnostics), and how did the aggregate signal counts move
-/// against a committed baseline. The point is to separate a REGRESSION (an assembly that stops
-/// opening, or a jump in analyzer diagnostics) from DRIFT (signal-count movement, expected as the
-/// analyzer improves and rebaselined deliberately). There is no precision/recall judgement here —
+/// The analysis corpus stability sensor (#1818, Layer 2). It runs focused
+/// optimization Analysis over a fixed corpus and reports the
+/// mechanically-checkable signals — did every assembly open, did the analyzer
+/// choke (recoverable diagnostics), and how did the aggregate signal counts
+/// move against a committed baseline. The point is to separate a REGRESSION
+/// (an assembly that stops opening, or a jump in analyzer diagnostics) from
+/// DRIFT (signal-count movement, expected as the analyzer improves and
+/// rebaselined deliberately). There is no precision/recall judgement here —
 /// that is Layer 3.
 /// </summary>
 public static class AnalysisCorpusSensor
@@ -71,20 +73,28 @@ public static class AnalysisCorpusSensor
     static AssemblyMetrics MeasureOne(string path)
     {
         string name = Path.GetFileName(path);
-        LibraryBodyIndex index;
+        LibraryBodyAnalysisExecution analysis;
         try
         {
-            index = LibraryBodyIndex.Open(path);
+            analysis = LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException)
         {
             return new AssemblyMetrics(name, Opened: false, TimedOut: false, 0, 0, 0, 0, new Dictionary<string, int>());
         }
 
-        var signals = index.GetMethodSignals();
+        LibraryCallGraphAnalysisResult callGraph = analysis.CallGraph;
+        LibraryOptimizationAnalysisResult optimization =
+            analysis.Optimization;
+        IReadOnlyDictionary<int, MethodSignals> signals =
+            callGraph.MethodSignals;
         int allocations = 0;
         int exceptionConstructions = 0;
-        foreach (var method in index.Methods)
+        foreach (MethodIdentity method in callGraph.Methods)
         {
             var signal = signals.GetValueOrDefault(method.MetadataToken, MethodSignals.None);
             allocations += signal.Allocations;
@@ -92,15 +102,18 @@ public static class AnalysisCorpusSensor
         }
 
         var shapes = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        foreach (var opportunity in index.OptimizationOpportunities)
+        foreach (OptimizationOpportunity opportunity in
+            optimization.Opportunities)
+        {
             shapes[opportunity.Shape] = shapes.GetValueOrDefault(opportunity.Shape) + 1;
+        }
 
         return new AssemblyMetrics(
             name,
             Opened: true,
             TimedOut: false,
-            index.Methods.Length,
-            index.Diagnostics.Length,
+            callGraph.Methods.Length,
+            callGraph.Diagnostics.Length,
             allocations,
             exceptionConstructions,
             shapes);
