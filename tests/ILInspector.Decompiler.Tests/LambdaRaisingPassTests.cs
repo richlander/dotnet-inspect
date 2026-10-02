@@ -19,6 +19,9 @@ public class LambdaRaisingPassTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [s_int, s_int]);
 
+    static int CountOccurrences(string text, string value)
+        => (text.Length - text.Replace(value, "", StringComparison.Ordinal).Length) / value.Length;
+
     static string PrintRaised(
         string methodName,
         Type? fixtureType = null,
@@ -71,6 +74,43 @@ public class LambdaRaisingPassTests
         Assert.Contains("foreach (", result.Output);
         Assert.DoesNotContain("iEnumerator =", result.Output);
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+    }
+
+    [Fact]
+    public void PublishedSystemCommandLineNestedForeachIterator_RaisesAuthoredLoops()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "NestedLambda",
+            "System.CommandLine.dll");
+        Assert.Equal(
+            "CA11ED514C992D6AD8127C154C7D921BEC2D98F1845E34325AF98E627D985793",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "System.CommandLine.Parsing.StringExtensions",
+            "<TryReadResponseFile>g__ExpandResponseFile|6_0");
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(2, function!.Descendants.OfType<ForeachStatement>().Count());
+        Assert.Equal(2, function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+        Assert.Equal(2, CountOccurrences(result.Output!, "foreach ("));
+        Assert.Contains("for (", result.Output);
+        Assert.DoesNotContain("___TryReadResponseFile_g__ExpandResponseFile_6_0_d", result.Output);
+        Assert.DoesNotContain("GetEnumerator", result.Output);
+        // The generated method is inspected directly; composing its separate local-function
+        // dependency graph into TryReadResponseFile remains outside this focused slice.
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
     [Fact]
