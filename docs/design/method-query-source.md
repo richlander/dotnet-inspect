@@ -468,7 +468,8 @@ Migration is incremental:
 5. Add authenticated generated-body expansion for that consumer.
 6. Add referenced-body expansion only with a consumer that requires it.
 7. Let the host-neutral request-set planner from #8574 group compatible
-   requests, then adopt one CLI and one Browser/Wasm operation.
+   requests. Method Classification implements the first mixed-terminal CLI
+   operation; a body-producer CLI adoption and Browser/Wasm operation remain.
 8. Move remaining producers and delete each superseded legacy scan and index
    when its final consumer moves.
 

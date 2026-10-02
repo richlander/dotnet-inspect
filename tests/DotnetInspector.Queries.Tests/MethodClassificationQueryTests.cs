@@ -218,22 +218,38 @@ public sealed class MethodClassificationQueryTests
     }
 
     [Fact]
-    public void Combined_RowsCountAndExistsForOneAnalyzerExecuteIndependentlyAndAgree()
+    public void SessionRequestSet_RowsCountAndExistsShareSourceAndEqualDirectReference()
     {
         string path = FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
         ClassificationQuestion rows = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows, ClassifiedRowOrder.Display);
         ClassificationQuestion count = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
         ClassificationQuestion exists = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Exists);
 
-        using var peReader = new PEReader(File.OpenRead(path));
-        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [rows, count, exists]);
+        MethodClassificationResult direct;
+        using (var peReader = new PEReader(File.OpenRead(path)))
+        {
+            direct = MethodClassificationQuery.Execute(
+                peReader,
+                [rows, count, exists]);
+        }
+
+        using var session = AssemblyInspectionSession.Open(path);
+        MethodClassificationResult result = MethodClassificationQuery.Execute(
+            session,
+            [rows, count, exists]);
 
         var listed = Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(rows));
         Assert.NotEmpty(listed.Methods);
         Assert.Equal(new ClassificationAnswer.Count(listed.Methods.Length), result.AnswerTo(count));
         Assert.Equal(new ClassificationAnswer.Exists(true), result.AnswerTo(exists));
+        Assert.Equal(
+            Assert.IsType<ClassificationAnswer.Rows>(
+                direct.AnswerTo(rows)).Methods.ToArray(),
+            listed.Methods.ToArray());
+        Assert.Equal(direct.AnswerTo(count), result.AnswerTo(count));
+        Assert.Equal(direct.AnswerTo(exists), result.AnswerTo(exists));
 
-        // One execution per closing; Count and Exists read no identity text.
+        // One lane per closing; Count and Exists read no identity text.
         Assert.Equal(
             [
                 new ClassificationExecution(ClassificationClosing.Rows),
@@ -260,6 +276,20 @@ public sealed class MethodClassificationQueryTests
             result.ReceiptOf(
                 new ClassificationExecution(
                     ClassificationClosing.Count)).IdentityWorkCharged);
+
+        MethodDefinitionSourceGroupReceipt source =
+            Assert.Single(result.SourceGroups);
+        Assert.Equal(3, source.LaneReceipts.Length);
+        Assert.Equal(
+            result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Rows)).UnitsVisited,
+            source.PhysicalCoverage.MethodsSelected.Count);
+        Assert.True(
+            source.PhysicalCoverage.MethodsSelected.Count
+            < direct.Receipts.Sum(
+                static receipt => receipt.Receipt.UnitsVisited));
+        Assert.True(direct.SourceGroups.IsDefault);
     }
 
     [Fact]

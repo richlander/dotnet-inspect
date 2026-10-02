@@ -18,10 +18,12 @@ using NLinq;
 // Old is the retired scanner (dated oracle) filtered as the CLI filtered it.
 // The gate, tests, and call state live in DotnetInspector.PerformanceOracles
 // (MethodClassificationOracle.cs) so other scorecards apply the same analysis.
-// LINQ, NLinq, and Planner apply the identical analysis and produce the
+// LINQ, NLinq, Direct, and Planner apply the identical analysis and produce the
 // identical row: the analyzers' gate and tests, with the gate's per-execution
 // attribute-match memos, and the Planner's projection (identity through
-// MethodRowProjection, every field inert). Only the read machinery differs.
+// MethodRowProjection, every field inert). Direct uses the PEReader
+// reference path; Planner uses the production session-backed request set.
+// Only the read machinery differs.
 // The equivalent columns follow #8870's audit harness (tools/AnalyzerAudit on
 // its scratch branch). Rows compare by method name in traversal order.
 if (args.Length == 0 || args[0] is not ("async" or "pinvoke"))
@@ -38,10 +40,13 @@ if (!ScorecardCommandLine.TryParse(args[1..], out ScorecardOptions? options, out
 }
 
 var shape = new ScorecardShape();
-ScorecardColumn<PEReader, string>[] columns = Columns.For(population, shape);
-ScorecardColumn<PEReader, string> oracle = columns.Single(static column => column.Name == "NLinq");
+ScorecardColumn<MethodClassificationAsset, string>[] columns =
+    Columns.For(population, shape);
+ScorecardColumn<MethodClassificationAsset, string> oracle =
+    columns.Single(static column => column.Name == "NLinq");
 
-IReadOnlyList<ScorecardAsset<PEReader>> assets = MethodPopulation.LoadAssets(options!.Assets);
+IReadOnlyList<ScorecardAsset<MethodClassificationAsset>> assets =
+    LoadAssets(options!.Assets);
 try
 {
     ScorecardCheck check = Scorecard.Check(assets, oracle, columns, static name => name);
@@ -52,23 +57,281 @@ try
         return 1;
     foreach (string asset in check.WindowFailures)
         Console.WriteLine($"window-failed\t{asset}\t{shape.Label(ScorecardClosing.Window)}");
+
+    ScorecardColumn<MethodClassificationAsset, string>[] bundleColumns =
+        Columns.Bundle(population, shape);
+    ScorecardCheck bundleCheck = Scorecard.Check(
+        assets,
+        bundleColumns[0],
+        bundleColumns,
+        static name => name,
+        closings: [ScorecardClosing.Rows]);
+    foreach (ScorecardMismatch mismatch in bundleCheck.Mismatches)
+    {
+        Console.WriteLine(
+            $"bundle-mismatch\t{mismatch.Asset}\t{mismatch.Column}"
+            + $"\t{mismatch.Answer}\toracle={mismatch.OracleAnswer}");
+    }
+    Console.WriteLine(
+        $"# {args[0]} request-set bundle: "
+        + $"{bundleCheck.Compared} compared, "
+        + $"{bundleCheck.Mismatches.Count} mismatches");
+    if (!bundleCheck.Agrees)
+        return 1;
+
+    Metrics.WriteWork(
+        population,
+        assets);
+    Metrics.WriteAllocations(
+        assets,
+        columns,
+        shape);
+    Metrics.WriteAllocations(
+        assets,
+        bundleColumns,
+        shape,
+        [ScorecardClosing.Rows]);
+
     if (options.Command == ScorecardCommand.Check)
         return 0;
 
     IReadOnlyList<ScorecardCell> cells = Scorecard.Measure(assets, columns, options.Timing, progress => Console.Error.WriteLine(progress));
+    IReadOnlyList<ScorecardCell> bundleCells =
+        Scorecard.Measure(
+            assets,
+            bundleColumns,
+            options.Timing,
+            progress => Console.Error.WriteLine(
+                $"bundle {progress}"),
+            [ScorecardClosing.Rows]);
     if (options.TsvPath is { } tsvPath)
     {
         using StreamWriter tsv = File.CreateText(tsvPath);
-        Scorecard.WriteTsv(cells, tsv);
+        Scorecard.WriteTsv(
+            [.. cells, .. bundleCells],
+            tsv);
     }
 
     Console.Write(Scorecard.Report(cells, "Planner", shape));
+    Console.WriteLine("# request-set Rows+Count+Exists bundle");
+    Console.Write(
+        Scorecard.Report(
+            bundleCells,
+            "Collapsed",
+            shape));
     return 0;
 }
 finally
 {
-    foreach (ScorecardAsset<PEReader> asset in assets)
+    foreach (ScorecardAsset<MethodClassificationAsset> asset in assets)
         asset.Asset.Dispose();
+}
+
+static IReadOnlyList<ScorecardAsset<MethodClassificationAsset>> LoadAssets(
+    IReadOnlyList<string> paths)
+{
+    IReadOnlyList<ScorecardAsset<PEReader>> readers =
+        MethodPopulation.LoadAssets(paths);
+    var assets =
+        new List<ScorecardAsset<MethodClassificationAsset>>(
+            readers.Count);
+    try
+    {
+        for (int i = 0; i < readers.Count; i++)
+        {
+            ScorecardAsset<PEReader> reader = readers[i];
+            assets.Add(new(
+                reader.Name,
+                new(
+                    reader.Asset,
+                    AssemblyInspectionSession.Open(paths[i]))));
+        }
+
+        return assets;
+    }
+    catch
+    {
+        foreach (ScorecardAsset<MethodClassificationAsset> asset
+            in assets)
+        {
+            asset.Asset.Dispose();
+        }
+
+        for (int i = assets.Count; i < readers.Count; i++)
+            readers[i].Asset.Dispose();
+        throw;
+    }
+}
+
+sealed class MethodClassificationAsset(
+    PEReader reader,
+    AssemblyInspectionSession session) : IDisposable
+{
+    public PEReader Reader { get; } = reader;
+
+    public AssemblyInspectionSession Session { get; } = session;
+
+    public void Dispose()
+    {
+        Session.Dispose();
+        Reader.Dispose();
+    }
+}
+
+static class Metrics
+{
+    public static void WriteWork(
+        ClassificationPopulation population,
+        IReadOnlyList<ScorecardAsset<MethodClassificationAsset>>
+            assets)
+    {
+        MethodClassificationAnalyzer analyzer =
+            population == ClassificationPopulation.Async
+                ? MethodClassificationAnalyzer.Async
+                : MethodClassificationAnalyzer.PInvoke;
+        ClassificationQuestion rows =
+            new(analyzer, ClassificationClosing.Rows);
+        ClassificationQuestion count =
+            new(analyzer, ClassificationClosing.Count);
+        ClassificationQuestion exists =
+            new(analyzer, ClassificationClosing.Exists);
+        ClassificationQuestion[] questions = [rows, count, exists];
+        foreach (ScorecardAsset<MethodClassificationAsset> asset
+            in assets)
+        {
+            foreach (ClassificationQuestion question in questions)
+            {
+                MethodClassificationResult direct =
+                    MethodClassificationQuery.Execute(
+                        asset.Asset.Reader,
+                        [question]);
+                MethodClassificationResult singleton =
+                    MethodClassificationQuery.Execute(
+                        asset.Asset.Session,
+                        [question]);
+                var execution = new ClassificationExecution(
+                    question.Closing,
+                    question.HeadCount);
+                WorkReceipt directReceipt =
+                    direct.ReceiptOf(execution);
+                WorkReceipt singletonReceipt =
+                    singleton.ReceiptOf(execution);
+                MethodDefinitionSourceGroupReceipt source =
+                    singleton.SourceGroups.Single();
+                Console.WriteLine(
+                    $"work\t{asset.Name}\t{question.Closing}"
+                    + $"\tdirect-units={directReceipt.UnitsVisited}"
+                    + $"\tsingleton-units={singletonReceipt.UnitsVisited}"
+                    + "\tsingleton-physical="
+                    + source.PhysicalCoverage.MethodsSelected.Count
+                    + "\tdirect-identity="
+                    + directReceipt.IdentityWorkCharged
+                    + "\tsingleton-identity="
+                    + singletonReceipt.IdentityWorkCharged
+                    + $"\tmaterialized-rows={MaterializedRows(singleton, question)}"
+                    + $"\tcardinality={Cardinality(singleton, question)}");
+            }
+
+            MethodClassificationResult collapsed =
+                MethodClassificationQuery.Execute(
+                    asset.Asset.Session,
+                    questions);
+            MethodDefinitionSourceGroupReceipt collapsedSource =
+                collapsed.SourceGroups.Single();
+            Console.WriteLine(
+                $"work\t{asset.Name}\tRows+Count+Exists"
+                + "\tindependent-physical="
+                + questions.Sum(
+                    question =>
+                        MethodClassificationQuery.Execute(
+                            asset.Asset.Session,
+                            [question])
+                        .SourceGroups.Single()
+                        .PhysicalCoverage.MethodsSelected.Count)
+                + "\tcollapsed-physical="
+                + collapsedSource.PhysicalCoverage.MethodsSelected.Count
+                + "\tlanes="
+                + collapsedSource.LaneReceipts.Length
+                + "\tmaterialized-rows="
+                + MaterializedRows(collapsed, rows));
+        }
+    }
+
+    public static void WriteAllocations(
+        IReadOnlyList<ScorecardAsset<MethodClassificationAsset>>
+            assets,
+        IReadOnlyList<
+            ScorecardColumn<MethodClassificationAsset, string>>
+                columns,
+        ScorecardShape shape,
+        IReadOnlyList<ScorecardClosing>? closings = null)
+    {
+        closings ??= Scorecard.Closings;
+        foreach (ScorecardAsset<MethodClassificationAsset> asset
+            in assets)
+        {
+            foreach (ScorecardClosing closing in closings)
+            {
+                foreach (ScorecardColumn<
+                    MethodClassificationAsset,
+                    string> column in columns)
+                {
+                    ScorecardAnswer<string> first =
+                        column.Answer(closing, asset.Asset);
+                    if (closing == ScorecardClosing.Window
+                        && first.WindowFailed)
+                    {
+                        continue;
+                    }
+
+                    for (int i = 0; i < 3; i++)
+                        _ = column.Answer(closing, asset.Asset);
+
+                    var samples = new long[21];
+                    for (int i = 0; i < samples.Length; i++)
+                    {
+                        long before =
+                            GC.GetAllocatedBytesForCurrentThread();
+                        _ = column.Answer(closing, asset.Asset);
+                        samples[i] =
+                            GC.GetAllocatedBytesForCurrentThread()
+                            - before;
+                    }
+
+                    Array.Sort(samples);
+                    Console.WriteLine(
+                        $"allocation\t{asset.Name}"
+                        + $"\t{shape.Label(closing)}"
+                        + $"\t{column.Name}"
+                        + $"\t{samples[samples.Length / 2]}");
+                }
+            }
+        }
+    }
+
+    static int MaterializedRows(
+        MethodClassificationResult result,
+        ClassificationQuestion question) =>
+        result.AnswerTo(question)
+            is ClassificationAnswer.Rows rows
+                ? rows.Methods.Length
+                : 0;
+
+    static string Cardinality(
+        MethodClassificationResult result,
+        ClassificationQuestion question) =>
+        result.AnswerTo(question) switch
+        {
+            ClassificationAnswer.Rows rows =>
+                rows.Methods.Length.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture),
+            ClassificationAnswer.Count count =>
+                count.Value.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture),
+            ClassificationAnswer.Exists exists =>
+                exists.Value ? "true" : "false",
+            _ => "incomplete",
+        };
 }
 
 /// <summary>The Planner's row, built as its projection builds it.</summary>
@@ -127,12 +390,72 @@ sealed class View<T>(IReadOnlyList<T> rows, Func<T, string> name) : IReadOnlyLis
 
 static class Columns
 {
-    public static ScorecardColumn<PEReader, string>[] For(ClassificationPopulation population, ScorecardShape shape) =>
+    public static ScorecardColumn<MethodClassificationAsset, string>[] For(
+        ClassificationPopulation population,
+        ScorecardShape shape) =>
     [
-        new("Old", (closing, pe) => Old(population, closing, pe, shape)),
-        new("LINQ", (closing, pe) => Linq(population, closing, pe, shape)),
-        new("NLinq", (closing, pe) => NLinqColumn(population, closing, pe, shape)),
-        new("Planner", (closing, pe) => Planner(population, closing, pe, shape)),
+        new(
+            "Old",
+            (closing, asset) =>
+                Old(
+                    population,
+                    closing,
+                    asset.Reader,
+                    shape)),
+        new(
+            "LINQ",
+            (closing, asset) =>
+                Linq(
+                    population,
+                    closing,
+                    asset.Reader,
+                    shape)),
+        new(
+            "NLinq",
+            (closing, asset) =>
+                NLinqColumn(
+                    population,
+                    closing,
+                    asset.Reader,
+                    shape)),
+        new(
+            "Direct",
+            (closing, asset) =>
+                Planner(
+                    population,
+                    closing,
+                    asset.Reader,
+                    shape)),
+        new(
+            "Planner",
+            (closing, asset) =>
+                Planner(
+                    population,
+                    closing,
+                    asset.Session,
+                    shape)),
+    ];
+
+    public static ScorecardColumn<
+        MethodClassificationAsset,
+        string>[] Bundle(
+            ClassificationPopulation population,
+            ScorecardShape shape) =>
+    [
+        new(
+            "Independent",
+            (_, asset) =>
+                IndependentBundle(
+                    population,
+                    asset.Session,
+                    shape)),
+        new(
+            "Collapsed",
+            (_, asset) =>
+                CollapsedBundle(
+                    population,
+                    asset.Session,
+                    shape)),
     ];
 
     static ScorecardAnswer<string> Answer<T>(ScorecardClosing closing, List<T> rows, Func<T, string> name, ScorecardShape shape) =>
@@ -235,29 +558,29 @@ static class Columns
         switch (closing)
         {
             case ScorecardClosing.Head:
-            {
-                var rows = selected
-                    .Select<Filter<MethodDefinitionRow, MethodDefinitionRows, Select>, MethodDefinitionRow, ClassifiedMethodRow, Project>(project)
-                    .Take<Map<MethodDefinitionRow, ClassifiedMethodRow, Filter<MethodDefinitionRow, MethodDefinitionRows, Select>, Project>, ClassifiedMethodRow>(shape.N);
-                var list = new List<ClassifiedMethodRow>(shape.N);
-                while (true)
                 {
-                    ClassifiedMethodRow row = rows.TryGetNext(out bool hasMore);
-                    if (!hasMore)
-                        return ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(list, Name));
-                    list.Add(row);
+                    var rows = selected
+                        .Select<Filter<MethodDefinitionRow, MethodDefinitionRows, Select>, MethodDefinitionRow, ClassifiedMethodRow, Project>(project)
+                        .Take<Map<MethodDefinitionRow, ClassifiedMethodRow, Filter<MethodDefinitionRow, MethodDefinitionRows, Select>, Project>, ClassifiedMethodRow>(shape.N);
+                    var list = new List<ClassifiedMethodRow>(shape.N);
+                    while (true)
+                    {
+                        ClassifiedMethodRow row = rows.TryGetNext(out bool hasMore);
+                        if (!hasMore)
+                            return ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(list, Name));
+                        list.Add(row);
+                    }
                 }
-            }
 
             case ScorecardClosing.Tail:
-            {
-                List<MethodDefinitionRow> last = selected
-                    .TakeLast<Filter<MethodDefinitionRow, MethodDefinitionRows, Select>, MethodDefinitionRow>(shape.N);
-                var list = new List<ClassifiedMethodRow>(last.Count);
-                foreach (MethodDefinitionRow row in last)
-                    list.Add(project.Invoke(row));
-                return ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(list, Name));
-            }
+                {
+                    List<MethodDefinitionRow> last = selected
+                        .TakeLast<Filter<MethodDefinitionRow, MethodDefinitionRows, Select>, MethodDefinitionRow>(shape.N);
+                    var list = new List<ClassifiedMethodRow>(last.Count);
+                    foreach (MethodDefinitionRow row in last)
+                        list.Add(project.Invoke(row));
+                    return ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(list, Name));
+                }
 
             case ScorecardClosing.Rows:
                 return ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(selected
@@ -282,29 +605,174 @@ static class Columns
     /// The enablement: Exists, Count, and Head are source closings. Tail and
     /// the strict window still read the Rows closing.
     /// </summary>
-    static ScorecardAnswer<string> Planner(ClassificationPopulation population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
+    static ScorecardAnswer<string> IndependentBundle(
+        ClassificationPopulation population,
+        AssemblyInspectionSession session,
+        ScorecardShape shape)
     {
-        MethodClassificationAnalyzer analyzer = population == ClassificationPopulation.Async
-            ? MethodClassificationAnalyzer.Async
-            : MethodClassificationAnalyzer.PInvoke;
-        ClassificationQuestion question = closing == ScorecardClosing.Head
+        (
+            ClassificationQuestion rows,
+            ClassificationQuestion count,
+            ClassificationQuestion exists) =
+                BundleQuestions(population);
+        return BundleAnswer(
+            MethodClassificationQuery.Execute(
+                session,
+                [rows]),
+            MethodClassificationQuery.Execute(
+                session,
+                [count]),
+            MethodClassificationQuery.Execute(
+                session,
+                [exists]),
+            rows,
+            count,
+            exists,
+            shape);
+    }
+
+    static ScorecardAnswer<string> CollapsedBundle(
+        ClassificationPopulation population,
+        AssemblyInspectionSession session,
+        ScorecardShape shape)
+    {
+        (
+            ClassificationQuestion rows,
+            ClassificationQuestion count,
+            ClassificationQuestion exists) =
+                BundleQuestions(population);
+        MethodClassificationResult result =
+            MethodClassificationQuery.Execute(
+                session,
+                [rows, count, exists]);
+        return BundleAnswer(
+            result,
+            result,
+            result,
+            rows,
+            count,
+            exists,
+            shape);
+    }
+
+    static (
+        ClassificationQuestion Rows,
+        ClassificationQuestion Count,
+        ClassificationQuestion Exists) BundleQuestions(
+            ClassificationPopulation population)
+    {
+        MethodClassificationAnalyzer analyzer =
+            population == ClassificationPopulation.Async
+                ? MethodClassificationAnalyzer.Async
+                : MethodClassificationAnalyzer.PInvoke;
+        return (
+            new(
+                analyzer,
+                ClassificationClosing.Rows),
+            new(
+                analyzer,
+                ClassificationClosing.Count),
+            new(
+                analyzer,
+                ClassificationClosing.Exists));
+    }
+
+    static ScorecardAnswer<string> BundleAnswer(
+        MethodClassificationResult rowsResult,
+        MethodClassificationResult countResult,
+        MethodClassificationResult existsResult,
+        ClassificationQuestion rows,
+        ClassificationQuestion count,
+        ClassificationQuestion exists,
+        ScorecardShape shape)
+    {
+        ClassificationAnswer.Rows listed =
+            (ClassificationAnswer.Rows)rowsResult.AnswerTo(rows);
+        int counted =
+            ((ClassificationAnswer.Count)countResult.AnswerTo(count)).Value;
+        bool found =
+            ((ClassificationAnswer.Exists)existsResult.AnswerTo(exists))
+                .Value;
+        if (counted != listed.Methods.Length
+            || found != (listed.Methods.Length > 0))
+        {
+            throw new InvalidOperationException(
+                "The Method Classification bundle's independent terminals "
+                + "disagree.");
+        }
+
+        return Answer(
+            ScorecardClosing.Rows,
+            [.. listed.Methods],
+            Name,
+            shape);
+    }
+
+    static ScorecardAnswer<string> Planner(
+        ClassificationPopulation population,
+        ScorecardClosing closing,
+        PEReader pe,
+        ScorecardShape shape)
+    {
+        ClassificationQuestion question =
+            PlannerQuestion(population, closing, shape);
+        return PlannerAnswer(
+            MethodClassificationQuery.Execute(pe, [question]),
+            question,
+            closing,
+            shape);
+    }
+
+    static ScorecardAnswer<string> Planner(
+        ClassificationPopulation population,
+        ScorecardClosing closing,
+        AssemblyInspectionSession session,
+        ScorecardShape shape)
+    {
+        ClassificationQuestion question =
+            PlannerQuestion(population, closing, shape);
+        return PlannerAnswer(
+            MethodClassificationQuery.Execute(session, [question]),
+            question,
+            closing,
+            shape);
+    }
+
+    static ClassificationQuestion PlannerQuestion(
+        ClassificationPopulation population,
+        ScorecardClosing closing,
+        ScorecardShape shape)
+    {
+        MethodClassificationAnalyzer analyzer =
+            population == ClassificationPopulation.Async
+                ? MethodClassificationAnalyzer.Async
+                : MethodClassificationAnalyzer.PInvoke;
+        return closing == ScorecardClosing.Head
             ? ClassificationQuestion.Head(analyzer, shape.N)
             : new(
                 analyzer,
                 closing switch
                 {
-                    ScorecardClosing.Exists => ClassificationClosing.Exists,
-                    ScorecardClosing.Count => ClassificationClosing.Count,
+                    ScorecardClosing.Exists =>
+                        ClassificationClosing.Exists,
+                    ScorecardClosing.Count =>
+                        ClassificationClosing.Count,
                     _ => ClassificationClosing.Rows,
                 });
-        return MethodClassificationQuery.Execute(pe, [question]).AnswerTo(question) switch
+    }
+
+    static ScorecardAnswer<string> PlannerAnswer(
+        MethodClassificationResult result,
+        ClassificationQuestion question,
+        ScorecardClosing closing,
+        ScorecardShape shape) =>
+        result.AnswerTo(question) switch
         {
             ClassificationAnswer.Exists exists => ScorecardAnswer<string>.OfExists(exists.Value),
             ClassificationAnswer.Count count => ScorecardAnswer<string>.OfCount(count.Value),
             ClassificationAnswer.Rows rows => Answer(closing, [.. rows.Methods], Name, shape),
             ClassificationAnswer answer => throw new InvalidOperationException($"The planner did not answer: {answer}"),
         };
-    }
 
     static string Name(ClassifiedMethodRow row) => row.MethodName.ToString();
 

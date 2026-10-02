@@ -198,6 +198,16 @@ public sealed record MethodClassificationResult(
     CriticalFailure? Critical,
     ImmutableArray<ClassificationReceipt> Receipts)
 {
+    /// <summary>
+    /// Physical Method-source work for the session-backed QuerySpace
+    /// execution; default for the direct PEReader reference path.
+    /// </summary>
+    public ImmutableArray<MethodDefinitionSourceGroupReceipt> SourceGroups
+    {
+        get;
+        init;
+    }
+
     public ClassificationAnswer AnswerTo(ClassificationQuestion question)
     {
         foreach ((ClassificationQuestion asked, ClassificationAnswer answer) in Answers)
@@ -225,9 +235,10 @@ public sealed record MethodClassificationResult(
 
 /// <summary>
 /// Host-neutral method classification: per-analyzer questions and one
-/// combined request. Each closing runs as its own request in its own Producer
-/// Planning execution, so no closing derives from another. Count and Exists
-/// never read identity text; composing requests belongs to QuerySpace (#8574).
+/// combined request. A session-backed request composes independent closings
+/// through QuerySpace over one Method-source traversal; the PEReader overload
+/// remains the direct reference path. Count and Exists never read identity
+/// text, and no closing derives from another.
 /// Hosts bind questions and map answers; they never sort, merge, or count rows.
 /// </summary>
 /// <remarks>
@@ -245,7 +256,15 @@ public static class MethodClassificationQuery
         FindingSubject? findingSubject = null)
     {
         ArgumentNullException.ThrowIfNull(session);
-        return session.InspectImage(peReader => Execute(peReader, questions, findingSubject));
+        ValidateQuestions(questions);
+
+        if (!session.HasMetadata
+            || !session.InspectImage(MetadataFormatAdmission.AdmitImage))
+        {
+            return Empty(questions, findingSubject);
+        }
+
+        return ExecuteRequestSet(session, questions, findingSubject);
     }
 
     /// <summary>
@@ -259,18 +278,7 @@ public static class MethodClassificationQuery
         FindingSubject? findingSubject = null)
     {
         ArgumentNullException.ThrowIfNull(peReader);
-        ArgumentNullException.ThrowIfNull(questions);
-        foreach (ClassificationQuestion question in questions)
-        {
-            ArgumentNullException.ThrowIfNull(question);
-            if (question.Analyzer == MethodClassificationAnalyzer.PointerSignature
-                && question.Order == ClassifiedRowOrder.Display)
-            {
-                throw new ArgumentException(
-                    "Pointer-signature rows have no display order.",
-                    nameof(questions));
-            }
-        }
+        ValidateQuestions(questions);
 
         bool finding = findingSubject is not null;
 
@@ -281,24 +289,8 @@ public static class MethodClassificationQuery
         // Each closing and operand is its own request and execution: planning
         // never derives Count or Exists from Rows. The Finding asks for Rows
         // of every analyzer, so it shares the Rows execution.
-        var requestedExecutions = new List<ClassificationExecution>();
-        if (finding)
-        {
-            requestedExecutions.Add(
-                new ClassificationExecution(ClassificationClosing.Rows));
-        }
-
-        foreach (ClassificationClosing closing in Enum.GetValues<ClassificationClosing>())
-        {
-            foreach (ClassificationQuestion question in questions)
-            {
-                if (question.Closing == closing
-                    && !requestedExecutions.Contains(question.Execution))
-                {
-                    requestedExecutions.Add(question.Execution);
-                }
-            }
-        }
+        List<ClassificationExecution> requestedExecutions =
+            RequestedExecutions(questions, finding);
 
         var executions =
             new MethodDefinitionExecution[requestedExecutions.Count];
@@ -309,25 +301,18 @@ public static class MethodClassificationQuery
             ClassificationExecution execution =
                 requestedExecutions[executionIndex];
             var requests = new List<ProducerRequest>();
-            foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
+            foreach (MethodClassificationAnalyzer analyzer
+                in RequestedAnalyzers(
+                    execution,
+                    questions,
+                    finding))
             {
-                bool requested = finding
-                    && execution.Closing == ClassificationClosing.Rows
-                    && MergedAnalyzers.Contains(analyzer);
-                foreach (ClassificationQuestion question in questions)
-                {
-                    requested |= question.Analyzer == analyzer
-                        && question.Execution == execution;
-                }
-                if (requested)
-                {
-                    Analyzer producer = ProducerFor(analyzer);
-                    requests.Add(execution.HeadCount is int count
-                        ? ProducerRequest.Head(producer, count)
-                        : new ProducerRequest(
-                            producer,
-                            TerminalFor(execution.Closing)));
-                }
+                Analyzer producer = ProducerFor(analyzer);
+                requests.Add(execution.HeadCount is int count
+                    ? ProducerRequest.Head(producer, count)
+                    : new ProducerRequest(
+                        producer,
+                        TerminalFor(execution.Closing)));
             }
 
             if (requests.Count == 0)
@@ -344,62 +329,294 @@ public static class MethodClassificationQuery
                 peReader);
         }
 
-        var answers = ImmutableArray.CreateBuilder<(ClassificationQuestion, ClassificationAnswer)>(questions.Count);
-        foreach (ClassificationQuestion question in questions)
-        {
-            answers.Add((question, Answer(
+        return BuildResult(
+            questions,
+            findingSubject,
+            requestedExecutions,
+            (execution, analyzer) =>
                 ExecutionOf(
                     requestedExecutions,
                     executions,
-                    question.Execution)
-                    .ResultOf(ProducerFor(question.Analyzer)),
-                question)));
+                    execution)
+                    .ResultOf(ProducerFor(analyzer)),
+            execution =>
+                ExecutionOf(
+                    requestedExecutions,
+                    executions,
+                    execution)
+                    .Receipt);
+    }
+
+    static MethodClassificationResult ExecuteRequestSet(
+        AssemblyInspectionSession session,
+        IReadOnlyList<ClassificationQuestion> questions,
+        FindingSubject? findingSubject)
+    {
+        bool finding = findingSubject is not null;
+        List<ClassificationExecution> requestedExecutions =
+            RequestedExecutions(questions, finding);
+        var associations =
+            new List<MethodDefinitionSourceAssociation>();
+        var requests =
+            new Dictionary<
+                (ClassificationExecution, MethodClassificationAnalyzer),
+                ClassificationRequestBinding>();
+
+        foreach (ClassificationExecution execution
+            in requestedExecutions)
+        {
+            foreach (MethodClassificationAnalyzer analyzer
+                in RequestedAnalyzers(
+                    execution,
+                    questions,
+                    finding))
+            {
+                Analyzer producer = ProducerFor(analyzer);
+                ProducerRequest producerRequest =
+                    execution.HeadCount is int count
+                        ? ProducerRequest.Head(producer, count)
+                        : new(
+                            producer,
+                            TerminalFor(execution.Closing));
+                WorkDescription work =
+                    ProducerPlanner.Plan([producerRequest])
+                        is ProducerPlanResult.Accepted producerPlan
+                            ? producerPlan.Description
+                            : throw new ProducerContractException(
+                                "The Method Classification request must plan.");
+                MethodDefinitionSourceRequest<
+                    ClosedQueryResult<ClassifiedMethodRow>> request =
+                        MethodDefinitionSourceRequest<
+                            ClosedQueryResult<ClassifiedMethodRow>>.Create(
+                                MethodClassificationQuerySpace.CreateRequest(
+                                    analyzer,
+                                    execution),
+                                work,
+                                producer);
+                MethodDefinitionSourceAssociation association =
+                    MethodDefinitionSourceAssociation.Create(request);
+                associations.Add(association);
+                requests.Add(
+                    (execution, analyzer),
+                    new(association, request));
+            }
+        }
+
+        if (associations.Count == 0)
+            return Empty(questions, findingSubject);
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            MethodDefinitionSourceRequestSet.Plan(
+                MethodDefinitionSourceResourceIdentity.Create(),
+                associations)
+            is MethodDefinitionSourceRequestSetPlanResult.Accepted accepted
+                ? accepted.Plan
+                : throw new ProducerContractException(
+                    "The Method Classification QuerySpace request set "
+                    + "must plan.");
+        AssemblyAnalysisRequestSetOperation operation =
+            AssemblyAnalysisRequestSetOperation.Create(
+                "MethodClassification",
+                plan);
+        AssemblyAnalysisRequestSetServiceResult serviceResult =
+            session.SnapshotOperation(
+                operation,
+                access =>
+                    AssemblyAnalysisService.Instance.Execute(
+                        operation,
+                        access));
+        if (serviceResult
+            is AssemblyAnalysisRequestSetServiceResult.Rejected rejected)
+        {
+            if (rejected.Kind
+                == AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable)
+            {
+                return Empty(questions, findingSubject);
+            }
+
+            throw new ProducerContractException(
+                $"The Method Classification request-set operation was "
+                + $"rejected: {rejected.Kind}.");
+        }
+
+        MethodDefinitionSourceRequestSetExecution completed =
+            ((AssemblyAnalysisRequestSetServiceResult.Completed)serviceResult)
+                .Execution;
+        return BuildResult(
+            questions,
+            findingSubject,
+            requestedExecutions,
+            (execution, analyzer) =>
+            {
+                ClassificationRequestBinding binding =
+                    requests[(execution, analyzer)];
+                return completed.ResultOf(
+                    binding.Association,
+                    binding.Request);
+            },
+            execution =>
+            {
+                MethodClassificationAnalyzer analyzer =
+                    RequestedAnalyzers(
+                        execution,
+                        questions,
+                        finding)[0];
+                return completed.ResultOf(
+                    requests[(execution, analyzer)].Association)
+                    .WorkReceipt;
+            },
+            completed.GroupReceipts);
+    }
+
+    static MethodClassificationResult BuildResult(
+        IReadOnlyList<ClassificationQuestion> questions,
+        FindingSubject? findingSubject,
+        IReadOnlyList<ClassificationExecution> requestedExecutions,
+        Func<
+            ClassificationExecution,
+            MethodClassificationAnalyzer,
+            Result> resultOf,
+        Func<ClassificationExecution, WorkReceipt> receiptOf,
+        ImmutableArray<MethodDefinitionSourceGroupReceipt> sourceGroups =
+            default)
+    {
+        var answers =
+            ImmutableArray.CreateBuilder<
+                (ClassificationQuestion, ClassificationAnswer)>(
+                    questions.Count);
+        foreach (ClassificationQuestion question in questions)
+        {
+            answers.Add((
+                question,
+                Answer(
+                    resultOf(
+                        question.Execution,
+                        question.Analyzer),
+                    question)));
         }
 
         ImmutableArray<ClassifiedMethodRow> merged = default;
         FindingInspection<ClassifiedMethodObservation>? inspection = null;
-        if (finding)
+        if (findingSubject is not null)
         {
+            ClassificationExecution rows =
+                new(ClassificationClosing.Rows);
             merged = Merge(
-                ExecutionOf(
-                    requestedExecutions,
-                    executions,
-                    new ClassificationExecution(
-                        ClassificationClosing.Rows)),
+                analyzer => resultOf(rows, analyzer),
                 out string? failure);
             inspection = merged.IsDefault
                 ? new FindingInspection<ClassifiedMethodObservation>(
-                    new FindingInspection<ClassifiedMethodObservation>.Failed(
-                        new InspectionError(
-                            findingSubject!,
-                            MetadataFindings.ClassifiedMethodDescriptor,
-                            failure!)))
+                    new FindingInspection<
+                        ClassifiedMethodObservation>.Failed(
+                            new InspectionError(
+                                findingSubject,
+                                MetadataFindings
+                                    .ClassifiedMethodDescriptor,
+                                failure!)))
                 : MetadataFindings.InspectClassifiedMethods(
                     merged.Select(ToClassifiedMethodInfo),
-                    findingSubject!);
+                    findingSubject);
         }
 
         var receipts =
             ImmutableArray.CreateBuilder<ClassificationReceipt>(
                 requestedExecutions.Count);
         CriticalFailure? critical = null;
-        for (int i = 0; i < requestedExecutions.Count; i++)
+        foreach (ClassificationExecution execution
+            in requestedExecutions)
         {
-            ClassificationExecution execution = requestedExecutions[i];
-            MethodDefinitionExecution completed = executions[i];
-            receipts.Add(new ClassificationReceipt(
+            WorkReceipt receipt = receiptOf(execution);
+            receipts.Add(new(
                 execution,
-                completed.Receipt));
-            critical ??= completed.Receipt.Critical;
+                receipt));
+            critical ??= receipt.Critical;
         }
 
-        return new MethodClassificationResult(
+        return new(
             answers.MoveToImmutable(),
             merged,
             inspection,
             critical,
-            receipts.MoveToImmutable());
+            receipts.MoveToImmutable())
+        {
+            SourceGroups = sourceGroups,
+        };
     }
+
+    static void ValidateQuestions(
+        IReadOnlyList<ClassificationQuestion> questions)
+    {
+        ArgumentNullException.ThrowIfNull(questions);
+        foreach (ClassificationQuestion question in questions)
+        {
+            ArgumentNullException.ThrowIfNull(question);
+            if (question.Analyzer
+                    == MethodClassificationAnalyzer.PointerSignature
+                && question.Order == ClassifiedRowOrder.Display)
+            {
+                throw new ArgumentException(
+                    "Pointer-signature rows have no display order.",
+                    nameof(questions));
+            }
+        }
+    }
+
+    static List<ClassificationExecution> RequestedExecutions(
+        IReadOnlyList<ClassificationQuestion> questions,
+        bool finding)
+    {
+        var executions = new List<ClassificationExecution>();
+        if (finding)
+        {
+            executions.Add(
+                new(ClassificationClosing.Rows));
+        }
+
+        foreach (ClassificationClosing closing
+            in Enum.GetValues<ClassificationClosing>())
+        {
+            foreach (ClassificationQuestion question in questions)
+            {
+                if (question.Closing == closing
+                    && !executions.Contains(question.Execution))
+                {
+                    executions.Add(question.Execution);
+                }
+            }
+        }
+
+        return executions;
+    }
+
+    static List<MethodClassificationAnalyzer> RequestedAnalyzers(
+        ClassificationExecution execution,
+        IReadOnlyList<ClassificationQuestion> questions,
+        bool finding)
+    {
+        var analyzers = new List<MethodClassificationAnalyzer>();
+        foreach (MethodClassificationAnalyzer analyzer
+            in Enum.GetValues<MethodClassificationAnalyzer>())
+        {
+            bool requested = finding
+                && execution.Closing == ClassificationClosing.Rows
+                && MergedAnalyzers.Contains(analyzer);
+            foreach (ClassificationQuestion question in questions)
+            {
+                requested |= question.Analyzer == analyzer
+                    && question.Execution == execution;
+            }
+
+            if (requested)
+                analyzers.Add(analyzer);
+        }
+
+        return analyzers;
+    }
+
+    readonly record struct ClassificationRequestBinding(
+        MethodDefinitionSourceAssociation Association,
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> Request);
 
     static MethodDefinitionExecution ExecutionOf(
         IReadOnlyList<ClassificationExecution> identities,
@@ -506,7 +723,7 @@ public static class MethodClassificationQuery
     /// the analyzer and the unit.
     /// </summary>
     static ImmutableArray<ClassifiedMethodRow> Merge(
-        MethodDefinitionExecution execution,
+        Func<MethodClassificationAnalyzer, Result> resultOf,
         out string? failure)
     {
         failure = null;
@@ -514,7 +731,7 @@ public static class MethodClassificationQuery
         foreach (MethodClassificationAnalyzer analyzer in MergedAnalyzers)
         {
             Analyzer producer = ProducerFor(analyzer);
-            Result result = execution.ResultOf(producer);
+            Result result = resultOf(analyzer);
             if (result.Outcome == ProducerOutcome.Aborted)
             {
                 CriticalFailure critical = result.Critical!;

@@ -26,7 +26,7 @@ public abstract record MethodClassificationBindingResult
 /// and each asks only for what it shows: summaries ask for counts, and the
 /// row sections ask for rows, or a count under <c>--count</c>. The requested
 /// consumers' questions run as one <see cref="MethodClassificationQuery"/>
-/// request, which runs each closing as its own execution.
+/// request. Effective discovery asks row sections only whether any row exists.
 /// </summary>
 public static class MethodClassificationDemand
 {
@@ -68,7 +68,10 @@ public static class MethodClassificationDemand
     /// every count and the row sections' rows.
     /// </summary>
     public static IReadOnlyList<ClassificationQuestion> AllQuestions { get; } =
-        QuestionsFor(All, countOnly: false);
+        QuestionsFor(
+            All,
+            countOnly: false,
+            applicabilityOnly: false);
 
     /// <summary>
     /// The distinct questions the <paramref name="demands"/> ask, in a stable
@@ -77,7 +80,8 @@ public static class MethodClassificationDemand
     /// </summary>
     public static IReadOnlyList<ClassificationQuestion> QuestionsFor(
         IEnumerable<InspectionQueryDefinition> demands,
-        bool countOnly)
+        bool countOnly,
+        bool applicabilityOnly = false)
     {
         var questions = new List<ClassificationQuestion>();
         foreach (InspectionQuery<MethodClassificationBindingResult> demand in All)
@@ -85,7 +89,11 @@ public static class MethodClassificationDemand
             if (!demands.Contains(demand))
                 continue;
 
-            foreach (ClassificationQuestion question in QuestionsOf(demand, countOnly))
+            foreach (ClassificationQuestion question
+                in QuestionsOf(
+                    demand,
+                    countOnly,
+                    applicabilityOnly))
             {
                 if (!questions.Contains(question))
                     questions.Add(question);
@@ -97,16 +105,25 @@ public static class MethodClassificationDemand
 
     static IEnumerable<ClassificationQuestion> QuestionsOf(
         InspectionQueryDefinition demand,
-        bool countOnly)
+        bool countOnly,
+        bool applicabilityOnly)
     {
         if (demand == LibraryInfo)
             return [Count(AsyncAnalyzer), Count(MethodClassificationAnalyzer.Extension)];
         if (demand == Signals)
             return [Count(MethodClassificationAnalyzer.PointerSignature), Count(MethodClassificationAnalyzer.PInvoke)];
         if (demand == AsyncMethods)
-            return countOnly ? [Count(AsyncAnalyzer)] : Rows(AsyncAnalyzer);
+            return applicabilityOnly
+                ? [Exists(AsyncAnalyzer)]
+                : countOnly
+                    ? [Count(AsyncAnalyzer)]
+                    : Rows(AsyncAnalyzer);
         if (demand == PInvokeMethods)
-            return countOnly ? [Count(MethodClassificationAnalyzer.PInvoke)] : Rows(MethodClassificationAnalyzer.PInvoke);
+            return applicabilityOnly
+                ? [Exists(MethodClassificationAnalyzer.PInvoke)]
+                : countOnly
+                    ? [Count(MethodClassificationAnalyzer.PInvoke)]
+                    : Rows(MethodClassificationAnalyzer.PInvoke);
         if (demand == ModelCounts)
         {
             return
@@ -122,6 +139,10 @@ public static class MethodClassificationDemand
 
     static ClassificationQuestion Count(MethodClassificationAnalyzer analyzer) =>
         new(analyzer, ClassificationClosing.Count);
+
+    static ClassificationQuestion Exists(
+        MethodClassificationAnalyzer analyzer) =>
+        new(analyzer, ClassificationClosing.Exists);
 
     // The model list (JSON) and the Markdown view each read the rows in their
     // own order; both orders come from the one Rows execution.

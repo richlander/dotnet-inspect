@@ -821,15 +821,56 @@ public class LibraryInspection
         set => _extensionMethodCount = value;
     }
 
-    /// <summary>Whether the async analyzer found any method, by its rows or its count.</summary>
+    private bool? _pInvokeMethodPresence;
+
+    /// <summary>
+    /// Exact P/Invoke section applicability from the analyzer's Exists
+    /// closing; null when no applicability consumer asked.
+    /// </summary>
+    [JsonIgnore]
+    public bool? PInvokeMethodPresence
+    {
+        get => MethodClassificationFailureOf(
+            MethodClassificationAnalyzer.PInvoke) is null
+                ? _pInvokeMethodPresence
+                : null;
+        set => _pInvokeMethodPresence = value;
+    }
+
+    private bool? _asyncMethodPresence;
+
+    /// <summary>
+    /// Exact async section applicability from the analyzer's Exists closing;
+    /// null when no applicability consumer asked.
+    /// </summary>
+    [JsonIgnore]
+    public bool? AsyncMethodPresence
+    {
+        get => MethodClassificationFailureOf(
+            MethodClassificationDemand.AsyncAnalyzer) is null
+                ? _asyncMethodPresence
+                : null;
+        set => _asyncMethodPresence = value;
+    }
+
+    /// <summary>
+    /// Whether the async analyzer found any method, by Exists, rows, or Count.
+    /// </summary>
     [JsonIgnore]
     public bool HasAsyncMethods =>
-        AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false } || AsyncMethodCount > 0;
+        AsyncMethodPresence == true
+        || AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false }
+        || AsyncMethodCount > 0;
 
-    /// <summary>Whether the P/Invoke analyzer found any method, by its rows or its count.</summary>
+    /// <summary>
+    /// Whether the P/Invoke analyzer found any method, by Exists, rows, or
+    /// Count.
+    /// </summary>
     [JsonIgnore]
     public bool HasPInvokeMethods =>
-        PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false } || PInvokeMethodCount > 0;
+        PInvokeMethodPresence == true
+        || PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false }
+        || PInvokeMethodCount > 0;
 
     private FindingInspection<EcosystemIntegrationSignalInfo>? _ecosystemIntegrationInspection;
     private FindingInspection<OpenTelemetrySignalInfo>? _openTelemetryInspection;

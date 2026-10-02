@@ -7,8 +7,11 @@ Focused design for item 6 of
 `MethodClassificationScanner.Scan` with three
 [Producer Planning](producer-planning.md) producers over the method-row gate
 that [The source gate owns safety](producer-planning.md#the-source-gate-owns-safety)
-defines. Not implemented; every property below is **unverified** until its
-gate lands.
+defines. The analyzers, direct PEReader reference path, session-backed
+QuerySpace request-set path, and CLI Rows, Count, and Exists demands are
+implemented. The Release gates under [Verification](#verification)
+verify the implemented claims; performance remains subject to the exact
+NativeAOT evidence required by the adopting PR.
 
 Slice 2b of #8733 amends the async analyzer chosen in
 [#8788](https://github.com/richlander/dotnet-inspect/issues/8788). Async is
@@ -323,11 +326,12 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
     when a row closing is also requested.
   - Nothing derives one closing from another, and no ranking of closings
     exists in the queries or the planner.
-  - Collapsing several requests for one resource into one pass belongs to
-    QuerySpace, [#8574](https://github.com/richlander/dotnet-inspect/issues/8574).
-    Until it lands, a section's Rows and a summary's Count for the same
-    analyzer cost one extra pass, and the Count pass decodes no identity
-    text.
+  - The session-backed query lowers every analyzer and closing to an
+    owner-issued QuerySpace association. Method Query Source groups compatible
+    associations into one physical MethodDef traversal while retaining one
+    Producer Planning lane per closing and Head operand. The PEReader overload
+    remains the independent direct reference path. Count and Exists still
+    decode no identity text.
 - **Rows order is a typed request parameter,** not a host sort. A query
   offers exactly the orders today's outputs use:
 
@@ -374,8 +378,8 @@ only when their section asks for them.
 
 | Consumer | Asks for |
 | --- | --- |
-| Async Methods section | async rows in the model and display orders, or Count for `--count` |
-| P/Invoke Methods section | P/Invoke rows in the model and display orders, or Count for `--count` |
+| Async Methods section | async rows in model/display order, Count for `--count`, or exact Exists for effective discovery |
+| P/Invoke Methods section | P/Invoke rows in model/display order, Count for `--count`, or exact Exists for effective discovery |
 | Pointer-signature method list (`UnsafeMethods`) | nothing: no section shows it, so the list is retired and the pointer Count stands for it |
 | Signals | Count for pointer ("public pointer signatures") and Count for P/Invoke; the P/Invoke signal prefers the metadata-wide count |
 | Library Info | Count for async, the one classification count it shows |
@@ -397,11 +401,12 @@ the queries only.
 
 ## Production adoption
 
-1. **CLI.** Bind Async Methods first, as the demo. Then bind P/Invoke
-   Methods, the pointer-signature list, Signals, the Finding, and the
-   LibraryInfo counts. Each migrated consumer drops its read of the combined
-   `ClassifiedMethodsQuery` result, and `ApplyClassifiedMethodsResult` loses
-   its filtering, sorting, and projection.
+1. **CLI. Implemented.** Async Methods, P/Invoke Methods, Signals, model
+   counts, the Finding, and LibraryInfo bind the host-neutral query. Ordinary
+   section execution asks Rows or Count; effective discovery asks exact Exists
+   for the two row sections and projects no rows. Session-backed questions
+   enter one QuerySpace request set, while the PEReader overload remains the
+   independent direct reference.
 2. **Browser/Wasm.** Approval record: on 2026-09-28 the operator approved
    CLI-first scope for #8773. Browser/Wasm binds the same
    `DotnetInspector.Queries` analyzers when a browser consumer exists. The
@@ -429,9 +434,13 @@ work, tracked in #8733, and not part of this change.
 ## Verification
 
 - **Combined consumers.** Async section Rows and a LibraryInfo async Count
-  run as separate requests with equal answers, and the Count declares no
-  `IdentityText`. Nothing in the queries or the planner ranks or merges
-  closings.
+  remain separate terminal lanes with equal answers and share one physical
+  MethodDef traversal. Count declares no `IdentityText`; nothing ranks or
+  derives closings.
+- **Exact applicability.** Effective discovery asks Async Methods and
+  P/Invoke Methods for Exists, projects no rows, and lets an exact negative
+  result override broad metadata presence flags. The targeted Async Methods
+  production path is gated through `LibraryMetadataService`.
 - **Head stop.** An async Head(2) fixture places one nonmatching raw method
   before two matches and a hostile method after them. It visits three raw
   methods, returns the two matches, reports a stopped producer, and does not
@@ -501,9 +510,11 @@ work, tracked in #8733, and not part of this change.
   gate, and its results equal the interpreted executor's.
 - **End to end.** A NativeAOT base/head comparison of the migrated sections,
   per the [evidence contract](../evidence-and-validation.md#nativeaot-beforeafter-for-modernization),
-  on every supported terminal: rows, `--count`, `-n`, and `--rows`.
-- **Performance scorecard.** Old, LINQ, NLinq, and Planner over async and
-  each of runtime and compiler async, against the NLinq fixture
-  of [#8745](https://github.com/richlander/dotnet-inspect/issues/8745). LINQ,
-  NLinq, and Planner apply the identical analysis, the same flag test and
-  in-place attribute match; only the read machinery differs.
+  on every supported terminal: Rows, Count, Exists, and Head.
+- **Performance scorecard.** Old, LINQ, NLinq, direct PEReader, and
+  session-backed Planner over async and each of runtime and compiler async,
+  against the NLinq fixture
+  of [#8745](https://github.com/richlander/dotnet-inspect/issues/8745).
+  Independent and collapsed request-set columns compare Rows, Count, and
+  Exists composition. The scorecard also reports allocations, source work,
+  identity work, and row materialization.

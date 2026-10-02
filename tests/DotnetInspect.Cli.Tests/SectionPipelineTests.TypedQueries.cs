@@ -594,6 +594,9 @@ public partial class SectionPipelineTests
             available.Result.ReceiptOf(
                 new ClassificationExecution(
                     ClassificationClosing.Count)).IdentityBudgetArmed);
+        var source =
+            Assert.Single(available.Result.SourceGroups);
+        Assert.Equal(2, source.LaneReceipts.Length);
         Assert.Equal(1, context.SharedQueryCount);
     }
 
@@ -629,6 +632,85 @@ public partial class SectionPipelineTests
             available.Result.ReceiptOf(
                 new ClassificationExecution(
                     ClassificationClosing.Count)).IdentityBudgetArmed);
+    }
+
+    [Fact]
+    public void MethodClassificationDemand_SectionAsksForExistsDuringApplicability()
+    {
+        using var metadataContext = PdbContext.Open(
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath());
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath =
+                FixtureCatalog.DecompilerClassicAsync.AssemblyPath(),
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+            RequestedQueries =
+                [MethodClassificationDemand.AsyncMethods],
+            ApplicabilityOnly = true,
+        };
+
+        InspectionQueryResults results =
+            LibrarySections.CreateQueryRegistry().Run(
+                [MethodClassificationDemand.AsyncMethods],
+                context);
+        var available =
+            Assert.IsType<
+                MethodClassificationBindingResult.Available>(
+                    results.Get(
+                        MethodClassificationDemand.AsyncMethods));
+
+        (ClassificationQuestion question, ClassificationAnswer answer) =
+            Assert.Single(available.Result.Answers);
+        Assert.Equal(ClassificationClosing.Exists, question.Closing);
+        Assert.True(
+            Assert.IsType<ClassificationAnswer.Exists>(answer).Value);
+        Assert.False(
+            available.Result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Exists))
+                .IdentityBudgetArmed);
+        Assert.Single(available.Result.SourceGroups);
+
+        LibraryMetadataService.ApplyMethodClassificationResult(
+            context.AssemblyPath,
+            context.Model,
+            context.Logger,
+            available);
+        Assert.True(context.Model.AsyncMethodPresence);
+        Assert.Null(context.Model.AsyncMethodCount);
+        Assert.Null(context.Model.AsyncMethods);
+    }
+
+    [Fact]
+    public async Task EffectiveDiscovery_UsesExistsWithoutProjectingAsyncRows()
+    {
+        string path =
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
+        using var httpClient = new HttpClient();
+
+        LibraryInspection inspection =
+            Assert.IsType<LibraryInspection>(
+                await LibraryMetadataService.InspectAsync(
+                    path,
+                    new LibraryOptions
+                    {
+                        Discover = [SectionNames.AsyncMethods],
+                        Effective = true,
+                    },
+                    new Output.VerboseLogger(false),
+                    packageName: null,
+                    packageVersion: null,
+                    httpClient,
+                    queries:
+                        [MethodClassificationDemand.AsyncMethods],
+                    queryCatalog: LibrarySections.QueryCatalog));
+
+        Assert.True(inspection.AsyncMethodPresence);
+        Assert.Null(inspection.AsyncMethodCount);
+        Assert.Null(inspection.AsyncMethods);
+        Assert.True(LibrarySections.AsyncMethods.CanRender(inspection));
     }
 
     [Fact]

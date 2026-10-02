@@ -21,6 +21,9 @@ translation. The eight gates under
 Release; the Method source's gates are listed in its owning design.
 The request-set operation now binds one immutable QuerySpace plan and publishes
 every Method request in request order, plus physical group work recorded once.
+Method Classification is its first production caller: the session-backed query
+uses request-set access while the PEReader overload remains the direct
+reference.
 Other source kinds, cancellation, residual request satisfaction, and legacy-
 remainder composition remain **unverified**.
 

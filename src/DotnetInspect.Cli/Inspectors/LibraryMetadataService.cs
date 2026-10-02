@@ -65,6 +65,9 @@ internal static class LibraryMetadataService
                 queryPlan is null
                     ? queries
                     : queryPlan.Queries;
+            bool applicabilityOnly =
+                options.Discover is not null
+                && options.Effective;
             if (requiredQueries?.Contains(
                     LibraryNameFamilyQuery.Definition) == true
                 && assemblyReference is
@@ -197,6 +200,7 @@ internal static class LibraryMetadataService
                         Trace = trace,
                         RequestedQueries = requiredQueries,
                         CountOnly = options.Count,
+                        ApplicabilityOnly = applicabilityOnly,
                         NameFamilyPopulation =
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
@@ -343,6 +347,7 @@ internal static class LibraryMetadataService
                     Trace = trace,
                     RequestedQueries = requiredQueries,
                     CountOnly = options.Count,
+                    ApplicabilityOnly = applicabilityOnly,
                     NameFamilyPopulation =
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
@@ -3018,6 +3023,25 @@ internal static class LibraryMetadataService
                     default:
                         throw new InvalidOperationException(
                             $"No consumer asks for {question.Analyzer} rows.");
+                }
+
+                break;
+
+            case ClassificationAnswer.Exists exists:
+                switch (question.Analyzer)
+                {
+                    case MethodClassificationAnalyzer.PInvoke:
+                        inspection.PInvokeMethodPresence =
+                            exists.Value;
+                        break;
+                    case MethodClassificationDemand.AsyncAnalyzer:
+                        inspection.AsyncMethodPresence =
+                            exists.Value;
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"No applicability consumer asks whether "
+                            + $"{question.Analyzer} exists.");
                 }
 
                 break;
