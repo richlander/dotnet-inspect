@@ -360,6 +360,8 @@ test("Type inventory filters preserve their focused control across rerenders", (
     "onClearFilters",
     "onKindSelect",
     "onNamespaceSelect",
+    "onTypeAccessibilitySelect",
+    "onTypeTraitSelect",
   ]) {
     const callback =
       binding.match(new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))
@@ -367,9 +369,6 @@ test("Type inventory filters preserve their focused control across rerenders", (
     assert.match(callback, /renderPreservingMemberFocus\(\)/);
     assert.doesNotMatch(callback, /\brender\(\)/);
   }
-  assert.match(
-    appSource,
-    /function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\)/);
 });
 
 test("shared member views use portable product identity and omit UI-local filters", () => {
@@ -1128,7 +1127,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
-    /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\)/);
+    /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)/);
 });
 
 test("package Metadata retries remain explicit rather than render-driven", () => {
@@ -1705,7 +1704,7 @@ test("same-origin links retain different-coordinate Workspaces", () => {
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {
   assert.match(
     appSource,
-    /function resetLocationFilters\(\) \{\s*state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.typeLeverageFilter = "";\s*state\.libraryScope = null;\s*state\.typeCursor = 0;\s*resetMemberFilters\(\)/);
+    /function resetLocationFilters\(\) \{\s*state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.typeTraitFilter = "";\s*state\.typeLeverageFilter = "";\s*state\.libraryScope = null;\s*state\.typeCursor = 0;\s*resetMemberFilters\(\)/);
   const workspaceRestore =
     appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failWorkspaceRoute/)?.[0]
     ?? "";

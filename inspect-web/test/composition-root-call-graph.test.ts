@@ -832,7 +832,7 @@ test("restored selections reveal their accessibility bucket", () => {
     original,
     { accessibilityId: "private" });
   assert.deepEqual([...original], ["public"]);
-  assert.deepEqual([...revealed], ["public", "private"]);
+  assert.deepEqual([...revealed], ["private"]);
 
   const apply =
     appSource.match(/function applyView[\s\S]*?(?=\nfunction navBack)/)?.[0]
@@ -851,7 +851,7 @@ test("restored selections reveal their accessibility bucket", () => {
     /const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
   assert.match(
     reveal,
-    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
+    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.typeTraitFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
     /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypeRows\(\)\.findIndex[\s\S]*?loadCurrentSelectionData\("Loading the selected Type"\)/);
@@ -872,6 +872,12 @@ test("Type transitions load the current lens selection after rendering", () => {
     /onKindSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
   assert.match(
     appSource,
+    /onTypeAccessibilitySelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onTypeTraitSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
     /onTypeFilterChange:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
   assert.match(
     appSource,
@@ -883,13 +889,6 @@ test("Type transitions load the current lens selection after rendering", () => {
   assert.match(
     keyboardSelection,
     /state\.selectedTypeId = selected\.id[\s\S]*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
-
-  const libraryScope =
-    appSource.match(/function afterLibraryScopeChange\(\) \{[\s\S]*?\n}/)?.[0]
-    ?? "";
-  assert.match(
-    libraryScope,
-    /normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Library Type"\)/);
 
   const indexedLensSelection =
     appSource.match(/function selectScopeLensByIndex\([\s\S]*?\n}\n\n\/\/ The resident runtime/)?.[0]
