@@ -228,3 +228,34 @@ crossover against the current operation. This boundary intentionally does not
 measure retained snapshot admission or session construction. Productization
 must measure that earlier boundary and the participant's retained memory before
 choosing eager, selected, or lazy preparation.
+
+## Productization contract
+
+Productization preserves the layer boundary while retaining the prototype's
+physical result:
+
+- Metadata authenticates the MVID and TypeDef once and returns one settled
+  preparation: `Ready`, `Rejected`, or `Failed`.
+- A ready Metadata source retains the prepared MethodDef range and its
+  invariant receipts. It remains usable only while its issuing
+  `AssemblyInspectionSession` is alive.
+- Count and Rows execution return an allocation-free value result. Rows owns
+  only its exact detached token array; Count visits no handles.
+- Queries owns the prepared session and source under the exact participant and
+  binding lifetime. It releases that derived resource before the participant's
+  immutable snapshot.
+- Sections retains ownership of
+  `TypeDeclaredMethodPopulationOutcome`, maps the value result into that exact
+  host-neutral content, and adds the envelope.
+
+The production Metadata source uses the specialized metadata range directly.
+NLinq remains the independent prototype oracle rather than becoming a product
+dependency. QuerySpace plan selection stays outside Metadata; accepted Count
+and Rows plans select the corresponding source terminal without teaching the
+source about QuerySpace.
+
+Preparation is keyed by exact participant plus authenticated TypeDef binding,
+not display type name. A settled rejection or failure is retained under that
+same key so repeated execution cannot reacquire, readmit, or reauthenticate the
+same request. `maximumRows` remains an execution bound: a ready source can
+return visible incompleteness before allocating or traversing Rows.

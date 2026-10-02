@@ -5,6 +5,116 @@ namespace ILInspector.Metadata.Tests;
 public sealed class MetadataDeclaredMethodPopulationTests
 {
     [Fact]
+    public void PreparedSourceReusesAuthenticationAndReceipts()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(System.Text.Json.JsonSerializer).Assembly.Location);
+        MetadataTypeDefinitionBinding type = Bind(
+            session,
+            Name("System.Text.Json", "JsonSerializer"));
+        var ready = Assert.IsType<
+            MetadataDeclaredMethodPopulationPreparation.Ready>(
+                session.PrepareDeclaredMethods(type));
+
+        MetadataDeclaredMethodPopulationResult count =
+            ready.Source.Count();
+        MetadataDeclaredMethodPopulationResult repeatedCount =
+            ready.Source.Count();
+        MetadataDeclaredMethodPopulationResult rows =
+            ready.Source.Rows();
+        MetadataDeclaredMethodPopulationResult repeatedRows =
+            ready.Source.Rows();
+
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationResultKind.Counted,
+            count.Kind);
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationResultKind.Read,
+            rows.Kind);
+        Assert.Equal(rows.Count, count.Count);
+        Assert.Equal(rows.Rows.Length, count.Count);
+        Assert.True(
+            rows.Rows.AsSpan().SequenceEqual(
+                repeatedRows.Rows.AsSpan()));
+        Assert.Same(count.Receipt, repeatedCount.Receipt);
+        Assert.Same(rows.Receipt, repeatedRows.Receipt);
+        Assert.Equal(0, count.Receipt.MethodDefinitionHandlesVisited);
+        Assert.Equal(
+            rows.Count,
+            rows.Receipt.MethodDefinitionHandlesVisited);
+    }
+
+    [Fact]
+    public void PreparedSourceRejectsForeignBindingBeforeExecution()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(System.Text.Json.JsonSerializer).Assembly.Location);
+        MetadataTypeDefinitionBinding type = Bind(
+            session,
+            Name("System.Text.Json", "JsonSerializer"));
+
+        var rejected = Assert.IsType<
+            MetadataDeclaredMethodPopulationPreparation.Rejected>(
+                session.PrepareDeclaredMethods(
+                    new(
+                        Guid.NewGuid(),
+                        type.Definition)));
+
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationRejection
+                .ModuleVersionIdMismatch,
+            rejected.Reason);
+    }
+
+    [Fact]
+    public void PreparedSourceRequiresIssuingSessionLifetime()
+    {
+        var session =
+            AssemblyInspectionSession.Open(
+                typeof(System.Text.Json.JsonSerializer).Assembly.Location);
+        MetadataTypeDefinitionBinding type = Bind(
+            session,
+            Name("System.Text.Json", "JsonSerializer"));
+        MetadataDeclaredMethodPopulationSource source =
+            Assert.IsType<
+                    MetadataDeclaredMethodPopulationPreparation.Ready>(
+                    session.PrepareDeclaredMethods(type))
+                .Source;
+        session.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => source.Count());
+        Assert.Throws<ObjectDisposedException>(() => source.Rows());
+    }
+
+    [Fact]
+    public void PreparedRowsBoundReturnsIncompletenessBeforeTraversal()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(System.Text.Json.JsonSerializer).Assembly.Location);
+        MetadataTypeDefinitionBinding type = Bind(
+            session,
+            Name("System.Text.Json", "JsonSerializer"));
+        MetadataDeclaredMethodPopulationSource source =
+            Assert.IsType<
+                    MetadataDeclaredMethodPopulationPreparation.Ready>(
+                    session.PrepareDeclaredMethods(type))
+                .Source;
+
+        MetadataDeclaredMethodPopulationResult incomplete =
+            source.Rows(maximumRows: 1);
+
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationResultKind.Incomplete,
+            incomplete.Kind);
+        Assert.True(incomplete.Count > incomplete.MaximumRows);
+        Assert.Equal(0, incomplete.Receipt.MethodDefinitionHandlesVisited);
+        Assert.Equal(0, incomplete.Receipt.ProjectedRows);
+    }
+
+    [Fact]
     public void CountMatchesCompleteRowsWithoutMethodDefinitionWork()
     {
         using AssemblyInspectionSession session =

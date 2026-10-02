@@ -59,6 +59,18 @@ public delegate TResult AssemblyInspectionOperationCallback<
     where TOperation : class;
 
 /// <summary>
+/// Executes one operation with caller state while its exact assembly access
+/// remains live.
+/// </summary>
+public delegate TResult AssemblyInspectionOperationCallback<
+    TOperation,
+    TState,
+    TResult>(
+    scoped AssemblyInspectionOperationAccess<TOperation> access,
+    TState state)
+    where TOperation : class;
+
+/// <summary>
 /// The assembly-level inspection hub. Opens a PE image once (via <see cref="AssemblyImage"/>) and
 /// produces assembly <em>facets</em> by delegating to the metadata scanners over the single shared
 /// reader. Callers never touch a <c>PEReader</c>; each facet is produced on request.
@@ -245,6 +257,32 @@ public sealed class AssemblyInspectionSession :
                 _subject,
                 new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(
                     this)));
+    }
+
+    /// <summary>
+    /// Issues stack-only access binding one exact operation and caller state to
+    /// this session's exact subject for the duration of
+    /// <paramref name="callback"/>.
+    /// </summary>
+    public TResult SnapshotOperation<TOperation, TState, TResult>(
+        TOperation operation,
+        TState state,
+        AssemblyInspectionOperationCallback<
+            TOperation,
+            TState,
+            TResult> callback)
+        where TOperation : class
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new AssemblyInspectionOperationAccess<TOperation>(
+                operation,
+                _subject,
+                new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(
+                    this)),
+            state);
     }
 
     /// <summary>
@@ -818,6 +856,22 @@ public sealed class AssemblyInspectionSession :
         return MetadataDeclaredMethodPopulationInspection.Inspect(
             _image.GetMetadataReader(),
             request);
+    }
+
+    /// <summary>
+    /// Authenticates one TypeDef and prepares its declared-MethodDef source for
+    /// repeated terminal execution while this session remains alive.
+    /// </summary>
+    public MetadataDeclaredMethodPopulationPreparation
+        PrepareDeclaredMethods(
+            MetadataTypeDefinitionBinding type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        _image.EnsureAlive();
+        return MetadataDeclaredMethodPopulationInspection.Prepare(
+            this,
+            _image.GetMetadataReader(),
+            type);
     }
 
     /// <summary>
