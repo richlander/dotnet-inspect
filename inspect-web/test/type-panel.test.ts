@@ -845,31 +845,31 @@ test("the type nav renders exclusive accessible pole cues", () => {
                 "8 external source Types; top-leverage namespace",
             }
           : null,
-      typeLeverageCue: item => {
+      itemAchievements: item => {
         if (item.id === jsonSerializer.id) {
-          return {
-            pole: "sea-level",
+          return [{
+            kind: "sea-level",
             description:
               "8 incoming Type peers; 6 outgoing Type peers; sea-level Type",
-          };
+          }];
         }
         if (item.id === jsonDocument.id) {
-          return {
-            pole: "mountain-peak",
+          return [{
+            kind: "mountain-peak",
             description:
               "4 incoming Type peers; 9 outgoing Type peers; mountain-peak Type",
-          };
+          }];
         }
-        return null;
+        return [];
       },
     });
 
     assert.match(html, /data-type-leverage-filter="sea-level"/);
     assert.match(html, /type-row selected sea-level/);
-    assert.match(html, /class="type-leverage-icon sea-level"/);
-    assert.match(html, /aria-hidden="true">▁<\/span>/);
-    assert.match(html, /class="type-leverage-icon mountain-peak"/);
-    assert.match(html, /aria-hidden="true">▲<\/span>/);
+    assert.match(html, /class="item-achievement-glyph sea-level"/);
+    assert.match(html, /class="item-achievement-glyph mountain-peak"/);
+    assert.match(html, /class="item-achievement-rail"/);
+    assert.doesNotMatch(html, /[▁▲]/);
     assert.match(
       html,
       /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
@@ -2328,8 +2328,10 @@ test("member rows say what a member is rather than which kind it is", () => {
     highlight,
     overloadHeat: (_group, index) => ({
       heatStrength: index === 1 ? 1 : null,
-      hub: false,
-      description: index === 1 ? "33 instructions" : "8 instructions",
+      hub: index === 1,
+      description: index === 1
+        ? "33 instructions; hub called by 1 same-name method"
+        : "8 instructions",
     }),
   });
 
@@ -2337,11 +2339,24 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.match(html, /<span class="sig-name">WriteTo<\/span><span class="sig-punct">\(<\/span><span class="sig-type">Utf8JsonWriter<\/span>/);
   assert.match(html, /RootElement<\/span>\s*<small><span class="sig-type">JsonElement<\/span><\/small>/);
   assert.doesNotMatch(html, /<small>method<\/small>|<small>property<\/small>/);
-  // Nested overloads have no branch glyph, color keyword types, and retain
-  // accessible heat descriptions without rendering raw metric labels.
+  // Nested overloads have no branch glyph, reserve the shared achievement
+  // rail, color keyword types, and retain accessible heat descriptions
+  // without rendering raw metric labels.
   assert.doesNotMatch(html, /↳|overload-branch/);
+  assert.equal(
+    html.match(/class="item-achievement-rail"/g)?.length,
+    2,
+  );
+  assert.match(
+    html,
+    /item-achievement-glyph implementation-hub/,
+  );
+  assert.match(html, /aria-label="implementation hub"/);
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
   assert.match(html, /aria-description="8 instructions"/);
-  assert.match(html, /aria-description="33 instructions"/);
+  assert.match(
+    html,
+    /aria-description="33 instructions; hub called by 1 same-name method"/,
+  );
   assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
 });

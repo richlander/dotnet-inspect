@@ -25,8 +25,7 @@ import type {
   CompiledDocumentationOutcome,
 } from "../src/facades/inspect-web-package.js";
 import type {
-  BrowserLibraryNamespaceLeverage as LibraryNamespaceLeverage,
-  BrowserLibraryTypeLeverageShard as LibraryTypeLeverageShard,
+  BrowserLibraryStructuralSalience as LibraryStructuralSalience,
   BrowserPackageIntegrations as PackageIntegrations,
 } from "../src/facades/inspect-web-analysis.js";
 import type {
@@ -569,32 +568,18 @@ declare global {
         framework: string,
         libraryId: string,
       ): Promise<PackageIntegrations>;
-      queryLibraryNamespaceLeverage(
+      queryLibraryStructuralSalience(
         packageId: string,
         version: string,
         framework: string,
         libraryId: string,
-      ): Promise<LibraryNamespaceLeverage>;
-      queryNamespaceTypeLeverage(
-        packageId: string,
-        version: string,
-        framework: string,
-        libraryId: string,
-        exactNamespace: string,
-      ): Promise<LibraryTypeLeverageShard>;
-      queryPlatformLibraryNamespaceLeverage(
+      ): Promise<LibraryStructuralSalience>;
+      queryPlatformLibraryStructuralSalience(
         framework: string,
         version: string,
         assembly: string,
         pack: string,
-      ): Promise<LibraryNamespaceLeverage>;
-      queryPlatformNamespaceTypeLeverage(
-        framework: string,
-        version: string,
-        assembly: string,
-        pack: string,
-        exactNamespace: string,
-      ): Promise<LibraryTypeLeverageShard>;
+      ): Promise<LibraryStructuralSalience>;
       queryPlatformDocumentation(
         framework: string,
         platformVersion: string,
@@ -680,36 +665,20 @@ async function boot(page: Page): Promise<void> {
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
           packageId, pkgVersion, framework, libraryId),
-      queryLibraryNamespaceLeverage: (
+      queryLibraryStructuralSalience: (
         packageId,
         pkgVersion,
         framework,
         libraryId,
-      ) => client.analysis.queryPackageLibraryNamespaceLeverage(
+      ) => client.analysis.queryPackageLibraryStructuralSalience(
         packageId, pkgVersion, framework, libraryId),
-      queryNamespaceTypeLeverage: (
-        packageId,
-        pkgVersion,
-        framework,
-        libraryId,
-        exactNamespace,
-      ) => client.analysis.queryPackageNamespaceTypeLeverage(
-        packageId, pkgVersion, framework, libraryId, exactNamespace),
-      queryPlatformLibraryNamespaceLeverage: (
+      queryPlatformLibraryStructuralSalience: (
         framework,
         platformVersion,
         assembly,
         pack,
-      ) => client.analysis.queryPlatformLibraryNamespaceLeverage(
+      ) => client.analysis.queryPlatformLibraryStructuralSalience(
         framework, platformVersion, assembly, pack),
-      queryPlatformNamespaceTypeLeverage: (
-        framework,
-        platformVersion,
-        assembly,
-        pack,
-        exactNamespace,
-      ) => client.analysis.queryPlatformNamespaceTypeLeverage(
-        framework, platformVersion, assembly, pack, exactNamespace),
       queryPlatformDocumentation: (
         framework,
         platformVersion,
@@ -749,10 +718,8 @@ function driver(page: Page): {
   clearOccurrences(): Promise<void>;
   queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
   queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
-  queryLibraryNamespaceLeverage(packageId: string, version: string, framework: string, libraryId: string): Promise<LibraryNamespaceLeverage>;
-  queryNamespaceTypeLeverage(packageId: string, version: string, framework: string, libraryId: string, exactNamespace: string): Promise<LibraryTypeLeverageShard>;
-  queryPlatformLibraryNamespaceLeverage(framework: string, version: string, assembly: string, pack: string): Promise<LibraryNamespaceLeverage>;
-  queryPlatformNamespaceTypeLeverage(framework: string, version: string, assembly: string, pack: string, exactNamespace: string): Promise<LibraryTypeLeverageShard>;
+  queryLibraryStructuralSalience(packageId: string, version: string, framework: string, libraryId: string): Promise<LibraryStructuralSalience>;
+  queryPlatformLibraryStructuralSalience(framework: string, version: string, assembly: string, pack: string): Promise<LibraryStructuralSalience>;
   queryPlatformDocumentation(
     framework: string,
     platformVersion: string,
@@ -816,69 +783,30 @@ function driver(page: Page): {
           window.__adoption!.queryIntegrations(id, ver, tfm, selected),
         { packageId, version: pkgVersion, framework, libraryId },
       ),
-    queryLibraryNamespaceLeverage: (
+    queryLibraryStructuralSalience: (
       packageId,
       pkgVersion,
       framework,
       libraryId,
     ) => page.evaluate(
       ({ packageId: id, version: ver, framework: tfm, libraryId: selected }) =>
-        window.__adoption!.queryLibraryNamespaceLeverage(
+        window.__adoption!.queryLibraryStructuralSalience(
           id, ver, tfm, selected),
       { packageId, version: pkgVersion, framework, libraryId },
     ),
-    queryNamespaceTypeLeverage: (
-      packageId,
-      pkgVersion,
-      framework,
-      libraryId,
-      exactNamespace,
-    ) => page.evaluate(
-      ({
-        packageId: id,
-        version: ver,
-        framework: tfm,
-        libraryId: selected,
-        exactNamespace: namespace,
-      }) => window.__adoption!.queryNamespaceTypeLeverage(
-        id, ver, tfm, selected, namespace),
-      {
-        packageId,
-        version: pkgVersion,
-        framework,
-        libraryId,
-        exactNamespace,
-      },
-    ),
-    queryPlatformLibraryNamespaceLeverage: (
+    queryPlatformLibraryStructuralSalience: (
       framework,
       platformVersion,
       assembly,
       pack,
     ) => page.evaluate(
-      coordinates => window.__adoption!.queryPlatformLibraryNamespaceLeverage(
+      coordinates => window.__adoption!.queryPlatformLibraryStructuralSalience(
         coordinates.framework,
         coordinates.platformVersion,
         coordinates.assembly,
         coordinates.pack,
       ),
       { framework, platformVersion, assembly, pack },
-    ),
-    queryPlatformNamespaceTypeLeverage: (
-      framework,
-      platformVersion,
-      assembly,
-      pack,
-      exactNamespace,
-    ) => page.evaluate(
-      coordinates => window.__adoption!.queryPlatformNamespaceTypeLeverage(
-        coordinates.framework,
-        coordinates.platformVersion,
-        coordinates.assembly,
-        coordinates.pack,
-        coordinates.exactNamespace,
-      ),
-      { framework, platformVersion, assembly, pack, exactNamespace },
     ),
     queryPlatformDocumentation: (
       framework,
@@ -2661,7 +2589,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await page.evaluate(() => window.__adoption!.dispose());
   });
 
-  test("answers structural salience as an index plus exact namespace shard", async ({
+  test("answers structural salience as one exhaustive document", async ({
     page,
     context,
   }) => {
@@ -2677,38 +2605,27 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       throw new Error(`Expected the ${healthyAssemblyName} Library descriptor.`);
     }
 
-    const index = await engine.queryLibraryNamespaceLeverage(
+    const salience = await engine.queryLibraryStructuralSalience(
       healthy.packageId,
       healthy.version,
       fixtureFramework,
       library.id,
     );
-    expect(index.outcome).toBe("available");
-    expect(index.methodologyVersion).toBe("structural-salience.v2");
-    expect(index.evidenceMode).toBe("signature");
-    expect(index.failure).toBeNull();
-    expect(index.namespaces.length).toBeGreaterThan(0);
-    const namespace = index.namespaces.find(row => row.topLeverage)
-      ?? index.namespaces[0];
-    if (namespace === undefined) {
-      throw new Error("Expected one namespace leverage row.");
+    expect(salience.outcome).toBe("available");
+    expect(salience.methodologyVersion).toBe("structural-salience.v2");
+    expect(salience.evidenceMode).toBe("signature");
+    expect(salience.failure).toBeNull();
+    expect(salience.namespaceIndex).not.toBeNull();
+    const namespaces = salience.namespaceIndex!.namespaces;
+    expect(namespaces.length).toBeGreaterThan(0);
+    expect(salience.typeLeverageShards.map(shard => shard.namespace)).toEqual(
+      namespaces.map(row => row.namespace),
+    );
+    for (const shard of salience.typeLeverageShards) {
+      expect(
+        new Set(shard.types.map(row => row.typeDefinitionId)).size,
+      ).toBe(shard.types.length);
     }
-
-    const shard = await engine.queryNamespaceTypeLeverage(
-      healthy.packageId,
-      healthy.version,
-      fixtureFramework,
-      library.id,
-      namespace.namespace,
-    );
-    expect(shard.outcome).toBe("available");
-    expect(shard.methodologyVersion).toBe(index.methodologyVersion);
-    expect(shard.evidenceMode).toBe(index.evidenceMode);
-    expect(shard.namespace).toBe(namespace.namespace);
-    expect(shard.failure).toBeNull();
-    expect(
-      new Set(shard.types.map(row => row.typeDefinitionId)).size,
-    ).toBe(shard.types.length);
     await page.evaluate(() => window.__adoption!.dispose());
   });
 
@@ -3777,7 +3694,7 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(flattened).toContain("AddHttpClient");
   });
 
-  test("measures structural salience index and top shard over real Wasm", async ({
+  test("measures exhaustive structural salience over real Wasm", async ({
     page,
   }) => {
     await boot(page);
@@ -3793,67 +3710,64 @@ test.describe("bounded network-backed Worker smoke", () => {
     if (library === undefined) {
       throw new Error("Expected the System.Text.Json Library descriptor.");
     }
-    const queryIndex = () => engine.queryLibraryNamespaceLeverage(
+    const querySalience = () => engine.queryLibraryStructuralSalience(
       "System.Text.Json",
       "10.0.0",
       "net10.0",
       library.id,
     );
-    const warmIndex = await queryIndex();
-    const topNamespace = warmIndex.namespaces.find(row => row.topLeverage);
-    if (topNamespace === undefined) {
-      throw new Error("Expected a top-leverage System.Text.Json namespace.");
-    }
-    const queryShard = () => engine.queryNamespaceTypeLeverage(
-      "System.Text.Json",
-      "10.0.0",
-      "net10.0",
-      library.id,
-      topNamespace.namespace,
-    );
-    await queryShard();
+    await querySalience();
 
     async function measure<T>(operation: () => Promise<T>) {
       const start = performance.now();
       const value = await operation();
       return { value, milliseconds: performance.now() - start };
     }
-    const indexMeasurements = [];
-    const shardMeasurements = [];
+    const measurements = [];
     for (let index = 0; index < 5; index++) {
-      indexMeasurements.push(await measure(queryIndex));
-      shardMeasurements.push(await measure(queryShard));
+      measurements.push(await measure(querySalience));
     }
     const median = (values: readonly number[]) => {
       const ordered = [...values].sort((left, right) => left - right);
       return ordered[Math.floor(ordered.length / 2)] ?? 0;
     };
-    const measuredIndex = indexMeasurements.at(-1)?.value;
-    const measuredShard = shardMeasurements.at(-1)?.value;
-    if (measuredIndex === undefined || measuredShard === undefined) {
+    const measured = measurements.at(-1)?.value;
+    if (measured === undefined || measured.namespaceIndex === null) {
       throw new Error("Expected structural salience measurements.");
     }
-    expect(measuredIndex.outcome).toBe("available");
-    expect(measuredShard.outcome).toBe("available");
-    expect(measuredShard.namespace).toBe(topNamespace.namespace);
-    expect(measuredShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
+    expect(measured.outcome).toBe("available");
+    const topNamespace = measured.namespaceIndex.namespaces.find(
+      row => row.topLeverage,
+    );
+    if (topNamespace === undefined) {
+      throw new Error("Expected a top-leverage System.Text.Json namespace.");
+    }
+    const topShard = measured.typeLeverageShards.find(
+      shard => shard.namespace === topNamespace.namespace,
+    );
+    if (topShard === undefined) {
+      throw new Error("Expected the top-leverage namespace shard.");
+    }
+    expect(topShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
     expect(
-      measuredShard.types.some(row => row.pole === "MountainPeak"),
+      topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Text.Json@10.0.0/net10.0",
-      namespaceCount: measuredIndex.namespaces.length,
+      namespaceCount: measured.namespaceIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
-      topShardTypeRows: measuredShard.types.length,
-      seaLevelDesignations:
-        measuredShard.types.filter(row => row.pole === "SeaLevel").length,
-      mountainPeakDesignations:
-        measuredShard.types.filter(row => row.pole === "MountainPeak").length,
-      indexMedianMilliseconds: median(
-        indexMeasurements.map(measurement => measurement.milliseconds),
+      typeRows: measured.typeLeverageShards.reduce(
+        (sum, shard) => sum + shard.types.length,
+        0,
       ),
-      topShardMedianMilliseconds: median(
-        shardMeasurements.map(measurement => measurement.milliseconds),
+      seaLevelDesignations:
+        measured.typeLeverageShards.flatMap(shard => shard.types)
+          .filter(row => row.pole === "SeaLevel").length,
+      mountainPeakDesignations:
+        measured.typeLeverageShards.flatMap(shard => shard.types)
+          .filter(row => row.pole === "MountainPeak").length,
+      exhaustiveMedianMilliseconds: median(
+        measurements.map(measurement => measurement.milliseconds),
       ),
     }));
     await page.evaluate(() => window.__adoption!.dispose());
@@ -3868,69 +3782,66 @@ test.describe("bounded network-backed Worker smoke", () => {
     const platformVersion = "11.0.0-rc.1.26425.128";
     const assembly = "System.Private.CoreLib.dll";
     const pack = "netcore.app";
-    const queryIndex = () =>
-      engine.queryPlatformLibraryNamespaceLeverage(
+    const querySalience = () =>
+      engine.queryPlatformLibraryStructuralSalience(
         framework,
         platformVersion,
         assembly,
         pack,
       );
-    const warmIndex = await queryIndex();
-    const topNamespace = warmIndex.namespaces.find(row => row.topLeverage);
-    if (topNamespace === undefined) {
-      throw new Error("Expected a top-leverage CoreLib namespace.");
-    }
-    const queryShard = () => engine.queryPlatformNamespaceTypeLeverage(
-      framework,
-      platformVersion,
-      assembly,
-      pack,
-      topNamespace.namespace,
-    );
-    await queryShard();
+    await querySalience();
 
     async function measure<T>(operation: () => Promise<T>) {
       const start = performance.now();
       const value = await operation();
       return { value, milliseconds: performance.now() - start };
     }
-    const indexMeasurements = [];
-    const shardMeasurements = [];
+    const measurements = [];
     for (let index = 0; index < 5; index++) {
-      indexMeasurements.push(await measure(queryIndex));
-      shardMeasurements.push(await measure(queryShard));
+      measurements.push(await measure(querySalience));
     }
     const median = (values: readonly number[]) => {
       const ordered = [...values].sort((left, right) => left - right);
       return ordered[Math.floor(ordered.length / 2)] ?? 0;
     };
-    const measuredIndex = indexMeasurements.at(-1)?.value;
-    const measuredShard = shardMeasurements.at(-1)?.value;
-    if (measuredIndex === undefined || measuredShard === undefined) {
+    const measured = measurements.at(-1)?.value;
+    if (measured === undefined || measured.namespaceIndex === null) {
       throw new Error("Expected CoreLib structural salience measurements.");
     }
-    expect(measuredIndex.outcome).toBe("available");
-    expect(measuredIndex.namespaces.length).toBeGreaterThan(50);
-    expect(measuredShard.outcome).toBe("available");
-    expect(measuredShard.namespace).toBe(topNamespace.namespace);
-    expect(measuredShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
+    expect(measured.outcome).toBe("available");
+    expect(measured.namespaceIndex.namespaces.length).toBeGreaterThan(50);
+    const topNamespace = measured.namespaceIndex.namespaces.find(
+      row => row.topLeverage,
+    );
+    if (topNamespace === undefined) {
+      throw new Error("Expected a top-leverage CoreLib namespace.");
+    }
+    const topShard = measured.typeLeverageShards.find(
+      shard => shard.namespace === topNamespace.namespace,
+    );
+    if (topShard === undefined) {
+      throw new Error("Expected the top-leverage CoreLib namespace shard.");
+    }
+    expect(topShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
     expect(
-      measuredShard.types.some(row => row.pole === "MountainPeak"),
+      topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Private.CoreLib/.NET 11 RC1",
-      namespaceCount: measuredIndex.namespaces.length,
+      namespaceCount: measured.namespaceIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
-      topShardTypeRows: measuredShard.types.length,
-      seaLevelDesignations:
-        measuredShard.types.filter(row => row.pole === "SeaLevel").length,
-      mountainPeakDesignations:
-        measuredShard.types.filter(row => row.pole === "MountainPeak").length,
-      indexMedianMilliseconds: median(
-        indexMeasurements.map(measurement => measurement.milliseconds),
+      typeRows: measured.typeLeverageShards.reduce(
+        (sum, shard) => sum + shard.types.length,
+        0,
       ),
-      topShardMedianMilliseconds: median(
-        shardMeasurements.map(measurement => measurement.milliseconds),
+      seaLevelDesignations:
+        measured.typeLeverageShards.flatMap(shard => shard.types)
+          .filter(row => row.pole === "SeaLevel").length,
+      mountainPeakDesignations:
+        measured.typeLeverageShards.flatMap(shard => shard.types)
+          .filter(row => row.pole === "MountainPeak").length,
+      exhaustiveMedianMilliseconds: median(
+        measurements.map(measurement => measurement.milliseconds),
       ),
     }));
     await page.evaluate(() => window.__adoption!.dispose());

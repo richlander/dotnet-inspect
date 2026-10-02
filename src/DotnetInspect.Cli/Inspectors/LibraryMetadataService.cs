@@ -52,8 +52,7 @@ internal static class LibraryMetadataService
         AssemblyIntegrationOpportunitiesEntry?
             integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
-        Sections.InspectionTrace? trace = null,
-        bool readLibraryDocument = true)
+        Sections.InspectionTrace? trace = null)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -523,18 +522,6 @@ internal static class LibraryMetadataService
                     typeFilter: options.TypeFilter);
             }
 
-            // A managed module without an assembly manifest keeps the legacy
-            // reading (docs/design/library-info-composition.md#scope-of-input).
-            if (readLibraryDocument
-                && inspection.AssemblyInfo?.AssemblyName is not null)
-            {
-                await ReadLibraryDocumentAsync(
-                        inspection,
-                        path,
-                        packageName,
-                        isPlatformAssembly)
-                    .ConfigureAwait(false);
-            }
             return inspection;
         }
         catch (OperationCanceledException)
@@ -916,49 +903,6 @@ internal static class LibraryMetadataService
     /// assembly Microsoft never built. A symbol server that served the PDB is evidence about the
     /// publisher; a self-declared source URL is not.
     /// </remarks>
-    private static readonly LibraryInspectionPlan s_libraryInfoPlan =
-        new(
-            types: null,
-            DirectLibraryInspectionCommand.s_bounds,
-            new LibraryEnablementsRequest(),
-            new LibraryImageFactsRequest(),
-            new LibraryDescriptionFactsRequest());
-
-    /// <summary>
-    /// Reads the Library document facts that Library Info and the view's
-    /// summary fields render (<c>docs/design/library-info-composition.md</c>).
-    /// </summary>
-    private static async Task ReadLibraryDocumentAsync(
-        LibraryInspection inspection,
-        string path,
-        string? packageName,
-        bool isPlatformAssembly)
-    {
-        InspectionEnvelope<LibraryInspectionOutcome>? envelope =
-            await ExactLibraryInspectionExecutor.ExecuteAsync(
-                    path,
-                    "library info",
-                    session => session.Execute(s_libraryInfoPlan, CancellationToken.None),
-                    CancellationToken.None,
-                    LibraryInfoRole(path, packageName, isPlatformAssembly))
-                .ConfigureAwait(false);
-        switch (envelope?.Content)
-        {
-            case LibraryInspectionOutcome.Available available:
-                inspection.LibraryDocument = available.Document;
-                break;
-            case LibraryInspectionOutcome.Rejected rejected:
-                inspection.LibraryDocumentFailure = rejected.Reason.ToString();
-                break;
-            case LibraryInspectionOutcome.Failed failed:
-                inspection.LibraryDocumentFailure = failed.Reason.ToString();
-                break;
-            default:
-                inspection.LibraryDocumentFailure = "LibraryUnavailable";
-                break;
-        }
-    }
-
     /// <summary>
     /// Whether the request renders the Library document's scalar fields: the
     /// Library Info section, or the <c>-v:q</c> context line. Other requests,

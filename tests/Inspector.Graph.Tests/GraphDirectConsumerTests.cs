@@ -35,11 +35,19 @@ public sealed class GraphDirectConsumerTests
             [new GraphProjectedEdgeContributor(0, 1)],
             observation.ProjectionContributors);
         Assert.Equal(
+            ["application", "storage"],
+            observation.Components);
+        Assert.Equal([1, 0], observation.ComponentLevels);
+        Assert.Equal([0], observation.CondensationSourceEdgeIds);
+        Assert.Equal(
             GraphStructuralCompletion.Exhausted,
             observation.NeighborhoodCompletion);
         Assert.Equal(
             GraphStructuralCompletion.Exhausted,
             observation.FocusCompletion);
+        Assert.Equal(
+            GraphStructuralCompletion.Exhausted,
+            observation.ComponentCompletion);
         Assert.Equal(2, observation.NeighborhoodReceipt.NodesAdmitted);
         Assert.Equal(2, observation.AdjacencyReceipt.NodesAdmitted);
         Assert.Equal(2, observation.DegreeReceipt.NodesAdmitted);
@@ -57,6 +65,16 @@ public sealed class GraphDirectConsumerTests
             1,
             observation.ProjectionReceipt.ContributorRankingsIssued);
         Assert.True(observation.ProjectionReceipt.TerminalSettled);
+        Assert.Same(
+            observation.ProjectionReceipt.SourceDocument,
+            observation.ComponentReceipt.SourceDocument);
+        Assert.Equal(
+            2,
+            observation.ComponentReceipt.StronglyConnectedComponentsIssued);
+        Assert.Equal(
+            1,
+            observation.ComponentReceipt.CondensationEdgesIssued);
+        Assert.True(observation.ComponentReceipt.TerminalSettled);
         Assert.Equal(typeof(Service), observation.SubjectType);
         Assert.Equal(typeof(DependsOn), observation.RelationshipType);
     }
