@@ -1354,6 +1354,12 @@ test("runtime vocabulary growth expands a prior all-Accessibility selection", ()
       resident.accessibility.map(descriptor => descriptor.id),
     )],
     ["public"]);
+  assert.deepEqual(
+    [...normalizeTypeAccessibilityFilter(
+      new Set(["unresolved"]),
+      resident.accessibility.map(descriptor => descriptor.id),
+    )],
+    ["unresolved"]);
 });
 
 // Round 6 review split the two reviewers. GPT-5.6 Sol found that the resident-merge path

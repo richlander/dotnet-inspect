@@ -24,9 +24,10 @@ export function normalizeTypeAccessibilityFilter(
   bucketIds: readonly string[],
 ) {
   const admitted = bucketIds.filter(id => selected.has(id));
+  if (admitted.length === 0) return new Set(selected);
   // The native selector represents one bucket or all buckets. A surviving
   // multi-bucket set is therefore an earlier "all" selection whose vocabulary grew.
-  if (admitted.length <= 1) return new Set(admitted);
+  if (admitted.length === 1) return new Set(admitted);
   return new Set(bucketIds);
 }
 
