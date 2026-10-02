@@ -497,7 +497,7 @@ public sealed class InspectionGraphDocumentTests
                 [new CatalogCallGraphParticipant(index, assembly)]);
             return scope.Detach(
                 scope.BuildCallerTree(
-                    index,
+                    index.CallGraphAnalysis,
                     method.MetadataToken));
         }
 

@@ -2895,6 +2895,11 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(
                 kickoff,
                 full.ResolveDeclaredMethod(moveNext));
+            // The focused result publishes the same unscoped fallback, while
+            // DirectCall.Caller for MoveNext's own calls stays physical.
+            Assert.Equal(
+                kickoff,
+                full.CallGraphAnalysis.ResolveDeclaredMethod(moveNext));
             Assert.Contains(
                 full.DirectCalls,
                 call => call.EvidenceMethod == moveNext
@@ -2944,6 +2949,8 @@ public partial class LibraryBodyIndexTests
                     == moveNext.MetadataToken);
             Assert.Null(
                 methodScoped.ResolveDeclaredMethod(moveNext));
+            Assert.Null(
+                methodScoped.CallGraphAnalysis.ResolveDeclaredMethod(moveNext));
             Assert.Contains(
                 scoped.GetAllocationOccurrences(),
                 pair => pair.Key == moveNext.MetadataToken);
