@@ -92,37 +92,21 @@ public static class PdbAcquisitionService
         SymbolAcquisitionLimits? limits = null,
         PortablePdbAcquisitionEvidenceCollector? evidence = null)
     {
-        var downloader = pdbStore is null
-            ? new SymbolPackageDownloader(httpClient)
-            : sourceAuthorization is null
-                ? new SymbolPackageDownloader(
-                    httpClient,
-                    pdbStore)
-                : limits is not null
-                    ? new SymbolPackageDownloader(
-                        httpClient,
-                        pdbStore,
-                        sourceAuthorization,
-                        limits)
-                : new SymbolPackageDownloader(
-                    httpClient,
-                    pdbStore,
-                    sourceAuthorization);
         PortablePdbAcquisitionResult result =
-            await downloader.AcquirePdbAsync(
-                context.PdbId!.Guid,
-                context.PdbId.Age,
-                context.PdbId.PdbFileName,
-                context.PdbId.IsPortable,
+            await AcquireContentCoreAsync(
+                context,
+                httpClient,
                 assemblyName,
                 packageName,
                 packageVersion,
-                log,
                 isPlatformAssembly,
+                log,
                 cacheOnly,
                 sourceOptions,
                 cancellationToken,
-                context.PdbId.Stamp,
+                pdbStore,
+                sourceAuthorization,
+                limits,
                 evidence).ConfigureAwait(false);
 
         if (result is PortablePdbAcquisitionResult.Acquired acquired)
@@ -168,6 +152,57 @@ public static class PdbAcquisitionService
         }
 
         return result;
+    }
+
+    private static async Task<PortablePdbAcquisitionResult>
+        AcquireContentCoreAsync(
+        PdbContext context,
+        HttpClient httpClient,
+        string? assemblyName,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        Action<string>? log,
+        bool cacheOnly,
+        NuGetSourceOptions? sourceOptions,
+        CancellationToken cancellationToken,
+        IPdbStore? pdbStore,
+        IPackageSourceAuthorization? sourceAuthorization,
+        SymbolAcquisitionLimits? limits = null,
+        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+    {
+        var downloader = pdbStore is null
+            ? new SymbolPackageDownloader(httpClient)
+            : sourceAuthorization is null
+                ? new SymbolPackageDownloader(
+                    httpClient,
+                    pdbStore)
+                : limits is not null
+                    ? new SymbolPackageDownloader(
+                        httpClient,
+                        pdbStore,
+                        sourceAuthorization,
+                        limits)
+                : new SymbolPackageDownloader(
+                    httpClient,
+                    pdbStore,
+                    sourceAuthorization);
+        return await downloader.AcquirePdbAsync(
+                context.PdbId!.Guid,
+                context.PdbId.Age,
+                context.PdbId.PdbFileName,
+                context.PdbId.IsPortable,
+                assemblyName,
+                packageName,
+                packageVersion,
+                log,
+                isPlatformAssembly,
+                cacheOnly,
+                sourceOptions,
+                cancellationToken,
+                context.PdbId.Stamp,
+                evidence)
+            .ConfigureAwait(false);
     }
 
     internal static string DescribeStoreFailure(
@@ -254,6 +289,60 @@ public static class PdbAcquisitionService
         async Task<PortablePdbAcquisitionResult?>
             AcquireResultCoreAsync() =>
                 await AcquireCoreAsync(
+                        context,
+                        httpClient,
+                        assembly.Identity.Name,
+                        packageName,
+                        packageVersion,
+                        isPlatformAssembly,
+                        log,
+                        cacheOnly,
+                        sourceOptions,
+                        cancellationToken,
+                        pdbStore,
+                        sourceAuthorization,
+                        limits,
+                        evidence)
+                    .ConfigureAwait(false);
+    }
+
+    internal static Task<PortablePdbAcquisitionResult?>
+        AcquireContentAsync(
+        PdbContext context,
+        ResolvedAssemblyReference assembly,
+        HttpClient httpClient,
+        IPdbStore pdbStore,
+        IPackageSourceAuthorization sourceAuthorization,
+        Action<string>? log,
+        bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null,
+        CancellationToken cancellationToken = default,
+        SymbolAcquisitionLimits? limits = null,
+        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(pdbStore);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+
+        if (!context.NeedsPdb)
+        {
+            return Task.FromResult<
+                PortablePdbAcquisitionResult?>(null);
+        }
+
+        var (packageName, packageVersion, isPlatformAssembly) =
+            GetAcquisitionCoordinates(
+                assembly,
+                fallbackPackageName: null,
+                fallbackPackageVersion: null);
+
+        return AcquireContentResultCoreAsync();
+
+        async Task<PortablePdbAcquisitionResult?>
+            AcquireContentResultCoreAsync() =>
+                await AcquireContentCoreAsync(
                         context,
                         httpClient,
                         assembly.Identity.Name,

@@ -21,6 +21,18 @@ public record CodeViewInfo(
     bool IsPortable,
     uint Stamp = 0);
 
+/// <summary>The complete content identity of one Portable PDB.</summary>
+public readonly record struct PortablePdbContentIdentity(
+    Guid Guid,
+    uint Stamp);
+
+public enum PortablePdbIdentityMatch
+{
+    Match,
+    Mismatch,
+    Invalid,
+}
+
 /// <summary>
 /// Source document info for strict verification (no SRM types in signature).
 /// <paramref name="Checksum"/> is the document hash recorded in the PDB and
@@ -329,6 +341,39 @@ public partial class PdbContext : IDisposable
     {
         EnsureAlive();
         return _pdbImage;
+    }
+
+    /// <summary>
+    /// Gets the complete identity of the currently loaded Portable PDB.
+    /// </summary>
+    public PortablePdbContentIdentity? GetPortablePdbContentIdentity()
+    {
+        EnsureAlive();
+        if (_pdbReader?.DebugMetadataHeader?.Id
+            is not { Length: >= 20 } id)
+        {
+            return null;
+        }
+
+        Span<byte> guidBytes = stackalloc byte[16];
+        id.AsSpan(0, 16).CopyTo(guidBytes);
+        return new(
+            new Guid(guidBytes),
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                id.AsSpan(16, 4)));
+    }
+
+    /// <summary>
+    /// Reports whether this context was opened from the exact acquisition
+    /// registration carried by <paramref name="assembly"/>.
+    /// </summary>
+    public bool IsBoundTo(ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        EnsureAlive();
+        return ReferenceEquals(
+            _assemblyRegistration,
+            assembly.Registration);
     }
 
     // --- PE/Assembly ---
@@ -2421,6 +2466,68 @@ public partial class PdbContext : IDisposable
             PdbId,
             pdbReader.DebugMetadataHeader?.Id,
             _log);
+
+    /// <summary>
+    /// Classifies caller-owned Portable PDB content against one complete
+    /// identity without taking ownership of the stream.
+    /// </summary>
+    public static PortablePdbIdentityMatch ClassifyPortablePdbIdentity(
+        Stream stream,
+        PortablePdbContentIdentity expected,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        if (!stream.CanRead || !stream.CanSeek)
+            return PortablePdbIdentityMatch.Invalid;
+
+        try
+        {
+            stream.Position = 0;
+            using MetadataReaderProvider provider =
+                MetadataReaderProvider.FromPortablePdbStream(
+                    stream,
+                    MetadataStreamOptions.PrefetchMetadata
+                        | MetadataStreamOptions.LeaveOpen);
+            MetadataReader reader = provider.GetMetadataReader();
+            if (reader.DebugMetadataHeader?.Id
+                is not { Length: >= 20 } id)
+            {
+                return PortablePdbIdentityMatch.Invalid;
+            }
+
+            Span<byte> guidBytes = stackalloc byte[16];
+            id.AsSpan(0, 16).CopyTo(guidBytes);
+            var actualGuid = new Guid(guidBytes);
+            uint actualStamp =
+                BinaryPrimitives.ReadUInt32LittleEndian(
+                    id.AsSpan(16, 4));
+            if (actualGuid == expected.Guid
+                && actualStamp == expected.Stamp)
+            {
+                return PortablePdbIdentityMatch.Match;
+            }
+
+            log?.Invoke(
+                "Portable PDB identity mismatch: expected "
+                + $"{expected.Guid:D}/{expected.Stamp:x8}; found "
+                + $"{actualGuid:D}/{actualStamp:x8}");
+            return PortablePdbIdentityMatch.Mismatch;
+        }
+        catch (Exception ex)
+            when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            log?.Invoke(
+                $"Could not read Portable PDB identity: {ex.Message}");
+            return PortablePdbIdentityMatch.Invalid;
+        }
+        finally
+        {
+            if (stream.CanSeek)
+                stream.Position = 0;
+        }
+    }
 
     internal static bool PortablePdbIdentityMatches(
         CodeViewInfo? expected,
