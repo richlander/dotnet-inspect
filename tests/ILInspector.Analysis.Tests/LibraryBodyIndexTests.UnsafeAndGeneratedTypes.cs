@@ -407,8 +407,14 @@ public partial class LibraryBodyIndexTests
             lookalikeNested.ToQualifiedDisplayString());
 
         var set = new HashSet<TypeRef> { generated };
-        Assert.True(LibraryBodyIndex.IsGeneratedFrameworkType(set, generatedNested));
-        Assert.False(LibraryBodyIndex.IsGeneratedFrameworkType(set, lookalikeNested));
+        Assert.True(
+            GeneratedFrameworkTypeAnalysis.Contains(
+                set,
+                generatedNested));
+        Assert.False(
+            GeneratedFrameworkTypeAnalysis.Contains(
+                set,
+                lookalikeNested));
     }
 
     [Fact]
