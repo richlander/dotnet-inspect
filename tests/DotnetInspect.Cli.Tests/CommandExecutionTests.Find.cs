@@ -73,6 +73,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_EcosystemJsonWindowDoesNotCountOmittedMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer,AddProject", "--ecosystem", "aspire",
+            "-n", "12", "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        Assert.NotEmpty(rows);
+        Assert.Contains(rows, row =>
+            row.GetProperty("ecosystem").GetString()
+                is "ecosystem.aspnetcore" or "ecosystem.runtime");
+        Assert.DoesNotContain(rows, row =>
+            row.GetProperty("ecosystem").GetString() == "ecosystem.aspire");
+        Assert.DoesNotContain(
+            "not searched: ecosystem.aspnetcore",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Find_EcosystemNamespacePrefixDoesNotReportFalseMiss()
     {
         var (exit, output, error) = await RunAppAsync(

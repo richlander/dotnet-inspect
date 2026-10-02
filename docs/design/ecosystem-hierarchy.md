@@ -154,8 +154,12 @@ families, core packages, and explicit Packages and Libraries. Under a finite
 `-n`, each layer's bounded populations drain completely before the next layer
 starts, and the search stops at a layer boundary once the window fills.
 Without a finite window, every layer is searched and layers may run
-concurrently; each block carries its layer ordinal, so blocking output is
-ordered nearest first and streaming consumers rank by ordinal, not arrival. So `find '.Add*' --ecosystem aspire -n 20`
+concurrently; each layer carries its ordinal. Existing blocking Find output
+groups broadened Member rows before Type Results, so nearest-first order is
+preserved within each result kind, not as one visible cross-kind sequence.
+The unified Find result-stream design will replace this kind-grouped
+presentation with layer-ordered rows and progressive TSV output. So
+`find '.Add*' --ecosystem aspire -n 20`
 loads no platform population when Aspire's own layer fills the window. This is
 ordinary nearest-scope-first lookup: a weak match in a nearer layer ranks
 ahead of an exact match in a farther one.
@@ -164,19 +168,15 @@ Package-prefix discovery keeps the global barrier of [Ecosystem Find
 Search](ecosystem-find-search.md#phase-contract): when prefix work is
 demanded, it starts only after every started layer's bounded populations
 settle. Its blocks carry the same layer ordinals, so blocking output stays
-layered. A streaming consumer may receive an ancestor's bounded rows before a
-nearer layer's prefix rows; ordinals, not arrival, convey rank. A row window
-that stops the bounded phase starts no prefix work.
+ordered within each result kind. A row window that stops the bounded phase
+starts no prefix work.
 
-The output keeps layer boundaries visible, using the existing per-Ecosystem
-blocks of [Ecosystem Find Search](ecosystem-find-search.md). When `-n` stops
-the search, completion is `RowLimitReached` and names the layers that were
-not searched, so the broader view stays discoverable:
+When `-n` stops the search, completion is `RowLimitReached` and names the
+layers that were not searched, so the broader view stays discoverable:
 
 ```text
 $ dotnet-inspect find '.Add*' --ecosystem aspire -n 20
-## ecosystem.aspire
-...20 rows...
+...20 rows from ecosystem.aspire...
 Stopped after ecosystem.aspire; not searched: ecosystem.aspnetcore,
 ecosystem.microsoft-extensions, ecosystem.runtime. Raise -n to continue.
 ```

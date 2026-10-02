@@ -986,6 +986,10 @@ This searches Aspire's core packages first and, when they fill the window,
 does not realize ASP.NET Core or Runtime. Only named populations are searched:
 registered package prefixes do not trigger package-prefix discovery. If the
 entire selection has no named populations, Find fails with a prefix hint.
+Current Markdown output retains Find's existing Members-before-Results
+sections; rows remain nearest-first within each kind. A follow-on design will
+unify Type and Member result rows and make layer-ordered TSV the progressive
+default for all Find invocations.
 
 ### Package Query over selected implementation libraries
 

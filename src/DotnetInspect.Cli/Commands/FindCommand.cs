@@ -328,8 +328,10 @@ public class FindCommand
         FindSearchCompletion completion = FindSearchCompletion.Exhausted;
         for (int index = 0; index < layers.Count; index++)
         {
+            int resultCount = CountLayeredRows(
+                options, types.Count, members.Count);
             if (options.Limit is int limit
-                && types.Count + members.Count >= limit)
+                && resultCount >= limit)
             {
                 CommandError.WriteNote(
                     $"Stopped after {layers[index - 1].Id}; not searched: "
@@ -351,7 +353,7 @@ public class FindCommand
                 PlatformAssemblies = [],
                 PlatformFrameworks = [],
                 Limit = options.Limit is int window
-                    ? window - types.Count - members.Count
+                    ? window - resultCount
                     : null,
             };
             context.Logger.Log($"Searching {layer.Id}");
@@ -459,6 +461,19 @@ public class FindCommand
                 SourceSelectionIncomplete = incomplete,
                 Completion = completion,
             });
+    }
+
+    private static int CountLayeredRows(
+        FindOptions options,
+        int typeCount,
+        int memberCount)
+    {
+        bool memberRowsArePresented =
+            options.Members
+            || (!options.Count
+                && !options.JsonOutput
+                && !options.Tabular);
+        return typeCount + (memberRowsArePresented ? memberCount : 0);
     }
 
     /// <summary>
