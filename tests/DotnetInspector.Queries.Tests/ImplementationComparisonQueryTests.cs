@@ -198,6 +198,7 @@ public sealed class ImplementationComparisonQueryTests
                     Type.Missing,
                     Type.Missing,
                     source.ModuleIdentity,
+                    Type.Missing,
                 ])!;
             return index.CallGraphAnalysis;
         }
