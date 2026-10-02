@@ -2,9 +2,12 @@
 
 ## Status
 
-This focused design owns the source-native Count proof for one exact Type's
-declared `MethodDef` population. It is an implementation and performance
-candidate, not yet a supported CLI or Inspect Web surface.
+This focused design owns the source-native Count contract for one exact Type's
+declared `MethodDef` population. Metadata owns the physical population.
+QuerySpace owns Count/Rows terminal routing, and Sections exposes the detached
+result through `InspectionEnvelope<T>`. The performance harness is the first
+production host; a CLI or Inspect Web surface is intentionally deferred until
+this population proves its physical value.
 
 ## Owner and exact claim
 
@@ -19,6 +22,32 @@ Given one TypeDef binding authenticated to an immutable assembly image:
 The binding joins a validated TypeDef token with the module version identifier
 of the image that issued it. A binding for another image is rejected rather
 than interpreted against the current image.
+
+## Composition
+
+`ILInspector.Metadata` owns the authenticated binding, Count and Rows
+lowerings, typed outcomes, and structural work receipt. It has no QuerySpace or
+host dependency.
+
+`DotnetInspector.Queries` owns the assembly-context adapter. It resolves one
+structured metadata type name while the participant session is alive, creates
+the authenticated binding, executes the Metadata population, and detaches the
+outcome before the session closes.
+
+`DotnetInspector.Sections` owns the `exact-type` to `declared-method`
+QuerySpace route and the host-neutral inspection operation. The initial query
+space:
+
+- supports only Count and Rows;
+- has one `declared-methods` row set;
+- admits no filters, sorting, row stages, or continuation;
+- uses distinct Count and Rows result contracts; and
+- returns a non-projectable `InspectionEnvelope<T>` because no portable
+  Workspace scenario has yet been named.
+
+The operation keeps type lookup, participant-open, malformed metadata,
+binding, and bounded-Rows failures visible as typed outcomes. It never turns a
+failed or incomplete population into zero or an empty Rows success.
 
 ## Boundaries
 
@@ -62,10 +91,15 @@ reports TypeDef rows read, MethodDef handles visited, MethodDef rows read,
 names, signatures, and attributes decoded, and rows projected. Count is valid
 only when every MethodDef-specific counter is zero.
 
-## Adoption gate
+## Production adoption and evidence
 
-The first gate is one real assembly on one performance host using a NativeAOT
-scorecard. Count must show a material latency and allocation collapse relative
-to complete Rows before this population is adopted by an explicit exact-Type
-CLI or Browser/Wasm operation. If it does not, the candidate is evidence
+The performance harness is the first production caller of the host-neutral
+operation. It must exercise the QuerySpace-routed Sections path for correctness
+and preserve a focused Metadata measurement for the physical Count/Rows
+comparison.
+
+The adoption gate is one pinned real assembly on one Linux NativeAOT
+performance host. Count must show a material latency and allocation collapse
+relative to complete Rows, and the Sections operation must preserve the same
+answer and structural receipt. If it does not, the candidate is evidence
 against this physical pattern rather than a feature to preserve.

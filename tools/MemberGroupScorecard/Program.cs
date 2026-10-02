@@ -1,4 +1,5 @@
 using DotnetInspector.PerformanceOracles;
+using MemberGroupScorecard;
 
 if (args.Length != 2
     || args[0] is not ("check"
@@ -82,17 +83,34 @@ if (args[0] == "exact-time")
 
 if (args[0] == "declared-check")
 {
+    int operationCount =
+        await DeclaredMethodOperationCheck.CheckAsync(path);
     DeclaredMethodScorecardCheck check =
         DeclaredMethodPopulation.Check(path);
+    if (operationCount != check.Count)
+    {
+        Console.Error.WriteLine(
+            "QuerySpace operation and source-native scorecard disagree.");
+        return 1;
+    }
     Console.WriteLine(
-        $"{check.Count} declared MethodDefs; {check.AnswerHash}");
+        $"{check.Count} declared MethodDefs; {check.AnswerHash}; "
+            + "QuerySpace operation agrees.");
     return 0;
 }
 
 if (args[0] == "declared-time")
 {
+    int operationCount =
+        await DeclaredMethodOperationCheck.CheckAsync(path);
     DeclaredMethodScorecardResult declaredResult =
         DeclaredMethodPopulation.Measure(path);
+    if (operationCount != declaredResult.Check.Count)
+    {
+        Console.Error.WriteLine(
+            "QuerySpace operation and source-native scorecard disagree.");
+        return 1;
+    }
     Console.Write(
         DeclaredMethodPopulation.Report(declaredResult));
     return 0;

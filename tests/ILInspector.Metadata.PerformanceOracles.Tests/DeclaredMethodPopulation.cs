@@ -84,19 +84,21 @@ public static class DeclaredMethodPopulation
             $"# answer: {result.Check.Count} declared MethodDefs, "
                 + result.Check.AnswerHash);
         writer.WriteLine(
-            "| Terminal | Median | Allocated | Rows/Count ratio |");
-        writer.WriteLine("| --- | ---: | ---: | ---: |");
+            "| Terminal | Median | Allocated | Time vs Count | "
+                + "Allocation vs Count |");
+        writer.WriteLine("| --- | ---: | ---: | ---: | ---: |");
         DeclaredMethodScorecardCell count =
             result.Cells.Single(cell => cell.Terminal == "Count");
         DeclaredMethodScorecardCell rows =
             result.Cells.Single(cell => cell.Terminal == "Rows");
         writer.WriteLine(
             $"| Count | {count.Microseconds:F3} us | "
-                + $"{count.AllocatedBytes:N0} B | 1.00x |");
+                + $"{count.AllocatedBytes:N0} B | 1.00x | 1.00x |");
         writer.WriteLine(
             $"| Rows | {rows.Microseconds:F3} us | "
                 + $"{rows.AllocatedBytes:N0} B | "
-                + $"{rows.Microseconds / count.Microseconds:F2}x |");
+                + $"{rows.Microseconds / count.Microseconds:F2}x | "
+                + $"{Ratio(rows.AllocatedBytes, count.AllocatedBytes):F2}x |");
         writer.WriteLine();
         writer.WriteLine(
             "| Terminal | Method handles | Method rows | Names | "
@@ -224,6 +226,11 @@ public static class DeclaredMethodPopulation
         values.Sort();
         return values[values.Count / 2];
     }
+
+    private static double Ratio(long value, long baseline) =>
+        baseline == 0
+            ? value == 0 ? 1 : double.PositiveInfinity
+            : (double)value / baseline;
 
     private readonly record struct Measurement(
         double Microseconds,
