@@ -185,7 +185,7 @@ public static class OptimizationOpportunityRanking
     {
         ArgumentNullException.ThrowIfNull(generatedFrameworkTypes);
         return IsGeneratedMethod(method)
-            || LibraryBodyIndex.IsGeneratedFrameworkType(
+            || GeneratedFrameworkTypeAnalysis.Contains(
                 generatedFrameworkTypes,
                 method.DeclaringType);
     }
@@ -304,14 +304,14 @@ public static class OptimizationOpportunityRanking
         IReadOnlySet<TypeRef> generatedFrameworkTypes)
     {
         if (opportunity.SourceOwner is { } sourceOwner
-            && LibraryBodyIndex.IsGeneratedFrameworkType(
+            && GeneratedFrameworkTypeAnalysis.Contains(
                 generatedFrameworkTypes,
                 sourceOwner.DeclaringType))
         {
             return true;
         }
 
-        return LibraryBodyIndex.IsGeneratedFrameworkType(
+        return GeneratedFrameworkTypeAnalysis.Contains(
             generatedFrameworkTypes,
             opportunity.Method.DeclaringType);
     }
