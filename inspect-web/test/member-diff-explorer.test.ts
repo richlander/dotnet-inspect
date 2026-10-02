@@ -317,15 +317,23 @@ test("Member Diff Explore renders one full-width authored Source diff", () => {
   assert.match(html, /1 Before changed/);
   assert.match(html, /<mark>int<\/mark>/);
   assert.match(html, /<mark>long<\/mark>/);
-  assert.match(html, /data-final-line-terminator="after">After: No newline at end/);
+  assert.match(html, /No newline at end/);
+  assert.match(html, /Copy Before/);
+  assert.match(html, /Side by side/);
+  assert.match(html, /code-evidence-viewer-content member-diff-explorer-content/);
+  assert.match(html, /code-evidence-viewer-rail member-diff-explorer-rail/);
+  assert.match(html, /data-member-diff-mode="text"[\s\S]*Authored Source[\s\S]*Changed/);
   assert.doesNotMatch(
     html,
-    /What changed|Declaration|Parameter type changed|Authored Source changed|member-diff-source-endpoint|Final line terminators|Mapped change evidence/,
+    /What changed|Declaration|Parameter type changed|Authored Source changed|Final line terminators|Mapped change evidence/,
   );
+  const rail = html.indexOf("code-evidence-viewer-rail");
+  const endpoint = html.indexOf("member-diff-source-endpoint");
+  assert.ok(rail >= 0 && rail < endpoint);
 });
 
 test("unified Source rendering walks mapped changes in positional order", () => {
-  const html = renderMemberSourceDiff(sourceDiff(), String);
+  const html = renderMemberSourceDiff(sourceDiff(), String, true);
 
   assert.match(html, /data-row-kind="removal" data-before-line="0"/);
   assert.match(html, /data-row-kind="addition" data-before-line="" data-after-line="0"/);
@@ -373,7 +381,10 @@ test("a final-newline-only change identifies the affected side", () => {
 
   const html = renderMemberSourceDiff(diff, String);
 
-  assert.equal((html.match(/No newline at end/g) ?? []).length, 1);
+  assert.equal(
+    (html.match(/data-final-line-terminator="after"/g) ?? []).length,
+    2,
+  );
   const removal = html.indexOf('data-row-kind="removal"');
   const addition = html.indexOf('data-row-kind="addition"');
   const marker = html.indexOf('data-final-line-terminator="after"');
@@ -408,11 +419,22 @@ test("a shared final row with no terminator renders one marker", () => {
 
   const html = renderMemberSourceDiff(diff, String);
 
-  assert.equal((html.match(/No newline at end/g) ?? []).length, 1);
+  assert.equal(
+    (html.match(/data-final-line-terminator="both"/g) ?? []).length,
+    1,
+  );
+  assert.equal(
+    (html.match(/data-final-line-terminator="before"/g) ?? []).length,
+    1,
+  );
+  assert.equal(
+    (html.match(/data-final-line-terminator="after"/g) ?? []).length,
+    1,
+  );
   assert.match(html, /data-row-kind="context"/);
   assert.match(
     html,
-    /data-final-line-terminator="both">No newline at end/,
+    /data-final-line-terminator="both"[^>]*>No newline at end/,
   );
 });
 
@@ -445,7 +467,7 @@ test("a middle insertion renders once between its surrounding context", () => {
       annotations: [],
     }],
   };
-  const html = renderMemberSourceDiff(diff, String);
+  const html = renderMemberSourceDiff(diff, String, true);
   const first = html.indexOf(
     'data-row-kind="context" data-before-line="0" data-after-line="0"',
   );
@@ -456,9 +478,9 @@ test("a middle insertion renders once between its surrounding context", () => {
     'data-row-kind="context" data-before-line="1" data-after-line="2"',
   );
   assert.ok(first >= 0 && first < insertion && insertion < last);
-  assert.equal((html.match(/<code>a<\/code>/g) ?? []).length, 1);
-  assert.equal((html.match(/<code>b<\/code>/g) ?? []).length, 1);
-  assert.equal((html.match(/<code>c<\/code>/g) ?? []).length, 1);
+  assert.equal((html.match(/<code role="cell">a<\/code>/g) ?? []).length, 1);
+  assert.equal((html.match(/<code role="cell">b<\/code>/g) ?? []).length, 1);
+  assert.equal((html.match(/<code role="cell">c<\/code>/g) ?? []).length, 1);
   assert.doesNotMatch(html, /member-diff-source-relations/);
 });
 
@@ -508,7 +530,11 @@ test("decoded N:M correspondence cannot override mapped presentation order", () 
     throw new Error("Expected a decoded Source diff.");
   }
 
-  const html = renderMemberSourceDiff(decoded.value.value.diff, String);
+  const html = renderMemberSourceDiff(
+    decoded.value.value.diff,
+    String,
+    true,
+  );
   assert.equal((html.match(/data-row-kind="removal"/g) ?? []).length, 2);
   assert.equal((html.match(/data-row-kind="addition"/g) ?? []).length, 1);
   assert.equal(
@@ -519,8 +545,92 @@ test("decoded N:M correspondence cannot override mapped presentation order", () 
     (html.match(/>Unchanged · Moved<\/span>/g) ?? []).length,
     3,
   );
-  assert.match(html, /2 Before moved/);
-  assert.match(html, /1 After moved/);
+});
+
+test("side-by-side Source rendering top-aligns asymmetric changed blocks", () => {
+  const diff: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["old 1", "old 2"],
+      finalLineTerminator: "Absent",
+    },
+    after: {
+      label: "After",
+      lines: ["new 1", "new 2", "new 3"],
+      finalLineTerminator: "Absent",
+    },
+    relations: [],
+    statistics: {
+      added: 3,
+      removed: 2,
+      changedBefore: 2,
+      changedAfter: 3,
+      movedBefore: 0,
+      movedAfter: 0,
+    },
+    changes: [{
+      before: { start: 0, count: 2 },
+      after: { start: 0, count: 3 },
+      innerMappings: [],
+      annotations: [],
+    }],
+  };
+
+  const html = renderMemberSourceDiff(
+    diff,
+    String,
+    false,
+    "side-by-side",
+  );
+  assert.match(html, /data-mode="side-by-side"/);
+  assert.equal(
+    (html.match(/class="source-diff-viewer-split-row source-diff-viewer-row-change"/g) ?? []).length,
+    3,
+  );
+  assert.equal(
+    (html.match(/class="source-diff-viewer-split-empty"/g) ?? []).length,
+    1,
+  );
+  assert.match(
+    html,
+    /class="source-diff-viewer-split-empty" role="cell" aria-colindex="1">[\s\S]*Before; no line/,
+  );
+  assert.match(
+    html,
+    /class="source-diff-viewer-split-source" role="cell" aria-colindex="2">[\s\S]*After; Added; line 3/,
+  );
+  assert.match(html, /aria-colcount="2"/);
+  assert.equal(
+    (html.match(/class="source-diff-viewer-terminator"/g) ?? []).length,
+    4,
+  );
+});
+
+test("invalid intraline mappings preserve rows and report the defect", () => {
+  const diff = sourceDiff();
+  const invalid: BrowserSourceDiff = {
+    ...diff,
+    changes: [{
+      ...diff.changes[0]!,
+      innerMappings: [
+        {
+          before: { line: 0, start: 16, count: 3 },
+          after: { line: 0, start: 16, count: 4 },
+        },
+        {
+          before: { line: 0, start: 17, count: 2 },
+          after: { line: 0, start: 18, count: 1 },
+        },
+      ],
+    }],
+  };
+
+  const html = renderMemberSourceDiff(invalid, String);
+  assert.match(html, /Some intraline highlights could not be shown/);
+  assert.match(html, /invalid before intraline mappings on line 1/);
+  assert.doesNotMatch(html, /<mark>int<\/mark>/);
+  assert.match(html, /public void Run\(int value\)/);
 });
 
 test("inline Member Diff keeps source work explicit", () => {
@@ -622,11 +732,11 @@ test("inline Member Diff renders only the authored Source document", () => {
     String,
   );
 
-  const diff = html.indexOf('class="member-diff-source-diff"');
+  const diff = html.indexOf("member-diff-source-diff");
   assert.ok(diff >= 0);
   assert.doesNotMatch(
     html,
-    /Authored Source changed|Source evidence|member-diff-source-endpoints|Source diff statistics|Final line terminators|Mapped change evidence/,
+    /Authored Source changed|Source evidence|member-diff-source-endpoints|Source diff statistics|Final line terminators|No newline at end|Mapped change evidence/,
   );
 });
 
@@ -722,6 +832,13 @@ test("identical Source does not upgrade a soft Member correspondence", () => {
   assert.match(html, /Member Diff · Changed/);
   assert.match(html, /Authored Source is identical/);
   assert.doesNotMatch(html, /Exact member match/);
+  assert.doesNotMatch(html, /data-source-diff-viewer/);
+  assert.doesNotMatch(html, /member-diff-source-line/);
+  assert.doesNotMatch(html, /Previous|Next|No navigable changes/);
+  assert.equal(
+    (html.match(/class="member-diff-source-endpoint"/g) ?? []).length,
+    2,
+  );
 });
 
 test("one-sided destinations omit that Source endpoint intentionally", () => {

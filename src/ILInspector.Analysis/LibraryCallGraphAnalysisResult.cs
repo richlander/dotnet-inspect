@@ -150,6 +150,10 @@ public sealed class LibraryCallGraphAnalysisResult
         _directCallsByEvidenceMethod ??=
             DirectCallIncidence.ByEvidenceMethod(DirectCalls);
 
+    /// <summary>Finds direct calls whose target matches the supplied pattern.</summary>
+    public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern) =>
+        [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
+
     /// <summary>
     /// The Analysis-issued target of one direct call from this result. Calls
     /// through generic instantiations of current-module types resolve by

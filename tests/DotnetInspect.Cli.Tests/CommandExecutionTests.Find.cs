@@ -11,6 +11,115 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task Find_EcosystemAspireStopsBeforePlatformLayers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", ".Add*", "--ecosystem", "aspire", "-n", "20",
+            "--json", "--compact", "--verbose", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(20, rows.Length);
+        Assert.All(rows, row => Assert.Equal(
+            "ecosystem.aspire", row.GetProperty("ecosystem").GetString()));
+        Assert.Contains(rows, row => row.GetProperty("member").GetString()
+            is "AddContainer" or "AddProject");
+        Assert.Contains("not searched: ecosystem.aspnetcore", error);
+        Assert.DoesNotContain("Searching ecosystem.aspnetcore", error);
+        Assert.DoesNotContain("Searching ecosystem.runtime", error);
+    }
+
+    [Fact]
+    public async Task Find_EcosystemAspNetCoreSearchesRuntimeWithoutWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer", "--ecosystem", "aspnetcore",
+            "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        Assert.Contains(rows, row =>
+            row.GetProperty("full_name").GetString()
+                == "System.Text.Json.JsonSerializer"
+            && row.GetProperty("ecosystem").GetString()
+                == "ecosystem.runtime");
+        int firstRuntime = Array.FindIndex(rows, row =>
+            row.GetProperty("ecosystem").GetString()
+                == "ecosystem.runtime");
+        Assert.All(rows.Take(firstRuntime), row => Assert.Equal(
+            "ecosystem.aspnetcore",
+            row.GetProperty("ecosystem").GetString()));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemCorePackageLayerDoesNotSearchDefaultPlatform()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "find", "JsonSerializer", "--ecosystem", "aspire", "-n", "3",
+            "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.NotEmpty(rows);
+        Assert.All(rows, row => Assert.Equal(
+            "ecosystem.aspnetcore",
+            row.GetProperty("ecosystem").GetString()));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemJsonWindowDoesNotCountOmittedMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer,AddProject", "--ecosystem", "aspire",
+            "-n", "12", "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        Assert.NotEmpty(rows);
+        Assert.Contains(rows, row =>
+            row.GetProperty("ecosystem").GetString()
+                is "ecosystem.aspnetcore" or "ecosystem.runtime");
+        Assert.DoesNotContain(rows, row =>
+            row.GetProperty("ecosystem").GetString() == "ecosystem.aspire");
+        Assert.DoesNotContain(
+            "not searched: ecosystem.aspnetcore",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_EcosystemNamespacePrefixDoesNotReportFalseMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "System.Text", "--ecosystem", "runtime", "-n", "3",
+            "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(3, document.RootElement.GetArrayLength());
+        Assert.DoesNotContain("matched no types", error);
+    }
+
+    [Fact]
+    public async Task Find_DefaultOutputDoesNotAddEcosystemColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer", "-n", "2",
+            "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Ecosystem", output);
+        Assert.Contains("Source", output);
+    }
+
     private const string MissingPackageLikeApiSymbol =
         "Definitely.NoSuch.Package.ForFindDiscovery";
 
@@ -40,6 +149,8 @@ public partial class CommandExecutionTests
                     == "System.Text.Json.JsonSerializer"
                 && row.GetProperty("source").GetString()
                     == "runtime");
+        Assert.All(rows, row =>
+            Assert.False(row.TryGetProperty("ecosystem", out _)));
         Assert.Contains(
             rows,
             row =>
@@ -1254,10 +1365,6 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--platform",
             "System.Text.Json",
-            "--ecosystem",
-            "ecosystem.aspire",
-            "--ecosystem",
-            "ecosystem.ai",
             "--tfm",
             "net10.0",
             "--json",

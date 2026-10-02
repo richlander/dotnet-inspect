@@ -71,6 +71,17 @@ Consumers keep their own stable ids, data attributes, action vocabulary, and
 focus targets. The shell adds shared structural classes; it does not rewrite
 consumer markup or dispatch consumer actions.
 
+The renderer supports two modal-lifecycle hosts:
+
+- a self-hosted overlay renders the backdrop and accessible dialog semantics;
+  and
+- a frame hosted by an existing native dialog renders only the shared header,
+  controls, workspace, detail, and failure composition.
+
+The frame form never nests another dialog role. The placement owner keeps its
+existing dismissal, focus containment, and focus-return behavior while using
+the same shell structure and CSS.
+
 ## Evidence choices
 
 A placement owner may use the rail as a picker when it has multiple
@@ -149,7 +160,8 @@ introduce a second Annotated Source renderer or a second mapped-diff row walk.
    selection, detail, or scroll state.
 4. Open Member Diff Explore after #9112 adopts the shell and confirm the
    mapped-text diff occupies the center region, the three-pane composition is
-   absent, and the rail exposes only destination-issued evidence.
+   absent, the native dialog contains no nested dialog role, and the rail
+   exposes only destination-issued evidence.
 5. Switch unified and side-by-side presentation and confirm the active evidence
    choice does not change; switch evidence and confirm the retained diff
    presentation preference does not become an evidence choice.

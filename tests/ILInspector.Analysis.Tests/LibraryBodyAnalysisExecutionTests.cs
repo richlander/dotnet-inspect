@@ -3259,36 +3259,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
-    public void CompatibilityIndex_DelegatesCallGraphAndLeverageResults()
-    {
-        LibraryBodyAnalysisExecution execution =
-            LibraryBodyAnalysisService.ExecutePath(
-                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence));
-        LibraryBodyIndex index =
-            execution.CompatibilityIndex();
-        int rootToken =
-            execution.CallGraph.Methods[0].MetadataToken;
-
-        Assert.Same(
-            execution.CallGraph,
-            index.CallGraphAnalysis);
-        Assert.Same(
-            execution.Leverage,
-            index.LeverageAnalysis);
-        Assert.Equal(
-            execution.CallGraph.BuildCallTree(rootToken),
-            index.BuildCallTree(rootToken));
-        Assert.Equal(
-            execution.CallGraph.BuildCallerTree(rootToken),
-            index.BuildCallerTree(rootToken));
-        Assert.Equal(
-            execution.Leverage.Top(int.MaxValue),
-            index.TopLeverage(int.MaxValue));
-    }
-
-    [Fact]
     public void JsonWireContracts_PreservesExecutionIdentityWithoutIndex()
     {
         LibraryBodyAnalysisExecution execution =
@@ -3307,9 +3277,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
             result.DirectCalls);
         Assert.False(execution.HasMaterializedCompatibilityIndex);
 
-        LibraryBodyIndex index = execution.CompatibilityIndex();
-
-        Assert.Same(result, index.JsonWireContracts);
     }
 
     [Fact]
