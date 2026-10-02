@@ -172,6 +172,9 @@ public sealed class PackageFileContentInspectionTests
             payload.Origin,
             payload.Content.GenerationIdentity,
             PackageTransferReceipt.Cache);
+        var narrowing = new PackageHouseContentNarrowingReceipt(
+            acquisition,
+            targetSelection: null);
         var result = new PackageHouseResult.Settled(
             new PackageHouseEvidence(
                 request,
@@ -179,10 +182,12 @@ public sealed class PackageFileContentInspectionTests
                 acquisition,
                 fileList:
                     new PackageHouseFileList(
+                        narrowing,
                         Assert
                             .IsAssignableFrom<IPackageContentEntryManifest>(
                                 content)
-                            .EnumerateEntriesWithLengths())));
+                            .EnumerateEntriesWithLengths()),
+                contentNarrowing: narrowing));
         return new PackageHouseSettlement.Acquired(
             result,
             payload,
