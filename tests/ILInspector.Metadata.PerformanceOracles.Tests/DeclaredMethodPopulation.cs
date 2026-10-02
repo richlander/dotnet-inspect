@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using DotnetInspector.Queries;
@@ -1333,7 +1334,7 @@ public static class DeclaredMethodPopulation
                     MethodDefinitionHandle,
                     TokenBuffer,
                     WriteToken>(
-                    new(tokens),
+                    new(tokens.AsSpan()),
                     new WriteToken());
             if (buffer.Count != tokens.Length)
             {
@@ -1551,6 +1552,25 @@ public static class DeclaredMethodPopulation
             _remaining--;
             return _enumerator.Current;
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static TAcc NLinq.IEnumerator<
+            MethodHandles,
+            MethodDefinitionHandle>.Fold<TAcc, TFunc>(
+                scoped ref MethodHandles source,
+                TAcc accumulator,
+                TFunc func)
+        {
+            while (source._enumerator.MoveNext())
+            {
+                source._remaining--;
+                accumulator =
+                    func.Invoke(
+                        accumulator,
+                        source._enumerator.Current);
+            }
+            return accumulator;
+        }
     }
 
     private readonly struct AddToken
@@ -1568,15 +1588,15 @@ public static class DeclaredMethodPopulation
         }
     }
 
-    private struct TokenBuffer
+    private ref struct TokenBuffer
     {
-        internal TokenBuffer(int[] tokens)
+        internal TokenBuffer(Span<int> tokens)
         {
             Tokens = tokens;
             Count = 0;
         }
 
-        internal int[] Tokens { get; }
+        internal Span<int> Tokens { get; }
         internal int Count { get; set; }
     }
 

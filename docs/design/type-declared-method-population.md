@@ -189,8 +189,11 @@ execution:
 
 After the accepted plan selects its terminal, the scoped borrow performs only
 NLinq discovery compute: Count closes the prepared method range, while Rows
-folds it into one exact-sized token buffer. The borrow returns that detached
-answer before Sections constructs the final outcome and envelope. No Metadata
-outcome is constructed solely to be reprojected. This separation makes
-analysis the discovery computation rather than acquisition, admission,
-authentication, planning, or host handoff.
+folds it into one exact-sized token buffer. The prepared method-range source
+owns both its source-native Count and a specialized Fold over the underlying
+handle enumerator, so generic per-row dispatch does not obscure the source
+representation. The borrow returns that detached answer before Sections
+constructs the final outcome and envelope. No Metadata outcome is constructed
+solely to be reprojected. This separation makes analysis the discovery
+computation rather than acquisition, admission, authentication, planning, or
+host handoff.
