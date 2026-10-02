@@ -1115,6 +1115,14 @@ public class ApiMember
     public bool IsHidden { get; set; }
 
     /// <summary>
+    /// Whether this logical declaration is implemented through explicit
+    /// interface MethodImpl evidence. For properties and events, any explicit
+    /// accessor makes the composed declaration explicit.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsExplicitInterfaceImplementation { get; set; }
+
+    /// <summary>
     /// The property or event MethodSemantics role for this MethodDef.
     /// <see cref="ApiMethodSemanticsKind.None"/> is a positive full-extraction
     /// result; null means the relationship was not retained or could not be

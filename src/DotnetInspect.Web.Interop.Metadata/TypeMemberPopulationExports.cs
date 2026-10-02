@@ -242,6 +242,20 @@ public static partial class MetadataExports
                     composition.Static,
                     composition.This,
                     composition.Extension),
+                new(
+                    [
+                        .. population.SelectorCounts.Kinds.Select(count =>
+                            new BrowserTypeMemberFacetCount(
+                                count.Value,
+                                count.Count)),
+                    ],
+                    new(
+                        population.SelectorCounts.Traits.All,
+                        population.SelectorCounts.Traits.Static,
+                        population.SelectorCounts.Traits.Instance,
+                        population.SelectorCounts.Traits.Virtual,
+                        population.SelectorCounts.Traits.Interface,
+                        population.SelectorCounts.Traits.Extensions)),
                 [
                     .. population.Groups.Select(group =>
                     {
@@ -268,6 +282,9 @@ public static partial class MetadataExports
                                         BaselineOrdinal = hasExactSelectors
                                             ? index + 1
                                             : null,
+                                        IsExplicitInterfaceImplementation =
+                                            member
+                                                .IsExplicitInterfaceImplementation,
                                     }),
                             ]);
                     }),

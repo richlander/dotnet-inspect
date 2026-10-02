@@ -334,6 +334,7 @@ public sealed record BrowserTypeMemberPopulation(
     string Spelling,
     string Accessibility,
     BrowserTypeMemberComposition Composition,
+    BrowserTypeMemberSelectorCounts SelectorCounts,
     BrowserTypeMemberPopulationGroup[] Groups);
 
 public sealed record BrowserTypeMemberComposition(
@@ -344,6 +345,22 @@ public sealed record BrowserTypeMemberComposition(
     int Static,
     int This,
     int Extension);
+
+public sealed record BrowserTypeMemberFacetCount(
+    string Value,
+    int Count);
+
+public sealed record BrowserTypeMemberTraitCounts(
+    int All,
+    int Static,
+    int Instance,
+    int Virtual,
+    int Interface,
+    int Extensions);
+
+public sealed record BrowserTypeMemberSelectorCounts(
+    BrowserTypeMemberFacetCount[] Kinds,
+    BrowserTypeMemberTraitCounts Traits);
 
 public sealed record BrowserTypeMemberPopulationGroup(
     string Key,
@@ -403,7 +420,8 @@ public sealed record BrowserMemberSurface(
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors,
-    int? BaselineOrdinal = null);
+    int? BaselineOrdinal = null,
+    bool IsExplicitInterfaceImplementation = false);
 
 public sealed record BrowserMemberBodySelector(
     int Token,
