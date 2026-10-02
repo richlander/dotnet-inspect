@@ -1867,6 +1867,62 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryPackage_EmptyRidPackageIdRemainsUnavailable()
+    {
+        const string packageId = "Tool.Invalid.Pointer";
+        byte[] package = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Tool.Invalid.Pointer</id>
+                    <version>1.0.0</version>
+                    <packageTypes>
+                      <packageType name="DotnetTool" />
+                    </packageTypes>
+                  </metadata>
+                </package>
+                """)),
+            ("tools/DotnetToolSettings.xml", Encoding.UTF8.GetBytes(
+                """
+                <DotNetCliTool Version="2">
+                  <Commands><Command Name="invalid-tool" /></Commands>
+                  <RuntimeIdentifierPackages>
+                    <RuntimeIdentifierPackage RuntimeIdentifier="linux-x64" Id="" />
+                  </RuntimeIdentifierPackages>
+                </DotNetCliTool>
+                """)));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                package,
+                fromCache: false));
+
+        BrowserPackageLoadResult load =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryPackage(
+                            packageId,
+                            "1.0.0",
+                            "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+
+        BrowserPackageChildren children =
+            Assert.IsType<BrowserPackageChildrenInspection>(
+                load.PackageChildren).Content;
+        Assert.Equal("Libraries", children.Kind);
+        Assert.Equal("Unavailable", children.Status);
+        Assert.False(children.IsComplete);
+        Assert.Contains("unsupported shape", children.Detail);
+        Assert.Empty(children.Libraries);
+        Assert.Empty(children.RuntimeIdentifierPackages);
+    }
+
+    [Fact]
     public async Task QueryPackage_ExplicitEmptyCompileGroupRetainsTypedAbsence()
     {
         const string packageId = "Empty.Compile.Group";

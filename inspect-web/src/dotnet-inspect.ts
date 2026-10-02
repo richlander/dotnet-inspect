@@ -132,6 +132,7 @@ import {
   type WorkspaceFeedRollbackTransfer,
 } from "./workspace-feed-activation.ts";
 import {
+  aggregateKnownPackageLibraryCount,
   createAppMemberSurface,
   createAppTypeSurface,
   createPackageAcquisition,
@@ -10999,21 +11000,6 @@ function renderPackageChildren(pkg: AppPackage) {
   </section>`;
 }
 
-function aggregateKnownCount(
-  libraries: readonly ReturnType<typeof packageLibraries>[number][],
-  selector: (
-    library: ReturnType<typeof packageLibraries>[number],
-  ) => number | null,
-) {
-  let total = 0;
-  for (const library of libraries) {
-    const value = selector(library);
-    if (value === null) return null;
-    total += value;
-  }
-  return total;
-}
-
 function renderLibraryCompositionOverview(
   pkg: AppPackage,
   library: ReturnType<typeof packageLibraries>[number] | null,
@@ -11093,10 +11079,14 @@ function renderLibraryCompositionOverview(
       ? library.types === null
         ? null
         : library.types + forwarders.length
-      : aggregateKnownCount(libraries, candidate => candidate.types),
+      : aggregateKnownPackageLibraryCount(
+        libraries,
+        candidate => candidate.types),
     totalMembers: library
       ? library.members
-      : aggregateKnownCount(libraries, candidate => candidate.members),
+      : aggregateKnownPackageLibraryCount(
+        libraries,
+        candidate => candidate.members),
     contentHtml: `${platformForwarderInventoryStatus()}${contentHtml}`,
     escapeHtml,
   });

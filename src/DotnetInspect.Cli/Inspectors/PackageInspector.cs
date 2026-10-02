@@ -359,8 +359,11 @@ internal static class PackageInspector
             return;
 
         var wrapperTool = new InspectionResult();
-        ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, wrapperTool);
-        if (string.IsNullOrWhiteSpace(wrapperTool.ToolFormat))
+        bool wrapperSettingsComplete =
+            ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, wrapperTool);
+        result.ToolSettingsProjectionComplete &= wrapperSettingsComplete;
+        if (!wrapperSettingsComplete
+            || string.IsNullOrWhiteSpace(wrapperTool.ToolFormat))
             return;
 
         result.IsToolPackage = true;

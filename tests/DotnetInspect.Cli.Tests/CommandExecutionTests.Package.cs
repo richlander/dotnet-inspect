@@ -2418,6 +2418,48 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DisagreeingToolSettingsRemainUnavailable()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalToolPackageWithDisagreeingSettings();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "Unavailable",
+                document.RootElement
+                    .GetProperty("status")
+                    .GetString());
+            Assert.Contains(
+                "could not be projected completely",
+                document.RootElement
+                    .GetProperty("detail")
+                    .GetString(),
+                StringComparison.Ordinal);
+            Assert.Empty(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.DoesNotContain(
+                "Tool.First",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_NoManagedChildrenRemainVisibleInRows()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
@@ -4834,6 +4876,44 @@ public partial class CommandExecutionTests
         var packagePath = Path.Combine(
             tempDir,
             "Test.LargeTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalToolPackageWithDisagreeingSettings()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"ambiguous-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string toolsDir = Path.Combine(packageRoot, "tools");
+        string nestedToolsDir = Path.Combine(toolsDir, "net10.0");
+        Directory.CreateDirectory(nestedToolsDir);
+        File.WriteAllText(
+            Path.Combine(toolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands><Command Name="tool" /></Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="linux-x64" Id="Tool.First" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """);
+        File.WriteAllText(
+            Path.Combine(nestedToolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands><Command Name="tool" /></Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="win-x64" Id="Tool.Second" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """);
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.AmbiguousTool.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
     }

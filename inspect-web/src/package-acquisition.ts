@@ -162,8 +162,8 @@ export interface AppPackage {
   assemblies: InspectedAssemblySurface[];
   types: AppTypeSurface[];
   accessibility: InspectedAccessibilityDescriptor[];
-  totalTypes: number;
-  totalMembers: number;
+  totalTypes: number | null;
+  totalMembers: number | null;
   documents: InspectedPackageDocument[];
   icon: InspectedPackageIcon | null;
   inspectionErrors?: string[];
@@ -188,6 +188,19 @@ export interface AppPackageLibrary {
   platformPack: string | null;
   surfaceAvailable: boolean;
   unavailableDetail: string | null;
+}
+
+export function aggregateKnownPackageLibraryCount(
+  libraries: readonly AppPackageLibrary[],
+  selector: (library: AppPackageLibrary) => number | null,
+): number | null {
+  let total = 0;
+  for (const library of libraries) {
+    const value = selector(library);
+    if (value === null) return null;
+    total += value;
+  }
+  return total;
 }
 
 const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
@@ -556,7 +569,7 @@ export function createNuGetPackageModel(
       || `No compile Library is available (${result.compileLibrary.status}).`);
   }
   const assemblies = packageAssemblies(result, packageChildren);
-  const totalTypes = packageChildren
+  const provisionalTotalTypes = packageChildren
     ? packageChildren.content.libraries.reduce(
         (count, library) =>
           count + (library.publicTypeDeclarations ?? 0),
@@ -565,7 +578,7 @@ export function createNuGetPackageModel(
         (count, candidate) =>
           count + (candidate.publicTypes ?? 0),
         0);
-  return {
+  const model: AppPackage = {
     id: result.package,
     version: result.version,
     frameworks: [...(result.frameworks ?? [])],
@@ -579,7 +592,7 @@ export function createNuGetPackageModel(
     assemblies,
     types: packageTypes(result),
     accessibility: [...(result.accessibility ?? [])],
-    totalTypes,
+    totalTypes: provisionalTotalTypes,
     totalMembers: result.totalMembers,
     documents: [...(result.documents ?? [])],
     icon: result.icon,
@@ -596,6 +609,18 @@ export function createNuGetPackageModel(
       : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
+  };
+  if (!packageChildren) return model;
+
+  const libraries = packageLibrariesForModel(model);
+  return {
+    ...model,
+    totalTypes: aggregateKnownPackageLibraryCount(
+      libraries,
+      library => library.types),
+    totalMembers: aggregateKnownPackageLibraryCount(
+      libraries,
+      library => library.members),
   };
 }
 
@@ -793,7 +818,7 @@ export function mergeRuntimePackageSurface(
     }));
     existing.totalMembers = Math.max(
       0,
-      existing.totalMembers - removedTypes
+      (existing.totalMembers ?? 0) - removedTypes
         .filter(type => defaultAccessibility.has(type.accessibilityId))
         .reduce((total, type) => total + type.members, 0));
   }

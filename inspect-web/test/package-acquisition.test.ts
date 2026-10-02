@@ -234,7 +234,8 @@ function packageInfo(): BrowserPackageInfoMeasurementInspection {
 
 function packageChildren(
   surface: BrowserPackageSurface,
-  counts = surface.assemblies.map(descriptor => descriptor.publicTypes),
+  counts: readonly (number | null)[] =
+    surface.assemblies.map(descriptor => descriptor.publicTypes),
 ): BrowserPackageChildrenInspection {
   return {
     content: {
@@ -249,7 +250,7 @@ function packageChildren(
         assemblyName: descriptor.name,
         role: "Compile",
         publicTypeDeclarations: counts[index] ?? null,
-        countStatus: "Counted",
+        countStatus: counts[index] === null ? "Unavailable" : "Counted",
         detail: null,
       })),
       runtimeIdentifierPackages: [],
@@ -500,6 +501,7 @@ test("Package children own Library declaration counts", () => {
   assert.equal(model.packageChildren, children);
   assert.equal(model.assemblies[0]?.publicTypes, 17);
   assert.equal(model.totalTypes, 17);
+  assert.equal(model.totalMembers, 6);
 });
 
 test("Package children retain navigable Libraries missing from the broad surface", () => {
@@ -524,6 +526,30 @@ test("Package children retain navigable Libraries missing from the broad surface
     libraries[0]?.unavailableDetail,
     "Library surface details are unavailable.");
   assert.equal(model.totalTypes, 17);
+  assert.equal(model.totalMembers, null);
+});
+
+test("Package totals become unknown when any owner-issued child Count is unknown", () => {
+  const complete = packageSurface({
+    assemblies: [
+      assembly("known", "Known", 3),
+      assembly("unknown", "Unknown", 5),
+    ],
+  });
+  const children = packageChildren(complete, [17, null]);
+  const model = createNuGetPackageModel(
+    packageSurface({
+      defaultAssemblyId: "known",
+      assemblies: [complete.assemblies[0]!],
+      types: [],
+    }),
+    children);
+
+  assert.deepEqual(
+    packageLibrariesForModel(model).map(library => library.types),
+    [17, null]);
+  assert.equal(model.totalTypes, null);
+  assert.equal(model.totalMembers, null);
 });
 
 test("Workspace occurrence activation preserves matching inspection envelopes", () => {
@@ -561,7 +587,7 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     retained,
     [retained]);
 
-  assert.equal(activated.totalMembers, 12);
+  assert.equal(activated.totalMembers, 6);
   assert.equal(activated.versionSettlement, versionSettlement);
   assert.equal(activated.packageInfo, measurements);
   assert.equal(activated.packageChildren, children);

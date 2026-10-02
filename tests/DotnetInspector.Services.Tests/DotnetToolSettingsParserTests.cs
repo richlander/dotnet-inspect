@@ -98,6 +98,26 @@ public class DotnetToolSettingsParserTests
         Assert.Null(DotnetToolSettingsParser.ParseContent("<DotNetCliTool Version=\"2\"><Commands>"));
     }
 
+    [Theory]
+    [InlineData("", "Tool.Package")]
+    [InlineData(" ", "Tool.Package")]
+    [InlineData("linux-x64", "")]
+    [InlineData("linux-x64", " ")]
+    public void ParseContent_Version2RejectsEmptyRidPackageFields(
+        string runtimeIdentifier,
+        string packageId)
+    {
+        Assert.Null(
+            DotnetToolSettingsParser.ParseContent(
+                $"""
+                <DotNetCliTool Version="2">
+                  <RuntimeIdentifierPackages>
+                    <RuntimeIdentifierPackage RuntimeIdentifier="{runtimeIdentifier}" Id="{packageId}" />
+                  </RuntimeIdentifierPackages>
+                </DotNetCliTool>
+                """));
+    }
+
     [Fact]
     public void ProjectContents_DistinguishesInvalidAndDisagreeingManifests()
     {
@@ -285,7 +305,7 @@ public class DotnetToolSettingsParserTests
                 DotnetToolSettingsParser.TryProject(
                     ambiguous,
                     out DotnetToolSettingsData? ambiguousData));
-            Assert.NotNull(ambiguousData);
+            Assert.Null(ambiguousData);
         }
         finally
         {

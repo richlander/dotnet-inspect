@@ -207,6 +207,15 @@ public partial class PackageCommand
                 ?? result.Version
                 ?? version,
             targetFramework: null);
+        if (!result.ToolSettingsProjectionComplete)
+        {
+            return PackageChildrenPlan.FromDocument(
+                PackageChildrenDocument.UnavailableLibraries(
+                    subject,
+                    PackageChildrenStatus.Unavailable,
+                    "Tool settings could not be projected completely."));
+        }
+
         if (result.IsRidSpecificPointerPackage
             && result.RuntimeIdentifierPackages is { Count: > 0 }
                 ridPackages)

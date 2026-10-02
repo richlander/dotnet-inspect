@@ -73,8 +73,7 @@ public static class DotnetToolSettingsParser
     /// <summary>
     /// Locates and projects every candidate manifest. Returns <see langword="true"/>
     /// for absence or one complete, agreeing projection; otherwise returns
-    /// <see langword="false"/> while preserving the first deterministic projection
-    /// in <paramref name="data"/> when one was readable.
+    /// <see langword="false"/> without publishing a partial projection.
     /// </summary>
     public static bool TryProject(
         string toolsDir,
@@ -96,7 +95,6 @@ public static class DotnetToolSettingsParser
                 DotnetToolSettingsData? candidate = Parse(candidates[i]);
                 if (!Equivalent(selected, candidate))
                 {
-                    data = selected;
                     return false;
                 }
             }
@@ -162,23 +160,15 @@ public static class DotnetToolSettingsParser
     private static DotnetToolSettingsData? ParseDocument(XDocument doc)
     {
         var root = doc.Root;
-        if (root?.Name != "DotNetCliTool")
+        if (root is null || root.Name != "DotNetCliTool")
             return null;
 
-        var version = root?.Attribute("Version")?.Value;
+        var version = root.Attribute("Version")?.Value;
 
         List<DotnetToolCommand>? commands = ParseCommandEntries(root);
         return version switch
         {
-            "2" => new DotnetToolSettingsData(
-                version,
-                "DotNetCliTool Version=\"2\" (RID-specific)",
-                IsRidSpecificPointerPackage: true,
-                commands?.Select(static command => command.Name).ToList(),
-                ParseRidPackages(root))
-            {
-                CommandEntries = commands,
-            },
+            "2" => ParseVersion2(root, version, commands),
             "1" or null => new DotnetToolSettingsData(
                 version,
                 "DotNetCliTool Version=\"1\" (portable)",
@@ -189,6 +179,29 @@ public static class DotnetToolSettingsParser
                 CommandEntries = commands,
             },
             _ => null,
+        };
+    }
+
+    private static DotnetToolSettingsData? ParseVersion2(
+        XElement root,
+        string version,
+        List<DotnetToolCommand>? commands)
+    {
+        if (!TryParseRidPackages(
+                root,
+                out List<ToolRidPackage>? ridPackages))
+        {
+            return null;
+        }
+
+        return new(
+            version,
+            "DotNetCliTool Version=\"2\" (RID-specific)",
+            IsRidSpecificPointerPackage: true,
+            commands?.Select(static command => command.Name).ToList(),
+            ridPackages)
+        {
+            CommandEntries = commands,
         };
     }
 
@@ -314,16 +327,36 @@ public static class DotnetToolSettingsParser
             .ToList();
     }
 
-    private static List<ToolRidPackage>? ParseRidPackages(XElement? root)
+    private static bool TryParseRidPackages(
+        XElement root,
+        out List<ToolRidPackage>? packages)
     {
-        var ridPackages = root?.Element("RuntimeIdentifierPackages")?.Elements("RuntimeIdentifierPackage");
+        IEnumerable<XElement>? ridPackages = root
+            .Element("RuntimeIdentifierPackages")
+            ?.Elements("RuntimeIdentifierPackage");
         if (ridPackages == null)
-            return null;
+        {
+            packages = null;
+            return true;
+        }
 
-        return ridPackages
-            .Select(r => new ToolRidPackage(
-                r.Attribute("RuntimeIdentifier")?.Value ?? "",
-                r.Attribute("Id")?.Value ?? ""))
-            .ToList();
+        packages = [];
+        foreach (XElement ridPackage in ridPackages)
+        {
+            string runtimeIdentifier =
+                ridPackage.Attribute("RuntimeIdentifier")?.Value ?? "";
+            string packageId =
+                ridPackage.Attribute("Id")?.Value ?? "";
+            if (string.IsNullOrWhiteSpace(runtimeIdentifier)
+                || string.IsNullOrWhiteSpace(packageId))
+            {
+                packages = null;
+                return false;
+            }
+
+            packages.Add(new(runtimeIdentifier, packageId));
+        }
+
+        return true;
     }
 }
