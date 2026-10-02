@@ -829,6 +829,29 @@ The complete-profile compatibility projection composes direct-invocation
 Count with separately resolved distinct-target evidence until its remaining
 consumers move to focused results.
 
+### JavaScript export wire-contract adoption for #8945
+
+**Library Body Analysis Execution** publishes one focused
+`LibraryJsonWireContractAnalysisResult` when `JsonWireContractFlow` is
+requested. It associates the execution receipt and focused call-graph result
+with exactly the result sinks, field stores, field loads, and return flows
+needed to authenticate System.Text.Json wire contracts. The result reuses
+owner-issued call evidence and identities; it does not copy call decoding,
+define a second direct-call population, or expose the Analysis aggregate.
+
+`JsExportSurfaceBuilder` consumes that focused result for the root assembly and
+referenced serializer-context assemblies. The `ts-jsexport` production loader
+passes `LibraryBodyAnalysisExecution.JsonWireContracts` directly, so CLI and
+Browser/Wasm facade generation no longer materialize the compatibility index.
+Declaration-only surface construction remains independent of body Analysis.
+
+The slice preserves the existing `JsonWireContractFlow` producer, authenticated
+wire shapes, diagnostics, failure behavior, and one-read immutable-image path.
+It changes evidence ownership rather than JavaScript export semantics or
+rendering. Synthetic compatibility-index fixtures may adapt to the focused
+result while they migrate; no production JavaScript export caller accepts or
+acquires `LibraryBodyIndex`.
+
 ### Production adoption for #8450
 
 The counted implementation path is:

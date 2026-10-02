@@ -308,6 +308,10 @@ public sealed class LibraryBodyAnalysisExecution
             Receipt,
             _moduleName,
             analysis);
+        JsonWireContracts = new(
+            Receipt,
+            CallGraph,
+            analysis);
         var generatedFrameworkTypes =
             new GeneratedFrameworkTypeSet(CallGraph);
         Leverage = new(
@@ -404,6 +408,9 @@ public sealed class LibraryBodyAnalysisExecution
     /// <summary>Focused local call-graph result.</summary>
     public LibraryCallGraphAnalysisResult CallGraph { get; }
 
+    /// <summary>Focused JSON wire-contract call and value-flow evidence.</summary>
+    public LibraryJsonWireContractAnalysisResult JsonWireContracts { get; }
+
     /// <summary>Focused whole-library leverage result.</summary>
     public LibraryLeverageAnalysisResult Leverage { get; }
 
@@ -440,7 +447,8 @@ public sealed class LibraryBodyAnalysisExecution
             Receipt.HasFullMethodEvidenceScope,
             Optimization,
             CallGraph,
-            Leverage);
+            Leverage,
+            JsonWireContracts);
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>
