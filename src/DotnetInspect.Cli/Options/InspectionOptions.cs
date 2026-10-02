@@ -318,7 +318,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// Whether the explicit tip projection was requested.
     /// </summary>
-    public TipLevel TipLevel { get; init; } = TipLevel.Quiet;
+    public CompanionOutput CompanionOutput { get; init; } = CompanionOutput.None;
 
     /// <summary>
     /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose

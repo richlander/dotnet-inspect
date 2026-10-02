@@ -176,9 +176,10 @@ public class TypeOptionsParserTests
             "--tfm",
             "net10.0",
             "--envelope",
-            "-T");
+            "-E",
+            ".tips");
 
-        Assert.Equal(TipLevel.Minimal, options.TipLevel);
+        Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
     }
 
     [Fact]

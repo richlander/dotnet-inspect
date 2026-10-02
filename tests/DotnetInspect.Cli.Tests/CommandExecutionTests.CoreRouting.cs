@@ -482,11 +482,52 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Network traffic", error);
     }
 
-    [Fact]
-    public async Task DependencyEvidenceCommand_AfterBareTipsReportsReplacement()
+    [Theory]
+    [InlineData("", "Bare '-E' is reserved")]
+    [InlineData(".references", "reusable references")]
+    [InlineData(".unknown", "Unknown companion projection '.unknown'")]
+    public async Task UnavailableCompanionProjection_RejectsBeforeAcquisition(
+        string projection,
+        string expectedError)
+    {
+        string[] arguments = projection.Length == 0
+            ? ["package", "Definitely.Does.Not.Exist", "-E"]
+            : ["package", "Definitely.Does.Not.Exist", "-E", projection];
+
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist' not found", error);
+        Assert.DoesNotContain("Network traffic", error);
+    }
+
+    [Theory]
+    [InlineData("-E=.tips", "separate token")]
+    [InlineData("-E:.tips", "separate token")]
+    [InlineData("-e", "Use uppercase '-E'")]
+    public async Task InvalidCompanionSpelling_RejectsBeforeAcquisition(
+        string option,
+        string expectedError)
     {
         var (exit, output, error) = await RunAppAsync(
-            "-T",
+            "package",
+            "Definitely.Does.Not.Exist",
+            option);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist' not found", error);
+        Assert.DoesNotContain("Network traffic", error);
+    }
+
+    [Fact]
+    public async Task DependencyEvidenceCommand_AfterBareCompanionReportsReplacement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "-E",
             "dependency-evidence",
             "--package",
             "Definitely.Does.Not.Exist");
@@ -504,10 +545,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task BareTips_PreservesExplicitDependencyEvidencePackageSubject()
+    public async Task TipsCompanion_PreservesExplicitDependencyEvidencePackageSubject()
     {
         var (exit, output, error) = await RunAppAsync(
-            "-T",
+            "-E",
+            ".tips",
             "package",
             "dependency-evidence",
             "-D",

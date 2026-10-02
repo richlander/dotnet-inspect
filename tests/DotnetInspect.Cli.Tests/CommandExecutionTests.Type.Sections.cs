@@ -184,9 +184,7 @@ public partial class CommandExecutionTests
                 "--library",
                 assemblyPath,
                 "-D",
-                SectionNames.TypeInfo,
-                "--tips",
-                "q");
+                SectionNames.TypeInfo);
 
             Assert.Equal(0, exit);
             Assert.NotEmpty(output);

@@ -38,7 +38,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = Library,
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -79,7 +79,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             Tfm = Framework,
             EnvelopeOutput = true,
             CompactJson = true,
-            TipLevel = TipLevel.Minimal,
+            CompanionOutput = CompanionOutput.Tips,
         };
 
         (int exitCode, string output, string error) =
@@ -307,7 +307,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = Library,
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             CompactJson = true,
         };
         WorkspaceContextLoadOptions capabilities = new()
@@ -504,7 +504,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = "Missing.dll",
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -539,7 +539,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = "Missing.dll",
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             JsonOutput = true,
             Format = OutputFormat.Json,
             FormatExplicitlySet = true,

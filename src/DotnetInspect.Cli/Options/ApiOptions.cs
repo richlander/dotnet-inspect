@@ -252,7 +252,7 @@ public partial record ApiOptions : IProjectionOptions
     /// <summary>
     /// Whether the explicit tip projection was requested.
     /// </summary>
-    public TipLevel TipLevel { get; init; } = TipLevel.Quiet;
+    public CompanionOutput CompanionOutput { get; init; } = CompanionOutput.None;
 
     /// <summary>
     /// True when discovery (-D) should resolve and load the source to report only the

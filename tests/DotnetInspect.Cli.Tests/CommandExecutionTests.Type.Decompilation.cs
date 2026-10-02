@@ -164,7 +164,7 @@ public partial class CommandExecutionTests
                 Select =
                     [SectionNames.DecompiledSource],
                 DocsExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
             };
 

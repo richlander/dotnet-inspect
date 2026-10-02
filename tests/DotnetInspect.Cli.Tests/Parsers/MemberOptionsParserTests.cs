@@ -430,12 +430,12 @@ public class MemberOptionsParserTests
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "markdown");
-            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-T");
+            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-E", ".tips");
 
             Assert.True(options.FormatExplicitlySet);
             Assert.False(options.Tabular);
             Assert.False(options.TabularExplicitlySet);
-            Assert.Equal(TipLevel.Minimal, options.TipLevel);
+            Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
         }
         finally
         {
@@ -446,20 +446,20 @@ public class MemberOptionsParserTests
     [Fact]
     public async Task ExplicitPackage_WithImplicitOutput_PreservesRequestedTips()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-T");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-E", ".tips");
 
         Assert.False(options.FormatExplicitlySet);
-        Assert.Equal(TipLevel.Minimal, options.TipLevel);
+        Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
     }
 
     [Fact]
     public async Task ExplicitPackage_WithMarkdown_PreservesRequestedTips()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "-T");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "-E", ".tips");
 
         Assert.True(options.FormatExplicitlySet);
         Assert.False(options.IsRawOutput);
-        Assert.Equal(TipLevel.Minimal, options.TipLevel);
+        Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
     }
 
     [Fact]

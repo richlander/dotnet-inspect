@@ -75,7 +75,7 @@ public sealed class ApiMethodImplementationJsonTests
                 IncludeSections = selectSections ? [SectionNames.Constructors, SectionNames.Properties] : null,
                 JsonOutput = true,
                 CompactJson = compact,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);

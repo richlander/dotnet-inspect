@@ -17,9 +17,11 @@ public record Tip(string Subcommand, string Args, string Comment)
 
 public static class Hints
 {
-    public static void WriteTips(TipLevel level, Func<Tip[]> createTips)
+    public static void WriteTips(
+        CompanionOutput companionOutput,
+        Func<Tip[]> createTips)
     {
-        if (level == TipLevel.Quiet) return;
+        if (companionOutput == CompanionOutput.None) return;
 
         Console.Out.Flush();
 

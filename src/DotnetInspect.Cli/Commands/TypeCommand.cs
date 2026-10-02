@@ -152,7 +152,7 @@ public static class TypeCommand
             BodyKindQuery = options.BodyKindQuery,
             CloneCandidateQuery = options.CloneCandidateQuery,
             SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel,
+            CompanionOutput = options.CompanionOutput,
             RenderOptions = options.RenderOptions,
             RenderConfigWarnings = options.RenderConfigWarnings,
             RequestAllTaste = options.RequestAllTaste,
@@ -394,7 +394,7 @@ public static class TypeCommand
                             != ApiSurface.ConstraintResolutionOperation);
 
                 if (!loaded.IsSummary
-                    && options.TipLevel != TipLevel.Quiet)
+                    && options.CompanionOutput != CompanionOutput.None)
                 {
                     var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                         : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -417,7 +417,7 @@ public static class TypeCommand
                             new(Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
                         ];
 
-                        Hints.WriteTips(options.TipLevel, () => [.. tips]);
+                        Hints.WriteTips(options.CompanionOutput, () => [.. tips]);
                     }
                 }
 
@@ -711,7 +711,7 @@ public static class TypeCommand
                         ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
                     }
 
-                    if (effectiveOptions.TipLevel != TipLevel.Quiet)
+                    if (effectiveOptions.CompanionOutput != CompanionOutput.None)
                     {
                         var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                             : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -745,7 +745,7 @@ public static class TypeCommand
                             tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
 
                         Hints.WriteTips(
-                            effectiveOptions.TipLevel,
+                            effectiveOptions.CompanionOutput,
                             () => [.. tips]);
                     }
 
@@ -1110,7 +1110,7 @@ public static class TypeCommand
         ExactLibraryApiInspectionRequest request,
         ApiSurface surface)
     {
-        if (options.TipLevel == TipLevel.Quiet)
+        if (options.CompanionOutput == CompanionOutput.None)
             return;
 
         ApiType? exampleType = surface.Types
@@ -1125,7 +1125,7 @@ public static class TypeCommand
         string simpleName =
             TypeMatcher.GetSimpleName(exampleType.FullName);
         Hints.WriteTips(
-            options.TipLevel,
+            options.CompanionOutput,
             () =>
             [
                 new(

@@ -380,7 +380,7 @@ public static class InspectionCommandDefinitions
                             Hints.WriteDiffLegend();
 
                         Hints.WriteTips(
-                            success.TipLevel,
+                            success.CompanionOutput,
                             () => [.. DiffOptionsParser.BuildTips(
                                 options,
                                 options.TypeFilter)]);

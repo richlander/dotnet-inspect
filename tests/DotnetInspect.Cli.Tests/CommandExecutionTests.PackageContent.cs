@@ -3260,7 +3260,11 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Tip.Readme", "README.md", "tip readme body");
         try
         {
-            var (_, _, tipError) = await RunAppAsync("package", packagePath, "-T");
+            var (_, _, tipError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-E",
+                ".tips");
 
             var tipLine = tipError
                 .Split('\n')

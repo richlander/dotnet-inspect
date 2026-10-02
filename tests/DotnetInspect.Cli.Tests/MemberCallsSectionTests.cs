@@ -39,8 +39,6 @@ public class MemberCallsSectionTests
             memberName,
             "-S",
             SectionNames.Calls,
-            "--tips",
-            "q",
         ];
 
         var rows = await RunCliAsync([.. args, "--json"]);
@@ -77,9 +75,7 @@ public class MemberCallsSectionTests
             "--all",
             "--json",
             "--bin",
-            callerScope.FullName,
-            "--tips",
-            "q");
+            callerScope.FullName);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -108,9 +104,7 @@ public class MemberCallsSectionTests
             "--count",
             "--all",
             "-D",
-            SectionNames.Calls,
-            "--tips",
-            "q");
+            SectionNames.Calls);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -136,9 +130,7 @@ public class MemberCallsSectionTests
             "--count",
             "--all",
             projectionOption,
-            "NoSuchProjection",
-            "--tips",
-            "q");
+            "NoSuchProjection");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -317,9 +309,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "--rows",
             "3..3",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -473,9 +463,7 @@ public class MemberCallsSectionTests
             overloadIndex.ToString(),
             "-S",
             SectionNames.Calls,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -502,9 +490,7 @@ public class MemberCallsSectionTests
             "-S",
             SectionNames.Calls,
             "--count",
-            "--all",
-            "--tips",
-            "q");
+            "--all");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -528,9 +514,7 @@ public class MemberCallsSectionTests
             accessorIndex.ToString(),
             "-S",
             SectionNames.Calls,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -554,9 +538,7 @@ public class MemberCallsSectionTests
             "-S",
             SectionNames.Calls,
             "--count",
-            "--all",
-            "--tips",
-            "q");
+            "--all");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -576,9 +558,7 @@ public class MemberCallsSectionTests
             "-S",
             SectionNames.Calls,
             "--count",
-            "--all",
-            "--tips",
-            "q");
+            "--all");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -600,9 +580,7 @@ public class MemberCallsSectionTests
             "-S",
             SectionNames.Calls,
             "--count",
-            "--all",
-            "--tips",
-            "q");
+            "--all");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -632,9 +610,7 @@ public class MemberCallsSectionTests
             "-S",
             SectionNames.Calls,
             "--count",
-            "--all",
-            "--tips",
-            "q");
+            "--all");
 
         Assert.Equal(expectedExitCode, result.ExitCode);
         Assert.Equal(expectedOutput, result.Output.Trim());
@@ -656,9 +632,7 @@ public class MemberCallsSectionTests
             "-S",
             SectionNames.Calls,
             "--count",
-            "--all",
-            "--tips",
-            "q");
+            "--all");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -676,9 +650,7 @@ public class MemberCallsSectionTests
             nameof(HiddenMemberCallsFixture.Call),
             "-S",
             SectionNames.Calls,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -700,9 +672,7 @@ public class MemberCallsSectionTests
             nameof(IMemberCallsBodilessFixture.Dispose),
             "-S",
             SectionNames.Calls,
-            "--count",
-            "--tips",
-            "q"
+            "--count"
         };
         if (includeAll)
             arguments.Add("--all");
@@ -742,7 +712,7 @@ public class MemberCallsSectionTests
             MemberFilter = [memberName],
             OverloadIndex = overloadIndex,
             IncludeSections = [SectionNames.Calls],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Discover = discover ? [] : null,
             Verbosity = Verbosity.Minimal,
             Tabular = tsv || discover,

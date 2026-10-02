@@ -64,7 +64,7 @@ public class SharedOptions
     public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
     public Option<bool> Paths { get; } = new("--paths") { Description = "Project path-bearing selected section rows to a path list or JSONL rows" };
     public Option<bool> JsonArray { get; } = new("--json-array") { Description = "With a shape projection, emit projected rows as one JSON array" };
-    public Option<bool> Tips { get; }
+    public Option<string?> Companion { get; }
 
     // Discovery option
     public Option<string?> Discover { get; }
@@ -137,11 +137,7 @@ public class SharedOptions
             Description = "Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end"
         };
 
-        Tips = new Option<bool>("-T")
-        {
-            Description = "Show contextual tips after successful output",
-            Arity = ArgumentArity.Zero
-        };
+        Companion = CreateCompanionOption();
 
         Discover = new Option<string?>("-D")
         {
@@ -315,7 +311,7 @@ public class SharedOptions
     {
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
-        command.Options.Add(Tips);
+        command.Options.Add(Companion);
         command.Options.Add(Rows);
         AddLineSelectionOptionsTo(command);
 
@@ -771,12 +767,48 @@ public class SharedOptions
         => OptionParsers.ParseVerbosity(parseResult.GetValue(Verbosity));
 
     /// <summary>
-    /// Resolves whether the explicit tip projection was requested.
+    /// Creates the CLI companion-output option.
     /// </summary>
-    public TipLevel ParseTipLevel(ParseResult parseResult)
-        => parseResult.GetResult(Tips) is { Implicit: false }
-            ? TipLevel.Minimal
-            : TipLevel.Quiet;
+    public static Option<string?> CreateCompanionOption()
+    {
+        var option = new Option<string?>("-E")
+        {
+            Description =
+                "Write companion output to stderr (.tips is available; "
+                + "bare explanation and .references are reserved)",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        option.Validators.Add(result =>
+        {
+            if (result.Tokens.Count == 0)
+            {
+                result.AddError(
+                    "Bare '-E' is reserved for complete contextual explanation, "
+                    + "which is not available yet. Use '-E .tips' for contextual tips.");
+                return;
+            }
+
+            string value = result.Tokens[^1].Value;
+            if (value == ".tips")
+                return;
+
+            result.AddError(
+                value == ".references"
+                    ? "'-E .references' is reserved for reusable references, "
+                        + "which are not available yet."
+                    : $"Unknown companion projection '{value}'. "
+                        + "Known projections are '.tips' and '.references'.");
+        });
+        return option;
+    }
+
+    /// <summary>
+    /// Resolves the requested companion projection.
+    /// </summary>
+    public CompanionOutput ParseCompanionOutput(ParseResult parseResult)
+        => parseResult.GetValue(Companion) == ".tips"
+            ? CompanionOutput.Tips
+            : CompanionOutput.None;
 
     /// <summary>
     /// Resolves the output format from parse result.

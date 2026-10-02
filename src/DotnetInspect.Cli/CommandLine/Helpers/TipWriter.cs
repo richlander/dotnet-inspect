@@ -31,10 +31,10 @@ public static class TipWriter
     /// <summary>
     /// Writes package-related tips after successful package inspection.
     /// </summary>
-    public static void WritePackageTips(string packageName, TipLevel tipLevel, Verbosity verbosity)
+    public static void WritePackageTips(string packageName, CompanionOutput companionOutput, Verbosity verbosity)
     {
         Hints.WriteTips(
-            tipLevel,
+            companionOutput,
             () =>
             {
                 List<Tip> tips = [];
@@ -57,10 +57,10 @@ public static class TipWriter
     /// <summary>
     /// Writes platform library-related tips after successful assembly inspection.
     /// </summary>
-    public static void WritePlatformTips(string assemblyName, TipLevel tipLevel, Verbosity verbosity)
+    public static void WritePlatformTips(string assemblyName, CompanionOutput companionOutput, Verbosity verbosity)
     {
         Hints.WriteTips(
-            tipLevel,
+            companionOutput,
             () =>
             {
                 List<Tip> tips = [];

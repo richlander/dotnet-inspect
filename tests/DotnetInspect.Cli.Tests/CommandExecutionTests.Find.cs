@@ -181,7 +181,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             MissingPackageLikeApiSymbol,
-            "-T");
+            "-E",
+            ".tips");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("package query", output);
@@ -202,7 +203,8 @@ public partial class CommandExecutionTests
             "find",
             MissingPackageLikeApiSymbol,
             "--json",
-            "-T");
+            "-E",
+            ".tips");
 
         Assert.Equal(0, withoutTips.Exit);
         Assert.Equal(0, withTips.Exit);

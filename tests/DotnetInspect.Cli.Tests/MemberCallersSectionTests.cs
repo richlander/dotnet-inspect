@@ -296,7 +296,7 @@ public class MemberCallersSectionTests
             AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallersFixture.Orphan)],
             OverloadIndex = 1,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Discover = [SectionCategoryNames.Calls],
             Verbosity = Verbosity.Normal,
             Tabular = true,
@@ -336,7 +336,7 @@ public class MemberCallersSectionTests
             AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallersFixture.Orphan)],
             OverloadIndex = 1,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Detailed,
         }));
 
@@ -362,7 +362,7 @@ public class MemberCallersSectionTests
                     MemberFilter = [nameof(MemberCommand.ExecuteAsync)],
                     OverloadIndex = 1,
                     CallerScopeDirectories = [scopeDir],
-                    TipLevel = TipLevel.Quiet,
+                    CompanionOutput = CompanionOutput.None,
                     Verbosity = Verbosity.Normal,
                 })));
 
@@ -404,7 +404,7 @@ public class MemberCallersSectionTests
                     OverloadIndex = 1,
                     IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
                     CallerScopeDirectories = [scopeDir],
-                    TipLevel = TipLevel.Quiet,
+                    CompanionOutput = CompanionOutput.None,
                     Verbosity = Verbosity.Normal,
                 })));
 
@@ -425,7 +425,7 @@ public class MemberCallersSectionTests
             MemberFilter = [nameof(MemberCallersFixture.Target)],
             OverloadIndex = 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -442,7 +442,7 @@ public class MemberCallersSectionTests
             AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
             MemberFilter = [memberName],
             IncludeSections = [SectionNames.Callers],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Discover = discover ? [] : null,
             Verbosity = Verbosity.Normal,
             Tabular = tsv || discover,

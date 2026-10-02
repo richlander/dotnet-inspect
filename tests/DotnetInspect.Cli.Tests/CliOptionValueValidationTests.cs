@@ -239,13 +239,6 @@ public sealed class CliOptionValueValidationTests
             await RunPackage(["package", .. arguments, "-Q", "--json"]),
             "--versions");
 
-    [Theory]
-    [InlineData("-hT=", "--help=false")]
-    [InlineData("-h", "-T=", "--help=false")]
-    public async Task LibraryValuedTipsAreRejectedBeforeAttachedHelpValues(
-        params string[] arguments) =>
-        AssertRejected(await RunCli(["library", .. arguments]), "-T");
-
     public static TheoryData<string[]> ValidPackageQueries
     {
         get

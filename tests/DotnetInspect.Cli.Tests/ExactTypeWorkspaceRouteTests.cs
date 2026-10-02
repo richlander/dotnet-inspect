@@ -41,7 +41,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -99,7 +99,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -181,7 +181,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = @"N.Outer\.Inner",
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -230,7 +230,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -303,7 +303,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -348,7 +348,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
             MemberFilter = ["Name"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -389,7 +389,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
         options = WithPresentation(options, presentation);
 
@@ -499,7 +499,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -552,7 +552,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, _) =
@@ -611,7 +611,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -663,7 +663,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         {
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -699,7 +699,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = "Exact.Type.Good",
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -762,7 +762,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         {
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -796,7 +796,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         {
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -953,7 +953,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             CompactJson = true,
         };
         WorkspaceContextLoadOptions capabilities = new()
@@ -1017,7 +1017,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "Exact.Type.Malformed",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             JsonOutput = true,
             Format = OutputFormat.Json,
             FormatExplicitlySet = true,
@@ -1055,7 +1055,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "Exact.Type.Good",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -1093,7 +1093,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "Exact.Type.Malformed",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -1139,7 +1139,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "N.Holder<T>",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -1177,7 +1177,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = @"N.Outer\.Inner",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =

@@ -1320,9 +1320,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "-S",
                 "Library Info",
-                "--tsv",
-                "--tips",
-                "q");
+                "--tsv");
 
             Assert.True(exit == 0, error);
             Dictionary<string, string> namesByLibrary = SplitOutputLines(output)

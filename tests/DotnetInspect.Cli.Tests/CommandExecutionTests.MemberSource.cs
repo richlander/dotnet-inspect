@@ -2467,7 +2467,7 @@ public partial class CommandExecutionTests
                 Select = [SectionNames.Methods],
                 IncludeSections = [SectionNames.AnnotatedSourceDocument],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2494,7 +2494,7 @@ public partial class CommandExecutionTests
                     SectionNames.Signature
                 ],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(1, result.ExitCode);
@@ -2517,7 +2517,7 @@ public partial class CommandExecutionTests
                 IncludeSections = [SectionNames.AnnotatedSourceDocument],
                 ExactIncludeSectionsOverride = [],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2544,7 +2544,7 @@ public partial class CommandExecutionTests
                 ],
                 ExactIncludeSectionsOverride = [],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);

@@ -559,8 +559,15 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Tips are off by default. Use bare short-only `-T` for up to three contextual
-suggestions on `stderr`.
+Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
+dotted token, for up to three contextual suggestions on `stderr`. Bare `-E`
+and `-E .references` are reserved and currently fail before acquisition.
+Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
+`-E references`, inline `-E=.tips` / `-E:.tips`, unknown dotted children, and
+repeated `-E` are invalid. An unrelated undotted token after `-E` remains
+positional. `E`
+suggests *explain* and can also remind users that the companion is written to
+the error stream; the latter is a mnemonic, not an error classification.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, Package Query, online package range-version population, and exact
@@ -587,7 +594,7 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
-| Show contextual tips | bare `-T` |
+| Show contextual tips | `-E .tips` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
@@ -1945,7 +1952,7 @@ With `--envelope`, `--depth` remains a traversal input and `--rows`,
 accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
 explicit `-v`, Count, fields/columns, presentation projections or decoration,
 and rendered-line clipping are rejected before acquisition. `--verbose` and
-`-T` tips remain on stderr. `--share` retains its existing policy
+`-E .tips` remain on stderr. `--share` retains its existing policy
 and emits its optional URL or packet as the final stderr line. There is no
 `--evidence-envelope` support yet.
 

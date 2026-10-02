@@ -33,7 +33,7 @@ public partial class CommandExecutionTests
         ];
 
         var withoutTips = await RunAppAsync(arguments);
-        var withTips = await RunAppAsync([.. arguments, "-T"]);
+        var withTips = await RunAppAsync([.. arguments, "-E", ".tips"]);
 
         Assert.Equal(0, withoutTips.Exit);
         Assert.Equal(0, withTips.Exit);

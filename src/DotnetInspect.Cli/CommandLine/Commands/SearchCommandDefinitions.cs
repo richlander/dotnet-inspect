@@ -191,7 +191,7 @@ public static class SearchCommandDefinitions
                     if (execution.ExitCode == 0)
                     {
                         Hints.WriteTips(
-                            success.TipLevel,
+                            success.CompanionOutput,
                             () =>
                             [
                                 .. FindOptionsParser.BuildTips(

@@ -19,12 +19,13 @@ The model combines five mechanisms:
 is less likely to collide with command-specific lowercase options.
 
 Contextual post-success tips are separate from output scope and are opt-in.
-Bare short-only `-T` requests up to three suggestions on `stderr`. It accepts
-no value and is independent of output verbosity, format, section selection,
-and row or line limits. A successful command with no applicable suggestions
-emits no tip block. Ordinary `stdout` completes and flushes before one bounded
-tip block is written last to `stderr`, preserving streaming and independent
-redirection.
+Short-only `-E .tips` requests up to three suggestions on `stderr`; `.tips` is
+a separate dotted projection token. It is independent of output verbosity,
+format, section selection, and row or line limits. Bare `-E` and
+`-E .references` are reserved until their semantic owners are available. A
+successful command with no applicable suggestions emits no tip block. Ordinary
+`stdout` completes and flushes before one bounded tip block is written last to
+`stderr`, preserving streaming and independent redirection.
 
 ## API visibility and implementation populations
 

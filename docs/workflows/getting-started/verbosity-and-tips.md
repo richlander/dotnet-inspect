@@ -1,7 +1,7 @@
 ---
 id: verbosity-and-tips
 description: Verbosity levels, section selection, row counts, and contextual tips behavior
-commands: [-v, -T, -D, -S, --count]
+commands: [-v, -E, -D, -S, --count]
 areas: [output, verbosity, sections, count, tips]
 ---
 
@@ -15,14 +15,14 @@ Verbosity levels:
 
 | Level | Flag | Content | Tips |
 | ----- | ---- | ------- | ---- |
-| Quiet | `-v:q` | Compact identity and context | With `-T` |
-| Minimal (default) | `-v:m` or none | One high-value base section | With `-T` |
-| Normal | `-v:n` | Multiple base sections | With `-T` |
-| Detailed | `-v:d` | All applicable base sections | With `-T` |
+| Quiet | `-v:q` | Compact identity and context | With `-E .tips` |
+| Minimal (default) | `-v:m` or none | One high-value base section | With `-E .tips` |
+| Normal | `-v:n` | Multiple base sections | With `-E .tips` |
+| Detailed | `-v:d` | All applicable base sections | With `-E .tips` |
 
 Post-success contextual tips are opt-in and independent of output verbosity.
-Use bare short-only `-T` for up to three suggestions on `stderr`. It accepts no
-value; omit it when tips are not wanted.
+Use short-only `-E .tips`, with `.tips` as a separate dotted token, for up to
+three suggestions on `stderr`; omit it when tips are not wanted.
 
 The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments; `PDB Source` is Portable-PDB-selected, checksum-verified source acquired locally or through SourceLink. `-S @Source` selects the authored-first `Source`, forced PDB and decompiled provider views, and `Source Diff`; `-S @Decompiler` selects decompiler and analysis views such as `Annotated Source` and `IL`. The `Facts` section — the structured member/offset/line-keyed table of the same Research overlay facts — is opt-in via `-S "Facts"` / `--tsv`.
 
@@ -83,10 +83,10 @@ Tips:
 
 ### 1a. Opt into tips
 
-> Goal: `-T` adds contextual suggestions on stderr without changing stdout.
+> Goal: `-E .tips` adds contextual suggestions on stderr without changing stdout.
 
 ```bash
-dotnet-inspect System.CommandLine@2.0.3 -T
+dotnet-inspect System.CommandLine@2.0.3 -E .tips
 ```
 
 ```expect-stderr

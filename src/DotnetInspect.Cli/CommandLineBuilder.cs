@@ -1232,12 +1232,9 @@ public static class CommandLineBuilder
             StringComparer.OrdinalIgnoreCase,
             OptionParsers.ValidVerbosityValues);
         rootCommand.Options.Add(rootVerbosityOption);
-        var rootTipsOption = new Option<bool>("-T")
-        {
-            Description = "Show contextual tips after successful output",
-            Arity = ArgumentArity.Zero
-        };
-        rootCommand.Options.Add(rootTipsOption);
+        Option<string?> rootCompanionOption =
+            SharedOptions.CreateCompanionOption();
+        rootCommand.Options.Add(rootCompanionOption);
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
         rootCommand.Options.Add(offlineOption);
         var httpTimeoutOption = new Option<int?>("--http-timeout") { Description = "Seconds to wait for a network request before giving up (1-3600, default 30)" };
@@ -1338,10 +1335,10 @@ public static class CommandLineBuilder
         {
             var hasVerbosity = parseResult.GetResult(rootVerbosityOption) != null;
             var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
-            var tipLevel = parseResult.GetResult(rootTipsOption)
-                is { Implicit: false }
-                    ? TipLevel.Minimal
-                    : TipLevel.Quiet;
+            CompanionOutput companionOutput =
+                parseResult.GetValue(rootCompanionOption) == ".tips"
+                    ? CompanionOutput.Tips
+                    : CompanionOutput.None;
 
             // -v flag present: show CLI tree view (like former `cli` command)
             if (hasVerbosity)
@@ -1351,12 +1348,12 @@ public static class CommandLineBuilder
                     commandFilter: null,
                     verbosity);
                 if (exitCode == 0)
-                    WriteRootTips(tipLevel);
+                    WriteRootTips(companionOutput);
                 return exitCode;
             }
 
             HelpWriter.WriteHelp(rootCommand);
-            WriteRootTips(tipLevel);
+            WriteRootTips(companionOutput);
             return 0;
         });
 
@@ -1364,10 +1361,10 @@ public static class CommandLineBuilder
         return rootCommand;
     }
 
-    private static void WriteRootTips(TipLevel tipLevel)
+    private static void WriteRootTips(CompanionOutput companionOutput)
     {
         Hints.WriteTips(
-            tipLevel,
+            companionOutput,
             static () =>
             [
                 new(PackageCommand.Name, "<package>", "inspect a NuGet package"),

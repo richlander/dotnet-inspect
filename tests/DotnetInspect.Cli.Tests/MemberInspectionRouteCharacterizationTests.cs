@@ -144,7 +144,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             AssemblyPath = typeof(BodyShapeFixture).Assembly.Location,
             MemberFilter = ["Item"],
             IncludeSections = [SectionNames.MemberIndex],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
         var detailOptions = memberTypeOptions with
         {

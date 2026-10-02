@@ -1519,7 +1519,7 @@ public partial class CommandExecutionTests
             "--type", "System.Text.Json.JsonSerializer",
             "--member", selector,
             "-S", "Implementation Diff",
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1561,7 +1561,7 @@ public partial class CommandExecutionTests
             "--type", "System.Text.Json.JsonSerializer",
             "--member", "Serialize:6",
             "-S", section,
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1595,7 +1595,7 @@ public partial class CommandExecutionTests
             "--type", "System.Text.Json.JsonSerializer",
             "--member", "Serialize:6",
             "--analysis", analysis,
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1633,8 +1633,7 @@ public partial class CommandExecutionTests
                 + FixtureCatalog.DiffPair.NewAssemblyPath(),
             "--type", "DiffFixtureSample.DiffSample",
             "--member", "DefinitelyMissing",
-            "-S", "Implementation Diff",
-            "--tips", "q");
+            "-S", "Implementation Diff");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

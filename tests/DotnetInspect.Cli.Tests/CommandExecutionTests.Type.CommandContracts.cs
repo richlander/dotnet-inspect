@@ -40,7 +40,7 @@ public partial class CommandExecutionTests
             TypeName = "JsonSerializer",
             Select = ["Properties"],
             Columns = ["Signature"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(

@@ -1396,7 +1396,7 @@ public static class MemberCommand
             if (writeExitCode != 0)
                 return writeExitCode;
 
-            if (effectiveOptions.TipLevel != TipLevel.Quiet
+            if (effectiveOptions.CompanionOutput != CompanionOutput.None
                 && effectiveOptions.OverloadIndex == null)
             {
                 var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
@@ -1431,7 +1431,7 @@ public static class MemberCommand
                     tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
 
                 Hints.WriteTips(
-                    effectiveOptions.TipLevel,
+                    effectiveOptions.CompanionOutput,
                     () => [.. tips]);
             }
 
