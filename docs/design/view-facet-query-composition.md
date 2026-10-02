@@ -456,8 +456,14 @@ while `Document` in **Shape** means composed output presentation.
 Every executable facet must have one semantic Content kind and one presentation
 shape before adoption into this discovery surface. The discovery projection
 uses those declarations unchanged. It does not classify from type names or
-inspect runtime Content. Tombstones preserve their last issued declarations so
-known retired facets remain explainable without an execution binding.
+inspect runtime Content.
+
+A tombstone has no execution binding or executable Content contract, so its
+semantic kind, shape, and natural default are not applicable. Compact discovery
+renders those cells as `—`; structured discovery emits `null`. The known ID,
+descriptor, and typed `Retired` availability reason remain present. Discovery
+does not invent a historical Result, Document, Outcome, or shape for a
+pre-existing tombstone.
 
 Target-free discovery is resource-free. Target-aware discovery consumes
 already-authorized applicability and availability facts and preserves
@@ -696,7 +702,9 @@ Focused adoptions must demonstrate:
    exact IDs.
 2. **Retired identity.** The tombstoned `library.opportunities` ID remains
    retired and is never rebound to the current Integration Opportunities
-   section.
+   section. Its semantic kind, shape, and natural default are `—` in compact
+   discovery and `null` in structured discovery; its availability remains
+   Unavailable with the typed `Retired` reason.
 3. **Title correction.** Changing a title does not change selection,
    persistence, explanation paths, or Browser binding.
 4. **Relative structural kind.** `-Q .info` lowers to `library.info` in a
@@ -778,6 +786,8 @@ The composition requires, across those slices:
 - explicit and default facet equivalence;
 - owner-issued Result, Document, or Outcome classification in discovery,
   explanation, and cross-host descriptors without runtime or naming inference;
+- not-applicable compact and structured values for tombstones without
+  manufacturing historical Content-kind or shape declarations;
 - semantic shape and complete-selection composition;
 - natural format and explicit-format equivalence over the same selected
   Content;
@@ -818,6 +828,8 @@ This map does not:
   discovery or explanation;
 - infer semantic Content kind from a CLR suffix, collection type, output shape,
   runtime value, or Registry availability;
+- manufacture a historical semantic Content kind or shape for a tombstone
+  without an executable Content contract;
 - define a universal Result, Document, or Outcome base type or generic outcome
   algebra;
 - make a renderer define semantic shape;
