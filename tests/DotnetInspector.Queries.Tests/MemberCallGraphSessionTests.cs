@@ -32,16 +32,16 @@ public sealed class MemberCallGraphSessionTests
         string typeName,
         string methodName)
     {
-        Analysis.LibraryBodyIndex index =
-            Analysis.LibraryBodyIndex.Open(assemblyPath);
-        return index.Methods.First(
+        Analysis.LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.Open(assemblyPath);
+        return index.CallGraph.Methods.First(
             method => method.DeclaringType.Name == typeName
                 && method.Name == methodName).MetadataToken;
     }
 
     static string TargetAssemblyName() =>
-        Analysis.LibraryBodyIndex.Open(TargetPath)
-            .Methods.First().AssemblyName;
+        BodyAnalysisTestExecution.Open(TargetPath)
+            .CallGraph.Methods.First().AssemblyName;
 
     static Analysis.CallTreeNode Child(
         Analysis.CallTreeNode node,
@@ -1690,10 +1690,10 @@ public sealed class MemberCallGraphSessionTests
             string path,
             string callerName)
         {
-            Analysis.LibraryBodyIndex index =
-                Analysis.LibraryBodyIndex.Open(path);
+            Analysis.LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.Open(path);
             Analysis.DirectCall call = Assert.Single(
-                index.DirectCalls,
+                index.CallGraph.DirectCalls,
                 candidate =>
                     candidate.Caller.Name == "Expose"
                     && candidate.Caller.DeclaringType.Name
@@ -2271,8 +2271,8 @@ public sealed class MemberCallGraphSessionTests
         await using GraphContext context =
             GraphContext.Create(TargetPath, CallerPath);
         Analysis.MethodIdentity focus =
-            Analysis.LibraryBodyIndex.Open(TargetPath)
-                .DeclaredMethods
+            BodyAnalysisTestExecution.Open(TargetPath)
+                .CallGraph.DeclaredMethods
                 .First(method =>
                     method.DeclaringType.Name == "IBodilessApi"
                     && method.Name == "Invoke");
