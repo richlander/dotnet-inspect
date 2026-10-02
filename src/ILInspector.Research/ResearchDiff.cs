@@ -1903,7 +1903,7 @@ public static partial class ResearchDiff
         => MemberFilters.IsCompilerGenerated(method.Name)
            || TypeFilters.IsCompilerGeneratedNested(method.DeclaringType.Name)
            || IsSystemTextJsonContextGeneratedMethod(method)
-           || LibraryBodyIndex.IsGeneratedFrameworkType(
+           || GeneratedFrameworkTypeAnalysis.Contains(
                generatedFrameworkTypes,
                method.DeclaringType);
 
