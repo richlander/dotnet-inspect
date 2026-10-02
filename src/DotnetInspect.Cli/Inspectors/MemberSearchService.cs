@@ -366,10 +366,10 @@ internal static class MemberSearchService
             {
                 SourceSelectionIncomplete = sourceSelectionIncomplete,
                 Completion =
-                    ReachedLimit()
-                        ? FindSearchCompletion.ResultLimitReached
-                        : hasFailures || sourceSelectionIncomplete
-                            ? FindSearchCompletion.Incomplete
+                    hasFailures || sourceSelectionIncomplete
+                        ? FindSearchCompletion.Incomplete
+                        : ReachedLimit()
+                            ? FindSearchCompletion.ResultLimitReached
                             : FindSearchCompletion.Exhausted,
                 InputRows =
                     _inputRows is null

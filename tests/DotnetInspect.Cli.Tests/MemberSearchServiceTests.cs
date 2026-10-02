@@ -196,6 +196,58 @@ public class MemberSearchServiceTests
     }
 
     [Fact]
+    public async Task FindMembersAsync_FailureBeforeWindowEndRemainsIncomplete()
+    {
+        string invalidAssembly = Path.GetTempFileName();
+        await File.WriteAllTextAsync(
+            invalidAssembly,
+            "not a managed assembly",
+            TestContext.Current.CancellationToken);
+        using var httpClient = new HttpClient();
+        try
+        {
+            FindSearchResult<MemberFindResult>? search = null;
+            var capture = await ConsoleCapture.RunAsync(async () =>
+            {
+                search = await MemberSearchService.FindMembersAsync(
+                    new FindOptions
+                    {
+                        Pattern = "*",
+                        Assemblies =
+                        [
+                            invalidAssembly,
+                            typeof(MemberSearchServiceTests).Assembly.Location,
+                        ],
+                        IncludeAll = true,
+                        Members = true,
+                        Limit = 3,
+                        InputRows = new(2, 3),
+                    },
+                    ["*"],
+                    new VerboseLogger(enabled: false),
+                    httpClient,
+                    TestContext.Current.CancellationToken);
+                return 0;
+            });
+
+            Assert.NotNull(search);
+            Assert.True(search.HasFailures);
+            Assert.Equal(2, search.Rows.Count);
+            Assert.Equal(3, search.InputRows?.AcceptedCount);
+            Assert.Equal(
+                FindSearchCompletion.Incomplete,
+                search.Completion);
+            Assert.Contains(
+                $"Could not read {invalidAssembly}",
+                capture.Error);
+        }
+        finally
+        {
+            File.Delete(invalidAssembly);
+        }
+    }
+
+    [Fact]
     public async Task FindMembersAsync_TypeFilterPrecedesTrustedLimit()
     {
         using var httpClient = new HttpClient();
