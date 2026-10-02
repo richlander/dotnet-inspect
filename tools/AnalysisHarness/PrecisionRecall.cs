@@ -37,8 +37,14 @@ public static class PrecisionRecall
 
     public static IReadOnlyList<TriageCandidate> Candidates(string assemblyPath)
     {
-        var index = LibraryBodyIndex.Open(assemblyPath);
-        return index.OptimizationOpportunities
+        LibraryOptimizationAnalysisResult optimization =
+            LibraryBodyAnalysisService.ExecutePath(
+                assemblyPath,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities))
+            .Optimization;
+        return optimization.Opportunities
             .Select(o => new TriageCandidate(
                 o.Method.DeclaringType.ToQualifiedDisplayString(),
                 o.Method.Name,
