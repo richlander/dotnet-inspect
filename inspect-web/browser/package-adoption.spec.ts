@@ -3058,6 +3058,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(page.url()).toBe(memberLocation);
     await expect(memberDiffExplorer.locator(".member-diff-explorer-content"))
       .toHaveCount(1);
+    await expect(memberDiffExplorer.locator(".code-evidence-viewer-workspace"))
+      .toHaveCount(1);
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-rail"))
+      .toHaveCount(1);
     await expect(memberDiffExplorer.locator(".member-diff-explorer-pane"))
       .toHaveCount(0);
     await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
@@ -3072,7 +3076,54 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     ).first()).toContainText("Not present on this side.");
     await expect(memberDiffExplorer.locator(".member-diff-source-unavailable"))
       .toBeVisible({ timeout: 120_000 });
+    const desktopGeometry = await memberDiffExplorer.evaluate(explorer => {
+      const content = explorer.querySelector(
+        ".code-evidence-viewer-content",
+      )?.getBoundingClientRect();
+      const rail = explorer.querySelector(
+        ".code-evidence-viewer-rail",
+      )?.getBoundingClientRect();
+      return {
+        content: content === undefined
+          ? null
+          : { x: content.x, width: content.width },
+        rail: rail === undefined
+          ? null
+          : { x: rail.x, width: rail.width },
+      };
+    });
+    expect(desktopGeometry.content).not.toBeNull();
+    expect(desktopGeometry.rail).not.toBeNull();
+    expect(desktopGeometry.content!.width)
+      .toBeGreaterThan(desktopGeometry.rail!.width);
+    expect(desktopGeometry.rail!.width).toBeLessThanOrEqual(360);
+    expect(desktopGeometry.rail!.x)
+      .toBeGreaterThanOrEqual(
+        desktopGeometry.content!.x + desktopGeometry.content!.width - 1,
+      );
     await page.setViewportSize({ width: 390, height: 844 });
+    const narrowGeometry = await memberDiffExplorer.evaluate(explorer => {
+      const content = explorer.querySelector(
+        ".code-evidence-viewer-content",
+      )?.getBoundingClientRect();
+      const rail = explorer.querySelector(
+        ".code-evidence-viewer-rail",
+      )?.getBoundingClientRect();
+      return {
+        content: content === undefined
+          ? null
+          : { y: content.y, height: content.height },
+        rail: rail === undefined
+          ? null
+          : { y: rail.y },
+      };
+    });
+    expect(narrowGeometry.content).not.toBeNull();
+    expect(narrowGeometry.rail).not.toBeNull();
+    expect(narrowGeometry.rail!.y)
+      .toBeGreaterThanOrEqual(
+        narrowGeometry.content!.y + narrowGeometry.content!.height - 1,
+      );
     const overflow = await page.evaluate(() => ({
       document: document.documentElement.scrollWidth - window.innerWidth,
       explorer: (document.querySelector(".member-diff-explorer")?.scrollWidth
@@ -3126,7 +3177,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(memberDiffExplorer).not.toContainText("What changed");
     await expect(memberDiffExplorer).not.toContainText("Declaration");
     await expect(memberDiffExplorer.locator(
-      ".member-diff-explorer-source .member-diff-source-endpoint",
+      ".member-diff-explorer-rail .member-diff-source-endpoint",
     ))
       .toHaveCount(2);
     await expect(memberDiffExplorer).not.toContainText(
