@@ -27,26 +27,32 @@ async function openIntegrations(page: Page, location = root) {
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
-  await expect(inspectorTab(page, "data-library-lens", "integrations"))
+  await page.locator('[data-analysis-mode="integrations"]').click();
+  await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
 }
 
 async function openOpportunities(page: Page, location = root) {
   await openIntegrations(page, location);
-  await page.locator('[data-integration-mode="opportunities"]').click();
-  await expect(page.locator('[data-integration-mode="opportunities"]'))
+  await page.locator('[data-analysis-mode="opportunities"]').click();
+  await expect(page.locator('[data-analysis-mode="opportunities"]'))
     .toHaveAttribute("aria-selected", "true");
 }
 
-async function expectCompactIntegrationHeader(page: Page) {
-  const frame = page.locator(".integration-inspector");
+async function expectCompactAnalysisHeader(page: Page) {
+  const frame = page.locator(".analysis-inspector");
   const header = frame.locator("header");
-  const tabs = header.getByRole("tablist", { name: "Integration views" });
+  const tabs = header.getByRole("tablist", { name: "Analysis views" });
   await expect(tabs).toBeVisible();
-  for (const name of ["Integrations", "Opportunities"]) {
+  for (const name of [
+    "Performance",
+    "Integrations",
+    "Opportunities",
+    "Metrics",
+  ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
     await expect(tab).toBeInViewport({ ratio: 1 });
     expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -54,8 +60,13 @@ async function expectCompactIntegrationHeader(page: Page) {
   const headerBox = await header.boundingBox();
   const tabsBox = await tabs.boundingBox();
   const resultsBox = await frame.getByRole("tabpanel").boundingBox();
-  expect(headerBox!.height).toBe(40);
-  expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
+  const narrow = (page.viewportSize()?.width ?? 0) <= 600;
+  expect(headerBox!.height).toBe(narrow ? 72 : 40);
+  if (narrow) {
+    expect(tabsBox!.y - headerBox!.y).toBeGreaterThanOrEqual(20);
+  } else {
+    expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
+  }
   expect(tabsBox!.y + tabsBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
   expect(headerBox!.x + headerBox!.width - tabsBox!.x - tabsBox!.width).toBeLessThanOrEqual(16);
   expect(Math.abs(resultsBox!.y - headerBox!.y - headerBox!.height)).toBeLessThanOrEqual(1);
@@ -65,18 +76,18 @@ async function expectCompactIntegrationHeader(page: Page) {
 }
 
 for (const width of [1440, 390, 320]) {
-  test(`Integration tabs preserve the Library and use manual keyboard activation at ${width}px`, async ({ page }, testInfo) => {
+  test(`Analysis tabs preserve the Library and use manual keyboard activation at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await installFacades(page);
     await openIntegrations(page);
-    const frame = page.locator(".integration-inspector");
+    const frame = page.locator(".analysis-inspector");
     const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
     const opportunities = frame.getByRole("tab", { name: "Opportunities", exact: true });
     await expect(page.locator('[data-library-lens="opportunities"]')).toHaveCount(0);
     await expect(integrations).toHaveAttribute("aria-selected", "true");
     await expect(opportunities).toBeInViewport({ ratio: 1 });
     await expect(frame.locator(".signal-row")).toHaveCount(3);
-    await expectCompactIntegrationHeader(page);
+    await expectCompactAnalysisHeader(page);
     expect(await page.locator("html").getAttribute("data-opportunity-request")).toBeNull();
     await integrations.focus();
     await integrations.press("ArrowRight");
@@ -87,14 +98,14 @@ for (const width of [1440, 390, 320]) {
     await expect(opportunities).toHaveAttribute("aria-selected", "true");
     await expect(opportunities).toBeFocused();
     await expect(frame.locator(".opp-row")).toHaveCount(3);
-    await expect(frame.locator("h1")).toHaveText("Integrations");
+    await expect(frame.locator("h1")).toHaveText("Analysis");
     await expect(frame.locator("footer")).toContainText(core.asset);
-    await expect(inspectorTab(page, "data-library-lens", "integrations"))
+    await expect(inspectorTab(page, "data-library-lens", "analysis"))
       .toHaveAttribute("aria-selected", "true");
-    await expectCompactIntegrationHeader(page);
+    await expectCompactAnalysisHeader(page);
     await page.screenshot({ path: testInfo.outputPath("integration-tabs-opportunities.png") });
 
-    await opportunities.press("Home");
+    await opportunities.press("ArrowLeft");
     await expect(integrations).toBeFocused();
     await expect(opportunities).toHaveAttribute("aria-selected", "true");
     await integrations.press("Space");
@@ -102,7 +113,7 @@ for (const width of [1440, 390, 320]) {
     await expect(frame.locator(".signal-row")).toHaveCount(3);
     await expect(frame.locator("footer")).toContainText(core.asset);
     await page.screenshot({ path: testInfo.outputPath("integration-tabs-integrations.png") });
-    await integrations.press("End");
+    await integrations.press("ArrowRight");
     await opportunities.press("Space");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
 
@@ -118,10 +129,10 @@ for (const width of [1440, 390, 320]) {
   });
 }
 
-test("Integration tabs retain selected mode and focus when an inactive scan settles", async ({ page }) => {
+test("Analysis tabs retain selected mode and focus when an inactive scan settles", async ({ page }) => {
   await installFacades(page, surface, [], "ready", "deferred", undefined, "deferred");
   await openIntegrations(page);
-  const frame = page.locator(".integration-inspector");
+  const frame = page.locator(".analysis-inspector");
   const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
   const opportunities = frame.getByRole("tab", { name: "Opportunities", exact: true });
   await expect(frame).toContainText("Scanning integrations");
@@ -620,10 +631,10 @@ for (const width of [1440, 390]) {
     await chooseInspector(
       page,
       "data-library-lens",
-      "integrations",
-      "Integrations",
+      "analysis",
+      "Analysis",
     );
-    await page.locator('[data-integration-mode="opportunities"]').click();
+    await page.locator('[data-analysis-mode="opportunities"]').click();
     const frame = page.locator(".library-opportunities-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
     const picker = frame.locator(".library-opportunities-controls select");
@@ -664,10 +675,10 @@ test("stale Platform Opportunities acquisition cannot replace a newer family sel
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
-  await page.locator('[data-integration-mode="opportunities"]').click();
+  await page.locator('[data-analysis-mode="opportunities"]').click();
   const picker = page.locator(
     ".library-opportunities-controls .platform-library-select",
   );
@@ -732,10 +743,10 @@ test("production Opportunities keeps deferred Library results out of the incomin
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
-  await page.locator('[data-integration-mode="opportunities"]').click();
+  await page.locator('[data-analysis-mode="opportunities"]').click();
   await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
   await expect(page.locator(".library-opportunities-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-opportunities-surface")).not.toContainText(core.name);
@@ -833,9 +844,10 @@ for (const width of [1440, 390]) {
     await chooseInspector(
       page,
       "data-library-lens",
-      "integrations",
-      "Integrations",
+      "analysis",
+      "Analysis",
     );
+    await page.locator('[data-analysis-mode="integrations"]').click();
     const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".signal-row")).toHaveCount(3);
     await expect(frame.locator(".library-integrations-controls")).toHaveCount(0);
@@ -845,9 +857,10 @@ for (const width of [1440, 390]) {
     await chooseInspector(
       page,
       "data-library-lens",
-      "integrations",
-      "Integrations",
+      "analysis",
+      "Analysis",
     );
+    await page.locator('[data-analysis-mode="integrations"]').click();
     await expect(frame.locator(".signal-ns").first()).toContainText("System.Facade");
     await expect(frame.locator("footer")).toContainText("System.Facade.dll");
     await expect(page.locator("html")).toHaveAttribute("data-platform-integration-request", "System.Facade.dll:netcore.app");
@@ -866,9 +879,10 @@ test("production Integrations keeps deferred Library results out of the incoming
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
+  await page.locator('[data-analysis-mode="integrations"]').click();
   await expect(page.locator(".library-integrations-surface")).toContainText("Scanning integrations");
   await expect(page.locator(".library-integrations-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-integrations-surface")).not.toContainText(core.name);
