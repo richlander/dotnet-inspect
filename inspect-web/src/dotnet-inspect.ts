@@ -96,6 +96,7 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectMemberFamilyParent,
   selectedConcreteOverload,
   type BodyTarget,
 } from "./member-filtering.ts";
@@ -8053,11 +8054,10 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
       if (ordinaryMethodGroup(entry.group)) {
         state.memberSection = "overview";
         openMemberGroup(entry.group.key);
-      } else if (entry.group.overloads.length === 1) {
+      } else if (selectMemberFamilyParent(state, entry.group)) {
+        clearMemberContentCache();
         render();
       } else {
-        state.selectedOverloadIndex = null;
-        clearMemberContentCache();
         render();
       }
     } else {

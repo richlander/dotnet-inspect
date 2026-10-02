@@ -138,6 +138,18 @@ export function memberOverloadSourceIndex(
   return sourceIndex;
 }
 
+export function selectMemberFamilyParent(
+  state: { selectedOverloadIndex: number | null },
+  group: {
+    readonly overloads: readonly unknown[];
+    readonly sourceOverloadCount?: number;
+  },
+): boolean {
+  if ((group.sourceOverloadCount ?? group.overloads.length) <= 1) return false;
+  state.selectedOverloadIndex = null;
+  return true;
+}
+
 export function memberKindCount(
   groups: readonly FilterableMemberGroup[],
   kind: string,

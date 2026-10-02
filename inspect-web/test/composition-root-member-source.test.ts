@@ -702,7 +702,7 @@ test("moving between members keeps sections sticky without section-driven profil
     ?? "";
   assert.match(
     selectEntryBody,
-    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
+    /entry\.group\.key === state\.selectedMemberKey[\s\S]*selectMemberFamilyParent\(state, entry\.group\)[\s\S]*clearMemberContentCache\(\);\s*render\(\)/);
 });
 
 test("every overload-specific member loader leaves a multi-overload picker inert", () => {

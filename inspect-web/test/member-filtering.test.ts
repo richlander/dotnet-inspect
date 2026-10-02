@@ -16,6 +16,7 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectMemberFamilyParent,
   selectedConcreteOverload,
 } from "../src/member-filtering.ts";
 
@@ -241,6 +242,22 @@ test("filtered member overloads retain their exact source index", () => {
   };
 
   assert.equal(memberOverloadSourceIndex(source, filtered, 0), 2);
+});
+
+test("selecting a filtered source-family parent clears its exact child", () => {
+  const state = { selectedOverloadIndex: 1 };
+  assert.equal(selectMemberFamilyParent(state, {
+    overloads: [{ stableSelector: "Item~1" }],
+    sourceOverloadCount: 2,
+  }), true);
+  assert.equal(state.selectedOverloadIndex, null);
+
+  const single = { selectedOverloadIndex: 0 };
+  assert.equal(selectMemberFamilyParent(single, {
+    overloads: [{ stableSelector: "Count" }],
+    sourceOverloadCount: 1,
+  }), false);
+  assert.equal(single.selectedOverloadIndex, 0);
 });
 
 test("member traits use the complete selector vocabulary", () => {
