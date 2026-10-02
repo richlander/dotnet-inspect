@@ -27,6 +27,7 @@ public sealed class LibraryCallGraphAnalysisResult
         _directCallsByEvidenceMethod;
     private MethodDefinitionMap? _methodMap;
     private MethodDefinitionMap? _declaredMethodMap;
+    private Dictionary<int, MethodIdentity>? _declaredMethodsByToken;
     private IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
     private IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
         _distinctCallerEdgesByCallee;
@@ -153,6 +154,59 @@ public sealed class LibraryCallGraphAnalysisResult
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern) =>
         [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
 
+    /// <summary>
+    /// The Analysis-issued target of one direct call from this result. Calls
+    /// through generic instantiations of current-module types resolve by
+    /// signature, so consumers must not match <see cref="DirectCall.CalleeDefinitionToken"/>
+    /// against <see cref="DeclaredMethods"/> directly.
+    /// </summary>
+    public DirectCallTarget ResolveTarget(DirectCall call)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        if (call.Kind == CallKind.CallIndirect)
+            return new DirectCallTarget.Unresolved(
+                DirectCallTargetUnresolvedReason.Indirect);
+
+        MethodDefinitionMap map = DeclaredMethodMap;
+        TypeRef declaring = call.Callee.DeclaringType;
+        if (!map.ContainsToken(call.CalleeDefinitionToken)
+            && call.Callee.Kind != MemberKind.Unsupported)
+        {
+            if (declaring.Kind is TypeRefKind.Array or TypeRefKind.SzArray)
+                return new DirectCallTarget.RuntimeProvided();
+            TypeRef definition =
+                declaring.Kind == TypeRefKind.GenericInstance
+                    ? declaring.ElementType ?? declaring
+                    : declaring;
+            if (!map.CanResolveToCurrentModule(declaring)
+                && definition.Resolution?.Origin is { } origin)
+            {
+                return new DirectCallTarget.External(origin);
+            }
+        }
+
+        MethodResolution resolution = map.ResolveTyped(call);
+        return resolution.Token != 0
+            && DeclaredMethodsByToken.TryGetValue(
+                resolution.Token,
+                out MethodIdentity? method)
+                ? new DirectCallTarget.CurrentModule(method)
+                : new DirectCallTarget.Unresolved(resolution.Token != 0
+                    ? DirectCallTargetUnresolvedReason.Unmatched
+                    : resolution.Reason);
+    }
+
+    IReadOnlyDictionary<int, MethodIdentity> DeclaredMethodsByToken =>
+        _declaredMethodsByToken ??= BuildDeclaredMethodsByToken();
+
+    Dictionary<int, MethodIdentity> BuildDeclaredMethodsByToken()
+    {
+        var byToken = new Dictionary<int, MethodIdentity>(DeclaredMethods.Length);
+        foreach (MethodIdentity method in DeclaredMethods)
+            byToken.TryAdd(method.MetadataToken, method);
+        return byToken;
+    }
+
     internal LibraryBodyLocalCallGraph RootPathGraph() =>
         _rootPathGraph ??=
             LibraryBodyRootPathAnalysis.BuildLocalGraph(this);
@@ -180,6 +234,7 @@ public sealed class LibraryCallGraphAnalysisResult
     {
         _methodMap = null;
         _declaredMethodMap = null;
+        _declaredMethodsByToken = null;
         _distinctCallersByCallee = null;
         _distinctCallerEdgesByCallee = null;
         _rootPathGraph = null;

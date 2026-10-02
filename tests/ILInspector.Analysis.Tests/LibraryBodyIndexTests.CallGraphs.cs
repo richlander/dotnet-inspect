@@ -368,6 +368,7 @@ public partial class LibraryBodyIndexTests
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_declaredMethodMap",
+            "_declaredMethodsByToken",
             "_methodMap",
             "_rootPathGraph",
         ];
@@ -428,6 +429,12 @@ public partial class LibraryBodyIndexTests
                 ],
                 new(0, 1, 1, 1));
             _ = index.CallGraph.DirectCallsByEvidenceMethod;
+            Assert.IsType<DirectCallTarget.CurrentModule>(
+                index.CallGraph.ResolveTarget(
+                    index.CallGraph.DirectCalls.First(call =>
+                        index.CallGraph.DeclaredMethods.Any(method =>
+                            method.MetadataToken
+                                == call.CalleeDefinitionToken))));
             _ = index.CallGraph.MethodSignals;
             _ = index.ImplementationProfiles.Profiles;
             // The retained half of the contract is only gated on caches this workload actually
