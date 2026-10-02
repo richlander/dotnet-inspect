@@ -41,8 +41,15 @@ internal static class PackageFileEntryResolver
         ArgumentNullException.ThrowIfNull(settlement);
         string normalizedPath =
             PackageFileDemand.Create([path]).Entries.Single();
-        if (settlement.Payload.Content
-            is not IPackageContentEntryManifest manifest)
+        IReadOnlyList<PackageContentEntry>? entries =
+            settlement.Result.Evidence.FileList?.Entries;
+        if (entries is null
+            && settlement.Payload.Content
+                is IPackageContentEntryManifest manifest)
+        {
+            entries = manifest.EnumerateEntriesWithLengths();
+        }
+        if (entries is null)
         {
             return PackageFileEntryResolution.Unavailable(
                 PackageFileEntryResolutionStatus.ManifestUnavailable);
@@ -50,7 +57,7 @@ internal static class PackageFileEntryResolver
 
         PackageContentEntry[] matches =
         [
-            .. manifest.EnumerateEntriesWithLengths()
+            .. entries
                 .Where(entry => entry.Path.Equals(
                     normalizedPath,
                     StringComparison.OrdinalIgnoreCase))

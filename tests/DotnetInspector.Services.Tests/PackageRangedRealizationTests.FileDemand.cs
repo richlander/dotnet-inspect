@@ -236,6 +236,20 @@ public sealed partial class PackageRangedRealizationTests
                 PackagePayloadOrigin.Ranged);
             Assert.Equal(PackageTransferPath.Ranged, receipt.Path);
             Assert.True(receipt.BytesReceived < archive.Length);
+            Assert.IsType<PackageHouseContentNarrowing.PackageWide>(
+                acquired.Settlement.Result.Request.ContentQuery!.Narrowing);
+            Assert.Equal(
+                2,
+                acquired.Settlement.Result.Request.ContentQuery.Terminals.Count);
+            Assert.Equal(
+                [Path],
+                acquired.Settlement.Payload.Content.EnumerateEntries());
+            Assert.Contains(
+                acquired.FileList.Entries,
+                entry => entry.Path == "PCLStorage.nuspec");
+            Assert.Contains(
+                acquired.FileList.Entries,
+                entry => entry.Path == Path);
 
             await using PackageHousePayloadRead read = acquired.OpenRead();
             using var output = new MemoryStream();
