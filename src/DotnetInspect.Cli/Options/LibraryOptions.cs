@@ -4,6 +4,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -115,16 +116,16 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public bool IncludeNamespaceChildren { get; init; }
 
-    /// <summary>The typed request admitted by the Library Coordinate child.</summary>
-    internal LibraryCoordinateRequest? CoordinateRequest { get; init; }
+    /// <summary>The typed request admitted by the Library Address child.</summary>
+    internal LibraryAddressRequest? AddressRequest { get; init; }
 
     /// <summary>The metadata root selected for every <c>@Metadata</c> operation.</summary>
     public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
 
     /// <summary>
-    /// Semantic selection over the ordered coordinate-file rows.
+    /// Semantic selection over the ordered address-file rows.
     /// </summary>
-    internal RowSelectionIntent<string>? CoordinateRowSelection { get; init; }
+    internal RowSelectionIntent<string>? AddressRowSelection { get; init; }
 
     /// <summary>
     /// Prefer rendered browser-view URLs when supported; otherwise keep the original URL.
@@ -172,9 +173,16 @@ public record LibraryOptions : IProjectionOptions
     public bool TabularExplicitlySet { get; init; }
 
     /// <summary>
-    /// True when the user explicitly chose an output format via CLI flags.
+    /// True when the user chose an output format via CLI flags or an
+    /// environment default.
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// Environment defaults are excluded.
+    /// </summary>
+    public bool FormatFlagExplicitlySet { get; init; }
 
     /// <summary>
     /// Resolved output format.
@@ -349,7 +357,21 @@ public record LibraryOptions : IProjectionOptions
     /// Semantic row selection for one Library's ecosystem-dependency pairs.
     /// </summary>
     public RowSelectionIntent<string>?
-        EcosystemDependencyRowSelection { get; init; }
+        EcosystemDependencyRowSelection
+    { get; init; }
+
+    /// <summary>
+    /// Source-provenance population for the exact Name Families section.
+    /// </summary>
+    public LibraryNameFamilyPopulationKind NameFamilyPopulation
+    { get; init; } =
+        LibraryNameFamilyPopulationKind.AllTypes;
+
+    /// <summary>
+    /// Semantic row selection for the exact Name Families section.
+    /// </summary>
+    public RowSelectionIntent<string>? NameFamilyRowSelection
+    { get; init; }
 
     /// <summary>
     /// Row predicates for the Performance Triage section.
@@ -402,5 +424,5 @@ public record LibraryOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
+    public bool IsRawOutput => EnvelopeOutput || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
 }

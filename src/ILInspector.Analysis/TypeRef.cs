@@ -53,17 +53,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     // Preserve identity-bearing signature payload for catalog correspondence
     // without changing existing Unsupported structural equality or display.
-    internal TypeRef? UnmodifiedType { get; private init; }
-    internal TypeRef? ModifierType { get; private init; }
-    internal bool IsRequiredModifier { get; private init; }
-    internal MethodSignature<TypeRef>? FunctionPointerSignature
+    public TypeRef? UnmodifiedType { get; private init; }
+    public TypeRef? ModifierType { get; private init; }
+    public bool IsRequiredModifier { get; private init; }
+    public MethodSignature<TypeRef>? FunctionPointerSignature
         { get; private init; }
 
     // Retained exact signature shape for identity-sensitive consumers. Legacy
     // TypeRef equality and display remain rank-based.
-    internal ImmutableArray<int> ArraySizes { get; private init; } = [];
-    internal ImmutableArray<int> ArrayLowerBounds { get; private init; } = [];
-    internal byte RawTypeKind { get; set; }
+    public ImmutableArray<int> ArraySizes { get; private init; } = [];
+    public ImmutableArray<int> ArrayLowerBounds { get; private init; } = [];
+    public byte RawTypeKind { get; internal set; }
 
     /// <summary>
     /// Decoder-retained origin and exact metadata name. The origin is
@@ -616,7 +616,25 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     internal static bool ExactSignatureEquals(
         TypeRef left,
-        TypeRef right)
+        TypeRef right) =>
+        ExactSignatureEquals(
+            left,
+            right,
+            allowUnspecifiedLeftRawTypeKind: false);
+
+    internal static bool
+        ExactSignatureEqualsWithUnspecifiedLeftRawTypeKind(
+            TypeRef left,
+            TypeRef right) =>
+        ExactSignatureEquals(
+            left,
+            right,
+            allowUnspecifiedLeftRawTypeKind: true);
+
+    static bool ExactSignatureEquals(
+        TypeRef left,
+        TypeRef right,
+        bool allowUnspecifiedLeftRawTypeKind)
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
@@ -646,6 +664,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     != currentRight.GenericParameterIndex
                 || currentLeft.RawTypeKind
                     != currentRight.RawTypeKind
+                    && (!allowUnspecifiedLeftRawTypeKind
+                        || currentLeft.RawTypeKind != 0)
                 || currentLeft.UnsupportedReason
                     != currentRight.UnsupportedReason
                 || !currentLeft.ArraySizes.AsSpan()

@@ -23,7 +23,7 @@ const escapeHtml = (value: unknown) => String(value)
   .replaceAll('"', "&quot;");
 
 for (const mode of ["diff", "clone"] as const) {
-  test(`${mode} renders one Compare frame with two mode tabs, a target row, and a labelled panel`, () => {
+  test(`${mode} renders one compact Compare frame with two mode tabs and a labelled panel`, () => {
     const html = renderCompareFrame({
       subjectKind: "type",
       subjectLabel: "Example.Widget<T>",
@@ -34,7 +34,7 @@ for (const mode of ["diff", "clone"] as const) {
       escapeHtml,
     });
     assert.equal(html.match(/<h1\b/g)?.length, 1);
-    assert.match(html, /<p class="compare-kicker">Compare · Type<\/p>/);
+    assert.doesNotMatch(html, /compare-kicker/);
     assert.match(html, /<h1 id="compare-title">Example\.Widget&lt;T&gt;<\/h1>/);
     const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? "";
     assert.equal(header.match(/role="tab"/g)?.length, 2);
@@ -45,7 +45,8 @@ for (const mode of ["diff", "clone"] as const) {
     assert.match(html, mode === "diff"
       ? /Diff baseline<\/span>\s*<span class="compare-target-value">1\.0\.0 → 2\.0\.0<\/span>/
       : /Clone scope<\/span>\s*<span class="compare-target-value">Workspace: 2 loaded Packages<\/span>/);
-    assert.match(html, /id="compare-change-target">Change target</);
+    assert.match(header, /id="compare-change-target">Change target</);
+    assert.doesNotMatch(html, /class="compare-target"/);
     assert.equal(html.match(/class="compare-status"/g)?.length, 1);
     assert.match(html, /<p>rows<\/p>/);
     // Compare explains the Package-owned target; it never renders a second editor.
@@ -146,7 +147,9 @@ test("the app retains Compare mode per Package and reconciles both modes from re
   assert.match(activateType, /enterTypeSubject\(target\);[\s\S]*state\.lens = "compare";\s*state\.compareCloneSelectedRank = null;\s*render\(\);/);
   assert.equal(activateType.match(/render\(\)/g)?.length, 1);
   const activateMember = appSource.match(/function activateCompareMember\([\s\S]*?\n\}/)?.[0] ?? "";
-  assert.match(activateMember, /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,[\s\S]*"compare"\);/);
+  assert.match(
+    activateMember,
+    /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,\s*match\.overloadIndex,\s*null,\s*"compare"\);/);
   assert.match(activateMember, /overload\.anchorDigest !== memberFingerprint/);
   assert.doesNotMatch(activateMember, /textContent|innerText|display/);
   // Change target returns to Package Overview's Comparison targets work area.

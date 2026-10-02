@@ -21,8 +21,7 @@ public enum ImplementationDiffMechanism
 
 public sealed record ImplementationDiffOptions(
     ImplementationDiffMechanism Mechanisms = ImplementationDiffMechanism.All,
-    IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null);
+    IReadOnlySet<string>? TypeFilters = null);
 
 public enum ImplementationComplexityChangeKind
 {
@@ -173,7 +172,7 @@ public sealed record ImplementationComplexityDiff(
 public sealed record ImplementationAssemblyInput(
     ResolvedAssemblyReference Assembly,
     IAssemblyReferenceResolver Resolver,
-    LibraryBodyIndex BodyIndex,
+    LibraryCallGraphAnalysisResult MethodPopulation,
     LibraryImplementationProfileAnalysisResult? ProfileAnalysis = null);
 
 public sealed record ImplementationDiffResult(
@@ -250,8 +249,7 @@ public static partial class ImplementationDiff
             newInput,
             new ResearchDiffOptions(
                 ToResearchMechanisms(options.Mechanisms),
-                TypeFilters: options.TypeFilters,
-                MemberTargetIdentities: options.MemberTargetIdentities)
+                TypeFilters: options.TypeFilters)
             {
                 RetainedComparisonDescriptorIds =
                     RetainedComparisonDescriptorIds(options.Mechanisms),
@@ -291,8 +289,7 @@ public static partial class ImplementationDiff
                                 static assembly => assembly.ProfileAnalysis)],
                             [.. newAssemblies.Select(
                                 static assembly => assembly.ProfileAnalysis)],
-                            options?.TypeFilters,
-                            options?.MemberTargetIdentities)),
+                            options?.TypeFilters)),
                 };
             }
             finally
@@ -347,7 +344,6 @@ public static partial class ImplementationDiff
                 })
             .Where(member => member.Changes.Count > 0 || member.SourceComparison is not null)
             .Where(member => ResearchDiff.MatchesTypeFilters(member.Subject.TypeName ?? "", options.TypeFilters))
-            .Where(member => MatchesMemberTargets(member.Subject, options.MemberTargetIdentities))
             .ToArray();
 
         return new ImplementationDiffResult(members, research);
@@ -364,18 +360,18 @@ public static partial class ImplementationDiff
                 ArgumentNullException.ThrowIfNull(assembly);
                 ArgumentNullException.ThrowIfNull(assembly.Assembly);
                 ArgumentNullException.ThrowIfNull(assembly.Resolver);
-                ArgumentNullException.ThrowIfNull(assembly.BodyIndex);
+                ArgumentNullException.ThrowIfNull(assembly.MethodPopulation);
                 var source = MetadataSource.OpenWithoutSymbols(
                     assembly.Assembly,
                     assembly.Resolver);
                 try
                 {
-                    ValidateBodyIndex(source, assembly.BodyIndex);
+                    ValidateMethodPopulation(source, assembly.MethodPopulation);
                     if (assembly.ProfileAnalysis is not null)
                         ValidateProfileAnalysis(source, assembly.ProfileAnalysis);
                     contents.Add(new ResearchAssemblyContent(
                         source,
-                        assembly.BodyIndex));
+                        assembly.MethodPopulation));
                 }
                 catch
                 {
@@ -400,11 +396,11 @@ public static partial class ImplementationDiff
             content.Source.Dispose();
     }
 
-    static void ValidateBodyIndex(
+    static void ValidateMethodPopulation(
         MetadataSource source,
-        LibraryBodyIndex bodyIndex)
+        LibraryCallGraphAnalysisResult methodPopulation)
     {
-        LibraryBodyModuleIdentity indexedModule = bodyIndex.ModuleIdentity;
+        LibraryBodyModuleIdentity indexedModule = methodPopulation.ModuleIdentity;
         AssemblyReferenceIdentity? sourceIdentity = source.Reader.IsAssembly
             ? AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader)
             : null;
@@ -419,9 +415,9 @@ public static partial class ImplementationDiff
         }
 
         throw new ArgumentException(
-            $"The body index for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
+            $"The call-graph Analysis result for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
             + $"assembly content '{source.AssemblyName}'.",
-            nameof(bodyIndex));
+            nameof(methodPopulation));
     }
 
     static void ValidateProfileAnalysis(
@@ -766,11 +762,6 @@ public static partial class ImplementationDiff
             research |= ResearchChangeMechanism.IlBody;
         return research;
     }
-
-    static bool MatchesMemberTargets(ResearchSubjectKey subject, IReadOnlySet<string>? memberTargetIdentities)
-        => memberTargetIdentities is null
-           || memberTargetIdentities.Count == 0
-           || memberTargetIdentities.Contains(subject.Id);
 
     internal static ResearchChange FindingFailureChange(
         ResearchSubjectKey subject,

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Performance-oracle fixtures for query and selection comparisons: operators
+    NLinq lacks, struct sources over populations, equivalent execution
+    projections, and scorecard harnesses that check and time the comparison
+    columns.
+    Test infrastructure only; see
+    docs/evidence-and-validation.md#performance-oracles-for-queryspace-enablement.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>DotnetInspector.PerformanceOracles</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\NLinq.Oracle\NLinq.Oracle.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.PerformanceOracles.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -21,37 +21,70 @@ import type {
   OperationSession,
 } from "./operation-authority.ts";
 
-interface SourceCoordinates {
+interface PackageSourceCoordinates {
   packageId: string;
   version: string;
   framework: string;
   assembly: string;
-  type: string;
 }
 
-export interface MemberSourceQuery extends SourceCoordinates {
+interface MemberSourceSelection {
+  type: string;
   member: string;
   selectorKey: string;
   metadataToken: number;
   taste: string;
 }
 
-export interface TypeSourceQuery extends SourceCoordinates {
+export type MemberSourceQuery =
+  | ({
+      kind: "package";
+    } & PackageSourceCoordinates & MemberSourceSelection)
+  | ({
+      kind: "platform";
+      framework: string;
+      version: string;
+      assembly: string;
+      pack: string;
+      contextId: string | null;
+    } & MemberSourceSelection);
+
+interface TypeSourceSelection {
+  type: string;
   taste: string;
   view: TypeSourceView;
 }
 
-export type TypeSourceView = "source" | "api-declarations" | "all-declarations";
+export type TypeSourceQuery =
+  | ({
+      kind?: "package";
+    } & PackageSourceCoordinates & TypeSourceSelection)
+  | ({
+      kind: "platform";
+      framework: string;
+      version: string;
+      assembly: string;
+      pack: string;
+      contextId: string | null;
+    } & TypeSourceSelection);
+
+export type TypeSourceView =
+  | "source"
+  | "decompiler-source"
+  | "api-declarations"
+  | "all-declarations";
 
 export function typeSourceView(value: string): TypeSourceView | null {
   return value === "source"
+    || value === "decompiler-source"
     || value === "api-declarations"
     || value === "all-declarations"
     ? value
     : null;
 }
 
-export interface GraphSourceRequest extends SourceCoordinates {
+export interface GraphSourceRequest extends PackageSourceCoordinates {
+  type: string;
   member: string;
   selectorKey: string;
   metadataToken: number;
@@ -116,15 +149,15 @@ export function graphSourceAutoLoadRequest(
   }
 }
 
-export interface MemberSourceLoadRequest extends MemberSourceQuery {
+export type MemberSourceLoadRequest = MemberSourceQuery & {
   signature: string;
   isCurrent(): boolean;
-}
+};
 
-export interface TypeSourceLoadRequest extends TypeSourceQuery {
+export type TypeSourceLoadRequest = TypeSourceQuery & {
   signature: string;
   isVisible(): boolean;
-}
+};
 
 export type SourceResultState<TSource = BrowserSource> =
   | { readonly status: "idle" }

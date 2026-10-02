@@ -1,0 +1,412 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using ILInspector.MetadataPrimitives;
+
+namespace ILInspector.Metadata;
+
+public enum MetadataMethodSemanticsAssociationKind
+{
+    Event,
+    Property,
+}
+
+public readonly record struct MetadataMethodSemanticsAssociation(
+    int PhysicalRowNumber,
+    ushort RawSemantics,
+    MethodDefinitionHandle Method,
+    MetadataMethodSemanticsAssociationKind AssociationKind,
+    int AssociationRowNumber);
+
+internal readonly record struct MetadataMethodSemanticsAssociationRange(
+    int Start,
+    int Count);
+
+internal readonly record struct MetadataMethodSemanticsAssociationKey(
+    MetadataMethodSemanticsAssociationKind Kind,
+    int RowNumber);
+
+public enum MetadataMethodSemanticsFailureReason
+{
+    BudgetExceeded,
+    NoMetadata,
+    UnsupportedWindowsMetadata,
+    MetadataRootMalformed,
+    MetadataReaderRejected,
+    InvalidTableLayout,
+    NilMethod,
+    MethodOutOfRange,
+    NilAssociation,
+    AssociationOutOfRange,
+}
+
+public sealed record MetadataMethodSemanticsFailure(
+    MetadataMethodSemanticsFailureReason Reason,
+    string Detail,
+    int RowsVisited,
+    int? PhysicalRowNumber = null,
+    MetadataRootMalformedReason? MetadataRootReason = null,
+    MetadataOperationDimension? BudgetDimension = null,
+    long? BudgetLimit = null,
+    long? AttemptedCharge = null);
+
+public abstract record MetadataMethodSemanticsAssociationResult
+{
+    private protected MetadataMethodSemanticsAssociationResult(
+        MetadataOperationCounters counters)
+    {
+        ArgumentNullException.ThrowIfNull(counters);
+        Counters = counters;
+    }
+
+    public MetadataOperationCounters Counters { get; }
+
+    public sealed record Completed
+        : MetadataMethodSemanticsAssociationResult
+    {
+        internal Completed(
+            ImmutableArray<MetadataMethodSemanticsAssociation> associations,
+            ImmutableDictionary<
+                MetadataMethodSemanticsAssociationKey,
+                MetadataMethodSemanticsAssociationRange> ranges,
+            ImmutableDictionary<
+                MethodDefinitionHandle,
+                ImmutableArray<int>> methodIndexes,
+            bool associationsAreNondecreasing,
+            MetadataOperationCounters counters)
+            : base(counters)
+        {
+            Associations = associations;
+            Ranges = ranges;
+            MethodIndexes = methodIndexes;
+            AssociationsAreNondecreasing =
+                associationsAreNondecreasing;
+        }
+
+        public ImmutableArray<MetadataMethodSemanticsAssociation>
+            Associations { get; }
+
+        public bool AssociationsAreNondecreasing { get; }
+
+        ImmutableDictionary<
+            MetadataMethodSemanticsAssociationKey,
+            MetadataMethodSemanticsAssociationRange> Ranges { get; }
+
+        ImmutableDictionary<
+            MethodDefinitionHandle,
+            ImmutableArray<int>> MethodIndexes { get; }
+
+        internal MetadataMethodSemanticsAssociationRange FindRange(
+            MetadataMethodSemanticsAssociationKind kind,
+            int rowNumber,
+            Action beforeProbe,
+            CancellationToken token)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(rowNumber);
+            ArgumentNullException.ThrowIfNull(beforeProbe);
+
+            token.ThrowIfCancellationRequested();
+            beforeProbe();
+            return Ranges.TryGetValue(
+                new(kind, rowNumber),
+                out MetadataMethodSemanticsAssociationRange range)
+                    ? range
+                    : new(0, 0);
+        }
+
+        internal ImmutableArray<int> FindMethodIndexes(
+            MethodDefinitionHandle method,
+            Action beforeProbe,
+            CancellationToken token)
+        {
+            ArgumentNullException.ThrowIfNull(beforeProbe);
+
+            token.ThrowIfCancellationRequested();
+            beforeProbe();
+            return MethodIndexes.TryGetValue(
+                method,
+                out ImmutableArray<int> indexes)
+                    ? indexes
+                    : [];
+        }
+    }
+
+    public sealed record Rejected
+        : MetadataMethodSemanticsAssociationResult
+    {
+        internal Rejected(
+            MetadataMethodSemanticsFailure failure,
+            MetadataOperationCounters counters)
+            : base(counters)
+        {
+            ArgumentNullException.ThrowIfNull(failure);
+            Failure = failure;
+        }
+
+        public MetadataMethodSemanticsFailure Failure { get; }
+    }
+}
+
+public sealed class MethodSemanticsAssociationSession
+{
+    readonly object _gate = new();
+    MetadataDeclarationSession? _owner;
+    MetadataMethodSemanticsAssociationResult? _cached;
+
+    internal MethodSemanticsAssociationSession(
+        MetadataDeclarationSession owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        _owner = owner;
+    }
+
+    public MetadataMethodSemanticsAssociationResult Post()
+    {
+        MetadataDeclarationSession owner = GetOwner();
+        owner.EnsureAccessForMethodSemantics();
+
+        lock (_gate)
+        {
+            owner = GetOwner();
+            owner.EnsureAccessForMethodSemantics();
+            return _cached ??= PostCold(owner);
+        }
+    }
+
+    MetadataMethodSemanticsAssociationResult PostCold(
+        MetadataDeclarationSession owner)
+    {
+        MetadataOperationContext operation =
+            owner.OperationContextForMethodSemantics;
+        if (owner.ImageAdmissionForMethodSemantics
+            is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            return new MetadataMethodSemanticsAssociationResult.Rejected(
+                new MetadataMethodSemanticsFailure(
+                    MetadataMethodSemanticsFailureReason.BudgetExceeded,
+                    "The metadata image was not admitted.",
+                    RowsVisited: 0,
+                    BudgetDimension:
+                        MetadataOperationDimension.MetadataRows,
+                    BudgetLimit:
+                        rejected.Failure.MaxMetadataRows,
+                    AttemptedCharge:
+                        rejected.Failure.ImageMetadataRows),
+                operation.Counters);
+        }
+
+        operation.ObserveWork(
+            MetadataOperationWorkKind.MethodSemanticsAssociationRead);
+        MethodSemanticsReadBudget budget =
+            operation.CreateMethodSemanticsReadBudget();
+        MethodSemanticsReadResult result =
+            MethodSemanticsRowReader.Read(
+                owner.PEReaderForMethodSemantics,
+                budget);
+        operation.Charge(
+            MetadataOperationDimension
+                .RetainedMethodSemanticsAssociations,
+            budget.RetainedAssociations);
+
+        return result switch
+        {
+            MethodSemanticsReadResult.Success success =>
+                Complete(success, operation.Counters),
+            MethodSemanticsReadResult.NoMetadata =>
+                Reject(
+                    MetadataMethodSemanticsFailureReason.NoMetadata,
+                    "The image has no managed metadata.",
+                    operation.Counters),
+            MethodSemanticsReadResult.UnsupportedWindowsMetadata =>
+                Reject(
+                    MetadataMethodSemanticsFailureReason
+                        .UnsupportedWindowsMetadata,
+                    "Windows Metadata is not supported.",
+                    operation.Counters),
+            MethodSemanticsReadResult.MalformedInput malformed =>
+                Reject(malformed, operation.Counters),
+            MethodSemanticsReadResult
+                .RetainedAssociationBudgetExceeded exceeded =>
+                Reject(
+                    exceeded,
+                    operation.MethodSemanticsAssociationLimit,
+                    operation.Counters),
+            _ => throw new InvalidOperationException(
+                "Unknown MethodSemantics read result."),
+        };
+    }
+
+    static MetadataMethodSemanticsAssociationResult.Completed Complete(
+        MethodSemanticsReadResult.Success success,
+        MetadataOperationCounters counters)
+    {
+        var associations =
+            ImmutableArray.CreateBuilder<
+                MetadataMethodSemanticsAssociation>(
+                    success.Rows.Length);
+        foreach (MethodSemanticsRow row in success.Rows)
+        {
+            associations.Add(
+                new MetadataMethodSemanticsAssociation(
+                    row.RowNumber,
+                    row.RawSemantics,
+                    row.Method,
+                    row.AssociationKind switch
+                    {
+                        MethodSemanticsAssociationKind.Event =>
+                            MetadataMethodSemanticsAssociationKind.Event,
+                        MethodSemanticsAssociationKind.Property =>
+                            MetadataMethodSemanticsAssociationKind.Property,
+                        _ => throw new InvalidOperationException(
+                            "Unknown MethodSemantics association kind."),
+                    },
+                    row.AssociationRowNumber));
+        }
+
+        ImmutableArray<MetadataMethodSemanticsAssociation> completed =
+            associations.MoveToImmutable();
+        var methodIndexBuilders =
+            new Dictionary<
+                MethodDefinitionHandle,
+                ImmutableArray<int>.Builder>();
+        for (int index = 0; index < completed.Length; index++)
+        {
+            MethodDefinitionHandle method = completed[index].Method;
+            if (!methodIndexBuilders.TryGetValue(
+                    method,
+                    out ImmutableArray<int>.Builder? indexes))
+            {
+                indexes = ImmutableArray.CreateBuilder<int>();
+                methodIndexBuilders.Add(method, indexes);
+            }
+            indexes.Add(index);
+        }
+        var methodIndexes = ImmutableDictionary.CreateBuilder<
+            MethodDefinitionHandle,
+            ImmutableArray<int>>();
+        foreach ((
+            MethodDefinitionHandle method,
+            ImmutableArray<int>.Builder indexes)
+            in methodIndexBuilders)
+        {
+            methodIndexes.Add(method, indexes.ToImmutable());
+        }
+
+        ImmutableDictionary<
+            MetadataMethodSemanticsAssociationKey,
+            MetadataMethodSemanticsAssociationRange> ranges =
+                ImmutableDictionary<
+                    MetadataMethodSemanticsAssociationKey,
+                    MetadataMethodSemanticsAssociationRange>.Empty;
+        if (success.AssociationsAreNondecreasing)
+        {
+            var rangesBuilder = ImmutableDictionary.CreateBuilder<
+                MetadataMethodSemanticsAssociationKey,
+                MetadataMethodSemanticsAssociationRange>();
+            int start = 0;
+            while (start < completed.Length)
+            {
+                MetadataMethodSemanticsAssociation association =
+                    completed[start];
+                var key = new MetadataMethodSemanticsAssociationKey(
+                    association.AssociationKind,
+                    association.AssociationRowNumber);
+                int end = start + 1;
+                while (end < completed.Length
+                    && completed[end].AssociationKind == key.Kind
+                    && completed[end].AssociationRowNumber == key.RowNumber)
+                {
+                    end++;
+                }
+
+                rangesBuilder.Add(key, new(start, end - start));
+                start = end;
+            }
+
+            ranges = rangesBuilder.ToImmutable();
+        }
+
+        return new MetadataMethodSemanticsAssociationResult.Completed(
+            completed,
+            ranges,
+            methodIndexes.ToImmutable(),
+            success.AssociationsAreNondecreasing,
+            counters);
+    }
+
+    static MetadataMethodSemanticsAssociationResult.Rejected Reject(
+        MetadataMethodSemanticsFailureReason reason,
+        string detail,
+        MetadataOperationCounters counters) =>
+        new(
+            new MetadataMethodSemanticsFailure(
+                reason,
+                detail,
+                RowsVisited: 0),
+            counters);
+
+    static MetadataMethodSemanticsAssociationResult.Rejected Reject(
+        MethodSemanticsReadResult.MalformedInput malformed,
+        MetadataOperationCounters counters) =>
+        new(
+            new MetadataMethodSemanticsFailure(
+                malformed.Reason switch
+                {
+                    MethodSemanticsMalformedReason.MetadataRootMalformed =>
+                        MetadataMethodSemanticsFailureReason
+                            .MetadataRootMalformed,
+                    MethodSemanticsMalformedReason.MetadataReaderRejected =>
+                        MetadataMethodSemanticsFailureReason
+                            .MetadataReaderRejected,
+                    MethodSemanticsMalformedReason.InvalidTableLayout =>
+                        MetadataMethodSemanticsFailureReason
+                            .InvalidTableLayout,
+                    MethodSemanticsMalformedReason.NilMethod =>
+                        MetadataMethodSemanticsFailureReason.NilMethod,
+                    MethodSemanticsMalformedReason.MethodOutOfRange =>
+                        MetadataMethodSemanticsFailureReason
+                            .MethodOutOfRange,
+                    MethodSemanticsMalformedReason.NilAssociation =>
+                        MetadataMethodSemanticsFailureReason.NilAssociation,
+                    MethodSemanticsMalformedReason.AssociationOutOfRange =>
+                        MetadataMethodSemanticsFailureReason
+                            .AssociationOutOfRange,
+                    _ => throw new InvalidOperationException(
+                        "Unknown MethodSemantics malformed reason."),
+                },
+                "The MethodSemantics table could not be read mechanically.",
+                malformed.RowsVisited,
+                malformed.RowNumber,
+                malformed.MetadataRootReason),
+            counters);
+
+    static MetadataMethodSemanticsAssociationResult.Rejected Reject(
+        MethodSemanticsReadResult.RetainedAssociationBudgetExceeded exceeded,
+        long limit,
+        MetadataOperationCounters counters) =>
+        new(
+            new MetadataMethodSemanticsFailure(
+                MetadataMethodSemanticsFailureReason.BudgetExceeded,
+                "The retained MethodSemantics association budget was exhausted.",
+                exceeded.RowsVisited,
+                exceeded.RowsVisited,
+                BudgetDimension:
+                    MetadataOperationDimension
+                        .RetainedMethodSemanticsAssociations,
+                BudgetLimit: limit,
+                AttemptedCharge: 1),
+            counters);
+
+    MetadataDeclarationSession GetOwner() =>
+        _owner
+        ?? throw new ObjectDisposedException(
+            nameof(MethodSemanticsAssociationSession));
+
+    internal void Retire()
+    {
+        lock (_gate)
+        {
+            _cached = null;
+            _owner = null;
+        }
+    }
+}

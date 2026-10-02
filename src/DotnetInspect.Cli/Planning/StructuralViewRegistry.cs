@@ -20,7 +20,7 @@ public enum StructuralViewIdentity
     PackageSingleLibrary,
     PackageAllLibraries,
     DirectLibrary,
-    LibraryCoordinate,
+    LibraryAddress,
     Type,
     MemberType,
     MemberTarget,
@@ -285,10 +285,10 @@ public static class StructuralViewRegistry
                 | StructuralParserCapabilities.TypeFilter
                 | StructuralParserCapabilities.BodyKindFilter),
             new(
-                StructuralViewIdentity.LibraryCoordinate,
+                StructuralViewIdentity.LibraryAddress,
                 45,
-                "library coordinate",
-                "coordinate",
+                "library address",
+                "address",
                 [InspectionCatalogIdentity.Library],
                 SharedProjectionCapabilities
                 | StructuralParserCapabilities.Print

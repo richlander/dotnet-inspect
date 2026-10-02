@@ -34,6 +34,13 @@ internal static class DiffHistoryCommand
         DiffOptions options,
         CancellationToken cancellationToken)
     {
+        if (options.Analysis is not null)
+        {
+            CommandError.Write(
+                "--history does not accept --analysis yet; History selects its "
+                + "producer with --finding until it adopts analysis selection.");
+            return 1;
+        }
         if (!TryValidateMode(options, out string? error))
         {
             CommandError.Write(error!);
@@ -944,10 +951,15 @@ internal static class DiffHistoryCommand
         {
             _composition = composition;
             _sourceOptions = sourceOptions;
+            // Each version cell is read by range, bounded by the asset demand
+            // its inspection prepared: Metadata cells read the surface
+            // folders, Analysis cells the surface and implementation folders
+            // (docs/design/package-read-demand.md#per-command-demand).
             _payloadAcquisition =
                 new PackagePayloadAcquisitionPlan(
                     GetStore,
-                    log: log);
+                    log: log,
+                    access: PackagePayloadAccess.Ranged);
         }
 
         public Task<PackageHouseSettlement> ExecuteAsync(

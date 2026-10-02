@@ -79,7 +79,20 @@ public sealed class SectionRowExecutionRequest<TIdentity, TProjection>
             IReadOnlyList<
                 SectionRowSetDeclaration<TIdentity, TProjection>>
                 rowSets,
-            SectionRowIntentAssociation<TIdentity> association)
+            SectionRowIntentAssociation<TIdentity> association) =>
+        Create(
+            rowSets,
+            association,
+            null);
+
+    internal static SectionRowExecutionRequest<
+        TIdentity,
+        TProjection> Create(
+            IReadOnlyList<
+                SectionRowSetDeclaration<TIdentity, TProjection>>
+                rowSets,
+            SectionRowIntentAssociation<TIdentity> association,
+            IReadOnlySet<TIdentity>? nonResidualRowSets)
     {
         ArgumentNullException.ThrowIfNull(rowSets);
         ArgumentNullException.ThrowIfNull(association);
@@ -199,13 +212,19 @@ public sealed class SectionRowExecutionRequest<TIdentity, TProjection>
             }
             if (!rowSet.HasRows)
             {
-                _ = rowSet.SourceCount;
-                if (!binding.CanExecuteCountWithoutRows)
+                bool isNonResidual =
+                    nonResidualRowSets?.Contains(rowSet.Identity)
+                        is true;
+                if (!isNonResidual)
                 {
-                    throw new ArgumentException(
-                        "A cardinality-only row-set declaration requires a "
-                        + "Count execution binding.",
-                        nameof(rowSets));
+                    _ = rowSet.SourceCount;
+                    if (!binding.CanExecuteCountWithoutRows)
+                    {
+                        throw new ArgumentException(
+                            "A cardinality-only row-set declaration "
+                            + "requires a Count execution binding.",
+                            nameof(rowSets));
+                    }
                 }
             }
 

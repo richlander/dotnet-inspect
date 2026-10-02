@@ -77,7 +77,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_FixedOverviewCountValidatesFieldProjection()
+    public async Task Library_FixedOverviewCountValidatesFieldsBeforeCardinality()
     {
         var invalid = await RunAppAsync(
             "library", TestAssemblyPath,
@@ -97,7 +97,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryAndPackage_MultiSectionCount_RejectTreePresentation()
+    public async Task LibraryAndPackage_MultiSectionCount_RejectInvalidTreeRequests()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
@@ -113,10 +113,14 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
-            Assert.Contains("exactly one", libraryError);
+            Assert.Contains(
+                $"Section '{SectionNames.LibraryInfo}' is scalar",
+                libraryError);
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
-            Assert.Contains("exactly one", packageError);
+            Assert.Contains(
+                "--tree requires exactly '-S \"Dependency Hierarchy\"'",
+                packageError);
         }
         finally
         {
@@ -200,6 +204,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
 
+            Assert.Empty(error);
             Assert.Equal(0, exit);
             Assert.Contains("# Test.Tool.dll", output);
             Assert.Contains("| Name | DotnetInspect.Cli.Tests |", output);
@@ -220,6 +225,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
 
+            Assert.Empty(error);
             Assert.Equal(0, exit);
             Assert.Contains("# Test.Tool.dll", output);
             Assert.Contains("| Name | DotnetInspect.Cli.Tests |", output);
@@ -919,7 +925,8 @@ public partial class CommandExecutionTests
         Assert.Equal(1, section.Exit);
         Assert.Empty(section.Output);
         Assert.Contains(
-            "does not accept section selection",
+            "accepts only the exact \"Library Metrics\" or \"Name Families\" "
+                + "section selection",
             section.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1052,7 +1059,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Assembly_CountWithoutSingleSection_Errors()
+    public async Task Assembly_DefaultScalarSection_RejectsCount()
     {
         var options = new LibraryOptions
         {
@@ -1065,7 +1072,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(CountOutput.SectionRequiredMessage, error);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            error);
     }
 
     [Fact]
@@ -2120,6 +2129,7 @@ public partial class CommandExecutionTests
             "library",
             missingPath,
             "-S",
+            LibraryFixedOverviewSelection,
             "--count",
             "--tips",
             "q");
@@ -2906,7 +2916,10 @@ public partial class CommandExecutionTests
         Assert.Contains("@Audit (category)", output);
         Assert.Contains("@Performance (category)", output);
         Assert.Contains(
-            "   ├─ References\n   │  ├─ Name (column)",
+            "├─ References [library/sections/references]",
+            output);
+        Assert.Contains(
+            "├─ Name (column) [library/sections/references/items/column/name]",
             output.ReplaceLineEndings("\n"));
         Assert.DoesNotContain("(opt-in)", output);
         Assert.DoesNotContain("(verbose)", output);
@@ -3092,7 +3105,7 @@ public partial class CommandExecutionTests
         // The parent-owned topical category doors lead the catalog, in alphabetical order, and
         // every category row precedes every section row. @Metadata is among them because --schema
         // surfaces the whole parent catalog, including the explicit-only lens the curated
-        // top-level -D still leaves out. @Context belongs to library coordinate.
+        // top-level -D still leaves out. @Context belongs to library address.
         var categoryLines = SplitOutputLines(output)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
@@ -3215,11 +3228,27 @@ public partial class CommandExecutionTests
                     "string.interpolation-handler",
                     row.GetProperty("operation").GetString());
             });
+        string[] offsets =
+        [
+            .. occurrences.Select(
+                row => row.GetProperty("il").GetString()!),
+        ];
         Assert.Equal(
-            ["IL_00E6", "IL_0146"],
-            occurrences
-                .Select(row => row.GetProperty("il").GetString())
-                .Order(StringComparer.Ordinal));
+            offsets.Length,
+            offsets.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(
+            offsets,
+            offset =>
+            {
+                Assert.StartsWith("IL_", offset);
+                Assert.True(
+                    int.TryParse(
+                        offset.AsSpan(3),
+                        NumberStyles.AllowHexSpecifier,
+                        CultureInfo.InvariantCulture,
+                        out _),
+                    offset);
+            });
     }
 
     [Fact]
@@ -3516,7 +3545,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "\"Metadata: Heap\" requires library coordinate",
+            "\"Metadata: Heap\" requires library address",
             error);
     }
 

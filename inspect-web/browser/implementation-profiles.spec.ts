@@ -1,11 +1,9 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
-  chooseInspector,
   chooseSubject,
   core,
   createType,
   installFacades,
-  inspectorTab,
   releaseFacade,
   root,
   run,
@@ -22,11 +20,13 @@ function overload(
   signature: string,
   metadataToken: number,
   name = "Run",
+  accessibility = "public",
 ): BrowserMemberSurface {
   return {
     ...run,
     name,
     signature,
+    accessibility,
     metadataToken,
     declarationMetadataToken: metadataToken,
     documentationId: `M:Example.Widget.${stableSelector}`,
@@ -45,10 +45,24 @@ function overload(
 function overloadedPackage(): BrowserPackageSurface {
   const type = {
     ...createType("Example.Widget", core),
-    members: 4,
+    members: 8,
     api: [
       overload("Run(int)", "public void Run(int value)", 0x06000100),
       overload("Run(string)", "public void Run(string value)", 0x06000101),
+      overload(
+        "Run(Guid)",
+        "private void Run(Guid value)",
+        0x06000104,
+        "Run",
+        "private",
+      ),
+      overload(
+        "Run(DateTime)",
+        "private void Run(DateTime value)",
+        0x06000105,
+        "Run",
+        "private",
+      ),
       overload(
         "Compute(int)",
         "public void Compute(int value)",
@@ -60,6 +74,20 @@ function overloadedPackage(): BrowserPackageSurface {
         "public void Compute(string value)",
         0x06000103,
         "Compute",
+      ),
+      overload(
+        "Hidden(int)",
+        "private void Hidden(int value)",
+        0x06000106,
+        "Hidden",
+        "private",
+      ),
+      overload(
+        "Hidden(string)",
+        "private void Hidden(string value)",
+        0x06000107,
+        "Hidden",
+        "private",
       ),
     ],
   };
@@ -74,11 +102,21 @@ function overloadedPackage(): BrowserPackageSurface {
       ...surface.types.filter(candidate =>
         candidate.definitionId !== type.definitionId),
     ],
-    totalMembers: 5,
+    totalMembers: 9,
   };
 }
 
-test("implementation profiles stay lazy, preserve family identity, and render accessible evidence", async ({
+async function selectMemberAccessibility(
+  page: Page,
+  accessibility: "public" | "private",
+) {
+  const select = page.locator("[data-member-access-filter]");
+  if (!await select.isVisible())
+    await page.locator("#member-filter-summary").click();
+  await select.selectOption(accessibility);
+}
+
+test("Type heat paints the member list without an Implementation section", async ({
   page,
 }) => {
   await installFacades(
@@ -97,152 +135,114 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
   await page.locator("#type-list [data-type]").click();
   await chooseSubject(page, "member", "Member");
 
+  // One Type request, made after the member list paints; no family detail.
   const html = page.locator("html");
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+  expect(JSON.parse(
+    await html.getAttribute("data-type-heat-request") ?? "null",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    core.id,
+    "Example.Widget",
+  ]);
   expect(await html.getAttribute(
     "data-implementation-profile-request-count")).toBeNull();
-  const tab = inspectorTab(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-  );
-  await expect(tab).toHaveAttribute("aria-label", "Implementation profiles");
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
+  await expect(page.locator('[data-member-section="implementation-profiles"]'))
+    .toHaveCount(0);
 
-  await expect(page.getByRole("heading", {
-    name: "Loading implementation profiles",
-  })).toBeVisible();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "1",
-  );
-  expect(JSON.parse(
-    await html.getAttribute("data-implementation-profile-request") ?? "null",
-  )).toEqual([
-    "Example.Package",
-    "1.0.0",
-    "net10.0",
-    core.id,
-    "Example.Widget",
-    ["Run(int)", "Run(string)"],
-  ]);
+  await selectMemberAccessibility(page, "private");
+  const hidden = page.locator("[data-nav-member]")
+    .filter({ hasText: "Hidden" });
+  await hidden.click();
+  await expect(hidden.locator(".family-heat-cue")).toHaveCount(0);
+  const privateRun = page.locator("[data-nav-member]")
+    .filter({ hasText: "Run" });
+  await privateRun.click();
+  await expect(privateRun.locator(".family-heat-cue.progress"))
+    .toHaveText("measuring");
 
-  await releaseFacade(
-    page,
-    `fixture-implementation-profiles-ready:${core.id}`,
+  await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
+  await expect(privateRun.locator(".family-heat-cue")).toHaveCount(0);
+  const rows = page.locator(".overload-nav-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(0)).toHaveAttribute(
+    "aria-description",
+    "70 instructions; 71% of the largest body in this family, which is not a listed overload",
   );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
-  await expect(page.locator(".member-surface-head p"))
-    .toContainText("2 overloads");
-  await expect(page.locator(".implementation-profile-overload"))
-    .toHaveCount(2);
-  await expect(page.locator(".implementation-profile-physical-row"))
-    .toHaveCount(3);
-  await expect(page.getByRole("heading", {
-    name: "Generated physical body",
-  })).toBeVisible();
-  await expect(page.getByRole("img", {
-    name: "80 instructions; 100% of the largest physical body in this overload family",
-  })).toBeVisible();
-  await expect(page.getByText("Branches: 8", { exact: true })).toBeVisible();
-  await expect(page.getByText("Loops: 2", { exact: true })).toBeVisible();
-
-  await page.getByText("Raw implementation metrics", { exact: true })
-    .first()
-    .click();
+  await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
+  await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
   await expect(
-    page.getByText("Distinct opcode count", { exact: true }).first(),
-  ).toBeVisible();
-
-  await page.locator("[data-nav-member]").filter({ hasText: "Compute" })
-    .click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "1",
-  );
-  await expect(inspectorTab(
-    page,
-    "data-member-section",
-    "overview",
-  )).toHaveAttribute("aria-selected", "true");
-
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  expect(JSON.parse(
-    await html.getAttribute("data-implementation-profile-request") ?? "null",
-  )).toEqual([
-    "Example.Package",
-    "1.0.0",
-    "net10.0",
-    core.id,
-    "Example.Widget",
-    ["Compute(int)", "Compute(string)"],
-  ]);
-  await releaseFacade(
-    page,
-    `fixture-implementation-profiles-ready:${core.id}`,
-  );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Compute",
-  })).toBeVisible();
-
-  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
-
-  await page.locator('[data-nav-overload="0"]').click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
+    rows.nth(1).locator(".item-achievement-glyph.implementation-hub"),
+  ).toHaveCount(1);
+  await expect(rows.nth(1).locator(".item-achievement-rail"))
+    .toHaveAttribute("aria-label", "implementation hub");
   await expect(
-    page.locator(".implementation-profile-physical-row"),
-  ).toHaveCount(3);
+    rows.nth(0).locator(".item-achievement-glyph.implementation-hub"),
+  ).toHaveCount(0);
+  await expect(rows.locator(".overload-size")).toHaveCount(0);
 
-  await chooseInspector(
+  // Public and private populations reuse one Type record.
+  await selectMemberAccessibility(page, "public");
+  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+  await runFamily.click();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(0)).not.toHaveClass(/\bhub\b/);
+  await expect(rows.nth(0)).toHaveAttribute(
+    "aria-description",
+    "98 instructions; 100% of the largest body in this family",
+  );
+  await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
+
+  const compute = page.locator("[data-nav-member]")
+    .filter({ hasText: "Compute" });
+  await compute.click();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(1)).toHaveClass(/\bheated\b/);
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+
+  await page.locator('[data-nav-overload="1"]').click();
+  await expect(page.getByRole("heading", { name: "Implementation" }))
+    .toHaveCount(0);
+  await expect(page.getByText("Implementation evidence", { exact: true }))
+    .toHaveCount(0);
+  expect(await html.getAttribute(
+    "data-implementation-profile-request-count")).toBeNull();
+});
+
+test("non-public-only families do not inherit Type heat failure", async ({
+  page,
+}) => {
+  await installFacades(
     page,
-    "data-member-section",
-    "overview",
-    "Overview",
+    overloadedPackage(),
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "query-error",
   );
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-list [data-type]").click();
+  await chooseSubject(page, "member", "Member");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-type-heat-request-count", "1");
+
+  await selectMemberAccessibility(page, "private");
+  const hidden = page.locator("[data-nav-member]")
+    .filter({ hasText: "Hidden" });
+  await hidden.click();
+  await expect(hidden.locator(".family-heat-cue")).toHaveCount(0);
+
+  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+  await runFamily.click();
+  await expect(runFamily.locator(".family-heat-cue.problem"))
+    .toHaveText("heat unavailable");
 });

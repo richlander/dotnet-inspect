@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   subjectTab,
+  inspectorTab,
   chooseInspector,
   chooseSubject,
   surface,
@@ -15,6 +16,35 @@ import {
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
+
+test("Platform Member offers Source without an Implementation section", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-list [data-type]").first().click();
+  await chooseSubject(page, "member", "Member");
+
+  await expect(
+    inspectorTab(page, "data-member-section", "source"),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Implementation" }))
+    .toHaveCount(0);
+  await chooseInspector(page, "data-member-section", "source", "Source");
+
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /net11\.0.*System\.Text\.Json\.dll.*netcore\.app/,
+  );
+});
 
 // PR-fast: production navigation with the existing Platform facade fixture.
 test("Platform Workspace entry preserves the catalog for Back and Forward", async ({ page }) => {
@@ -168,6 +198,106 @@ test("Activity Back restores focus on the Platform route", async ({ page }) => {
   await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 });
 
+test("user focus movement cancels deferred Activity return focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  await page.evaluate(() => {
+    const requestFrame = window.requestAnimationFrame.bind(window);
+    const heldFrames: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = callback => {
+      heldFrames.push(callback);
+      return heldFrames.length;
+    };
+    window.addEventListener("release-activity-focus-frames", () => {
+      window.requestAnimationFrame = requestFrame;
+      for (const callback of heldFrames.splice(0)) {
+        requestFrame(callback);
+      }
+    }, { once: true });
+  });
+
+  await page.goBack();
+  const search = page.locator("#open-search");
+  await search.click();
+  const spotlight = page.locator("#spotlight-input");
+  await expect(search).toBeFocused();
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("release-activity-focus-frames")));
+  await expect(spotlight).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(spotlight).toBeHidden();
+
+  const version = page.getByLabel("Platform version");
+  await version.selectOption(alternatePlatformVersion);
+  await expect(version).toHaveValue(alternatePlatformVersion);
+  await page.evaluate(() => new Promise<void>(complete =>
+    requestAnimationFrame(() => requestAnimationFrame(() => complete()))));
+  await expect(page.locator("[data-product-navigation-button]"))
+    .not.toBeFocused();
+});
+
+test("stale Activity callback preserves a newer Back return", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const platformLocation = page.url();
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  await page.evaluate(() => {
+    const requestFrame = window.requestAnimationFrame.bind(window);
+    const heldFrames: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = callback => {
+      heldFrames.push(callback);
+      return heldFrames.length;
+    };
+    window.addEventListener("release-activity-focus-frames", () => {
+      window.requestAnimationFrame = requestFrame;
+      for (const callback of heldFrames.splice(0)) {
+        requestFrame(callback);
+      }
+    }, { once: true });
+  });
+
+  await page.goBack();
+  await expect(page).toHaveURL(platformLocation);
+  await page.locator("#open-search").click();
+  await page.goForward();
+  await expect(page).toHaveURL(/\/activity$/);
+  await page.goBack();
+  await expect(page).toHaveURL(platformLocation);
+
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("release-activity-focus-frames")));
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
+});
+
+test("Activity Back restores menu focus on Query and Home routes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const productNavigation = page.locator("[data-product-navigation-button]");
+
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  await openProductDestination(page, "activity");
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(productNavigation).toBeFocused();
+
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await openProductDestination(page, "activity");
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+  await expect(productNavigation).toBeFocused();
+});
+
 test("platform-only Workspace preserves Query as its Back predecessor", async ({
   page,
 }) => {
@@ -278,12 +408,12 @@ test("superseded Workspace projection cannot steal Activity focus", async ({
 
   await openProductDestination(page, "activity");
   await expect(page).toHaveURL(/\/activity$/);
-  const packageSet = page.locator("#package-changes-package-set");
-  await expect(packageSet).toBeFocused();
+  const ecosystem = page.locator("#package-changes-ecosystem");
+  await expect(ecosystem).toBeFocused();
 
   await releaseFacade(page, "finish-workspace-encode");
   await page.waitForTimeout(100);
-  await expect(packageSet).toBeFocused();
+  await expect(ecosystem).toBeFocused();
 });
 
 test("Platform Workspace projection failure remains visible on Query", async ({
@@ -972,6 +1102,129 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
   await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
+});
+
+test("duplicate runtime Type discovery preserves one pending Space activation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  let reportSearchRequested!: () => void;
+  let releaseSearch!: () => void;
+  const searchRequested = new Promise<void>(complete => {
+    reportSearchRequested = complete;
+  });
+  const searchReleased = new Promise<void>(complete => {
+    releaseSearch = complete;
+  });
+  await page.route("https://azuresearch-usnc.nuget.org/**", async route => {
+    reportSearchRequested();
+    await searchReleased;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "access-control-allow-origin": "*" },
+      body: JSON.stringify({ totalHits: 0, data: [] }),
+    });
+  });
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await openInstalledPlatform(page, true);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.locator("[data-type-nav-back]").click();
+  await expect(subjectTab(page, "platform")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await page.keyboard.press("Control+p");
+  const input = page.locator("#spotlight-input");
+  await input.fill("Widget");
+  await searchRequested;
+  const resultSelector =
+    '[data-sl-type*="Example.Widget"][data-sl-pkg="Microsoft.NETCore.App"]:not([data-sl-member])';
+  const result = page.locator(resultSelector);
+  await expect(result).toHaveCount(1);
+  await result.focus();
+  await expect(result).toBeFocused();
+  const resultHandle = await result.elementHandle();
+  expect(resultHandle).not.toBeNull();
+  await page.keyboard.down("Space");
+
+  releaseSearch();
+  await expect(page.getByText(
+    "Searching nuget.org…",
+    { exact: true },
+  )).toHaveCount(0);
+
+  expect(await resultHandle.evaluate((element, selector) =>
+    document.querySelector(selector) === element, resultSelector)).toBe(true);
+  await expect(result).toBeFocused();
+  await page.keyboard.up("Space");
+  await expect(subjectTab(page, "type")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+
+test("framework Library metadata refresh preserves native pointer activation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {
+    libraryPending: true,
+  });
+  await openInstalledPlatform(page, true);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-library-request",
+  );
+
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("System.Text.Json");
+  const packageSearchHint = page.getByText(
+    "Searching nuget.org…",
+    { exact: true },
+  );
+  await expect(packageSearchHint).toBeVisible();
+  await expect(packageSearchHint).toHaveCount(0);
+  const result = page.locator(
+    '[data-sl-framework-lib="System.Text.Json"]',
+  );
+  await expect(result).not.toContainText("loaded");
+  const name = result.locator(".spotlight-item-name");
+  const resultHandle = await result.elementHandle();
+  const nameHandle = await name.elementHandle();
+  expect(resultHandle).not.toBeNull();
+  expect(nameHandle).not.toBeNull();
+  const box = await name.boundingBox();
+  if (!box) throw new Error("Framework Library result has no browser geometry.");
+  await page.mouse.move(
+    box.x + box.width / 2,
+    box.y + box.height / 2,
+  );
+  await page.mouse.down();
+
+  await releaseFacade(page, "finish-platform-library");
+  await expect(result).toContainText("loaded");
+  expect(await resultHandle.evaluate(element =>
+    document.querySelector('[data-sl-framework-lib="System.Text.Json"]')
+      === element)).toBe(true);
+  expect(await nameHandle.evaluate(element =>
+    document.querySelector(
+      '[data-sl-framework-lib="System.Text.Json"] .spotlight-item-name',
+    ) === element)).toBe(true);
+  await page.mouse.up();
+
+  await expect(page.locator("#spotlight-backdrop")).toHaveCount(0);
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 });
 
 test("catalog-only Platform retains its Workspace identity and canonical URL across another Workspace", async ({ page }) => {

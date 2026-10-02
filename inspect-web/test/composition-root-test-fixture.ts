@@ -437,5 +437,5 @@ export const commandBarSource = readFileSync(
 
 
 export const browserGraphMemberSource = readFileSync(
-  new URL("../DotnetInspect.Web.Interop.Metadata/TypeAndGraphMemberExports.cs", import.meta.url),
+  new URL("../../src/DotnetInspect.Web.Interop.Metadata/TypeAndGraphMemberExports.cs", import.meta.url),
   "utf8");

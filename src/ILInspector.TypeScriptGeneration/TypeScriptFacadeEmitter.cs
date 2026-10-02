@@ -4,6 +4,10 @@ using System.Text;
 using System.Text.Encodings.Web;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
+using WireDeclarationIdentity =
+    ILInspector.JsExportSurface.JsonWireDeclarationIdentity;
+using WireDeclarationPlan =
+    ILInspector.JsExportSurface.JsonWireDeclarationPlan;
 
 namespace ILInspector.TypeScriptGeneration;
 
@@ -52,8 +56,13 @@ internal static class TypeScriptFacadeEmitter
         ];
         ValidateRuntimeIdentities(functions);
 
+        WireDeclarationPlan declarationPlan =
+            DtsEmitter.CreateWireDeclarationPlan(surface);
         TypeScriptNameAllocator names =
-            TypeScriptNameAllocator.Create(surface, functions);
+            TypeScriptNameAllocator.Create(
+                surface,
+                declarationPlan,
+                functions);
         var signatures = new Dictionary<JsExportFunction, TypeScriptFunctionSignature>();
         foreach (JsExportFunction function in functions)
         {
@@ -62,6 +71,7 @@ internal static class TypeScriptFacadeEmitter
                     surface,
                     function,
                     diagnostics,
+                    declarationPlan,
                     names.TypeNames,
                     names.InertStringName,
                     names.DateTimeOffsetName,
@@ -78,6 +88,7 @@ internal static class TypeScriptFacadeEmitter
         sb.Append(DtsEmitter.EmitWireDeclarations(
             surface,
             diagnostics,
+            declarationPlan,
             names.TypeNames,
             names.InertStringName,
             names.InertStringBrandName,
@@ -489,7 +500,9 @@ internal static class TypeScriptFacadeEmitter
     private sealed class TypeScriptNameAllocator
     {
         private readonly HashSet<string> _moduleBindings;
-        private readonly Dictionary<ApiType, string> _typeNames;
+        private readonly Dictionary<
+            WireDeclarationIdentity,
+            string> _typeNames;
         private readonly Dictionary<JsExportFunction, string> _operationNames;
         private readonly Dictionary<JsExportFunction, string[]> _parameterNames;
         private readonly string? _inertStringName;
@@ -501,7 +514,8 @@ internal static class TypeScriptFacadeEmitter
 
         private TypeScriptNameAllocator(
             HashSet<string> moduleBindings,
-            Dictionary<ApiType, string> typeNames,
+            Dictionary<WireDeclarationIdentity, string>
+                typeNames,
             Dictionary<JsExportFunction, string> operationNames,
             Dictionary<JsExportFunction, string[]> parameterNames,
             string? inertStringName,
@@ -525,12 +539,13 @@ internal static class TypeScriptFacadeEmitter
 
         public static TypeScriptNameAllocator Create(
             global::ILInspector.JsExportSurface.JsExportSurface surface,
+            WireDeclarationPlan declarationPlan,
             IReadOnlyList<JsExportFunction> functions)
         {
             var moduleBindings = new HashSet<string>(
                 InfrastructureBindings,
                 StringComparer.Ordinal);
-            if (DtsEmitter.UsesJsonValue(surface))
+            if (DtsEmitter.UsesJsonValue(surface, declarationPlan))
                 moduleBindings.Add("JsonValue");
             ApiTypeReferenceIdentity? inertStringIdentity =
                 DtsEmitter.FindInertStringIdentity(surface);
@@ -553,7 +568,7 @@ internal static class TypeScriptFacadeEmitter
             IReadOnlyList<ApiTypeReferenceIdentity> dateTimeOffsetIdentities =
                 DtsEmitter.FindDateTimeOffsetIdentities(surface);
             bool usesDateTimeOffset =
-                DtsEmitter.UsesDateTimeOffset(surface);
+                DtsEmitter.UsesDateTimeOffset(surface, declarationPlan);
             string dateTimeOffsetIdentity =
                 dateTimeOffsetIdentities.Count == 0
                     ? TsTypeMapper.DateTimeOffsetFullName
@@ -596,25 +611,15 @@ internal static class TypeScriptFacadeEmitter
                         "brand",
                         "ts-jsexport#JsonText#brand",
                         TypeScriptIdentifier.IsStrictModeBindingIdentifier);
-            var typeNames = new Dictionary<ApiType, string>();
-            foreach (ApiType type in surface.Records
-                .Concat(surface.Enums)
-                .Concat(surface.Unions
-                    .Where(union => !surface.WireDirections.TryGetValue(union.Definition, out var direction)
-                        || direction != JsonWireDirection.None)
-                    .Select(union => union.Definition))
-                .Concat(surface.PolymorphicUnions
-                    .Where(union => !surface.WireDirections.TryGetValue(
-                            union.Definition,
-                            out JsonWireDirection direction)
-                        || direction != JsonWireDirection.None)
-                    .SelectMany(union =>
-                        new[] { union.Definition }
-                            .Concat(union.Cases.Select(
-                                @case => @case.Definition))))
-                .Distinct()
-                .OrderBy(CanonicalTypeIdentity, StringComparer.Ordinal))
+            var typeNames = new Dictionary<
+                WireDeclarationIdentity,
+                string>();
+            foreach (WireDeclarationIdentity declaration
+                in declarationPlan.Declarations.OrderBy(
+                    CanonicalTypeIdentity,
+                    StringComparer.Ordinal))
             {
+                ApiType type = declaration.Type;
                 string preferredName =
                     surface.PolymorphicUnions.Any(union =>
                         union.Cases.Any(@case =>
@@ -622,7 +627,8 @@ internal static class TypeScriptFacadeEmitter
                         && type.DefinitionName is { } definition
                             ? StripMetadataArity(
                                 definition.Segments[^1])
-                            : DtsEmitter.PreferredTypeName(type);
+                            : DtsEmitter.PreferredDeclarationName(
+                                declaration);
                 if (!TypeScriptIdentifier.IsIdentifierName(preferredName))
                 {
                     throw new UnsupportedWireContractException(
@@ -633,12 +639,12 @@ internal static class TypeScriptFacadeEmitter
                 }
 
                 typeNames.Add(
-                    type,
+                    declaration,
                     Allocate(
                         moduleBindings,
                         preferredName,
                         "type",
-                        CanonicalTypeIdentity(type),
+                        CanonicalTypeIdentity(declaration),
                         TypeScriptIdentifier.IsTypeDeclarationIdentifier));
             }
 
@@ -699,7 +705,9 @@ internal static class TypeScriptFacadeEmitter
             return separator < 0 ? name : name[..separator];
         }
 
-        public IReadOnlyDictionary<ApiType, string> TypeNames =>
+        public IReadOnlyDictionary<
+            WireDeclarationIdentity,
+            string> TypeNames =>
             _typeNames;
 
         public string? InertStringName => _inertStringName;
@@ -763,14 +771,20 @@ internal static class TypeScriptFacadeEmitter
             throw new UnreachableException();
         }
 
-        static string CanonicalTypeIdentity(ApiType type) =>
-            type.FullName
+        static string CanonicalTypeIdentity(
+            WireDeclarationIdentity declaration)
+        {
+            string identity = declaration.Type.FullName
             + "|"
-            + (type.MetadataName ?? "")
+            + (declaration.Type.MetadataName ?? "")
             + "|"
-            + (type.DefinitionName?.ToString() ?? "")
+            + (declaration.Type.DefinitionName?.ToString() ?? "")
             + "|"
-            + type.Kind;
+            + declaration.Type.Kind;
+            return declaration.IsSplit
+                ? identity + "|" + declaration.Direction
+                : identity;
+        }
 
         static string CanonicalExternalTypeIdentity(
             ApiTypeReferenceIdentity identity) =>

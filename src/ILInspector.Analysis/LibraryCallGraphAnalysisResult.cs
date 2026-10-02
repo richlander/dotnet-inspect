@@ -50,7 +50,6 @@ public sealed class LibraryCallGraphAnalysisResult
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
         _declaredSources = analysis.Methods.DeclaredSources;
-        OwnershipEvidence = analysis.OwnershipFlow.Methods;
         ResourceOwnershipSummaries =
             analysis.ResourceOwnership?.Methods ?? [];
         ResourceOwnershipPublicationComplete =
@@ -85,9 +84,6 @@ public sealed class LibraryCallGraphAnalysisResult
     public ImmutableArray<MethodIdentity> Methods { get; }
 
     public ImmutableArray<DirectCall> DirectCalls { get; }
-
-    public ImmutableArray<ArrayPoolOwnershipMethodEvidence>
-        OwnershipEvidence { get; }
 
     public ImmutableArray<ResourceOwnershipMethodSummary>
         ResourceOwnershipSummaries { get; }
@@ -150,11 +146,8 @@ public sealed class LibraryCallGraphAnalysisResult
     /// </summary>
     public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
         DirectCallsByEvidenceMethod =>
-        _directCallsByEvidenceMethod ??= DirectCalls
-            .GroupBy(call => call.EvidenceMethod.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
+        _directCallsByEvidenceMethod ??=
+            DirectCallIncidence.ByEvidenceMethod(DirectCalls);
 
     internal LibraryBodyLocalCallGraph RootPathGraph() =>
         _rootPathGraph ??=
@@ -188,6 +181,48 @@ public sealed class LibraryCallGraphAnalysisResult
         _rootPathGraph = null;
         _directCallsByCaller = null;
         _directCallsByEvidenceMethod = null;
+    }
+
+    /// <summary>
+    /// Distinct callee types touched by calls from methods in <paramref name="callerScope"/>.
+    /// Callee declaring types are reduced to their open definitions so generic instantiations
+    /// stay bounded and same-type generic self-calls are excluded.
+    /// </summary>
+    public ImmutableArray<CalledTypeSummary> CalledTypes(Func<MethodIdentity, bool> callerScope)
+    {
+        ArgumentNullException.ThrowIfNull(callerScope);
+
+        return
+        [
+            .. DirectCalls
+                .Where(call => callerScope(call.Caller))
+                .Where(call => call.Callee.Kind != MemberKind.Unsupported)
+                .Where(call => !IsObjectConstructor(call.Callee))
+                .Select(call => new
+                {
+                    Call = call,
+                    CalledType = GenericMemberIdentity.OpenDeclaringType(call.Callee.DeclaringType),
+                    CallerType = GenericMemberIdentity.OpenDeclaringType(call.Caller.DeclaringType),
+                    CalleeKey = GraphNodeIdentity.FromMember(call.Callee),
+                })
+                .Where(item => !item.CalledType.Equals(item.CallerType))
+                .GroupBy(item => item.CalledType)
+                .Select(group =>
+                {
+                    var type = group.Key;
+                    return new CalledTypeSummary(
+                        type,
+                        FormatCalledTypeAssembly(type.Assembly),
+                        Calls: group.Count(),
+                        Members: group.Select(item => item.CalleeKey).Distinct().Count(),
+                        CallKinds: [.. group
+                            .Select(item => item.Call.Kind)
+                            .Distinct()
+                            .OrderBy(kind => kind)]);
+                })
+                .OrderByDescending(summary => summary.Calls)
+                .ThenBy(summary => summary.Type.ToQualifiedDisplayString(), StringComparer.Ordinal)
+        ];
     }
 
     /// <summary>
@@ -688,4 +723,17 @@ public sealed class LibraryCallGraphAnalysisResult
     private readonly record struct LocalCalleeKey(
         int DefinitionToken,
         GraphNodeIdentity? StructuralIdentity);
+
+    static string FormatCalledTypeAssembly(string assembly)
+        => string.IsNullOrEmpty(assembly) || assembly == TypeRef.CoreLibrary ? "" : assembly;
+
+    static bool IsObjectConstructor(MemberRef member)
+        => member is
+        {
+            Name: ".ctor",
+            DeclaringType.Kind: TypeRefKind.Definition,
+            DeclaringType.Assembly: TypeRef.CoreLibrary,
+            DeclaringType.Namespace: "System",
+            DeclaringType.Name: "Object"
+        };
 }

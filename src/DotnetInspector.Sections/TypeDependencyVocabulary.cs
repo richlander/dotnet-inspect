@@ -56,20 +56,7 @@ public static class TypeDependencyVocabulary
     private static RowQueryKey<TypeDependencyRelationship> TextKey(
         string key,
         Func<TypeDependencyRelationship, string> accessor) =>
-        RowQueryKey<TypeDependencyRelationship>.Create(
-            RowQueryKeyIdentity.Create(),
-            key,
-            [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
-            row => RowQueryValue<string>.Present(accessor(row)),
-            BindText,
-            direction => RowQueryValueOrder.Create(
-                Comparer<string>.Create(
-                    static (left, right) =>
-                        StringComparer.OrdinalIgnoreCase.Compare(
-                            left,
-                            right)),
-                direction,
-                missingLast: false));
+        RowQueryText.Key(key, accessor);
 
     private static RowQueryKey<TypeDependencyRelationship> KindQueryKey() =>
         RowQueryKey<TypeDependencyRelationship>.Create(
@@ -83,18 +70,6 @@ public static class TypeDependencyVocabulary
                 Comparer<TypeDependencyRelationshipKind>.Default,
                 direction,
                 missingLast: false));
-
-    private static Predicate<string>? BindText(
-        RowQueryOperator operation,
-        RowQueryValueToken token) =>
-        operation switch
-        {
-            RowQueryOperator.Equals =>
-                value => WildcardMatch(value, token.Text),
-            RowQueryOperator.NotEquals =>
-                value => !WildcardMatch(value, token.Text),
-            _ => null,
-        };
 
     private static Predicate<TypeDependencyRelationshipKind>? BindKind(
         RowQueryOperator operation,
@@ -125,56 +100,4 @@ public static class TypeDependencyVocabulary
             : Comparer<T>.Create(
                 (left, right) =>
                     ascendingComparer.Compare(right, left));
-
-    private static bool WildcardMatch(
-        string actual,
-        string pattern)
-    {
-        if (!pattern.Contains('*') && !pattern.Contains('?'))
-        {
-            return string.Equals(
-                actual,
-                pattern,
-                StringComparison.OrdinalIgnoreCase);
-        }
-
-        int textIndex = 0;
-        int patternIndex = 0;
-        int starIndex = -1;
-        int matchIndex = 0;
-        while (textIndex < actual.Length)
-        {
-            if (patternIndex < pattern.Length
-                && (pattern[patternIndex] == '?'
-                    || char.ToUpperInvariant(pattern[patternIndex])
-                        == char.ToUpperInvariant(actual[textIndex])))
-            {
-                textIndex++;
-                patternIndex++;
-            }
-            else if (patternIndex < pattern.Length
-                && pattern[patternIndex] == '*')
-            {
-                starIndex = patternIndex++;
-                matchIndex = textIndex;
-            }
-            else if (starIndex >= 0)
-            {
-                patternIndex = starIndex + 1;
-                textIndex = ++matchIndex;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        while (patternIndex < pattern.Length
-            && pattern[patternIndex] == '*')
-        {
-            patternIndex++;
-        }
-
-        return patternIndex == pattern.Length;
-    }
 }

@@ -14,11 +14,12 @@ namespace DotnetInspector.Packages;
 /// <see cref="TryOpenArchive"/> returns <c>false</c>. It serves the House's
 /// pull-based payload reads for its materialized entries, whose bytes the
 /// archive reader has already checked against the directory's declared
-/// length and CRC (docs/design/package-read-demand.md#document-demand).
+/// length and CRC (docs/design/package-read-demand.md#exact-file-demand).
 /// </summary>
 public sealed class RangedPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
+    IPackageArchiveEntryManifest,
     IPackageHousePayloadSource
 {
     private readonly IReadOnlyList<PackageContentEntry> _entries;
@@ -190,6 +191,18 @@ public sealed class RangedPackageContent :
     /// <inheritdoc />
     public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths() =>
         _entries;
+
+    /// <inheritdoc />
+    public PackageContentEntryScanner CreateEntryScanner() =>
+        PackageContentEntryScanner.From(_entries);
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? entries)
+    {
+        entries = _entries;
+        return true;
+    }
 
     /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries() =>

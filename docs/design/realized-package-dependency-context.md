@@ -29,7 +29,8 @@ Adjacent owners retain their authority:
   outcome, and resource-free reacquisition request. [#7230](https://github.com/richlander/dotnet-inspect/issues/7230)
   stages retention of authorization independently from whether compatible
   fallback selected the implementation.
-- `PackageDependencyGroupsQuery` owns bounded manifest access and
+- `PackageManifestFactsProjection` owns bounded manifest parsing and facts;
+  `PackageDependencyGroupsQuery` owns root-manifest access and
   target-framework dependency-group selection.
 - [Package Dependency Evidence](package-dependency-evidence.md) owns normalized
   declarations, selected-group identity and status, completion, and failures.
@@ -216,7 +217,7 @@ physical observations.
 
 For an explicitly selected `netstandard2.0` Polly.Core hub, the context retains
 that Root's exact selection intent and four declarations. The traversal
-`ProductDefault(net12.0)` may independently govern realization of each
+`ProductDefault(net11.0)` may independently govern realization of each
 destination package.
 Selecting Polly.Core's `net8.0` group would lose source evidence; using
 `netstandard2.0` as the destination target would conflate source association

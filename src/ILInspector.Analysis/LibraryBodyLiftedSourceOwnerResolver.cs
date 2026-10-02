@@ -62,6 +62,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     readonly Action<MethodDefinitionHandle>? _methodBodyReferenceIndexed;
     readonly ImplementationMetricWorkBudget?
         _implementationMetricWork;
+    readonly ImplementationMetricExecutionRecorder?
+        _implementationMetricRecorder;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -94,7 +96,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LibraryBodyAsyncSourceResolver asyncSourceResolver,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
         ImplementationMetricWorkBudget?
-            implementationMetricWork = null)
+            implementationMetricWork = null,
+        ImplementationMetricExecutionRecorder?
+            implementationMetricRecorder = null)
     {
         _reader = reader;
         _peReader = peReader;
@@ -104,6 +108,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         _methodBodyReferenceIndexed = methodBodyReferenceIndexed;
         _implementationMetricWork =
             implementationMetricWork;
+        _implementationMetricRecorder =
+            implementationMetricRecorder;
         _liftedMethodsByOwner = new(
             BuildLiftedMethodsByOwner,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -1031,6 +1037,11 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         }
 
         int methodToken = MetadataTokens.GetToken(methodHandle);
+        using ImplementationMetricExecutionRecorder.StageAttempt?
+            attributionProbe =
+                _implementationMetricRecorder?.Start(
+                    ImplementationMetricWorkStage
+                        .SourceAttributionBodyProbe);
         _implementationMetricWork
             ?.ReserveAttributionProbeBody(methodToken);
         MethodBodyBlock body =
@@ -1132,6 +1143,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
             }
         }
+        attributionProbe?.Complete();
         return new(
             calledDefinitions,
             referencedDefinitions,

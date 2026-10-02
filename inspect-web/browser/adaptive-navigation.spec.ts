@@ -210,6 +210,7 @@ test("Chooser browsing, cancellation, and commit stay explicit", async ({
   await inspectorTrigger.click();
   await expect(overview).toBeFocused();
   await menu.getByRole("menuitemradio", { name: "Facts" }).click();
+  await expect(menu).toBeHidden();
   await expect(inspectorTrigger).toHaveAccessibleName("Facts");
   await expect(page.locator("[data-member-section='facts'][aria-checked='true']"))
     .toHaveCount(1);

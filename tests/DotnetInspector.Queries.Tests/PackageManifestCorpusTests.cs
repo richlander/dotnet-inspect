@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using System.Xml.Linq;
 using DotnetInspector.PackageManifestCorpus;
+using DotnetInspector.Packages;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;

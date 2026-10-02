@@ -64,6 +64,16 @@ public partial class CommandExecutionTests
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
+    private static readonly string LibraryFixedOverviewSelection =
+        string.Join(
+            ';',
+            LibrarySections.CreatePipeline().FixedOverviewSectionNames);
+
+    private static readonly string PackageFixedOverviewSelection =
+        string.Join(
+            ';',
+            PackageSectionDescriptors.CreatePipeline().FixedOverviewSectionNames);
+
     private static void AssertLibraryAsset(string output, string assemblyName)
     {
         string field = Assert.Single(
@@ -174,7 +184,7 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
-    private static void WriteModuleConstraintAssembly(string path)
+    private static void WriteUnresolvedConstraintAssembly(string path)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -190,12 +200,17 @@ public partial class CommandExecutionTests
             default,
             default,
             default);
-        ModuleReferenceHandle module =
-            metadata.AddModuleReference(
-                metadata.GetOrAddString("Other.netmodule"));
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Missing.Constraint.Assembly"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
         TypeReferenceHandle constraint =
             metadata.AddTypeReference(
-                module,
+                assembly,
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString("Constraint"));
         metadata.AddTypeDefinition(

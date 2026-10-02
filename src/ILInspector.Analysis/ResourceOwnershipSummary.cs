@@ -301,7 +301,7 @@ internal static class ResourceOwnershipSummaryAnalysis
     internal static ResourceOwnershipMethodSummary Analyze(
         MethodBodyAnalysisContext context,
         ResourceOccurrenceAnalysisResult occurrences,
-        ImmutableArray<DirectCall> directCalls)
+        ImmutableArray<DirectCall> methodDirectCalls)
     {
         MethodIdentity method = context.Method;
         MemberRef member = CallTreeMember.FromDefinition(method);
@@ -327,15 +327,9 @@ internal static class ResourceOwnershipSummaryAnalysis
         }
 
         IReadOnlyDictionary<int, DirectCall> calls =
-            directCalls
-                .Where(call =>
-                    call.EvidenceMethod == method
-                    && IsDirectInvocation(call))
+            methodDirectCalls
+                .Where(IsDirectInvocation)
                 .ToDictionary(static call => call.ILOffset);
-        IReadOnlyDictionary<int, MemberRef> members =
-            calls.ToDictionary(
-                static pair => pair.Key,
-                static pair => pair.Value.Callee);
 
         ImmutableArray<ResourceOwnershipAcquisitionFlow> acquisitions =
         [
@@ -348,7 +342,6 @@ internal static class ResourceOwnershipSummaryAnalysis
                         context,
                         reaching,
                         calls,
-                        members,
                         occurrences)),
         ];
 
@@ -387,7 +380,6 @@ internal static class ResourceOwnershipSummaryAnalysis
                         context,
                         reaching,
                         calls,
-                        members,
                         occurrences,
                         out bool complete),
                     complete));
@@ -438,7 +430,6 @@ internal static class ResourceOwnershipSummaryAnalysis
         MethodBodyAnalysisContext context,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, DirectCall> calls,
-        IReadOnlyDictionary<int, MemberRef> members,
         ResourceOccurrenceAnalysisResult occurrences)
     {
         if (!OwnershipValueFlowInstructions.TryFindNextNonNop(
@@ -469,7 +460,6 @@ internal static class ResourceOwnershipSummaryAnalysis
                 context,
                 reaching,
                 calls,
-                members,
                 occurrences,
                 out bool complete);
         return new(root, uses, complete);
@@ -483,7 +473,6 @@ internal static class ResourceOwnershipSummaryAnalysis
         MethodBodyAnalysisContext context,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, DirectCall> calls,
-        IReadOnlyDictionary<int, MemberRef> members,
         ResourceOccurrenceAnalysisResult occurrences,
         out bool complete)
     {
@@ -504,7 +493,7 @@ internal static class ResourceOwnershipSummaryAnalysis
 
             ValueUse classification = ClassifyUse(
                 context.Instructions.Instructions,
-                members,
+                calls,
                 use.Offset,
                 slot,
                 isArgument);
@@ -560,8 +549,9 @@ internal static class ResourceOwnershipSummaryAnalysis
                                         .From),
                             ],
                         });
-                    foreach (ImmutableArray<
-                        ResourceOccurrenceResourceKind> domain
+                    foreach ((
+                        ImmutableArray<ResourceOccurrenceResourceKind> domain,
+                        bool recovered)
                         in ReleaseDomains(
                             occurrences,
                             obligation,
@@ -569,6 +559,7 @@ internal static class ResourceOwnershipSummaryAnalysis
                             classification.OperationOffset,
                             classification.ParameterIndex))
                     {
+                        complete &= !recovered;
                         uses.Add(
                             new(
                                 ResourceOwnershipUseKind.Released,
@@ -610,8 +601,9 @@ internal static class ResourceOwnershipSummaryAnalysis
                     is ResourceOccurrenceRoot.IncomingArgument incoming
                 && incoming.ArgumentIndex == slot));
 
-    static IEnumerable<ImmutableArray<
-        ResourceOccurrenceResourceKind>> ReleaseDomains(
+    static IEnumerable<(
+        ImmutableArray<ResourceOccurrenceResourceKind> Domain,
+        bool Recovered)> ReleaseDomains(
         ResourceOccurrenceAnalysisResult occurrences,
         ResourceOccurrenceRoot.Acquisition? obligation,
         int? argumentSlot,
@@ -636,10 +628,67 @@ internal static class ResourceOwnershipSummaryAnalysis
                         is ResourceEffectLocation.Parameter parameter
                     && parameter.Index == calleeParameterIndex))
             {
-                yield return occurrence.Root.ResourceKinds;
+                yield return (occurrence.Root.ResourceKinds, false);
             }
         }
+
+        foreach (ResourceOccurrenceLimitation limitation
+            in occurrences.Limitations.Where(candidate =>
+                candidate.Root is null
+                && candidate.Call?.ILOffset == callOffset
+                && candidate.Effect
+                    is ResourceEffect.Release
+                    {
+                        Source: ResourceEffectLocation.Parameter parameter,
+                    }
+                && parameter.Index == calleeParameterIndex
+                && !candidate.ResourceKinds.IsEmpty))
+        {
+            ImmutableArray<ResourceOccurrenceResourceKind> matchingKinds =
+                obligation is not null
+                ?
+                [
+                    .. limitation.ResourceKinds.Where(
+                        candidate => obligation.ResourceKinds.Any(
+                            carried => ResourceKindsMatch(
+                                carried,
+                                candidate))),
+                ]
+                : argumentSlot is not null
+                    ? limitation.ResourceKinds
+                    : [];
+            if (!matchingKinds.IsEmpty)
+                yield return (matchingKinds, true);
+        }
     }
+
+    static bool ResourceKindsMatch(
+        ResourceOccurrenceResourceKind left,
+        ResourceOccurrenceResourceKind right) =>
+        left.Identity == right.Identity
+        && left.Arguments.Length == right.Arguments.Length
+        && left.Arguments.Zip(right.Arguments).All(pair =>
+            ResourceTypesMatch(pair.First, pair.Second));
+
+    static bool ResourceTypesMatch(
+        ResourceOccurrenceType left,
+        ResourceOccurrenceType right) =>
+        left.Type.Equals(right.Type)
+        && left.DefiningAssembly == right.DefiningAssembly
+        && left.DefinitionKind == right.DefinitionKind
+        && left.GenericScopeKind == right.GenericScopeKind
+        && left.Arguments.Length == right.Arguments.Length
+        && (left.Element is null) == (right.Element is null)
+        && (left.Element is null
+            || ResourceTypesMatch(left.Element, right.Element!))
+        && left.Arguments.Zip(right.Arguments).All(pair =>
+            ResourceTypesMatch(pair.First, pair.Second))
+        && left.Forwarding.Length == right.Forwarding.Length
+        && left.Forwarding.Zip(right.Forwarding).All(pair =>
+            pair.First.SourceAssembly == pair.Second.SourceAssembly
+            && pair.First.TargetReference == pair.Second.TargetReference
+            && pair.First.Declarations.AsSpan().SequenceEqual(
+                pair.Second.Declarations.AsSpan()));
 
     static bool IsDirectInvocation(DirectCall call) =>
         call.Kind is CallKind.Call
@@ -648,7 +697,7 @@ internal static class ResourceOwnershipSummaryAnalysis
 
     static ValueUse ClassifyUse(
         ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyDictionary<int, MemberRef> calls,
+        IReadOnlyDictionary<int, DirectCall> calls,
         int loadOffset,
         int slot,
         bool isArgument)
@@ -699,8 +748,11 @@ internal static class ResourceOwnershipSummaryAnalysis
                     ? ValueUse.ReturnAt(instruction.Offset)
                     : ValueUse.Unknown;
             }
-            if (calls.TryGetValue(instruction.Offset, out MemberRef? callee))
+            if (calls.TryGetValue(
+                    instruction.Offset,
+                    out DirectCall? call))
             {
+                MemberRef callee = call.Callee;
                 int parameterIndex =
                     callee.ParameterTypes.Length - extra - 1;
                 int consumedArguments =

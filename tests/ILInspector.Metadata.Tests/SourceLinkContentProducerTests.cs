@@ -95,12 +95,15 @@ public class SourceLinkContentProducerTests
         byte[] image = File.ReadAllBytes(typeof(SourceLinkIndexCacheTests).Assembly.Location);
         using SourceLinkService source = SourceLinkService.OpenMetadataOnly(
             Descriptor(image, () => new MemoryStream(image, writable: false)));
-        var pdb = new MemoryStream([1, 2], writable: false);
+        var pdb = new DeclaredLengthShortReadStream();
 
         Assert.Throws<EndOfStreamException>(
             () => source.LoadPdbFromStream(pdb, throwOnReadFailure: true));
         Assert.False(pdb.CanRead);
         Assert.False(source.HasPdb);
+        Assert.Equal(
+            PdbLoadStatus.NotAttempted,
+            source.LastPdbLoadStatus);
     }
 
     [Theory]
@@ -184,5 +187,13 @@ public class SourceLinkContentProducerTests
                 return directory.FullName;
         }
         throw new InvalidOperationException("Could not locate repository source.");
+    }
+
+    sealed class DeclaredLengthShortReadStream()
+        : MemoryStream(new byte[4], writable: false)
+    {
+        public override int Read(byte[] buffer, int offset, int count) => 0;
+
+        public override int Read(Span<byte> buffer) => 0;
     }
 }

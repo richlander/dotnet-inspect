@@ -7,19 +7,40 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 
-/// <summary>One exact namespace requested from a Platform type catalog.</summary>
+/// <summary>One namespace selection requested from a Platform type catalog.</summary>
 public sealed record PlatformNamespaceDiscoveryRequest
 {
     public PlatformNamespaceDiscoveryRequest(string @namespace)
+        : this(
+            @namespace,
+            MetadataNamespaceMatch.Exact)
+    {
+    }
+
+    [JsonConstructor]
+    public PlatformNamespaceDiscoveryRequest(
+        string @namespace,
+        MetadataNamespaceMatch namespaceMatch)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(@namespace);
+        if (namespaceMatch
+            is not MetadataNamespaceMatch.Exact
+            and not MetadataNamespaceMatch.ExactOrDescendant)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(namespaceMatch),
+                namespaceMatch,
+                "Platform namespace discovery supports exact or descendant matching.");
+        }
         Namespace = @namespace;
+        NamespaceMatch = namespaceMatch;
     }
 
     public string Namespace { get; }
+    public MetadataNamespaceMatch NamespaceMatch { get; }
 }
 
-/// <summary>One namesake Platform Library containing the exact namespace.</summary>
+/// <summary>One namesake Platform Library containing the namespace selection.</summary>
 public sealed record PlatformNamespaceDiscoveryHit(
     string Library,
     string Namespace,
@@ -29,14 +50,14 @@ public sealed record PlatformNamespaceDiscoveryHit(
     ImmutableArray<PlatformNamespaceDiscoveryDeclaration> Declarations);
 
 /// <summary>
-/// One detached public declaration observed in an exact Platform namespace.
+/// One detached public declaration observed in a Platform namespace selection.
 /// </summary>
 public sealed record PlatformNamespaceDiscoveryDeclaration(
     MetadataTypeDefinitionName Type,
     AssemblyTypeDeclarationKind DeclarationKind,
     AssemblyTypeDefinitionKind? DefinitionKind);
 
-/// <summary>Typed terminal content for exact Platform namespace discovery.</summary>
+/// <summary>Typed terminal content for Platform namespace discovery.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(Found), "found")]
 [JsonDerivedType(typeof(Missing), "missing")]
@@ -75,8 +96,8 @@ public abstract record PlatformNamespaceDiscoveryOutcome
 }
 
 /// <summary>
-/// Finds public declarations in one exact namespace of namesake Libraries from
-/// an already completed Platform catalog.
+/// Finds public declarations in one namespace selection of namesake Libraries
+/// from an already completed Platform catalog.
 /// </summary>
 public static class PlatformNamespaceDiscoveryInspection
 {
@@ -109,10 +130,9 @@ public static class PlatformNamespaceDiscoveryInspection
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!entry.Declaration.IsPublicSurface
-                || !string.Equals(
-                    entry.Name.Namespace,
+                || !entry.Name.IsInNamespace(
                     request.Namespace,
-                    StringComparison.Ordinal))
+                    request.NamespaceMatch))
             {
                 continue;
             }

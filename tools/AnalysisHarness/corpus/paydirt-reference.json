@@ -10,7 +10,7 @@
     "Assembly": "ILInspector.Decompiler.dll",
     "Type": "ILInspector.Decompiler.Pipeline.TypeRef",
     "Method": "RenderNestedGenericInstance",
-    "Signature": "ILInspector.Decompiler.Pipeline.TypeRef",
+    "Signature": "ILInspector.Decompiler.Pipeline.TypeRef,bool,bool",
     "Shape": "capturing-delegate"
   },
   {

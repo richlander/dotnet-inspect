@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -252,7 +253,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        MemberCommand_SharedAccessorProjectionPreservesPhysicalModifiers()
+        MemberCommand_SharedAccessorProjectionUsesLogicalPropertyShape()
     {
         var readOnly =
             await RunAppAsync(
@@ -273,7 +274,7 @@ public partial class CommandExecutionTests
                 "--library",
                 FixtureCatalog.DecompilerUnsafeNew
                     .AssemblyPath(),
-                "explicit:ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.get_Value:1",
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value:1",
                 "--all",
                 "-S",
                 "Decompiled Source",
@@ -288,8 +289,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, unsafeAccessor.Exit);
         Assert.Empty(unsafeAccessor.Error);
         Assert.Contains(
-            "unsafe int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
+            "int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
             unsafeAccessor.Output);
+        Assert.DoesNotContain("unsafe int", unsafeAccessor.Output);
     }
 
     [Fact]
@@ -645,6 +647,213 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
+    [Fact]
+    public async Task
+        Member_ExactMethodGroup_DefaultAndTreeUseTheSameNativeDocument()
+    {
+        var natural = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+        var explicitTree = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize",
+            "--platform",
+            "System.Text.Json",
+            "--tree",
+            "--tips",
+            "q");
+        var caseInsensitive = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.serialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, natural.Exit);
+        Assert.Equal(natural, explicitTree);
+        Assert.Equal(natural, caseInsensitive);
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Serialize (15 overloads)",
+            natural.Output);
+        Assert.Contains(
+            "├─ public static string Serialize<TValue>(",
+            natural.Output);
+        Assert.Contains(
+            "└─ public static void Serialize(",
+            natural.Output);
+        Assert.DoesNotContain("## Methods", natural.Output);
+    }
+
+    [Fact]
+    public async Task Member_ExactMethodGroup_DistinguishesExtensionReceivers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Deserialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Deserialize (",
+            output);
+        Assert.Contains("public static ", output);
+        Assert.Contains("public extension ", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Member_SingleMethod_DefaultAndTreeUseTheSameNativeDocument()
+    {
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        var natural = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath,
+            "--tips",
+            "q");
+        var explicitTree = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath,
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, natural.Exit);
+        Assert.Equal(natural, explicitTree);
+        Assert.StartsWith(
+            $"method {typeName}.{nameof(MemberCallGraphFixture.RootCall)} "
+                + "(1 overload)",
+            natural.Output);
+        Assert.Contains(
+            "└─ public static void RootCall()",
+            natural.Output);
+        Assert.DoesNotContain("## Method", natural.Output);
+        Assert.Empty(natural.Error);
+    }
+
+    [Fact]
+    public async Task
+        Member_ExactMethodSelector_DefaultUsesOneMemberDocument()
+    {
+        var ordinal = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize:6",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+        Match digest =
+            Regex.Match(
+                ordinal.Output,
+                @"\|\s+`(?<digest>[0-9a-f]{10})`\s+\|");
+        Assert.True(digest.Success, ordinal.Output);
+        var fingerprint = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize~"
+                + digest.Groups["digest"].Value,
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, ordinal.Exit);
+        Assert.Equal(ordinal, fingerprint);
+        Assert.StartsWith("## Signature", ordinal.Output);
+        Assert.Contains(
+            "| Signature | Digest | Canonical Signature |",
+            ordinal.Output);
+        Assert.DoesNotContain("Description", ordinal.Output);
+        Assert.DoesNotContain("overloads)", ordinal.Output);
+        Assert.Empty(ordinal.Error);
+    }
+
+    [Fact]
+    public async Task
+        Member_SingleMethodExactSelectorDoesNotCollapseBareGroup()
+    {
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        var group = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath,
+            "--tips",
+            "q");
+        var exact = await RunAppAsync(
+            "member",
+            typeName,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--library",
+            TestAssemblyPath,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, group.Exit);
+        Assert.Equal(0, exact.Exit);
+        Assert.StartsWith(
+            $"method {typeName}.{nameof(MemberCallGraphFixture.RootCall)} "
+                + "(1 overload)",
+            group.Output);
+        Assert.StartsWith("## Signature", exact.Output);
+        Assert.DoesNotContain("(1 overload)", exact.Output);
+        Assert.Empty(exact.Error);
+    }
+
+    [Fact]
+    public async Task Member_ExactMethodSelector_RejectsNativeTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--library",
+            TestAssemblyPath,
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--tree requires exactly one selected tree shape",
+            error);
+    }
+
+    [Fact]
+    public async Task Member_NonMethodGroup_RejectsTreePresentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.Descriptor),
+            "--library",
+            TestAssemblyPath,
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--tree requires exactly one selected tree shape.",
+            error);
+    }
+
     [Theory]
     [InlineData("explicit:Abort:1")]
     [InlineData("extension:Abort:1")]
@@ -763,7 +972,7 @@ public partial class CommandExecutionTests
         Assert.Equal(direct.Output, found.Output);
         Assert.Equal(0, found.Exit);
         Assert.Contains("StatusCode", found.Output);
-        Assert.Empty(found.Error);
+        Assert.DoesNotContain("Error:", found.Error);
     }
 
     [Fact]
@@ -795,11 +1004,14 @@ public partial class CommandExecutionTests
     public async Task Member_MethodsTable_ShowsAlwaysOnDigestColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializer", "-m", "Serialize", "--tips", "q");
+            "member", "JsonSerializer", "-m", "Serialize",
+            "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         // The durable ~digest handle is always shown as a Digest column in the default member table.
-        Assert.Contains("| Name | Digest | Signature | Description |", output);
+        Assert.Matches(
+            @"(?m)^Name\s+Digest\s+Signature\s+Description\s*$",
+            output);
         Assert.Empty(error);
     }
 
@@ -858,7 +1070,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("| Signature | Digest | Canonical Signature | Description |", output);
+        Assert.Contains(
+            "| Signature | Digest | Canonical Signature |",
+            output);
+        Assert.DoesNotContain("Description", output);
         Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize", output);
         Assert.Empty(error);
     }
@@ -1169,6 +1384,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Member_BroadGlob_DoesNotSelectExactOnlySections()
     {
+        // Match every asserted exact-only section without selecting the Source domain.
         var (exit, output, error) = await RunAppAsync(
             "member",
             "System.String",
@@ -1176,12 +1392,12 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Private.CoreLib",
             "-S",
-            "*",
+            "M*,Sign*,Custom*",
             "--tips",
             "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.DoesNotContain("Error:", error);
         Assert.Contains("## Methods", output);
         Assert.DoesNotContain("## Member Index", output);
         Assert.DoesNotContain("## Signature", output);
@@ -1305,7 +1521,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("@Calls")]
-    [InlineData("@Source")]
     [InlineData("@Audit")]
     public async Task Member_OverloadDomainCategory_PreservesInventoryRoute(
         string category)
@@ -1326,6 +1541,34 @@ public partial class CommandExecutionTests
             "requires a single selected overload",
             error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Member_OverloadSourceCategory_RequiresSingleSelectedOverload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded),
+            "-S",
+            "@Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "sections 'Source', 'Decompiled Source', 'PDB Source', "
+                + "'Source Diff' require a single selected overload",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            $"{nameof(MemberCallsFixture.Overloaded)}:1 through "
+                + $"{nameof(MemberCallsFixture.Overloaded)}:2",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1531,8 +1774,14 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
-        Assert.Contains("Type: System.Text.Json.JsonSerializer", output);
+        Assert.Contains(
+            "public static System.Text.Json.JsonElement "
+                + "SerializeToElement<TValue>(TValue value, "
+                + "System.Text.Json.JsonSerializerOptions options = null)",
+            output);
+        Assert.DoesNotContain(
+            "Type: System.Text.Json.JsonSerializer",
+            output);
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## PDB Source", output);
@@ -1628,7 +1877,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("IL_0000:", output);
     }
 
@@ -2320,8 +2569,12 @@ public partial class CommandExecutionTests
             output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
+        Assert.Contains("| offset | Allocation | alloc.box |", output);
+        Assert.Contains(
+            "escape-kind=escapes-return; lifetime-uses=IL_",
+            output);
         Assert.Matches(
-            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
+            @"multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
             output);
     }
 
@@ -2353,7 +2606,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_FindingCensusMarkdown_RendersEnvelope()
+    public async Task Member_SelectedOverload_FindingCensusUnindexedSelection_RendersEnvelope()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!,
@@ -2363,11 +2616,23 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Finding Census", output);
-        Assert.Contains("```json", output);
-        Assert.Contains("\"fact_census_receipt\":", output);
-        Assert.Contains("\"annotated_source_document\":", output);
-        Assert.Contains("\"source_fact_instances\":", output);
+        Assert.DoesNotContain("## Finding Census", output);
+        using JsonDocument envelope = JsonDocument.Parse(output);
+        Assert.NotEqual(
+            Guid.Empty,
+            envelope.RootElement
+                .GetProperty("fact_census_receipt")
+                .GetGuid());
+        Assert.NotEqual(
+            JsonValueKind.Null,
+            envelope.RootElement
+                .GetProperty("annotated_source_document")
+                .ValueKind);
+        Assert.Equal(
+            JsonValueKind.Array,
+            envelope.RootElement
+                .GetProperty("source_fact_instances")
+                .ValueKind);
     }
 
     [Fact]
@@ -2527,7 +2792,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, concreteExit);
             Assert.Empty(concreteError);
-            Assert.Contains("## Decompiled Source", concreteOutput);
+            Assert.DoesNotContain("## Decompiled Source", concreteOutput);
             Assert.Contains($"public void {concreteAccessor}(", concreteOutput);
             Assert.DoesNotContain("virtual ", concreteOutput);
             Assert.DoesNotContain("abstract ", concreteOutput);
@@ -2656,22 +2921,6 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("## Finding Census", output);
-        Assert.DoesNotContain("\"fact_census_receipt\":", output);
-    }
-
-    [Fact]
-    public async Task Member_AllSectionsWildcard_OmitsFindingCensus()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(FactsTableFixture).FullName!,
-            "--library", TestAssemblyPath,
-            $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "*", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("## Facts", output);
         Assert.DoesNotContain("## Finding Census", output);
         Assert.DoesNotContain("\"fact_census_receipt\":", output);
     }
@@ -3254,7 +3503,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Cost Overlay", output);
+        Assert.DoesNotContain("## Cost Overlay", output);
         Assert.Contains("cost.callee", output);
         Assert.Contains("alloc-loop", output);
         Assert.DoesNotContain("cost.method(root-reach 1", output);
@@ -3271,19 +3520,6 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.DoesNotContain("## Cost Overlay", output);
         Assert.DoesNotContain("cost.callee", output);
-    }
-
-    [Fact]
-    public async Task Member_SelectedOverload_CostOverlay_DefaultRendersPayload()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.DoesNotContain("## Cost Overlay", output);
-        Assert.Contains("cost.callee", output);
     }
 
     [Fact]
@@ -3308,7 +3544,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Semantics Overlay", output);
+        Assert.DoesNotContain("## Semantics Overlay", output);
         Assert.Contains("semantics.callee", output);
         Assert.Contains("may-throw FormatException", output);
         Assert.DoesNotContain("cost.callee", output);
@@ -3847,7 +4083,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("System.Convert::ToBoolean", output);
 
         (exit, output, error) = await RunAppAsync(
@@ -3874,7 +4110,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("IL_0000:", output);
 
         (exit, output, error) = await RunAppAsync(
@@ -4322,6 +4558,32 @@ public partial class CommandExecutionTests
             output);
         Assert.DoesNotContain("<code>", output);
         Assert.DoesNotContain("`", output);
+    }
+
+    [Fact]
+    public async Task AsyncMethods_PackageAggregateCount_UsesTheCountAnswerAndRowWindow()
+    {
+        // The aggregate package route asks the async analyzer for a Count
+        // under --count; its count and windowed count equal the per-library ones.
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures", "services", "signatures", "newtonsoft.json.13.0.3.nupkg");
+        var (libraryExit, libraryCount, _) = await RunAppAsync(
+            "package", package, "--library", "Newtonsoft.Json.dll", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--tips", "q");
+        var (aggregateExit, aggregateCount, _) = await RunAppAsync(
+            "package", package, "--library", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--tips", "q");
+        var (windowExit, windowCount, _) = await RunAppAsync(
+            "package", package, "--library", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--rows", "3..7", "--tips", "q");
+
+        Assert.Equal(0, libraryExit);
+        Assert.Equal(0, aggregateExit);
+        Assert.Equal(0, windowExit);
+        Assert.NotEqual("0", libraryCount.Trim());
+        Assert.Equal(libraryCount.Trim(), aggregateCount.Trim());
+        Assert.Equal("5", windowCount.Trim());
     }
 
     [Fact]

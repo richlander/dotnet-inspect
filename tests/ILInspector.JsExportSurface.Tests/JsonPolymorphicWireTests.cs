@@ -1,5 +1,7 @@
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.JsonSchema;
+using DotnetInspector.Vocabulary;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.PolymorphicContractsFixtures;
 using ILInspector.JsExportSurface.PolymorphicExportFixtures;
@@ -11,13 +13,13 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class JsonPolymorphicWireTests
 {
-    static readonly Lazy<LibraryBodyIndex> Bodies = new(() =>
-        LibraryBodyIndex.Open(
+    static readonly Lazy<LibraryJsonWireContractAnalysisResult> Bodies = new(() =>
+        WireContractTestAnalysis.Open(
             typeof(PolymorphicExports).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow));
-    static readonly Lazy<LibraryBodyIndex> ContractBodies = new(() =>
-        LibraryBodyIndex.Open(
+    static readonly Lazy<LibraryJsonWireContractAnalysisResult> ContractBodies = new(() =>
+        WireContractTestAnalysis.Open(
             typeof(PackageDocumentationOutcome).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow));
@@ -151,6 +153,146 @@ public sealed class JsonPolymorphicWireTests
                 .GetProperty("summary")
                 .GetString());
         Assert.False(root.TryGetProperty("evidence", out _));
+    }
+
+    [Fact]
+    public void JsonSchema_PublishesDiscriminatorAndInheritedBindings()
+    {
+        var surface = Build(
+            nameof(PolymorphicExports.GetDocumentation));
+        JsExportPolymorphicUnion union = Assert.Single(
+            surface.PolymorphicUnions,
+            candidate => candidate.Definition.FullName
+                == typeof(PackageDocumentationOutcome).FullName);
+        ApiMember subject = Assert.Single(
+            union.Definition.Members,
+            member => member.Name == "Subject");
+        VocabularyCatalogIdentity catalog = new("test");
+        VocabularyIdentity vocabulary = new(catalog, "result");
+        VocabularyTermIdentity term = new(vocabulary, "subject");
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            catalog,
+            [
+                new(
+                    vocabulary,
+                    "Result",
+                    null,
+                    maps: null,
+                    [new(term, "Subject", null)]),
+            ]);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("package-documentation-outcome"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(
+                        union.Definition),
+                    [
+                        new(
+                            new JsonSchemaBindingTarget.ObjectMember(
+                                union.Definition,
+                                subject),
+                            term),
+                    ]),
+                snapshot,
+                snapshot.Identity);
+
+        JsonElement definitions =
+            descriptor.Schema.GetProperty("$defs");
+        JsonElement alternatives = definitions
+            .GetProperty("PackageDocumentationOutcome")
+            .GetProperty("anyOf");
+        Assert.Equal(
+            "#/$defs/PackageDocumentationOutcome_Available",
+            alternatives[0].GetProperty("$ref").GetString());
+        Assert.Equal(
+            "#/$defs/PackageDocumentationOutcome_Absent",
+            alternatives[1].GetProperty("$ref").GetString());
+        AssertCase(
+            "PackageDocumentationOutcome_Available",
+            "available");
+        AssertCase(
+            "PackageDocumentationOutcome_Absent",
+            "absent");
+        Assert.Equal(
+            [
+                "/$defs/PackageDocumentationOutcome_Available"
+                    + "/properties/subject",
+                "/$defs/PackageDocumentationOutcome_Absent"
+                    + "/properties/subject",
+            ],
+            descriptor.Bindings.Select(
+                binding => binding.SchemaLocation));
+
+        void AssertCase(
+            string definitionName,
+            string discriminator)
+        {
+            JsonElement definition =
+                definitions.GetProperty(definitionName);
+            JsonElement properties =
+                definition.GetProperty("properties");
+            Assert.Equal(
+                discriminator,
+                properties.GetProperty("kind")
+                    .GetProperty("const").GetString());
+            Assert.True(properties.TryGetProperty("subject", out _));
+            Assert.True(properties.TryGetProperty("detail", out _));
+            Assert.Contains(
+                "kind",
+                definition.GetProperty("required")
+                    .EnumerateArray()
+                    .Select(value => value.GetString()));
+        }
+    }
+
+    [Fact]
+    public void JsonSchema_RejectsUnsupportedInheritedMemberWireAttributes()
+    {
+        var surface = Build(
+            nameof(PolymorphicExports.GetNumberStringOutcome));
+        JsExportPolymorphicUnion union = Assert.Single(
+            surface.PolymorphicUnions,
+            candidate => candidate.Definition.FullName
+                == typeof(NumberStringOutcome).FullName);
+        ApiMember count = Assert.Single(
+            union.Definition.Members,
+            member => member.Name == "Count");
+        Assert.True(count.HasUnsupportedJsonWireAttributes);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyException exception =
+            Assert.Throws<JsonSchemaVocabularyException>(() =>
+                JsonSchemaVocabularyDescriptorBuilder.Build(
+                    surface,
+                    JsonWireDeclarationPlan.Create(surface),
+                    new(
+                        new("number-string-outcome"),
+                        JsonWireDirection.Serialize,
+                        new JsonSchemaContractRoot.Object(
+                            union.Definition)),
+                    snapshot,
+                    snapshot.Identity));
+
+        Assert.Contains(
+            "Count",
+            exception.Location,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "wire-shaping attributes are unsupported",
+            exception.Reason);
+        using JsonDocument payload = JsonDocument.Parse(
+            PolymorphicExports.GetNumberStringOutcome());
+        Assert.Equal(
+            JsonValueKind.String,
+            payload.RootElement.GetProperty("count").ValueKind);
     }
 
     [Fact]

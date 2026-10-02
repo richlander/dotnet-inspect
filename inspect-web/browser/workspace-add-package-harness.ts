@@ -12,6 +12,8 @@ import {
   createSpotlight, type SpotlightPackageResult, type SpotlightResult,
   type SpotlightState,
 } from "../src/spotlight.ts";
+import { replaceChildrenPreservingRenderedInteractions } from
+  "../src/rendered-interaction.ts";
 import {
   bindWorkspaceSubject, captureWorkspaceFocus, renderWorkspaceView, restoreWorkspaceFocus,
 } from "../src/workspace-subject.ts";
@@ -87,6 +89,8 @@ const spotlight = createSpotlight({
     spotlightPackageSearchIsLoading(discoveryState.spotlightPackageSearch),
   packageSearchError: () =>
     spotlightPackageSearchError(discoveryState.spotlightPackageSearch),
+  scheduleCapabilitySearch: () => {},
+  resetCapabilitySearch: () => {},
   packageCount: () => state.packages.length,
   render,
 });
@@ -131,7 +135,10 @@ function render() {
       },
     }),
   });
-  overlay.innerHTML = search.spotlightOpen ? spotlight.modalHtml() : "";
+  replaceChildrenPreservingRenderedInteractions(
+    overlay,
+    search.spotlightOpen ? spotlight.modalHtml() : "",
+  );
   if (search.spotlightOpen) spotlight.bind(overlay, "modal");
   else if (previous) restoreWorkspaceFocus(app, previous);
 }

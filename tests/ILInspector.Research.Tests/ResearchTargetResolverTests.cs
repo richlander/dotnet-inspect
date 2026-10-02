@@ -352,13 +352,15 @@ public class ResearchTargetResolverTests
             beforeOnly.Scope,
             beforeOnly.DomainId,
             beforeOnly.Before.CorrespondenceKey.Role,
-            new ResearchTargetBodyIdentity(
+            MethodBodyIdentityFactory.Create(
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity!.DeclaringType,
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.Name + "-stale",
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.GenericArity,
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.ParameterTypes,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.ReturnType,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.SignatureHeader,
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity
-                    .ConversionReturnType,
+                    .RequiredParameterCount,
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.IsExtension),
             anchor: null);
         RejectsProjection(
@@ -1053,7 +1055,7 @@ public class ResearchTargetResolverTests
             paired.Before.CorrespondenceKey.BodyIdentity,
             paired.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            ResearchTargetTypeIdentityKind.GenericInstance,
+            MethodBodyTypeIdentityKind.GenericInstance,
             Assert.Single(
                 paired.Before.CorrespondenceKey.BodyIdentity!.ParameterTypes)
                 .Kind);
@@ -1079,11 +1081,11 @@ public class ResearchTargetResolverTests
             namedType.Before.CorrespondenceKey.BodyIdentity,
             namedType.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            ResearchTargetTypeIdentityKind.MethodGenericParameter,
+            MethodBodyTypeIdentityKind.MethodGenericParameter,
             namedType.Before.CorrespondenceKey.BodyIdentity!
                 .ParameterTypes[0].Kind);
         Assert.Equal(
-            ResearchTargetTypeIdentityKind.Definition,
+            MethodBodyTypeIdentityKind.Definition,
             namedType.Before.CorrespondenceKey.BodyIdentity
                 .ParameterTypes[1].Kind);
         Assert.Equal(
@@ -1102,7 +1104,7 @@ public class ResearchTargetResolverTests
             primitiveName.Before.CorrespondenceKey.BodyIdentity,
             primitiveName.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            ResearchTargetTypeIdentityKind.MethodGenericParameter,
+            MethodBodyTypeIdentityKind.MethodGenericParameter,
             Assert.Single(
                 primitiveName.Before.CorrespondenceKey.BodyIdentity!
                     .ParameterTypes).Kind);
@@ -1866,6 +1868,7 @@ public class ResearchTargetResolverTests
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
             typeof(LibraryBodyIndex),
+            typeof(LibraryCallGraphAnalysisResult),
             typeof(MethodIdentity),
             typeof(TypeRef),
             typeof(ResolvableTypeReference),
@@ -1897,8 +1900,9 @@ public class ResearchTargetResolverTests
                 typeof(ResearchTargetOutcome.Failed),
                 typeof(ResearchTargetDiagnostic),
                 typeof(ResearchTargetCorrespondenceKey),
-                typeof(ResearchTargetBodyIdentity),
-                typeof(ResearchTargetTypeIdentity),
+                typeof(MethodBodyIdentity),
+                typeof(MethodBodyTypeIdentity),
+                typeof(MethodBodyTypeIdentityKind),
             ])
         {
             Assert.Contains(reached, closure);
@@ -1908,15 +1912,23 @@ public class ResearchTargetResolverTests
 
         Assert.Equal(
             [
-                nameof(ResearchTargetTypeIdentity.AssemblyName),
-                nameof(ResearchTargetTypeIdentity.DefinitionName),
-                nameof(ResearchTargetTypeIdentity.ElementType),
-                nameof(ResearchTargetTypeIdentity.GenericParameterIndex),
-                nameof(ResearchTargetTypeIdentity.Kind),
-                nameof(ResearchTargetTypeIdentity.Rank),
-                nameof(ResearchTargetTypeIdentity.TypeArguments),
+                nameof(MethodBodyTypeIdentity.AssemblyName),
+                nameof(MethodBodyTypeIdentity.DefinitionName),
+                nameof(MethodBodyTypeIdentity.ElementType),
+                nameof(MethodBodyTypeIdentity.FunctionPointerGenericArity),
+                nameof(MethodBodyTypeIdentity.FunctionPointerHeader),
+                nameof(MethodBodyTypeIdentity.FunctionPointerParameterTypes),
+                nameof(MethodBodyTypeIdentity
+                    .FunctionPointerRequiredParameterCount),
+                nameof(MethodBodyTypeIdentity.FunctionPointerReturnType),
+                nameof(MethodBodyTypeIdentity.GenericParameterIndex),
+                nameof(MethodBodyTypeIdentity.IsRequiredModifier),
+                nameof(MethodBodyTypeIdentity.Kind),
+                nameof(MethodBodyTypeIdentity.ModifierType),
+                nameof(MethodBodyTypeIdentity.Rank),
+                nameof(MethodBodyTypeIdentity.TypeArguments),
             ],
-            typeof(ResearchTargetTypeIdentity)
+            typeof(MethodBodyTypeIdentity)
                 .GetProperties(BindingFlags.Instance | BindingFlags.Public)
                 .Select(property => property.Name)
                 .Order(StringComparer.Ordinal));
@@ -2545,7 +2557,7 @@ public class ResearchTargetResolverTests
         var occurrence = new ImplementationComparisonInputOccurrence(
             descriptor,
             new NullResolver(),
-            replacementIndex);
+            replacementIndex.CallGraphAnalysis);
         TargetFixture fixture = TargetFixture.Create(
             [(occurrence, null, null)]);
 
@@ -2572,11 +2584,6 @@ public class ResearchTargetResolverTests
         Dictionary<ResearchTargetPlanningRejectionKind,
             ResearchTargetPlanningRequest> shapes = new()
         {
-            [ResearchTargetPlanningRejectionKind.UnsupportedProfile] =
-                new ResearchTargetPlanningRequest(
-                    BodySignalPopulation(),
-                    [],
-                    [fixture.Carried(0, SampleType, "Method")]),
             [ResearchTargetPlanningRejectionKind.MissingSelections] =
                 new ResearchTargetPlanningRequest(
                     fixture.Population,
@@ -2803,6 +2810,8 @@ public class ResearchTargetResolverTests
 
         public LibraryBodyIndex BodyIndex => null!;
 
+        public LibraryCallGraphAnalysisResult CallGraph => null!;
+
         public ImmutableArray<ResearchAdmittedInput> Inputs => [];
 
         public IReadOnlyList<ResolvedAssemblyReference> Assemblies => null!;
@@ -2829,7 +2838,7 @@ public class ResearchTargetResolverTests
             {
                 foreach (Type exposed in SignatureTypes(member))
                 {
-                    if (IsResearchOwned(exposed))
+                    if (IsRetainedEvidenceType(exposed))
                         pending.Enqueue(exposed);
                 }
             }
@@ -2890,24 +2899,11 @@ public class ResearchTargetResolverTests
         }
     }
 
-    static bool IsResearchOwned(Type type)
-        => type.Assembly == typeof(ResearchTargetResolution).Assembly;
-
-    static ResearchAdmittedPopulation BodySignalPopulation()
-        => Assert.IsType<ResearchAdmissionOutcome.Admitted>(
-            ResearchComparisonAdmission.Admit(
-                new ResearchComparisonAdmissionRequest(
-                    ResearchComparisonProfile.BodySignal,
-                    [
-                        new ResearchComparisonAdmissionQuestion(
-                            [
-                                new BodySignalComparisonInputOccurrence(
-                                    LibraryBodyIndex.Open(
-                                        FixtureCatalog.ResearchTargetSample
-                                            .AssemblyPath())),
-                            ],
-                            []),
-                    ]))).Population;
+    static bool IsRetainedEvidenceType(Type type)
+        => type.Assembly == typeof(ResearchTargetResolution).Assembly
+            || type == typeof(MethodBodyIdentity)
+            || type == typeof(MethodBodyTypeIdentity)
+            || type == typeof(MethodBodyTypeIdentityKind);
 
     // ------------------------------------------------------ occurrence builders
 
@@ -2938,7 +2934,7 @@ public class ResearchTargetResolverTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            index);
+            index.CallGraphAnalysis);
     }
 
     static ImplementationComparisonInputOccurrence Occurrence(byte[] image)
@@ -2956,9 +2952,10 @@ public class ResearchTargetResolverTests
                     rid: null)),
             new NullResolver(),
             LibraryBodyIndex.FromEvidence(
-                [],
-                [],
-                moduleIdentity: new(identity, mvid)));
+                    [],
+                    [],
+                    moduleIdentity: new(identity, mvid))
+                .CallGraphAnalysis);
     }
 
     static AssemblyReferenceIdentity ReadAssemblyIdentity(byte[] image)
@@ -3268,13 +3265,11 @@ public class ResearchTargetResolverTests
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(2));
         AddAbstractMethod(metadata, "M", ValidMethodSignature(metadata));
-        var malformedSignature = new BlobBuilder();
-        malformedSignature.WriteByte(0xff);
         AddAbstractMethod(
             metadata,
             "Broken",
-            metadata.GetOrAddBlob(malformedSignature));
-        return Serialize(metadata);
+            ValidMethodSignature(metadata));
+        return SerializeWithMalformedLastMethodName(metadata);
     }
 
     static byte[] BuildMalformedForwarderImage(
@@ -3424,7 +3419,12 @@ public class ResearchTargetResolverTests
         if (includeBrokenMethod)
         {
             var brokenSignature = new BlobBuilder();
-            brokenSignature.WriteByte(0xff);
+            new BlobEncoder(brokenSignature)
+                .MethodSignature(isInstanceMethod: false)
+                .Parameters(
+                    0,
+                    returnType => returnType.Void(),
+                    _ => { });
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
@@ -3434,7 +3434,9 @@ public class ResearchTargetResolverTests
                 parameterList: MetadataTokens.ParameterHandle(2));
         }
 
-        return Serialize(metadata);
+        return includeBrokenMethod
+            ? SerializeWithMalformedLastMethodName(metadata)
+            : Serialize(metadata);
     }
 
     static MetadataBuilder CreatePartialSurfaceMetadata()
@@ -3502,6 +3504,33 @@ public class ResearchTargetResolverTests
         return image.ToArray();
     }
 
+    static byte[] SerializeWithMalformedLastMethodName(
+        MetadataBuilder metadata)
+    {
+        byte[] image = Serialize(metadata);
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        if (reader.GetHeapSize(HeapIndex.String) > ushort.MaxValue)
+        {
+            throw new InvalidOperationException(
+                "The fixture requires a two-byte string heap index.");
+        }
+
+        int methodNameOffset =
+            pe.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.MethodDef)
+            + ((reader.GetTableRowCount(TableIndex.MethodDef) - 1)
+                * reader.GetTableRowSize(TableIndex.MethodDef))
+            + sizeof(uint)
+            + sizeof(ushort)
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(methodNameOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return image;
+    }
+
     static ApiSurface ExtractSurface(byte[] image)
     {
         using var pe = new PEReader(
@@ -3536,7 +3565,7 @@ public class ResearchTargetResolverTests
         return new ImplementationComparisonInputOccurrence(
             Descriptor(path, LibraryBodyIndex.Open(path).ModuleIdentity.AssemblyIdentity!),
             new NullResolver(),
-            spoofed);
+            spoofed.CallGraphAnalysis);
     }
 
     /// <summary>
@@ -3555,11 +3584,11 @@ public class ResearchTargetResolverTests
                     null,
                     null)),
             new NullResolver(),
-            index);
+            index.CallGraphAnalysis);
     }
 
     /// <summary>
-    /// A real image whose Analysis body index carries no assembly identity.
+    /// A real image whose Analysis call-graph result carries no assembly identity.
     /// </summary>
     static ImplementationComparisonInputOccurrence SampleWithStandaloneModule()
     {
@@ -3574,7 +3603,7 @@ public class ResearchTargetResolverTests
         return new ImplementationComparisonInputOccurrence(
             Descriptor(path, index.ModuleIdentity.AssemblyIdentity!),
             new NullResolver(),
-            standalone);
+            standalone.CallGraphAnalysis);
     }
 
     /// <summary>
@@ -3595,7 +3624,7 @@ public class ResearchTargetResolverTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            index);
+            index.CallGraphAnalysis);
     }
 
     static ImplementationComparisonInputOccurrence Malformed()
@@ -3612,7 +3641,7 @@ public class ResearchTargetResolverTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            index);
+            index.CallGraphAnalysis);
     }
 
     static ResolvedAssemblyReference Descriptor(
@@ -3741,9 +3770,10 @@ public class ResearchTargetResolverTests
                         rid: null)),
                 new NullResolver(),
                 LibraryBodyIndex.FromEvidence(
-                    [],
-                    [],
-                    moduleIdentity: new(identity, Guid.NewGuid())));
+                        [],
+                        [],
+                        moduleIdentity: new(identity, Guid.NewGuid()))
+                    .CallGraphAnalysis);
 
         public ResearchCarriedMemberSelection Carried(
             int questionIndex,
@@ -3820,7 +3850,7 @@ public class ResearchTargetResolverTests
         public LibraryBodyModuleIdentity ModuleIdentity(int inputIndex)
             => ((ImplementationComparisonInputOccurrence)
                 Population.Inputs[inputIndex].Occurrence)
-                .BodyIndex.ModuleIdentity;
+                .MethodPopulation.ModuleIdentity;
 
         public ApiSurface Surface(FixtureDefinition fixture)
         {

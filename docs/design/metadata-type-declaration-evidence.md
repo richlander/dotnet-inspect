@@ -119,6 +119,13 @@ the final detached receipt after all reads, validation, charging, and
 retention succeed. It does not mean constructing a session, resolving another
 assembly, or rendering a source type.
 
+Within one live declaration session, the exact TypeDef address is the cache
+key. Repeating that request returns the same detached `Posted` or `Rejected`
+result without repeating charged work. The session checks cancellation and
+liveness before consulting the cache, retains at most one result per addressed
+TypeDef, clears the cache on disposal, and does not reuse results across
+independently opened declaration sessions.
+
 ## Declaration post
 
 The posted evidence carries:
@@ -290,6 +297,9 @@ The Release gate must include:
 - a TypeDef whose extends shape cannot be classified locally;
 - operation-budget exhaustion before structured identity publication;
 - cancellation at final publication; and
+- repeated exact requests within one declaration session, including posted and
+  rejected results, with no repeated charge and no cancellation suppression;
+  and
 - use of every posted value after the declaration and assembly sessions are
   disposed.
 
@@ -308,6 +318,7 @@ duplicate, cyclic, spoofed-core-name, and unsupported extends boundaries.
 | `TDE005` | NestedClass multiplicity, cycles, bounds, visibility, structured segments, and generic ownership are validated atomically. |
 | `TDE006` | Every metadata-controlled traversal, structured node, and retained character is bounded before publication; cancellation remains observable. |
 | `TDE007` | The public request, post, rejection, and counters contain no live authority and remain usable after session retirement. |
+| `TDE008` | One declaration session reuses the detached result of an identical TypeDef request without repeating charged work; both posted and rejected results are reusable, while cancellation is checked before cache lookup. |
 
 The public input and result-shape test rejects `MetadataReader`, `PEReader`,
 stream, session, operation-context, lease, callback, mutable collection, and
@@ -338,7 +349,7 @@ or ReturnToSender behavior.
 
 The implementation slice is complete only when
 `MetadataDeclarationSession.PostTypeDeclaration` and its detached result land,
-`TDE001` through `TDE007` pass in Release, and CSharp adoption remains deferred
+`TDE001` through `TDE008` pass in Release, and CSharp adoption remains deferred
 to [#4852][issue-4852].
 
 [csharp-representability]: csharp-declaration-representability.md

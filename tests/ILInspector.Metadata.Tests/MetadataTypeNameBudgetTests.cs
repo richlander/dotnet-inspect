@@ -300,6 +300,15 @@ public class MetadataTypeNameBudgetTests
         Assert.Equal(
             RelationshipTraversalRejectionKind.NameBudget,
             rejected.Failure.RelationshipKind);
+        Assert.Equal(
+            MetadataTypeNameBudgetKind.EncodedBytes,
+            rejected.Failure.Budget?.Kind);
+        Assert.Equal(
+            MetadataTypeNameBudget.MaxEncodedBytes,
+            rejected.Failure.Budget?.Limit);
+        Assert.Equal(
+            oversize.Length + 1,
+            rejected.Failure.Budget?.AttemptedCharge);
         Assert.NotEqual("MalformedMetadata", rejected.Failure.Kind);
     }
 

@@ -134,7 +134,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Contains("DirectionalSharedInputDto", recordNames);
         Assert.Contains("DirectionalInactiveInputDto", recordNames);
         Assert.Contains("DirectionalAccessorInputDto", recordNames);
-        Assert.Contains("DirectionalRoundTripDto", recordNames);
+        Assert.Contains("DirectionalServerNoteDto", recordNames);
         Assert.Contains("DirectionalNote", recordNames);
         Assert.Contains("DirectionalConditionalNote", recordNames);
         Assert.Contains(nameof(ClosedGenericRootDto), recordNames);
@@ -238,14 +238,14 @@ public sealed partial class JsExportSurfaceBuilderTests
                 == nameof(NestedJsonSerializableRootCollisionSerializer.Serialize));
         Assert.True(serializer.HasRuntimeJsExport);
         SelectOnlyRuntimeJsExport(apiSurface, serializer);
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
+                () => JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis));
 
         Assert.Contains(
             "serializer root property identity is ambiguous",
@@ -376,13 +376,13 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.NotNull(JsExportSurfaceBuilder.Build(apiSurface));
 
         string path = typeof(FixtureExports).Assembly.Location;
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
+                () => JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis));
 
         Assert.Contains(
             "serializer root type shape is unsupported",
@@ -412,13 +412,13 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.NotNull(JsExportSurfaceBuilder.Build(apiSurface));
 
         string path = typeof(FixtureExports).Assembly.Location;
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
+                () => JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis));
 
         Assert.Contains(
             "serializer root type shape is unsupported",
@@ -454,7 +454,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    OpenWireContractBodyIndex(path)));
+                    OpenWireContractBodyAnalysis(path)));
 
         Assert.Contains(
             "serializer context options are unsupported",
@@ -497,7 +497,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    OpenWireContractBodyIndex(path)));
+                    OpenWireContractBodyAnalysis(path)));
         Assert.Contains(
             "serializer context options are unsupported",
             exception.Message,
@@ -576,7 +576,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface =
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                OpenWireContractBodyIndex(path));
+                OpenWireContractBodyAnalysis(path));
         var diagnostics = new TypeScriptGenerationDiagnostics();
         string dts = DtsEmitter.Emit(
             surface,
@@ -646,10 +646,10 @@ public sealed partial class JsExportSurfaceBuilderTests
             export.HasMalformedRuntimeJsExportAttribute = false;
         }
 
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         DirectCall typeInfoGetter = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.Caller.Name
                     == nameof(
                         ScalarContextOptionsFixtureExports
@@ -660,7 +660,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         int receiverOffset = Assert.Single(
             typeInfoGetter.ReceiverSource.SourceCallOffsets);
         DirectCall defaultGetter = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod
                     == typeInfoGetter.EvidenceMethod
                 && call.ILOffset == receiverOffset);
@@ -679,7 +679,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface =
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                bodyIndex);
+                bodyAnalysis);
 
         Assert.Equal(
             "int[]",
@@ -739,15 +739,15 @@ public sealed partial class JsExportSurfaceBuilderTests
                     ]))
                 .Name;
         Assert.NotEqual(authenticName, collision);
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
 
         Assert.Equal(
             "int[]",
             Assert.Single(
                 JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    bodyIndex).Functions)
+                    bodyAnalysis).Functions)
                 .ReturnWireType);
         defaultSignature.ReturnTypeReferences =
         [
@@ -764,7 +764,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no authentic default-instance getter",
             exception.Message,
@@ -807,15 +807,15 @@ public sealed partial class JsExportSurfaceBuilderTests
                 defaultProperty.SignatureModel);
         ApiTypeReferenceIdentity authenticReturn =
             Assert.Single(defaultSignature.ReturnTypeReferences);
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
 
         Assert.Equal(
             "int[]",
             Assert.Single(
                 JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    bodyIndex).Functions)
+                    bodyAnalysis).Functions)
                 .ReturnWireType);
         context.DefinitionName = null;
         defaultSignature.ReturnTypeReferences =
@@ -830,7 +830,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no authentic default-instance getter",
             exception.Message,
@@ -877,7 +877,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    OpenWireContractBodyIndex(path)));
+                    OpenWireContractBodyAnalysis(path)));
 
         Assert.Contains(
             "receiver is not the authenticated default context",
@@ -943,7 +943,7 @@ public sealed partial class JsExportSurfaceBuilderTests
                 Assert.Throws<UnsupportedJsExportSurfaceException>(
                     () => JsExportSurfaceBuilder.Build(
                         apiSurface,
-                        OpenWireContractBodyIndex(
+                        OpenWireContractBodyAnalysis(
                             patchedPath)));
             Assert.Contains(
                 "not the parameterless generated getter",
@@ -1004,7 +1004,7 @@ public sealed partial class JsExportSurfaceBuilderTests
                 Assert.Throws<UnsupportedJsExportSurfaceException>(
                     () => JsExportSurfaceBuilder.Build(
                         apiSurface,
-                        OpenWireContractBodyIndex(
+                        OpenWireContractBodyAnalysis(
                             patchedPath)));
             Assert.Contains(
                 "property identity is duplicated",
@@ -1118,7 +1118,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    OpenWireContractBodyIndex(path)));
+                    OpenWireContractBodyAnalysis(path)));
 
         Assert.Contains(
             "multidimensional serializer roots are not supported",
@@ -1165,7 +1165,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface =
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                OpenWireContractBodyIndex(path));
+                OpenWireContractBodyAnalysis(path));
 
         Assert.Null(Assert.Single(surface.Functions).ReturnWireType);
     }
@@ -1212,9 +1212,9 @@ public sealed partial class JsExportSurfaceBuilderTests
     public void Build_RejectsAliasedSecondWriteToGeneratedDefaultInstanceField()
     {
         string path = typeof(FixtureExports).Assembly.Location;
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
         FieldStoreFact instanceStore = Assert.Single(
-            bodyIndex.FieldStores,
+            bodyAnalysis.FieldStores,
             store => store.IsStatic
                 && store.FieldName == "<Default>k__BackingField"
                 && store.DeclaringType?.Name == "FixtureJsonContext");
@@ -1226,7 +1226,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             "Ping",
             BuildWith(
                 path,
-                bodyIndex,
+                bodyAnalysis,
                 instanceStore with
                 {
                     FieldToken = instanceStore.FieldToken + 0x100,
@@ -1240,7 +1240,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => BuildWith(
                     path,
-                    bodyIndex,
+                    bodyAnalysis,
                     instanceStore with
                     {
                         ILOffset = instanceStore.ILOffset + 0x1000,
@@ -1263,9 +1263,9 @@ public sealed partial class JsExportSurfaceBuilderTests
     public void Build_RejectsUnprovenSecondStaticWriteNamingTheSameField()
     {
         string path = typeof(FixtureExports).Assembly.Location;
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
         FieldStoreFact instanceStore = Assert.Single(
-            bodyIndex.FieldStores,
+            bodyAnalysis.FieldStores,
             store => store.IsStatic
                 && store.FieldName == "<Default>k__BackingField"
                 && store.DeclaringType?.Name == "FixtureJsonContext");
@@ -1283,7 +1283,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => BuildWith(
                     path,
-                    bodyIndex,
+                    bodyAnalysis,
                     instanceStore with
                     {
                         ILOffset = instanceStore.ILOffset + 0x1000,
@@ -1305,9 +1305,9 @@ public sealed partial class JsExportSurfaceBuilderTests
     public void Build_RejectsUnidentifiedSecondStaticWrite()
     {
         string path = typeof(FixtureExports).Assembly.Location;
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
         FieldStoreFact instanceStore = Assert.Single(
-            bodyIndex.FieldStores,
+            bodyAnalysis.FieldStores,
             store => store.IsStatic
                 && store.FieldName == "<Default>k__BackingField"
                 && store.DeclaringType?.Name == "FixtureJsonContext");
@@ -1316,7 +1316,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => BuildWith(
                     path,
-                    bodyIndex,
+                    bodyAnalysis,
                     instanceStore with
                     {
                         ILOffset = instanceStore.ILOffset + 0x1000,
@@ -1335,9 +1335,9 @@ public sealed partial class JsExportSurfaceBuilderTests
     public void Build_RejectsContextBaseConstructorCallThatCanBeSkipped()
     {
         string path = typeof(FixtureExports).Assembly.Location;
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
         DirectCall baseCall = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.DeclaringType.Name
                     == "FixtureJsonContext"
                 && call.EvidenceMethod.Name == ".ctor"
@@ -1348,7 +1348,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.True(baseCall.DominatesEveryNormalReturn);
         ImmutableArray<DirectCall> calls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call == baseCall
                     ? call with
                     {
@@ -1361,15 +1361,15 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     ExtractApiSurface(path),
-                    LibraryBodyIndex.FromEvidence(
-                        bodyIndex.Methods,
+                    WireContractTestAnalysis.FromEvidence(
+                        bodyAnalysis.Methods,
                         [],
-                        diagnostics: bodyIndex.Diagnostics,
+                        diagnostics: bodyAnalysis.Diagnostics,
                         directCalls: calls,
-                        resultSinks: bodyIndex.ResultSinks,
-                        fieldStores: bodyIndex.FieldStores,
-                        fieldLoads: bodyIndex.FieldLoads,
-                        returnFlows: bodyIndex.ReturnFlows)));
+                        resultSinks: bodyAnalysis.ResultSinks,
+                        fieldStores: bodyAnalysis.FieldStores,
+                        fieldLoads: bodyAnalysis.FieldLoads,
+                        returnFlows: bodyAnalysis.ReturnFlows)));
 
         Assert.Contains(
             "no authentic source-generated implementation",

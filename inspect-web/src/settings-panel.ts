@@ -1,41 +1,17 @@
 import { trapModalTab } from "./shell-controls.ts";
+import type { ResolvedStyleCatalog } from "./style-vocabulary.ts";
 
 // The Settings dialog is a dependency-injected render function with its rendered
 // control bindings. `dotnet-inspect.ts` owns `state`, localStorage persistence,
 // and the theme/taste effects, and passes each computed slice and action in.
 
-export interface StyleTier {
-  id: string;
-  title: string;
-  summary: string;
-  byte_divergent?: boolean;
-}
-
-export interface StyleOption {
-  id: string;
-  tier: string;
-  title: string;
-  summary: string;
-  oracle_endorsed?: boolean;
-  conflict_group?: string;
-}
-
 export interface StyleCatalogState {
-  styleTiers: readonly StyleTier[] | null;
-  styleOptions: readonly StyleOption[] | null;
+  styleCatalog: ResolvedStyleCatalog | null;
   styleCatalogError: string;
   taste: readonly string[];
 }
 
 type EscapeHtml = (value: unknown) => string;
-
-export function reconcileStyleTaste(
-  taste: readonly string[],
-  options: readonly StyleOption[],
-): string[] {
-  const currentIds = new Set(options.map(option => option.id));
-  return taste.filter(id => currentIds.has(id));
-}
 
 export interface SettingsPanelBindingActions {
   onClose: () => void;
@@ -87,28 +63,27 @@ export function bindSettingsPanel(
 // The decompiler style ("taste") catalog, grouped by tier, as Settings checkbox
 // rows kept in lockstep with the engine's StyleOptionCatalog.
 export function styleCatalogGroupsHtml(catalog: StyleCatalogState, escapeHtml: EscapeHtml): string {
-  const tiers = catalog.styleTiers || [];
-  const options = catalog.styleOptions || [];
-  if (!tiers.length || !options.length) {
+  const styleCatalog = catalog.styleCatalog;
+  if (!styleCatalog?.tiers.length || !styleCatalog.choices.length) {
     return catalog.styleCatalogError
       ? `<div class="taste-empty">Style catalog unavailable: ${escapeHtml(catalog.styleCatalogError)}</div>`
       : "";
   }
-  return tiers
-    .filter(tier => options.some(option => option.tier === tier.id))
+  return styleCatalog.tiers
+    .filter(tier => tier.choices.length > 0)
     .map(tier => `
       <div class="taste-group">
         <div class="taste-group-head">
-          <div class="taste-group-title">${escapeHtml(tier.title)}</div>
-          ${tier.byte_divergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}
+          <div class="taste-group-title">${escapeHtml(tier.term.displayLabel)}</div>
+          ${tier.byteDivergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}
         </div>
-        <div class="taste-group-summary">${escapeHtml(tier.summary)}</div>
-        ${options.filter(option => option.tier === tier.id).map(option => `
+        <div class="taste-group-summary">${escapeHtml(tier.term.summary ?? "")}</div>
+        ${tier.choices.map(option => `
           <label class="taste-item">
-            <input type="checkbox" data-taste="${escapeHtml(option.id)}" ${catalog.taste.includes(option.id) ? "checked" : ""} />
+            <input type="checkbox" data-taste="${escapeHtml(option.term.identity.value)}" ${catalog.taste.includes(option.term.identity.value) ? "checked" : ""} />
             <span class="taste-item-text">
-              <span class="taste-item-title">${escapeHtml(option.title)}${option.oracle_endorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
-              <span class="taste-item-summary">${escapeHtml(option.summary)}</span>
+              <span class="taste-item-title">${escapeHtml(option.term.displayLabel)}${option.oracleEndorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
+              <span class="taste-item-summary">${escapeHtml(option.term.summary ?? "")}</span>
             </span>
           </label>`).join("")}
       </div>`).join("");

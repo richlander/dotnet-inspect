@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Models;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -15,6 +16,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     internal SearchSourceSelection? SourceSelection { get; init; }
 
     internal bool PackagePrefixLimitReached { get; init; }
+
+    internal FindTypeMatchIntent TypeMatchIntent { get; init; }
 
     internal EcosystemPackId[]? Ecosystems { get; init; }
 
@@ -71,8 +74,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public bool Members { get; init; }
 
     /// <summary>
-    /// Internal operational limit used by trusted lookup consumers. The
-    /// <c>find</c> CLI does not lower semantic row selection into this value.
+    /// Operational result limit used by trusted lookup consumers and by a
+    /// single-pattern CLI semantic Head plan.
     /// </summary>
     public int? Limit { get; init; }
 
@@ -210,8 +213,12 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         PlatformFrameworks.Length > 0 ||
         Projects.Length > 0 ||
         BinPaths.Length > 0 ||
+        Ecosystems is not null ||
         PackagePrefixSpecified ||
         PackagePrefix is not null;
+
+    internal bool UsesImplicitPlatform =>
+        SourceSelection?.UsesImplicitPlatform ?? !HasAnyScope;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).

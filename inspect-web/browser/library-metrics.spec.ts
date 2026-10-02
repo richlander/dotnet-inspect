@@ -24,6 +24,73 @@ test("complexity cells disclose evidence and activate exact type keys", async ({
   await expect(activation).toHaveText("Example.B");
 });
 
+test("structural salience preserves issued orders and exact interactions", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await page.goto("/browser/library-metrics.html");
+  const salience = page.locator(".metrics-salience-section");
+  await expect(salience).toContainText("Structural Salience");
+  await expect(salience).toContainText("Example · 7 external source Types");
+  await expect(salience.locator(".metrics-salience-order").first())
+    .toContainText("Incoming peers");
+  await expect(salience.locator(".metrics-salience-order").first())
+    .toContainText("A");
+  await expect(salience.locator(".metrics-salience-order").first())
+    .toContainText("7 incoming peers · foundation");
+  await expect(salience.locator(".metrics-salience-order").nth(1))
+    .toContainText("Outgoing peers");
+  await expect(salience.locator(".metrics-salience-order").nth(1))
+    .toContainText("6 outgoing peers · orchestrator");
+  await expect(salience.locator(".metrics-salience-type.sea-level").first())
+    .toContainText("sea level");
+  await expect(
+    salience.locator(".metrics-salience-type.mountain-peak").first(),
+  ).toContainText("mountain peak");
+  await expect(salience.locator(".sea-level.mountain-peak")).toHaveCount(0);
+  const seaMask = await salience.locator(
+    ".sea-level .item-achievement-glyph",
+  ).first().evaluate(
+    element => getComputedStyle(element).maskImage,
+  );
+  const mountainMask = await salience.locator(
+    ".mountain-peak .item-achievement-glyph",
+  ).first().evaluate(
+    element => getComputedStyle(element).maskImage,
+  );
+  expect(seaMask).not.toBe("none");
+  expect(mountainMask).not.toBe("none");
+  expect(seaMask).not.toBe(mountainMask);
+  await expect(salience.locator(
+    ".item-achievement-rail[aria-hidden=true] .item-achievement-glyph",
+  )).toHaveCount(0);
+  await salience.screenshot({
+    path: testInfo.outputPath("structural-salience-poles.png"),
+  });
+
+  await salience.locator(
+    '[data-metrics-salience-type-key="Example.B"]',
+  ).first().click();
+  await expect(page.locator("#metrics-activated-type"))
+    .toHaveText("Example.B");
+
+  await salience.locator("[data-metrics-salience-namespace]")
+    .selectOption("Example.Tools");
+  await expect(page.locator("#metrics-selected-namespace"))
+    .toHaveText("Example.Tools");
+});
+
+test("a sole zero-leverage namespace remains selected", async ({
+  page,
+}) => {
+  await page.goto("/browser/library-metrics.html?zero-top");
+  const select = page.locator("[data-metrics-salience-namespace]");
+  await expect(select).toHaveValue("Only");
+  await select.selectOption("Only");
+  await expect(page.locator("#metrics-selected-namespace"))
+    .toHaveText("Only");
+});
+
 test("reciprocal relationship evidence remains independently reachable", async ({
   page,
 }) => {

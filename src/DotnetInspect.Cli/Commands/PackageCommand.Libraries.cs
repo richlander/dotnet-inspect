@@ -130,6 +130,9 @@ public partial class PackageCommand
     }
 
     private static async Task<int> ExecutePackageLibraryAsync(
+        HttpClient httpClient,
+        VerboseLogger logger,
+        PackageReferenceTarget target,
         string extractPath,
         bool isLocalFile,
         string packageArg,
@@ -138,6 +141,28 @@ public partial class PackageCommand
         PackageExtractionResult extraction,
         InspectionOptions options)
     {
+        var packageReference = isLocalFile
+            ? packageArg
+            : !string.IsNullOrWhiteSpace(version)
+                ? $"{packageName}@{version}"
+                : packageName;
+        if (!Directory.EnumerateFiles(
+                    extractPath,
+                    "*.dll",
+                    SearchOption.AllDirectories).Any()
+            && LibraryCommand.GetToolPayloadPackageId(
+                extractPath,
+                packageName) is not null)
+        {
+            return await LibraryCommand.ExecuteResolvedPackageAsync(
+                CreateLibraryOptions(
+                    options.PackageLibrary,
+                    packageReference,
+                    options,
+                    options.Tfm),
+                extraction).ConfigureAwait(false);
+        }
+
         var selected = ResolvePackageLibrary(
             extractPath,
             packageName,
@@ -146,12 +171,6 @@ public partial class PackageCommand
             options);
         if (selected == null)
             return 1;
-
-        var packageReference = isLocalFile
-            ? packageArg
-            : !string.IsNullOrWhiteSpace(version)
-                ? $"{packageName}@{version}"
-                : packageName;
 
         return await LibraryCommand.ExecuteResolvedPackageAsync(
             CreateLibraryOptions(
@@ -276,6 +295,12 @@ public partial class PackageCommand
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
+        bool wantsEcosystemDependencies =
+            sectionPlan.Demands.Any(
+                static demand =>
+                    demand.Section == SectionNames.LibraryInfo
+                    || demand.Section
+                        == SectionNames.EcosystemDependencies);
         List<HostQueryDemand> commandQueryDemand = [];
         if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && libraryOptions.BodyKindQuery.HasFilter
@@ -286,8 +311,12 @@ public partial class PackageCommand
                     "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
+        if (LibraryMetadataService.WritesDefaultModelDump(libraryOptions))
+            commandQueryDemand.Add(LibraryCommand.ModelDumpCountsDemand);
         HashSet<InspectionQueryDefinition> queries =
-            sectionPlan.Activate(commandDemand: commandQueryDemand);
+            sectionPlan.Activate(hostDemand: commandQueryDemand);
+        bool readLibraryDocument =
+            LibraryMetadataService.WantsLibraryDocument(sectionPlan, libraryOptions);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
@@ -400,7 +429,7 @@ public partial class PackageCommand
 
         await using PackageIntegrationsWorkspace? integrationsWorkspace =
             createdIntegrationsWorkspace;
-        List<LibraryInspection> inspections = [];
+        List<LibraryInspectionRenderInput> renderInputs = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
         List<(string FileName, IdentifierConfusionAuditFailureKind FailureKind)>
             identifierAuditFailures = [];
@@ -487,14 +516,36 @@ public partial class PackageCommand
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
                 continue;
             }
+            LibraryDocumentInspection? documentInspection =
+                await LibraryDocumentInspection.ReadAsync(
+                    inspection,
+                    selection.Path,
+                    packageName,
+                    isPlatformAssembly: false,
+                    requested: readLibraryDocument);
 
             inspection.FileName = relativePath;
             inspection.Tfm =
                 TfmResolver.ExtractFrameworkFolderFromPath(relativePath);
             inspection.Source = SourceKind.NuGet;
-            inspections.Add(inspection);
+            LibraryCommand.ApplyLibraryEcosystemDependencies(
+                inspection,
+                subject,
+                wantsEcosystemDependencies,
+                LibraryCommand
+                    .RequiresLibraryEcosystemDiagnosticDisclosure(
+                        libraryOptions),
+                logger);
+            renderInputs.Add(
+                new LibraryInspectionRenderInput(
+                    inspection,
+                    documentInspection));
         }
 
+        List<LibraryInspection> inspections =
+            renderInputs
+                .Select(static input => input.Inspection)
+                .ToList();
         bool integrationsIncomplete =
             integrationsWorkspace is not null
             && WriteGroupedIntegrationsFailures(
@@ -552,9 +603,11 @@ public partial class PackageCommand
                 sections.Count == 1
                 && IsLibraryInfoSection(sections[0])
                     ? SelectLibraryInfoRows(
-                        inspections,
+                        renderInputs,
                         libraryOptions,
                         pipeline)
+                        .Select(static input => input.Inspection)
+                        .ToArray()
                     : inspections;
             string json = JsonSerializer.Serialize(
                 jsonInspections.ToArray(),
@@ -606,7 +659,7 @@ public partial class PackageCommand
                 CommandError.WriteNote("matched sections have no data across all libraries.");
 
             var projection = CaptureAllLibrariesCounts(
-                inspections,
+                renderInputs,
                 sections,
                 libraryOptions,
                 pipeline);
@@ -637,7 +690,7 @@ public partial class PackageCommand
             if (!WriteAllLibrariesTable(
                     packageName,
                     version,
-                    inspections,
+                    renderInputs,
                     sections,
                     libraryOptions))
             {
@@ -646,7 +699,13 @@ public partial class PackageCommand
             return completionExitCode;
         }
 
-        var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
+        var markdown = RenderAllLibrariesMarkdown(
+            packageName,
+            version,
+            renderInputs,
+            sections,
+            libraryOptions,
+            pipeline);
         OutputDestination.Write(
             libraryOptions.OutputPath,
             libraryOptions.Rows,
@@ -721,14 +780,6 @@ public partial class PackageCommand
                             integrations,
                             opportunities)
                         .ConfigureAwait(false);
-                if (inspection is not null
-                    && retainedAssembly?.Registration
-                        .ArtifactRegistration is not null)
-                {
-                    inspection.LastModified =
-                        File.GetLastWriteTimeUtc(path);
-                }
-
                 return inspection;
             });
     }
@@ -876,14 +927,22 @@ public partial class PackageCommand
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
             TypeFilter = options.TypeFilter,
+            AddressRequest =
+                options.LibraryAddressRequest,
+            AddressRowSelection =
+                options.LibraryAddressRowSelection,
             PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,
+            EnvelopeOutput = options.EnvelopeOutput,
+            CompactJson = options.CompactJson,
             PlainText = options.Format == OutputFormat.PlainText,
             Tabular = options.Tabular,
             Tsv = options.Tsv,
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet =
+                options.FormatFlagExplicitlySet,
             Format = options.Format,
             Verbose = options.Verbose,
             Trace = options.Trace,
@@ -908,6 +967,7 @@ public partial class PackageCommand
             JsonArray = options.JsonArray,
             ProjectionRow = options.PrintRow,
             Rows = options.CloneCandidateRowSelection is null
+                && options.NameFamilyRowSelection is null
                 ? options.Rows
                 : null,
             CloneCandidateRowSelection =
@@ -916,6 +976,10 @@ public partial class PackageCommand
                 options.ReferenceRowSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,
+            NameFamilyPopulation =
+                options.NameFamilyPopulation,
+            NameFamilyRowSelection =
+                options.NameFamilyRowSelection,
             IntegrationQuery = options.IntegrationQuery,
             MetadataRoot = options.MetadataRoot,
             PerformanceTriage = options.PerformanceTriage,
@@ -1452,7 +1516,7 @@ public partial class PackageCommand
     private static bool WriteAllLibrariesTable(
         string packageName,
         string version,
-        List<LibraryInspection> inspections,
+        List<LibraryInspectionRenderInput> renderInputs,
         List<string> sections,
         LibraryOptions options)
     {
@@ -1467,7 +1531,7 @@ public partial class PackageCommand
         var table = BuildAllLibrariesTable(
             packageName,
             version,
-            inspections,
+            renderInputs,
             section,
             options.Rows);
         if (table == null)
@@ -1520,10 +1584,14 @@ public partial class PackageCommand
     private static AllLibrariesTable? BuildAllLibrariesTable(
         string packageName,
         string version,
-        List<LibraryInspection> inspections,
+        List<LibraryInspectionRenderInput> renderInputs,
         string section,
         RowWindow? rowWindow)
     {
+        List<LibraryInspection> inspections =
+            renderInputs
+                .Select(static input => input.Inspection)
+                .ToList();
         AllLibrariesRowSchema? rowSchema =
             FindAllLibrariesRowSchema(section);
         if (rowSchema is null)
@@ -1531,17 +1599,24 @@ public partial class PackageCommand
 
         if (IsLibraryInfoSection(section))
         {
-            var availableLibraries = inspections
+            var availableLibraries = renderInputs
                 .Where(
-                    inspection =>
-                        new LibraryInspectionView(inspection)
+                    input =>
+                        new LibraryInspectionView(
+                            input.Inspection,
+                            topFieldsOnly: false,
+                            input.DocumentInspection)
                             .AssemblyInfoSection is not null)
                 .ToArray();
             var rowsByLibrary = RowWindow.Apply(
                     rowWindow,
                     availableLibraries)
-                .Select(inspection =>
-                    BuildLibraryInfoRows(packageName, version, inspection).ToArray())
+                .Select(input =>
+                    BuildLibraryInfoRows(
+                            packageName,
+                            version,
+                            input)
+                        .ToArray())
                 .ToArray();
             var libraryInfoRows = rowsByLibrary
                 .SelectMany(static rows => rows)
@@ -1656,9 +1731,16 @@ public partial class PackageCommand
                 section,
                 StringComparison.OrdinalIgnoreCase));
 
-    private static IEnumerable<string[]> BuildLibraryInfoRows(string packageName, string version, LibraryInspection inspection)
+    private static IEnumerable<string[]> BuildLibraryInfoRows(
+        string packageName,
+        string version,
+        LibraryInspectionRenderInput input)
     {
-        var info = new LibraryInspectionView(inspection).AssemblyInfoSection;
+        LibraryInspection inspection = input.Inspection;
+        var info = new LibraryInspectionView(
+            inspection,
+            topFieldsOnly: false,
+            input.DocumentInspection).AssemblyInfoSection;
         if (info == null)
             yield break;
 
@@ -1672,6 +1754,9 @@ public partial class PackageCommand
                      ("Copyright", info.Copyright),
                      ("Custom Attributes", info.CustomAttributes),
                      ("Deterministic", info.Deterministic ? "Yes" : "No"),
+                     ("Ecosystem Dependencies", info.EcosystemDependencies),
+                     ("Ecosystem Dependency Status", info.EcosystemDependencyStatus),
+                     ("Enabled", info.Enabled),
                      ("Extension Methods", info.ExtensionMethods),
                      ("Facade", info.Facade switch
                      {
@@ -1682,12 +1767,12 @@ public partial class PackageCommand
                      ("File Size", info.FileSize),
                      ("Informational Version", info.InformationalVersion),
                      ("Integrations", info.Integrations),
+                     ("Library Document", info.LibraryDocument),
                      ("Methods", info.Methods),
-                     ("Modified", info.Modified),
                      ("Name", info.Name),
                      ("Product", info.Product),
                      ("Public Key Token", info.PublicKeyToken),
-                     ("Reproducible", info.Reproducible ? "Yes" : "No"),
+                     ("Reproducible", info.Reproducible),
                      ("Resources", info.Resources),
                      ("Signed", info.Signed),
                      ("Source", info.Source),
@@ -1728,11 +1813,15 @@ public partial class PackageCommand
     private static string RenderAllLibrariesMarkdown(
         string packageName,
         string version,
-        List<LibraryInspection> inspections,
+        List<LibraryInspectionRenderInput> renderInputs,
         List<string> sections,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        List<LibraryInspection> inspections =
+            renderInputs
+                .Select(static input => input.Inspection)
+                .ToList();
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
         AppendBlock(sb, $"# {title}");
@@ -1742,7 +1831,12 @@ public partial class PackageCommand
             if (IsAggregatedAllLibrariesSection(section))
                 AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
-                AppendPerLibrarySections(sb, section, inspections, options, pipeline);
+                AppendPerLibrarySections(
+                    sb,
+                    section,
+                    renderInputs,
+                    options,
+                    pipeline);
         }
 
         return sb.ToString().TrimEnd();
@@ -1916,20 +2010,24 @@ public partial class PackageCommand
         };
 
     private static CountProjection CaptureAllLibrariesCounts(
-        List<LibraryInspection> inspections,
+        List<LibraryInspectionRenderInput> renderInputs,
         List<string> sections,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        List<LibraryInspection> inspections =
+            renderInputs
+                .Select(static input => input.Inspection)
+                .ToList();
         var projection = new CountProjection();
 
         foreach (var section in sections)
         {
             if (IsLibraryInfoSection(section))
             {
-                IReadOnlyList<LibraryInspection> libraryRows =
+                IReadOnlyList<LibraryInspectionRenderInput> libraryRows =
                     SelectLibraryInfoRows(
-                        inspections,
+                        renderInputs,
                         options,
                         pipeline);
                 projection.RecordRows(
@@ -1950,8 +2048,9 @@ public partial class PackageCommand
                 continue;
             }
 
-            foreach (var inspection in inspections)
+            foreach (var input in renderInputs)
             {
+                LibraryInspection inspection = input.Inspection;
                 if (!pipeline.GetEffectiveSections(
                         inspection, options.Verbosity, options.IncludeSections, options.FixedOverview)
                     .Contains(section, StringComparer.OrdinalIgnoreCase))
@@ -1968,10 +2067,15 @@ public partial class PackageCommand
                     continue;
                 }
 
-                projection.Merge(CountProjectionFormatter.Capture(
-                    new LibraryInspectionView(inspection),
+                CountProjection library = CountProjectionFormatter.Capture(
+                    new LibraryInspectionView(
+                        inspection,
+                        topFieldsOnly: false,
+                        input.DocumentInspection),
                     InspectionContext.Default,
-                    CreateAllLibrariesWriterOptions(section, options)));
+                    CreateAllLibrariesWriterOptions(section, options));
+                OutputFormatter.ApplyClassificationCounts(library, inspection, [section], options.Rows);
+                projection.Merge(library);
             }
         }
 
@@ -1981,24 +2085,25 @@ public partial class PackageCommand
     private static void AppendPerLibrarySections(
         StringBuilder sb,
         string section,
-        List<LibraryInspection> inspections,
+        List<LibraryInspectionRenderInput> renderInputs,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        IReadOnlyList<LibraryInspection> sectionInspections =
+        IReadOnlyList<LibraryInspectionRenderInput> sectionInputs =
             IsLibraryInfoSection(section)
                 ? SelectLibraryInfoRows(
-                    inspections,
+                    renderInputs,
                     options,
                     pipeline)
-                : inspections;
+                : renderInputs;
         LibraryOptions renderOptions =
             IsLibraryInfoSection(section)
                 ? options with { Rows = null }
                 : options;
 
-        foreach (var inspection in sectionInspections)
+        foreach (var input in sectionInputs)
         {
+            LibraryInspection inspection = input.Inspection;
             if (!pipeline.GetEffectiveSections(
                     inspection,
                     options.Verbosity,
@@ -2008,7 +2113,7 @@ public partial class PackageCommand
                 continue;
 
             var rendered = RenderLibrarySection(
-                inspection,
+                input,
                 section,
                 renderOptions,
                 pipeline);
@@ -2019,17 +2124,17 @@ public partial class PackageCommand
         }
     }
 
-    private static IReadOnlyList<LibraryInspection> SelectLibraryInfoRows(
-        List<LibraryInspection> inspections,
+    private static IReadOnlyList<LibraryInspectionRenderInput> SelectLibraryInfoRows(
+        List<LibraryInspectionRenderInput> renderInputs,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        LibraryInspection[] available =
+        LibraryInspectionRenderInput[] available =
         [
-            .. inspections.Where(
-                inspection =>
+            .. renderInputs.Where(
+                input =>
                     pipeline.GetEffectiveSections(
-                            inspection,
+                            input.Inspection,
                             options.Verbosity,
                             options.IncludeSections,
                             options.FixedOverview)
@@ -2046,12 +2151,16 @@ public partial class PackageCommand
             StringComparison.OrdinalIgnoreCase);
 
     private static string RenderLibrarySection(
-        LibraryInspection inspection,
+        LibraryInspectionRenderInput input,
         string section,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        var view = new LibraryInspectionView(inspection);
+        LibraryInspection inspection = input.Inspection;
+        var view = new LibraryInspectionView(
+            inspection,
+            topFieldsOnly: false,
+            input.DocumentInspection);
         var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = [section],

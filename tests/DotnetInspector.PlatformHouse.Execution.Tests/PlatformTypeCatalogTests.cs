@@ -102,7 +102,7 @@ public partial class PlatformLibraryRealizationTests
                     && entry.Kind
                         == AssemblyTypeDeclarationKind.Definition);
             Assert.Same(
-                population.Value.Members[0].Library.ApiAssembly,
+                population.Value.Members[0].PlatformLibrary.Library.ApiAssembly,
                 jsonSerializer.ApiContent);
             Assert.NotEqual(Guid.Empty, jsonSerializer.ModuleVersionId);
 
@@ -328,6 +328,40 @@ public partial class PlatformLibraryRealizationTests
             Assert.Empty(namespaceInspection.Diagnostics);
             Assert.IsType<InspectionShare.NonProjectable>(
                 namespaceInspection.Share);
+
+            InspectionEnvelope<PlatformNamespaceDiscoveryOutcome>
+                descendantInspection =
+                    PlatformNamespaceDiscoveryInspection.Execute(
+                        catalog,
+                        new(
+                            "System.Text.Json.Serialization",
+                            MetadataNamespaceMatch.ExactOrDescendant),
+                        cancellationToken);
+            var foundDescendants = Assert.IsType<
+                PlatformNamespaceDiscoveryOutcome.Found>(
+                    descendantInspection.Content);
+            PlatformNamespaceDiscoveryDeclaration[] descendantDeclarations =
+            [
+                .. foundDescendants.Hits.SelectMany(
+                    static hit => hit.Declarations),
+            ];
+            Assert.Contains(
+                descendantDeclarations,
+                static declaration =>
+                    declaration.Type.Namespace
+                        == "System.Text.Json.Serialization");
+            Assert.Contains(
+                descendantDeclarations,
+                static declaration =>
+                    declaration.Type.Namespace
+                        == "System.Text.Json.Serialization.Metadata");
+            Assert.All(
+                descendantDeclarations,
+                static declaration =>
+                    Assert.True(
+                        declaration.Type.IsInNamespace(
+                            "System.Text.Json.Serialization",
+                            MetadataNamespaceMatch.ExactOrDescendant)));
 
             string namespaceJson = JsonSerializer.Serialize(
                 namespaceInspection,
@@ -1228,7 +1262,7 @@ public partial class PlatformLibraryRealizationTests
                 rejected.PopulationReceipt);
             using LibraryOperationLease remaining = Issued(
                 population.Owners[0],
-                population.Value.Members[0].Library);
+                population.Value.Members[0].PlatformLibrary.Library);
         }
         finally
         {

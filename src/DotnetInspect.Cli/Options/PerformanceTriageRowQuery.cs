@@ -404,22 +404,7 @@ internal static class PerformanceTriageRowQuery
         string key,
         Func<Analysis.OptimizationOpportunity, string?> accessor,
         bool ordered) =>
-        RowQueryKey<Analysis.OptimizationOpportunity>.Create(
-            RowQueryKeyIdentity.Create(),
-            key,
-            [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
-            row => RowQueryValue<string>.Present(accessor(row) ?? ""),
-            BindText,
-            ordered
-                ? direction => RowQueryValueOrder.Create(
-                    Comparer<string>.Create(
-                        (left, right) =>
-                            StringComparer.OrdinalIgnoreCase.Compare(
-                                left,
-                                right)),
-                    direction,
-                    missingLast: false)
-                : null);
+        RowQueryText.Key(key, accessor, ordered);
 
     private static RowQueryKey<Analysis.OptimizationOpportunity> NumericKey(
         string key,
@@ -477,8 +462,8 @@ internal static class PerformanceTriageRowQuery
             (operation, token) =>
             {
                 bool Match(MemberValue value) =>
-                    WildcardMatch(value.Full, token.Text)
-                    || WildcardMatch(value.Short, token.Text);
+                    RowQueryText.Matches(value.Full, token.Text)
+                    || RowQueryText.Matches(value.Short, token.Text);
                 return operation switch
                 {
                     RowQueryOperator.Equals => Match,
@@ -505,7 +490,7 @@ internal static class PerformanceTriageRowQuery
             (operation, token) =>
             {
                 bool Match(IlValue value) =>
-                    WildcardMatch(value.Text, token.Text);
+                    RowQueryText.Matches(value.Text, token.Text);
                 return operation switch
                 {
                     RowQueryOperator.Equals => Match,
@@ -540,7 +525,7 @@ internal static class PerformanceTriageRowQuery
                         return value.Token == expected;
                     }
 
-                    return WildcardMatch(value.Text, token.Text);
+                    return RowQueryText.Matches(value.Text, token.Text);
                 }
 
                 return operation switch
@@ -594,18 +579,6 @@ internal static class PerformanceTriageRowQuery
         KeyBindings.Single(
             binding => ReferenceEquals(binding.Key, key))
         .ValuePresentation;
-
-    private static Predicate<string>? BindText(
-        RowQueryOperator operation,
-        RowQueryValueToken token) =>
-        operation switch
-        {
-            RowQueryOperator.Equals =>
-                value => WildcardMatch(value, token.Text),
-            RowQueryOperator.NotEquals =>
-                value => !WildcardMatch(value, token.Text),
-            _ => null,
-        };
 
     private static Predicate<long>? BindLong(
         RowQueryOperator operation,
@@ -708,56 +681,6 @@ internal static class PerformanceTriageRowQuery
     private static string ShortMemberSignature(Analysis.MethodIdentity method) =>
         $"{method.Name}({string.Join(", ", method.ParameterTypes.Select(
             parameter => parameter.ToQualifiedDisplayString()))})";
-
-    private static bool WildcardMatch(string actual, string pattern)
-    {
-        if (!pattern.Contains('*') && !pattern.Contains('?'))
-        {
-            return string.Equals(
-                actual,
-                pattern,
-                StringComparison.OrdinalIgnoreCase);
-        }
-
-        int textIndex = 0;
-        int patternIndex = 0;
-        int starIndex = -1;
-        int matchIndex = 0;
-        while (textIndex < actual.Length)
-        {
-            if (patternIndex < pattern.Length
-                && (pattern[patternIndex] == '?'
-                    || char.ToUpperInvariant(pattern[patternIndex])
-                        == char.ToUpperInvariant(actual[textIndex])))
-            {
-                textIndex++;
-                patternIndex++;
-            }
-            else if (patternIndex < pattern.Length
-                && pattern[patternIndex] == '*')
-            {
-                starIndex = patternIndex++;
-                matchIndex = textIndex;
-            }
-            else if (starIndex >= 0)
-            {
-                patternIndex = starIndex + 1;
-                textIndex = ++matchIndex;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        while (patternIndex < pattern.Length
-            && pattern[patternIndex] == '*')
-        {
-            patternIndex++;
-        }
-
-        return patternIndex == pattern.Length;
-    }
 
     private readonly record struct MemberValue(
         string Full,

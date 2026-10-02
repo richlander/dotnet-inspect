@@ -39,7 +39,7 @@ import {
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 
 const request: BrowserPackageChangesRequest = {
-  packageSetId: "package-set.microsoft-extensions",
+  ecosystemId: "ecosystem.microsoft-extensions",
   fromExclusive: null,
   throughInclusive: null,
   securityOnly: false,
@@ -93,7 +93,7 @@ const failure: BrowserPackageChangesFailure = {
 function inspection(): BrowserPackageChangesInspection {
   return {
     content: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       request: {
         referenceTime: dateTimeOffsetString(
           "2026-04-01T00:00:00+00:00"),
@@ -103,10 +103,9 @@ function inspection(): BrowserPackageChangesInspection {
           "2026-04-01T00:00:00+00:00"),
         usedDefaultInterval: true,
         packageScope: {
-          kind: "PackageSet",
-          selectionId: "package-set.microsoft-extensions",
-          prefix: null,
-          packageIds: ["Example.Package"],
+          kind: "PackagePrefix",
+          selectionId: "ecosystem.microsoft-extensions",
+          prefixes: ["Microsoft.Extensions."],
         },
         securitySelection: "AllActivity",
         maximumRows: 100,
@@ -184,7 +183,15 @@ test("Package Activity input is closed, paired, and bounded", () => {
   assert.equal(engineWorkerPackageChangesInput.decode(request).kind, "decoded");
   assert.equal(engineWorkerPackageChangesInput.decode({
     ...request,
-    packageSetId: "not-a-package-set",
+    ecosystemId: "not-an-ecosystem",
+  }).kind, "rejected");
+  assert.equal(engineWorkerPackageChangesInput.decode({
+    ...request,
+    ecosystemId: "package-set.microsoft-extensions",
+  }).kind, "rejected");
+  assert.equal(engineWorkerPackageChangesInput.decode({
+    ...request,
+    ecosystemId: "ecosystem.1password",
   }).kind, "rejected");
   assert.equal(engineWorkerPackageChangesInput.decode({
     ...request,
@@ -196,7 +203,7 @@ test("Package Activity input is closed, paired, and bounded", () => {
   }).kind, "rejected");
   const oversized = engineWorkerPackageChangesInput.decode({
     ...request,
-    packageSetId: `package-set.${"a".repeat(100)}`,
+    ecosystemId: `ecosystem.${"a".repeat(100)}`,
   });
   assert.equal(oversized.kind, "rejected");
   if (oversized.kind === "rejected")
@@ -224,6 +231,43 @@ test("Package Activity terminal envelope remains physically successful when part
     engineWorkerPackageChangesInspection.decode(malformed).kind,
     "rejected",
   );
+
+  const retiredScopes: unknown[] = [
+    { ...inspection().content, schemaVersion: 1 },
+    {
+      ...inspection().content,
+      request: {
+        ...inspection().content.request,
+        packageScope: {
+          kind: "PackageSet",
+          selectionId: "package-set.microsoft-extensions",
+          prefix: null,
+          packageIds: ["Example.Package"],
+        },
+      },
+    },
+    {
+      ...inspection().content,
+      request: {
+        ...inspection().content.request,
+        packageScope: {
+          ...inspection().content.request.packageScope,
+          prefixes: Array.from(
+            { length: 17 },
+            (_, index) => `Example.Prefix${index}.`),
+        },
+      },
+    },
+  ];
+  for (const content of retiredScopes) {
+    assert.equal(
+      engineWorkerPackageChangesInspection.decode({
+        ...inspection(),
+        content,
+      }).kind,
+      "rejected",
+    );
+  }
 
   assert.equal(
     isDateTimeOffsetJsonString("2024-02-29T23:59:59.1234567-14:00"),
@@ -302,8 +346,9 @@ test("Package Activity admits multiplicative advisory evidence at maximum rows",
         ...maximum.content.request,
         packageScope: {
           ...maximum.content.request.packageScope,
-          packageIds: populatedRows.map(
-            item => item.catalogActivity.packageId),
+          prefixes: Array.from(
+            { length: 16 },
+            (_, index) => `Example.Prefix${index}.`),
         },
         maximumRows: 1_000,
       },

@@ -9,11 +9,20 @@ namespace DotnetInspect.Cli.Models;
 [JsonConverter(typeof(JsonStringEnumConverter<TypeFindMatchKind>))]
 public enum TypeFindMatchKind
 {
+    Exact,
     Direct,
     Glob,
     Partial,
     NotFound,
-    Namespace
+    Namespace,
+    Prefix,
+    Substring
+}
+
+internal enum FindTypeMatchIntent
+{
+    Ordinary,
+    ExactOnly,
 }
 
 /// <summary>

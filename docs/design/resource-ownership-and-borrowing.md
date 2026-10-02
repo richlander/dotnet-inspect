@@ -20,9 +20,9 @@ admission, local declaration validation, and immutable admitted declarations.
 The Analysis-owned
 [Resolved Resource Effects](resolved-resource-effects.md) owner binds those
 declarations to concrete metadata occurrences. Analysis is the first adopter
-through separate focused efforts. Root-bound occurrence evidence lands
-additively; the existing ArrayPool ownership flow and Resource Triage product
-path remain unchanged until final consumer fidelity and retirement.
+through separate focused efforts. Generic root-bound occurrence, lifecycle,
+and Research ownership paths now replace the certified ArrayPool-specific
+predecessors.
 Artifact, Library, PackageHouse, PlatformHouse, SourceHouse,
 DocumentationHouse, Workspace, CLI, and Browser/Wasm adoption remain
 independently reviewed steps in the tracker.
@@ -267,7 +267,7 @@ cannot observe a later resolution rewriting that result.
 
 Analysis already demonstrates the detector path:
 
-- `ArrayPoolOwnershipFlow` records return, store, caller-transfer, and
+- `ResourceOwnershipSummary` records release, storage, caller-return, and
   forwarding effects;
 - `ResourceLifecycleAnalysis` publishes
   `analysis.resource-lifecycle` Findings;
@@ -294,7 +294,7 @@ shapes are:
 | `AssemblyContextGroup` owned-resource registration | One aggregate tracks child `IDisposable` values, releases them before snapshots, and preserves cleanup failures. | Registration, transfer, release ordering, and transitive child cleanup are manually maintained. `IDisposable` supplies no ownership metadata. |
 | `ArtifactContentReference` and assembly openers | The reference carries immutable identity, registration, provenance, and role evidence without content authority; explicit Artifact operations supply current query authority to compatibility openers. | Compatibility opener delegates still close over live query authority until Artifact adopter slices transfer content children into downstream owners. |
 | `PackageSourceSettlementLease` and `PackageSourceOperationLease` | The Package Source Model service issues a resource-named asynchronous root and directly issued synchronous operation owners; active awaited work is an ownership effect rather than a third resource. | Current C# still permits unsupported aliases and cannot require observation of root settlement; generalized declaration-driven Analysis remains planned. |
-| `ArrayPoolOwnershipFlow` and Resource Triage | Analysis already follows return, storage, caller transfer, forwarding, and exception-path leakage with explicit incompleteness. | The model is API-specific and cannot yet consume repository resource declarations. |
+| Generic Resource Ownership, Resource Lifecycle, and Resource Triage | Analysis follows release, storage, caller return, forwarding, and exception-path leakage with explicit incompleteness from admitted resource effects. | Repository resource declarations still require their focused adoption slices. |
 | `ResolvedPackageCoordinate` | A resolution publishes a fresh get-only value whose source set is copied into a read-only collection. | This shape avoids retained mutable aliases; current C# would not prevent a future implementation from substituting a reused mutable result without a focused contract or test. |
 
 The target does not merely rename these values. It simplifies their shared
@@ -1070,15 +1070,13 @@ end-to-end tracker. Its current total is 26 steps:
 6. implement that resolver and the shipped typed C# ArrayPool mapping under
    #6729;
 7. add root-bound Resource Occurrence Analysis beneath
-   `LibraryBodyAnalysisService` without changing existing ArrayPool semantics
-   under #6730;
+   `LibraryBodyAnalysisService` under #6730;
 8. adopt occurrence evidence in generic lifecycle Analysis and Resource Triage
    under #6731 through the focused
-   [Resource Lifecycle Analysis](resource-lifecycle-analysis.md) contract while
-   retaining the legacy ArrayPool path as the final oracle;
-9. adopt a focused generic summary in Research under #6732, then complete the
-   separately reviewed lifecycle and Research ArrayPool fidelity cutovers and
-   retire their legacy semantic paths;
+   [Resource Lifecycle Analysis](resource-lifecycle-analysis.md) contract;
+9. adopt a focused generic summary in Research under #6732, certify both
+   generic consumers against their ArrayPool predecessors, and retire the
+   legacy semantic paths;
 10. express `Inspector.Resources` and `AssemblyInspectionSession` through
    compiled effect attributes and prove equivalent admission from JSON
    test inputs;
@@ -1175,7 +1173,7 @@ The declaration and Analysis steps must gate:
 - malformed declarations and contradictory resolved effects;
 - incomplete decode, resolution, dispatch, alias, body, and control-flow
   evidence remaining visible;
-- compatibility with the existing ArrayPool corpus and Finding identities;
+- compatibility with the certified ArrayPool corpus and Finding identities;
 - one declared owner and ArrayPool model composing in the same body without
   selecting separate lifecycle engines;
 - repository dogfood that distinguishes complete violations, complete clean

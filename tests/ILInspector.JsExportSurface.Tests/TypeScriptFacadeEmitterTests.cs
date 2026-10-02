@@ -1,9 +1,14 @@
+using System.Globalization;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using DotnetInspector.JsonSchema;
+using DotnetInspector.Vocabulary;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
+using ILInspector.JsExportSurface.TypeScriptFixtures;
 using ILInspector.Metadata;
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -164,6 +169,1232 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "JSON.parse($result)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_PropagatesDirectionalDeclarationsThroughTypeShapes()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType envelope = Assert.Single(
+            surface.Records,
+            type => type.Name == "DirectionalEnvelopeDto");
+        Assert.Equal(
+            JsonWireDirection.Both,
+            surface.WireDirections[envelope]);
+        JsonWireDeclarationPlan plan =
+            JsonWireDeclarationPlan.Create(surface);
+        Assert.Equal(
+            2,
+            plan.Declarations.Count(declaration =>
+                ReferenceEquals(declaration.Type, envelope)
+                && declaration.IsSplit));
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            export interface DirectionalServerNoteDtoInput {
+              readonly name: string;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalServerNoteDtoOutput {
+              readonly name: string;
+              readonly serverNote: string;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalEnvelopeDtoInput {
+              readonly direct: DirectionalServerNoteDtoInput;
+              readonly items: ReadonlyArray<DirectionalServerNoteDtoInput>;
+              readonly lookup: Readonly<Record<string, DirectionalServerNoteDtoInput>>;
+              readonly box: DirectionalBox<DirectionalServerNoteDtoInput>;
+              readonly next: DirectionalEnvelopeDtoInput | null;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalEnvelopeDtoOutput {
+              readonly direct: DirectionalServerNoteDtoOutput;
+              readonly items: ReadonlyArray<DirectionalServerNoteDtoOutput>;
+              readonly lookup: Readonly<Record<string, DirectionalServerNoteDtoOutput>>;
+              readonly box: DirectionalBox<DirectionalServerNoteDtoOutput>;
+              readonly next: DirectionalEnvelopeDtoOutput | null;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalOuterDtoInput {
+              readonly envelope: DirectionalEnvelopeDtoInput;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalOuterDtoOutput {
+              readonly envelope: DirectionalEnvelopeDtoOutput;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type DirectionalChoice = "
+                + "DirectionalServerNoteDtoOutput | string | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function addServerNote("
+                + "payloadJson: DirectionalServerNoteDtoInput): "
+                + "DirectionalServerNoteDtoOutput",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function reemitDirectionalEnvelope("
+                + "payloadJson: DirectionalEnvelopeDtoInput): "
+                + "DirectionalEnvelopeDtoOutput",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function reemitDirectionalOuter("
+                + "payloadJson: DirectionalOuterDtoInput): "
+                + "DirectionalOuterDtoOutput",
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            source.Split(
+                "export interface DirectionalBox<",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(
+            "WidgetDtoInput",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "WidgetDtoOutput",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsonSchema_UsesTheSharedDirectionalDeclarationPlan()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType dto = Assert.Single(
+            surface.Records,
+            type => type.Name == "DirectionalServerNoteDto");
+        JsonWireDeclarationPlan plan =
+            JsonWireDeclarationPlan.Create(surface);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor input = BuildDescriptor(
+            JsonWireDirection.Deserialize);
+        JsonSchemaVocabularyDescriptor output = BuildDescriptor(
+            JsonWireDirection.Serialize);
+
+        JsonElement inputDefinition =
+            input.Schema.GetProperty("$defs")
+                .GetProperty("DirectionalServerNoteDtoInput");
+        Assert.True(
+            inputDefinition.GetProperty("properties")
+                .TryGetProperty("name", out _));
+        Assert.False(
+            inputDefinition.GetProperty("properties")
+                .TryGetProperty("serverNote", out _));
+        Assert.True(
+            inputDefinition.GetProperty("additionalProperties")
+                .GetBoolean());
+
+        JsonElement outputDefinition =
+            output.Schema.GetProperty("$defs")
+                .GetProperty("DirectionalServerNoteDtoOutput");
+        Assert.True(
+            outputDefinition.GetProperty("properties")
+                .TryGetProperty("name", out _));
+        Assert.True(
+            outputDefinition.GetProperty("properties")
+                .TryGetProperty("serverNote", out _));
+        Assert.False(
+            outputDefinition.GetProperty("additionalProperties")
+                .GetBoolean());
+        Assert.Equal(
+            ["name", "serverNote"],
+            outputDefinition.GetProperty("required")
+                .EnumerateArray()
+                .Select(value => value.GetString())
+                .ToArray());
+
+        JsonSchemaVocabularyDescriptor BuildDescriptor(
+            JsonWireDirection direction) =>
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                plan,
+                new(
+                    new("directional-server-note"),
+                    direction,
+                    new JsonSchemaContractRoot.Object(dto)),
+                snapshot,
+                snapshot.Identity);
+    }
+
+    [Fact]
+    public void JsonSchema_EscapesBoundPropertyLocationsAsJsonPointers()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType dto = Assert.Single(
+            surface.Records,
+            type => type.Name == "DirectionalServerNoteDto");
+        ApiMember member = Assert.Single(
+            dto.Members,
+            candidate => candidate.Name == "ServerNote");
+        member.JsonPropertyName = "server~/note";
+        VocabularyCatalogIdentity catalog = new("test");
+        VocabularyIdentity vocabulary = new(catalog, "properties");
+        VocabularyTermIdentity term = new(vocabulary, "server-note");
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            catalog,
+            [
+                new(
+                    vocabulary,
+                    "Properties",
+                    null,
+                    maps: null,
+                    [new(term, "Server note", null)]),
+            ]);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("directional-server-note"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(dto),
+                    [
+                        new(
+                            new JsonSchemaBindingTarget.ObjectMember(
+                                dto,
+                                member),
+                            term),
+                    ]),
+                snapshot,
+                snapshot.Identity);
+
+        JsonSchemaVocabularyBinding binding =
+            Assert.Single(descriptor.Bindings);
+        Assert.Equal(
+            "/$defs/DirectionalServerNoteDtoOutput"
+                + "/properties/server~0~1note",
+            binding.SchemaLocation);
+        Assert.True(
+            descriptor.Schema.GetProperty("$defs")
+                .GetProperty("DirectionalServerNoteDtoOutput")
+                .GetProperty("properties")
+                .TryGetProperty("server~/note", out _));
+    }
+
+    [Fact]
+    public void JsonSchema_LowersDirectionalContainersGenericsAndRecursion()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType envelope = Assert.Single(
+            surface.Records,
+            type => type.Name == "DirectionalEnvelopeDto");
+        JsonWireDeclarationPlan plan =
+            JsonWireDeclarationPlan.Create(surface);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor input = BuildDescriptor(
+            JsonWireDirection.Deserialize);
+        JsonSchemaVocabularyDescriptor output = BuildDescriptor(
+            JsonWireDirection.Serialize);
+
+        AssertEnvelope(
+            input.Schema,
+            "DirectionalEnvelopeDtoInput",
+            "DirectionalServerNoteDtoInput",
+            hasServerNote: false);
+        AssertEnvelope(
+            output.Schema,
+            "DirectionalEnvelopeDtoOutput",
+            "DirectionalServerNoteDtoOutput",
+            hasServerNote: true);
+
+        JsonSchemaVocabularyDescriptor BuildDescriptor(
+            JsonWireDirection direction) =>
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                plan,
+                new(
+                    new("directional-envelope"),
+                    direction,
+                    new JsonSchemaContractRoot.Object(envelope)),
+                snapshot,
+                snapshot.Identity);
+
+        static void AssertEnvelope(
+            JsonElement schema,
+            string envelopeDefinitionName,
+            string noteDefinitionName,
+            bool hasServerNote)
+        {
+            JsonElement definitions = schema.GetProperty("$defs");
+            Assert.Equal(
+                $"#/$defs/{envelopeDefinitionName}",
+                schema.GetProperty("$ref").GetString());
+            JsonElement properties = definitions
+                .GetProperty(envelopeDefinitionName)
+                .GetProperty("properties");
+
+            Assert.Equal(
+                $"#/$defs/{noteDefinitionName}",
+                NonNull(properties.GetProperty("direct"))
+                    .GetProperty("$ref").GetString());
+            Assert.Equal(
+                $"#/$defs/{noteDefinitionName}",
+                NonNull(
+                    NonNull(properties.GetProperty("items"))
+                    .GetProperty("items")
+                )
+                    .GetProperty("$ref").GetString());
+            Assert.Equal(
+                $"#/$defs/{noteDefinitionName}",
+                NonNull(
+                    NonNull(properties.GetProperty("lookup"))
+                    .GetProperty("additionalProperties")
+                )
+                    .GetProperty("$ref").GetString());
+
+            string boxReference =
+                NonNull(properties.GetProperty("box"))
+                .GetProperty("$ref").GetString()!;
+            string boxDefinitionName =
+                boxReference["#/$defs/".Length..];
+            Assert.Equal(
+                $"#/$defs/{noteDefinitionName}",
+                NonNull(
+                    definitions.GetProperty(boxDefinitionName)
+                    .GetProperty("properties")
+                    .GetProperty("value")
+                )
+                    .GetProperty("$ref").GetString());
+
+            JsonElement recursiveAlternatives =
+                properties.GetProperty("next")
+                    .GetProperty("anyOf");
+            Assert.Equal(
+                $"#/$defs/{envelopeDefinitionName}",
+                recursiveAlternatives[0]
+                    .GetProperty("$ref").GetString());
+            Assert.Equal(
+                "null",
+                recursiveAlternatives[1]
+                    .GetProperty("type").GetString());
+
+            JsonElement noteProperties = definitions
+                .GetProperty(noteDefinitionName)
+                .GetProperty("properties");
+            Assert.True(noteProperties.TryGetProperty("name", out _));
+            Assert.Equal(
+                hasServerNote,
+                noteProperties.TryGetProperty("serverNote", out _));
+
+            static JsonElement NonNull(JsonElement value)
+            {
+                if (!value.TryGetProperty(
+                        "anyOf",
+                        out JsonElement alternatives))
+                {
+                    return value;
+                }
+                return Assert.Single(
+                    alternatives.EnumerateArray(),
+                    candidate =>
+                        !candidate.TryGetProperty(
+                            "type",
+                            out JsonElement type)
+                        || type.GetString() != "null");
+            }
+        }
+    }
+
+    [Fact]
+    public void JsonSchema_LowersClosedUnionCases()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType choice = Assert.Single(
+            surface.Unions,
+            union => union.Definition.Name == "DirectionalChoice")
+            .Definition;
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("directional-choice"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(choice)),
+                snapshot,
+                snapshot.Identity);
+
+        string definitionName =
+            descriptor.Schema.GetProperty("$ref")
+                .GetString()!["#/$defs/".Length..];
+        JsonElement alternatives =
+            descriptor.Schema.GetProperty("$defs")
+                .GetProperty(definitionName)
+                .GetProperty("anyOf");
+        Assert.Collection(
+            alternatives.EnumerateArray(),
+            note => Assert.Equal(
+                "#/$defs/DirectionalServerNoteDtoOutput",
+                note.GetProperty("$ref").GetString()),
+            text => Assert.Equal(
+                "string",
+                text.GetProperty("type").GetString()),
+            nullValue => Assert.Equal(
+                "null",
+                nullValue.GetProperty("type").GetString()));
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public void JsonSchema_PreservesUnionCollectionAndScalarValueSemantics()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(TypeScriptFixtureExports).Assembly.Location);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor collections = BuildUnion(
+            "CollectionSelection");
+        JsonElement collectionAlternatives = RootAlternatives(
+            collections);
+        JsonElement array = Assert.Single(
+            collectionAlternatives.EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "array");
+        Assert.Contains(
+            array.GetProperty("items")
+                .GetProperty("anyOf")
+                .EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "null");
+        JsonElement dictionary = Assert.Single(
+            collectionAlternatives.EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "object");
+        Assert.Contains(
+            dictionary.GetProperty("additionalProperties")
+                .GetProperty("anyOf")
+                .EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "null");
+
+        using JsonDocument arrayPayload = JsonDocument.Parse(
+            TypeScriptFixtureExports.GetCollectionSelection(0));
+        Assert.Equal(
+            JsonValueKind.Null,
+            arrayPayload.RootElement[1].ValueKind);
+        using JsonDocument dictionaryPayload = JsonDocument.Parse(
+            TypeScriptFixtureExports.GetCollectionSelection(1));
+        Assert.Equal(
+            JsonValueKind.Null,
+            dictionaryPayload.RootElement
+                .GetProperty("absent").ValueKind);
+
+        JsonSchemaVocabularyDescriptor timestamps = BuildUnion(
+            "TimestampSelection");
+        JsonElement timestampAlternatives = RootAlternatives(
+            timestamps);
+        Assert.Contains(
+            timestampAlternatives.EnumerateArray(),
+            alternative =>
+                alternative.TryGetProperty(
+                    "type",
+                    out JsonElement type)
+                && type.GetString() == "string"
+                && alternative.GetProperty("format").GetString()
+                    == "date-time");
+        JsonElement timestampArray = Assert.Single(
+            timestampAlternatives.EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "array");
+        Assert.Collection(
+            timestampArray.GetProperty("items")
+                .GetProperty("anyOf")
+                .EnumerateArray(),
+            date => Assert.Equal(
+                "date-time",
+                date.GetProperty("format").GetString()),
+            nullValue => Assert.Equal(
+                "null",
+                nullValue.GetProperty("type").GetString()));
+
+        JsonSchemaVocabularyDescriptor BuildUnion(string name)
+        {
+            ApiType union = Assert.Single(
+                surface.Unions,
+                candidate => candidate.Definition.Name == name)
+                .Definition;
+            return JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new($"fixture.{name}"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(union)),
+                snapshot,
+                snapshot.Identity);
+        }
+
+        static JsonElement RootAlternatives(
+            JsonSchemaVocabularyDescriptor descriptor)
+        {
+            string definitionName =
+                descriptor.Schema.GetProperty("$ref")
+                    .GetString()!["#/$defs/".Length..];
+            return descriptor.Schema.GetProperty("$defs")
+                .GetProperty(definitionName)
+                .GetProperty("anyOf");
+        }
+    }
+
+    [Theory]
+    [InlineData("GetGenericRecordIntAsync", "integer")]
+    [InlineData("GetGenericRecordWidgetAsync", "object")]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public async Task
+        JsonSchema_SubstitutesEnclosingArgumentsIntoNestedGenerics(
+        string exportName,
+        string expectedValueKind)
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(TypeScriptFixtureExports).Assembly.Location);
+        ApiTypeShape shape = Assert.IsType<ApiTypeShape>(
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == exportName)
+            .ReturnWireTypeShape);
+        var row = new JsonPositionalRowContract(
+            [new("value", shape, allowsNull: false)]);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new($"fixture.{exportName}"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Positional(row)),
+                snapshot,
+                snapshot.Identity);
+
+        JsonElement definitions =
+            descriptor.Schema.GetProperty("$defs");
+        string recordName = ReferenceName(
+            descriptor.Schema.GetProperty("prefixItems")[0]);
+        JsonElement nestedProperty = definitions
+            .GetProperty(recordName)
+            .GetProperty("properties")
+            .GetProperty("nested");
+        string nestedName = ReferenceName(
+            NonNull(nestedProperty));
+        JsonElement value = NonNull(
+            definitions.GetProperty(nestedName)
+                .GetProperty("properties")
+                .GetProperty("value"));
+
+        if (expectedValueKind == "integer")
+        {
+            Assert.Equal(
+                "integer",
+                value.GetProperty("type").GetString());
+        }
+        else
+        {
+            string widgetName = ReferenceName(value);
+            JsonElement widgetProperties = definitions
+                .GetProperty(widgetName)
+                .GetProperty("properties");
+            Assert.True(widgetProperties.TryGetProperty("name", out _));
+            Assert.True(widgetProperties.TryGetProperty("count", out _));
+        }
+
+        using JsonDocument payload = JsonDocument.Parse(
+            exportName == "GetGenericRecordIntAsync"
+                ? await TypeScriptFixtureExports
+                    .GetGenericRecordIntAsync()
+                : await TypeScriptFixtureExports
+                    .GetGenericRecordWidgetAsync("sample"));
+        Assert.Equal(
+            expectedValueKind == "integer"
+                ? JsonValueKind.Number
+                : JsonValueKind.Object,
+            payload.RootElement.GetProperty("nested")
+                .GetProperty("value").ValueKind);
+
+        static string ReferenceName(JsonElement schema) =>
+            schema.GetProperty("$ref")
+                .GetString()!["#/$defs/".Length..];
+
+        static JsonElement NonNull(JsonElement schema)
+        {
+            if (!schema.TryGetProperty(
+                    "anyOf",
+                    out JsonElement alternatives))
+            {
+                return schema;
+            }
+            return Assert.Single(
+                alternatives.EnumerateArray(),
+                alternative =>
+                    !alternative.TryGetProperty(
+                        "type",
+                        out JsonElement type)
+                    || type.GetString() != "null");
+        }
+    }
+
+    [Fact]
+    public void JsonSchema_GenericIdentityIsCultureInvariant()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(TypeScriptFixtureExports).Assembly.Location);
+        ApiTypeShape shape = Assert.IsType<ApiTypeShape>(
+            Assert.Single(
+                surface.Functions,
+                function =>
+                    function.Name == "GetGenericRecordIntAsync")
+            .ReturnWireTypeShape);
+        var row = new JsonPositionalRowContract(
+            [new("value", shape, allowsNull: false)]);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+        CultureInfo originalCulture = CultureInfo.CurrentCulture;
+        CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;
+
+        try
+        {
+            JsonSchemaVocabularyDescriptor english = Build("en-US");
+            JsonSchemaVocabularyDescriptor arabic = Build("ar-SA");
+            JsonSchemaVocabularyDescriptor englishAgain = Build("en-US");
+
+            Assert.Equal(
+                english.SchemaIdentity,
+                arabic.SchemaIdentity);
+            Assert.Equal(
+                english.DescriptorIdentity,
+                arabic.DescriptorIdentity);
+            Assert.Equal(
+                english.Schema.GetRawText(),
+                arabic.Schema.GetRawText());
+            Assert.Equal(
+                english.SchemaIdentity,
+                englishAgain.SchemaIdentity);
+            Assert.Equal(
+                english.DescriptorIdentity,
+                englishAgain.DescriptorIdentity);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+
+        JsonSchemaVocabularyDescriptor Build(string cultureName)
+        {
+            var culture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+            return JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("fixture.culture-invariant-generic"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Positional(row)),
+                snapshot,
+                snapshot.Identity);
+        }
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public void
+        JsonSchema_RejectsUnmodeledRequiredMemberConstructorSelection()
+    {
+        Assert.Equal(
+            "default",
+            SetsRequiredMembersFixtureExports
+                .ReadSetsRequiredMembers("{}"));
+
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(typeof(SetsRequiredMembersFixtureExports)
+                .Assembly.Location);
+        ApiType type = Assert.Single(
+            surface.Records,
+            candidate =>
+                candidate.FullName
+                    == typeof(SetsRequiredMembersInputFixture).FullName);
+
+        ApiMember constructor = Assert.Single(
+            type.Members,
+            member => member.Kind == "constructor");
+        Assert.Equal(
+            1,
+            constructor.SetsRequiredMembersAttributeCount);
+        Assert.False(
+            constructor.HasMalformedSetsRequiredMembersAttribute);
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresRequiredMemberConstructorEvidence(type));
+
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        string declaration = DtsEmitter.Emit(surface, diagnostics);
+        Assert.Contains(
+            "export type SetsRequiredMembersInputFixture = unknown;",
+            declaration,
+            StringComparison.Ordinal);
+        TypeScriptGenerationDiagnostic diagnostic =
+            Assert.Single(diagnostics.UnmappedTypes);
+        Assert.Equal(
+            "required-member deserialization requires unmodeled constructor-selection evidence",
+            diagnostic.CSharpType);
+
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+        JsonSchemaVocabularyException exception = Assert.Throws<
+            JsonSchemaVocabularyException>(
+            () => JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("fixture.sets-required-members"),
+                    JsonWireDirection.Deserialize,
+                    new JsonSchemaContractRoot.Object(type)),
+                snapshot,
+                snapshot.Identity));
+
+        Assert.Contains(
+            "constructor-binding evidence is incomplete",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public void JsonSchema_RejectsUnmodeledStringEnumReadSemantics()
+    {
+        foreach (string json in new[]
+        {
+            """{"State":"Ready"}""",
+            """{"State":"ready"}""",
+            """{"State":" Ready "}""",
+            """{"State":"1"}""",
+        })
+        {
+            Assert.Equal(
+                "Ready",
+                SetsRequiredMembersFixtureExports
+                    .ReadStringEnum(json));
+        }
+        Assert.Equal(
+            """{"State":"Ready"}""",
+            SetsRequiredMembersFixtureExports.WriteStringEnum());
+
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(typeof(SetsRequiredMembersFixtureExports)
+                .Assembly.Location);
+        ApiType type = Assert.Single(
+            surface.Enums,
+            candidate =>
+                candidate.FullName
+                    == typeof(StringEnumInputState).FullName);
+        JsonWireDeclarationPlan plan =
+            JsonWireDeclarationPlan.Create(surface);
+
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+        JsonSchemaVocabularyException exception = Assert.Throws<
+            JsonSchemaVocabularyException>(
+            () => JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                plan,
+                new(
+                    new("fixture.string-enum-input"),
+                    JsonWireDirection.Deserialize,
+                    new JsonSchemaContractRoot.Object(type)),
+                snapshot,
+                snapshot.Identity));
+        Assert.Contains(
+            "string-enum deserialization semantics are not modeled",
+            exception.Message,
+            StringComparison.Ordinal);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                plan,
+                new(
+                    new("fixture.string-enum-output"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(type)),
+                snapshot,
+                snapshot.Identity);
+        string definitionName = descriptor.Schema.GetProperty("$ref")
+            .GetString()!["#/$defs/".Length..];
+        JsonElement alternatives = descriptor.Schema
+            .GetProperty("$defs")
+            .GetProperty(definitionName)
+            .GetProperty("anyOf");
+        Assert.Equal(
+            ["Ready", "Finished"],
+            alternatives[0].GetProperty("enum")
+                .EnumerateArray()
+                .Select(item => item.GetString())
+                .ToArray());
+        Assert.Equal(
+            "integer",
+            alternatives[1].GetProperty("type").GetString());
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public void JsonSchema_SubstitutesBeforeGenericContainerSpecialization()
+    {
+        string path = typeof(TypeScriptFixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiAssemblyIdentity assembly = Assert.IsType<ApiAssemblyIdentity>(
+            apiSurface.AssemblyIdentity);
+        ApiType arrayBox = Assert.Single(
+            apiSurface.Types,
+            type => type.Name.StartsWith(
+                "ArrayBox",
+                StringComparison.Ordinal));
+        ApiType keyBox = Assert.Single(
+            apiSurface.Types,
+            type => type.Name.StartsWith(
+                "KeyBox",
+                StringComparison.Ordinal));
+        var arrayBoxIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            arrayBox.FullName,
+            arrayBox.DefinitionName);
+        var keyBoxIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            keyBox.FullName,
+            keyBox.DefinitionName);
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Records = [arrayBox, keyBox],
+                ReferencedTypeDefinitions =
+                    new Dictionary<ApiTypeReferenceIdentity, ApiType>
+                    {
+                        [arrayBoxIdentity] = arrayBox,
+                        [keyBoxIdentity] = keyBox,
+                    },
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [arrayBox] = JsonWireDirection.Serialize,
+                        [keyBox] = JsonWireDirection.Serialize,
+                    },
+            };
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonElement byteValues = NonNull(
+            ValuesSchema("GetByteArrayBox"));
+        Assert.Equal(
+            "string",
+            byteValues.GetProperty("type").GetString());
+        Assert.Equal(
+            "base64",
+            byteValues.GetProperty("contentEncoding").GetString());
+        Assert.Equal(
+            """{"values":"AQI="}""",
+            TypeScriptFixtureExports.GetByteArrayBox());
+
+        JsonElement keyValues = NonNull(
+            ValuesSchema("GetStringKeyBox"));
+        Assert.Equal(
+            "object",
+            keyValues.GetProperty("type").GetString());
+        Assert.Equal(
+            "integer",
+            NonNull(keyValues.GetProperty("additionalProperties"))
+                .GetProperty("type").GetString());
+        Assert.Equal(
+            """{"values":{"one":1}}""",
+            TypeScriptFixtureExports.GetStringKeyBox());
+
+        JsonElement ValuesSchema(string exportName)
+        {
+            ApiTypeShape shape = exportName switch
+            {
+                "GetByteArrayBox" => ApiTypeShape.GenericInstance(
+                    arrayBoxIdentity,
+                    [ApiTypeShape.PrimitiveType(ApiPrimitiveType.Byte)]),
+                "GetStringKeyBox" => ApiTypeShape.GenericInstance(
+                    keyBoxIdentity,
+                    [ApiTypeShape.PrimitiveType(ApiPrimitiveType.String)]),
+                _ => throw new InvalidOperationException(exportName),
+            };
+            var row = new JsonPositionalRowContract(
+                [new("value", shape, allowsNull: false)]);
+            JsonSchemaVocabularyDescriptor descriptor =
+                JsonSchemaVocabularyDescriptorBuilder.Build(
+                    surface,
+                    JsonWireDeclarationPlan.Create(surface),
+                    new(
+                        new($"fixture.{exportName}"),
+                        JsonWireDirection.Serialize,
+                        new JsonSchemaContractRoot.Positional(row)),
+                    snapshot,
+                    snapshot.Identity);
+            string definitionName =
+                descriptor.Schema.GetProperty("prefixItems")[0]
+                    .GetProperty("$ref")
+                    .GetString()!["#/$defs/".Length..];
+            JsonElement properties = descriptor.Schema.GetProperty("$defs")
+                .GetProperty(definitionName)
+                .GetProperty("properties");
+            return Assert.Single(properties.EnumerateObject()).Value;
+        }
+
+        static JsonElement NonNull(JsonElement schema)
+        {
+            if (!schema.TryGetProperty(
+                    "anyOf",
+                    out JsonElement alternatives))
+            {
+                return schema;
+            }
+            return Assert.Single(
+                alternatives.EnumerateArray(),
+                alternative =>
+                    !alternative.TryGetProperty(
+                        "type",
+                        out JsonElement type)
+                    || type.GetString() != "null");
+        }
+    }
+
+    [Fact]
+    public void JsonSchema_DistinguishesConditionalAbsenceFromPresentNull()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType dto = Assert.Single(
+            surface.Records,
+            type => type.Name == "ConditionalOutputDto");
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("conditional-output"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(dto)),
+                snapshot,
+                snapshot.Identity);
+
+        JsonElement definition =
+            descriptor.Schema.GetProperty("$defs")
+                .GetProperty("ConditionalOutputDto");
+        JsonElement properties =
+            definition.GetProperty("properties");
+        JsonElement required =
+            definition.GetProperty("required");
+        Assert.True(
+            properties.GetProperty("alwaysNullable")
+                .TryGetProperty("anyOf", out _));
+        Assert.Contains(
+            "alwaysNullable",
+            required.EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.False(
+            properties.GetProperty("nullHidden")
+                .TryGetProperty("anyOf", out _));
+        Assert.DoesNotContain(
+            "nullHidden",
+            required.EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            "string",
+            properties.GetProperty("nullHidden")
+                .GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public void Emit_UsesOutputDeclarationInsideDeferredJsonText()
+    {
+        var dto = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Directional",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "ServerNote",
+                    Kind = "property",
+                    ReturnType = "string",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.WhenReading],
+                },
+            ],
+        };
+        var output = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "GetDirectional",
+            RuntimeDispatchKey = "GetDirectional.1",
+            ReturnType = "Task<string>",
+            ReturnWireType = "Fixture.Directional",
+            ReturnWireMode = JsExportJsonOutputMode.JsonText,
+        };
+        var input = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "SetDirectional",
+            RuntimeDispatchKey = "SetDirectional.1",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Payload",
+                    Type = "string",
+                },
+            ],
+            ParameterWireBindings =
+            [
+                new JsExportParameterWireBinding
+                {
+                    ParameterIndex = 0,
+                    WireType = "Fixture.Directional",
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [dto],
+                Functions = [output, input],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [dto] = JsonWireDirection.Both,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export async function getDirectional(): "
+                + "Promise<JsonText<DirectionalOutput>>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function setDirectional("
+                + "payload: DirectionalInput): void",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_PropagatesDirectionalSplitThroughUnionCases()
+    {
+        ApiAssemblyIdentity assembly = AssemblyIdentity();
+        MetadataTypeDefinitionName directionalName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    System.Collections.Immutable.ImmutableArray.Create(
+                        "Directional")))
+                .Name;
+        MetadataTypeDefinitionName choiceName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    System.Collections.Immutable.ImmutableArray.Create(
+                        "Choice")))
+                .Name;
+        var directional = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Directional",
+            Kind = "class",
+            DefinitionName = directionalName,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "ServerNote",
+                    Kind = "property",
+                    ReturnType = "string",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.WhenReading],
+                },
+            ],
+        };
+        var choice = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Choice",
+            Kind = "class",
+            DefinitionName = choiceName,
+        };
+        var assemblyReference = new AssemblyReferenceIdentity(
+            assembly.Name,
+            assembly.Version,
+            assembly.Culture,
+            assembly.PublicKeyToken);
+        TypeRef directionalReference = TypeRef.Definition(
+            assembly.Name,
+            "Fixture",
+            "Directional",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    assemblyReference),
+                directionalName));
+        var directionalIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            directional.FullName,
+            directionalName);
+        var choiceIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            choice.FullName,
+            choiceName);
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Records = [directional],
+                Unions =
+                [
+                    new JsExportUnion
+                    {
+                        Definition = choice,
+                        CaseTypes = [directionalReference],
+                        IncludesNull = false,
+                        DeserializationUnsupportedReason = null!,
+                    },
+                ],
+                ReferencedTypeDefinitions =
+                    new Dictionary<ApiTypeReferenceIdentity, ApiType>
+                    {
+                        [directionalIdentity] = directional,
+                        [choiceIdentity] = choice,
+                    },
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [directional] = JsonWireDirection.Both,
+                        [choice] = JsonWireDirection.Both,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export type ChoiceInput = DirectionalInput;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type ChoiceOutput = DirectionalOutput;",
             source,
             StringComparison.Ordinal);
     }
@@ -628,12 +1859,12 @@ public sealed class TypeScriptFacadeEmitterTests
         ];
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [fixture];
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         global::ILInspector.JsExportSurface.JsExportSurface surface =
-            JsExportSurfaceBuilder.Build(extracted, bodyIndex);
+            JsExportSurfaceBuilder.Build(extracted, bodyAnalysis);
 
         string source = TypeScriptFacadeEmitter.Emit(
             surface,
@@ -1652,6 +2883,77 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_AllocatesAcrossDirectionalPreferredNameCollisions()
+    {
+        var split = new ApiType
+        {
+            Namespace = "A",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    ReturnType = "string",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.WhenReading],
+                },
+            ],
+        };
+        var collision = new ApiType
+        {
+            Namespace = "B",
+            Name = "WidgetInput",
+            Kind = "class",
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [collision, split],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [split] = JsonWireDirection.Both,
+                        [collision] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            export interface WidgetInput {
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface WidgetOutput {
+              readonly Value: string;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            source.Split('\n'),
+            line => line.StartsWith(
+                "export interface type_",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            3,
+            DeclaredTypeNames(source).Distinct(
+                StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public void Emit_UsesExactTypeIdentityInsideNestedWireContainers()
     {
         ApiAssemblyIdentity assembly = AssemblyIdentity();
@@ -1850,6 +3152,91 @@ public sealed class TypeScriptFacadeEmitterTests
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
             "function $ownDataProperty(value: unknown, key: string): unknown",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_DeclaresJsonValueForSplitConditionalJsonElement()
+    {
+        MetadataTypeDefinitionName jsonElementDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    "System.Text.Json.JsonElement"))
+            .Name;
+        var jsonElementIdentity = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "System.Text.Json",
+                new Version(11, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "cc7b13ffcd2ddd51"),
+            "System.Text.Json.JsonElement",
+            jsonElementDefinition);
+        var record = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "PayloadDto",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Payload",
+                    Kind = "property",
+                    HasGetter = true,
+                    HasSetter = true,
+                    ReturnType = "System.Text.Json.JsonElement",
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingDefault,
+                    ],
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.Text.Json.JsonElement",
+                        ReturnTypeReferences = [jsonElementIdentity],
+                        ReturnTypeShape =
+                            ApiTypeShape.Named(
+                                jsonElementIdentity,
+                                isValueType: true),
+                    },
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [record],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [record] = JsonWireDirection.Both,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export type JsonValue =",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface PayloadDtoInput {
+              readonly Payload: unknown;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface PayloadDtoOutput {
+              readonly Payload?: JsonValue;
+            }
+            """,
             source,
             StringComparison.Ordinal);
     }
@@ -2227,11 +3614,11 @@ public sealed class TypeScriptFacadeEmitterTests
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface =
             ApiSurfaceExtractor.Extract(peReader, includeAll: true);
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis);
     }
 
     private static global::ILInspector.JsExportSurface.JsExportSurface

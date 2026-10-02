@@ -210,9 +210,11 @@ export function commandPaletteRowHtml(
   result: CommandPaletteResult,
   index: number,
   selected: boolean,
+  resultIdentity: string,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const base = `id="spotlight-result-${index}" class="spotlight-item ${selected ? "selected" : ""}" role="option" aria-selected="${selected}" data-sl-index="${index}"`;
+  const identity = escapeHtml(resultIdentity);
+  const base = `id="spotlight-result-${index}" class="spotlight-item ${selected ? "selected" : ""}" role="option" aria-selected="${selected}" data-sl-index="${index}" data-sl-result-identity="${identity}" data-rendered-interaction-key="spotlight-result:${identity}"`;
   return `<button ${base}>
     <span class="kind-icon sl-command">›</span>
     <span class="spotlight-item-name">${escapeHtml(result.command)}</span>

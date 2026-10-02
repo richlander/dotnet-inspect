@@ -388,6 +388,7 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.memberSignature, null);
   assert.equal(parsed.overload, null);
   assert.equal(parsed.section, "facts");
+  assert.equal(parsed.memberAccessibilityFilter, "public");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
 });
@@ -445,6 +446,26 @@ test("canonical package dependency views restore the package root lens", () => {
   assert.equal(parsed.packageLens, "dependencies");
   assert.equal(parsed.lens, null);
   assert.equal(parsed.type, null);
+});
+
+test("canonical forwarded-Type Overview is distinct from Package Overview", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view, lens: "overview",
+      type: "System.Xml:System.Xml.XmlReader", libraries: ["System.Xml"],
+      memberAnchor: null, memberSignature: null, section: null,
+    },
+  });
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=canonical"),
+    () => decoded(state));
+  assert.equal(parsed.workspaceNotice, "");
+  assert.equal(parsed.atPackageRoot, false);
+  assert.equal(parsed.atLibraryRoot, false);
+  assert.equal(parsed.lens, "overview");
+  assert.equal(parsed.type, "System.Xml:System.Xml.XmlReader");
+  assert.equal(parsed.library, "System.Xml");
 });
 
 test("canonical package views reject contradictory structural selection", () => {
@@ -882,13 +903,16 @@ test("malformed courtesy package routes become typed failures", () => {
 
 test("valid courtesy package routes continue to decode normally", () => {
   const parsed = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#source"),
+    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#package"),
   () => {
     throw new Error("unexpected packet decode");
   });
 
   assert.equal(parsed.package, "Example.Package");
   assert.equal(parsed.version, "1.0.0+build");
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.workspaceSubjectOpen, false);
+  assert.equal(parsed.packageLens, "overview");
   assert.equal(parsed.routeFailure, null);
 });
 
@@ -1142,6 +1166,20 @@ test("history signatures distinguish exact graph member identity", () => {
       workspaceViewSignature(original),
       workspaceViewSignature(workspaceView({ bodyTarget })));
   }
+});
+
+test("history signatures distinguish exact Member document identity", () => {
+  const original = workspaceView({
+    selectedMemberKey: "method:Build",
+    memberDocumentFingerprint: "abc123",
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(original),
+    workspaceViewSignature({
+      ...original,
+      memberDocumentFingerprint: "def456",
+    }));
 });
 
 test("history signatures distinguish captured library scope", () => {

@@ -89,12 +89,16 @@ internal static class JsExportSurfaceLoader
 
         try
         {
-            LibraryBodyIndex bodyIndex =
-                LibraryBodyIndex.OpenFromPrefetchedImage(
+            LibraryBodyAnalysisExecution bodyExecution =
+                LibraryBodyAnalysisService.ExecuteImage(
                     assemblyPath,
                     image,
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                        | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures.MethodEvidence
+                            | LibraryBodyAnalysisFeatures
+                                .JsonWireContractFlow));
+            LibraryJsonWireContractAnalysisResult bodyAnalysis =
+                bodyExecution.JsonWireContracts;
             if (!TryLoadReferencedTypeDefinitions(
                     assemblyPath,
                     searchLocations,
@@ -106,16 +110,16 @@ internal static class JsExportSurfaceLoader
                         ApiType> referencedTypeDefinitions,
                     out IReadOnlyDictionary<
                         ApiType,
-                        LibraryBodyIndex> referencedBodyIndexes))
+                        LibraryJsonWireContractAnalysisResult> referencedBodyAnalyses))
             {
                 return false;
             }
 
             surface = JsExportSurfaceBuilder.Build(
                 apiSurface,
-                bodyIndex,
+                bodyAnalysis,
                 referencedTypeDefinitions,
-                referencedBodyIndexes,
+                referencedBodyAnalyses,
                 jsonContractIdentity);
             return true;
         }
@@ -143,15 +147,20 @@ internal static class JsExportSurfaceLoader
         TextWriter error,
         out IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             definitions,
-        out IReadOnlyDictionary<ApiType, LibraryBodyIndex> bodyIndexes)
+        out IReadOnlyDictionary<
+            ApiType,
+            LibraryJsonWireContractAnalysisResult> bodyAnalyses)
     {
         var byIdentity =
             new Dictionary<ApiTypeReferenceIdentity, ApiType>();
-        var bodiesByType = new Dictionary<ApiType, LibraryBodyIndex>();
+        var analysesByType =
+            new Dictionary<
+                ApiType,
+                LibraryJsonWireContractAnalysisResult>();
         if (searchLocations.Count == 0)
         {
             definitions = byIdentity;
-            bodyIndexes = bodiesByType;
+            bodyAnalyses = analysesByType;
             return true;
         }
 
@@ -182,8 +191,10 @@ internal static class JsExportSurfaceLoader
                         + location);
                 definitions =
                     new Dictionary<ApiTypeReferenceIdentity, ApiType>();
-                bodyIndexes =
-                    new Dictionary<ApiType, LibraryBodyIndex>();
+                bodyAnalyses =
+                    new Dictionary<
+                        ApiType,
+                        LibraryJsonWireContractAnalysisResult>();
                 return false;
             }
         }
@@ -229,15 +240,18 @@ internal static class JsExportSurfaceLoader
                 continue;
             }
 
-            LibraryBodyIndex? dependencyBodyIndex =
+            LibraryJsonWireContractAnalysisResult? dependencyBodyAnalysis =
                 dependencySurface.Types.Any(type =>
                     type.BaseType
                         == "System.Text.Json.Serialization.JsonSerializerContext")
-                    ? LibraryBodyIndex.OpenFromPrefetchedImage(
-                        path,
-                        dependencyImage,
-                        LibraryBodyAnalysisFeatures.MethodEvidence
-                            | LibraryBodyAnalysisFeatures.JsonWireContractFlow)
+                    ? LibraryBodyAnalysisService.ExecuteImage(
+                            path,
+                            dependencyImage,
+                            LibraryBodyAnalysisRequest.Create(
+                                LibraryBodyAnalysisFeatures.MethodEvidence
+                                    | LibraryBodyAnalysisFeatures
+                                        .JsonWireContractFlow))
+                        .JsonWireContracts
                     : null;
             foreach (ApiType type in dependencySurface.Types)
             {
@@ -253,19 +267,21 @@ internal static class JsExportSurfaceLoader
                             + $"for '{typeIdentity}'.");
                     definitions =
                         new Dictionary<ApiTypeReferenceIdentity, ApiType>();
-                    bodyIndexes =
-                        new Dictionary<ApiType, LibraryBodyIndex>();
+                    bodyAnalyses =
+                        new Dictionary<
+                            ApiType,
+                            LibraryJsonWireContractAnalysisResult>();
                     return false;
                 }
 
                 byIdentity[typeIdentity] = type;
-                if (dependencyBodyIndex is not null)
-                    bodiesByType[type] = dependencyBodyIndex;
+                if (dependencyBodyAnalysis is not null)
+                    analysesByType[type] = dependencyBodyAnalysis;
             }
         }
 
         definitions = byIdentity;
-        bodyIndexes = bodiesByType;
+        bodyAnalyses = analysesByType;
         return true;
     }
 }

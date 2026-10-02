@@ -375,6 +375,16 @@ internal sealed class TrackingPackageContent(
             new PackageContentEntry(pair.Key, pair.Value.LongLength))];
     }
 
+    public PackageContentEntryScanner CreateEntryScanner()
+    {
+        ThrowIfRetired();
+        return PackageContentEntryScanner.From(
+            [.. entries.Select(static pair =>
+                new PackageContentEntry(
+                    pair.Key,
+                    pair.Value.LongLength))]);
+    }
+
     private void ThrowIfRetired()
     {
         if (_retired)

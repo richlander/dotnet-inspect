@@ -164,7 +164,7 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /const sourcePageKind =[\s\S]*activeScope === "type" && state\.lens === "source"[\s\S]*activeScope === "member"[\s\S]*state\.memberSection === "source"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
   assert.match(
     appSource,
     /onExploreSource: \(\) => \{[\s\S]*scope\(\) === "type" && state\.lens === "source"[\s\S]*openTypeExplorerRoute\(\)[\s\S]*openSettings\("source"\)/);
@@ -317,6 +317,7 @@ test("member source publishes only for the current member selection", async () =
 
   const load = coordinator.loadMemberSource({
     signature: "member-signature",
+    kind: "package",
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
@@ -355,6 +356,7 @@ test("current member source failures remain visible and restore focus", async ()
 
   await coordinator.loadMemberSource({
     signature: "member-signature",
+    kind: "package",
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
@@ -388,6 +390,7 @@ test("empty member source failure remains settled", async () => {
 
   await coordinator.loadMemberSource({
     signature: "member-signature",
+    kind: "package",
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
@@ -436,6 +439,7 @@ test("member source caches one authored catalog without another query", async ()
     }));
   const request = {
     signature: "member-signature",
+    kind: "package" as const,
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
@@ -664,6 +668,7 @@ test("legacy member source takeover cancels the authoritative type operation fir
 
   await coordinator.loadMemberSource({
     signature: "member",
+    kind: "package",
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",

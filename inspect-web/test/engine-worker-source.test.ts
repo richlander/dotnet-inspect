@@ -93,6 +93,10 @@ const request: TypeSourceLoadRequest = {
   isVisible: () => true,
 };
 
+async function unexpectedPlatformTypeSource(): Promise<BrowserTypeSourceResult> {
+  throw new Error("Unexpected Platform Type Source request.");
+}
+
 interface Deferred<T> {
   readonly promise: Promise<T>;
   readonly resolve: (value: T) => void;
@@ -273,6 +277,7 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
       calls.push(args);
       return Promise.resolve(succeeded());
     },
+    queryPlatformTypeSource: unexpectedPlatformTypeSource,
     cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
   };
   const harness = createHarness(operations =>
@@ -302,6 +307,7 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
   assert.notEqual(start, undefined);
   const payload = ownData(start, "payload");
   assert.deepEqual(payload, {
+    kind: "package",
     packageId: request.packageId,
     version: request.version,
     framework: request.framework,
@@ -312,6 +318,94 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
   });
   assert.doesNotThrow(() => structuredClone(payload));
 
+  harness.host.dispose();
+});
+
+test("Type Source Worker preserves Platform identity and retained context", async () => {
+  const calls: unknown[][] = [];
+  const facade: EngineWorkerTypeSourceFacade = {
+    queryTypeSource: async () => {
+      throw new Error("Unexpected package Type Source request.");
+    },
+    queryPlatformTypeSource: (...args) => {
+      calls.push(args);
+      return Promise.resolve(succeeded());
+    },
+    cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
+  };
+  const harness = createHarness(operations =>
+    registerEngineWorkerTypeSourceOperation(operations, () => facade));
+  await startReady(harness);
+  const platformRequest: TypeSourceLoadRequest = {
+    kind: "platform",
+    version: "11.0.0",
+    framework: "net11.0",
+    assembly: "System.Text.Json.dll",
+    pack: "netcore.app",
+    contextId: "demo-context",
+    type: "System.Text.Json.Nodes.JsonArray",
+    taste: "[]",
+    view: "source",
+    signature: "platform-source",
+    isVisible: () => true,
+  };
+
+  const { handle } = startSource(harness.adapter, platformRequest);
+  await harness.environment.flushAsync();
+
+  assert.equal((await handle.outcome).kind, "succeeded");
+  await handle.quiesced;
+  assert.deepEqual(calls, [[
+    "source-operation",
+    platformRequest.framework,
+    platformRequest.version,
+    platformRequest.assembly,
+    platformRequest.pack,
+    platformRequest.type,
+    platformRequest.taste,
+    platformRequest.view,
+    platformRequest.contextId,
+  ]]);
+  const start = harness.worker.receivedMessages.find(message =>
+    ownData(message, "kind") === "start");
+  assert.deepEqual(ownData(start, "payload"), {
+    kind: "platform",
+    version: platformRequest.version,
+    framework: platformRequest.framework,
+    assembly: platformRequest.assembly,
+    pack: platformRequest.pack,
+    contextId: platformRequest.contextId,
+    type: platformRequest.type,
+    taste: platformRequest.taste,
+    view: platformRequest.view,
+  });
+
+  harness.host.dispose();
+});
+
+test("Type Source Worker forwards an explicit decompiler view", async () => {
+  const calls: unknown[][] = [];
+  const facade: EngineWorkerTypeSourceFacade = {
+    queryTypeSource: (...args) => {
+      calls.push(args);
+      return Promise.resolve(succeeded());
+    },
+    queryPlatformTypeSource: unexpectedPlatformTypeSource,
+    cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
+  };
+  const harness = createHarness(operations =>
+    registerEngineWorkerTypeSourceOperation(operations, () => facade));
+  await startReady(harness);
+
+  const { handle } = startSource(harness.adapter, {
+    ...request,
+    view: "decompiler-source",
+  });
+  await harness.environment.flushAsync();
+
+  assert.equal((await handle.outcome).kind, "succeeded");
+  await handle.quiesced;
+  assert.equal(calls[0]?.at(-1), "decompiler-source");
   harness.host.dispose();
 });
 
@@ -326,6 +420,7 @@ test("Type Source binding preserves caller identity and expected diagnostics", a
         "restore the package before requesting source",
       ));
     },
+    queryPlatformTypeSource: unexpectedPlatformTypeSource,
     cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
   };
   const harness = createHarness(operations =>
@@ -362,6 +457,7 @@ test("Type Source Worker operation forwards keyed cancellation", async () => {
   const cancellations: unknown[][] = [];
   const facade: EngineWorkerTypeSourceFacade = {
     queryTypeSource: () => result.promise,
+    queryPlatformTypeSource: unexpectedPlatformTypeSource,
     cancelTypeSourceQuery: (...args) => {
       cancellations.push(args);
       return { kind: "Requested", reason: args[1] };
@@ -493,6 +589,7 @@ test("Type Source managed result and cancellation validators reject drift", () =
 
 test("Type Source codecs enforce request, result, and no-progress bounds", () => {
   const oversizedInput = engineWorkerTypeSourceInput.decode({
+    kind: "package",
     packageId: request.packageId,
     version: request.version,
     framework: request.framework,
@@ -538,6 +635,7 @@ for (const unavailable of [false, true]) {
         assert.equal(args.at(-1), "all-declarations");
         return { ...succeeded(source), value };
       },
+      queryPlatformTypeSource: unexpectedPlatformTypeSource,
       cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
     };
     const harness = createHarness(operations =>
@@ -607,6 +705,7 @@ test("Worker adapter contains malformed generated results to one operation", asy
       ...succeeded(),
       version: 2,
     }),
+    queryPlatformTypeSource: unexpectedPlatformTypeSource,
     cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
   };
   const harness = createHarness(operations =>

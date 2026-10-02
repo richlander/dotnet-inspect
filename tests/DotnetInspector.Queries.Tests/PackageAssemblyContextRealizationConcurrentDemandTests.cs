@@ -154,5 +154,8 @@ public sealed class PackageAssemblyContextRealizationConcurrentDemandTests
         public IReadOnlyList<PackageContentEntry>
             EnumerateEntriesWithLengths() =>
             _inner.EnumerateEntriesWithLengths();
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            _inner.CreateEntryScanner();
     }
 }

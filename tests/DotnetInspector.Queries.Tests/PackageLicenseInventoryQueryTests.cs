@@ -1,6 +1,6 @@
 using System.Text;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using DotnetInspector.Services;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
@@ -38,14 +38,13 @@ public sealed class PackageLicenseInventoryQueryTests
         PackageLicenseDeclaration? declaration = kind switch
         {
             "expression" => new(
-                DotnetInspector.Services.PackageLicenseDeclarationKind
-                    .Expression,
+                PackageLicenseDeclarationKind.Expression,
                 value!),
             "file" => new(
-                DotnetInspector.Services.PackageLicenseDeclarationKind.File,
+                PackageLicenseDeclarationKind.File,
                 value!),
             "url" => new(
-                DotnetInspector.Services.PackageLicenseDeclarationKind.Url,
+                PackageLicenseDeclarationKind.Url,
                 value!),
             null => null,
             _ => throw new InvalidOperationException(),

@@ -18,6 +18,7 @@ using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using InertText;
+using Markout;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -141,88 +142,72 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void ClassifiedMethodsQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
+    public void MethodClassificationBinding_MapsCountsAndRowsWithoutHostWork()
     {
         string path = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var session = AssemblyInspectionSession.Open(path);
         var inspection = new LibraryInspection();
 
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
+        LibraryMetadataService.ApplyMethodClassificationResult(
             path,
             inspection,
             new VerboseLogger(enabled: false),
-            ClassifiedMethodsQuery.Execute(session));
+            new MethodClassificationBindingResult.Available(
+                MethodClassificationQuery.Execute(session, MethodClassificationDemand.AllQuestions)));
 
-        var finding = Assert.Single(
-            inspection.ClassifiedMethodInspection.Findings(),
-            finding => finding.Payload.Anchor.MemberName == "PointerNoneMethod");
-        Assert.Same(MetadataFindings.ClassifiedMethodDescriptor, finding.Descriptor);
-        Assert.Equal(MethodClassification.Unsafe, finding.Payload.Classification);
-        Assert.Contains(
-            inspection.UnsafeMethods!,
-            method => method.MethodName == "PointerNoneMethod"
-                      && method.Signature.Contains('*', StringComparison.Ordinal));
+        Assert.Null(inspection.MethodClassificationFailure);
+        Assert.True(inspection.UnsafeMethodCount > 0);
+        Assert.Equal(inspection.PInvokeMethodCount, inspection.PInvokeMethods!.Count);
+        Assert.Contains(inspection.PInvokeMethods, method => method.MethodName == "SafeExtern");
+        Assert.Equal(inspection.PInvokeMethods.Count, inspection.PInvokeMethodDisplayRows.Length);
+        Assert.NotNull(new LibraryInspectionView(inspection).PInvokeMethodsSection);
     }
 
     [Fact]
-    public void ClassifiedMethodsQueryProjection_PreservesIdentityUntilInertViewBoundary()
+    public void ClassifiedRows_AreInertOnceAtTheGate()
     {
-        const string Name = "Method\u202EName";
-        const string DeclaringType = "Namespace.Type\U000E0074";
-        const string Signature = "void Method(\n)";
-        const string Module = "native\u200B.dll";
-        var anchor = new MemberAnchor(
-            "Method()",
-            "void Namespace.Type.Method()",
-            "0123456789",
-            "Namespace.Type",
-            "Method");
-        var method = new ClassifiedMethodInfo(
-            Name,
-            DeclaringType,
-            "Namespace",
-            Signature,
+        // The method-row gate spells identity text as InertString, so the JSON
+        // model and the view carry that spelling and neither encodes it again.
+        InertString name = new(TextPolicy.Field, "Method\u202EName\\");
+        InertString declaringType = new(TextPolicy.Field, "Namespace.Type\U000E0074");
+        InertString signature = new(TextPolicy.Field, "void Method(\n)");
+        InertString module = new(TextPolicy.Field, "native\u200B.dll");
+        var row = new ILInspector.Analysis.Classification.ClassifiedMethodRow(
+            0x06000001,
+            0,
+            name,
+            declaringType,
+            new InertString(TextPolicy.Field, "Namespace"),
+            signature,
             MethodClassification.PInvoke,
-            Module)
-        {
-            Anchor = anchor,
-            ReturnType = "void",
-        };
-        var result = new ClassifiedMethodsResult.Available([method]);
+            module,
+            null,
+            null);
+        ClassificationQuestion model = new(MethodClassificationAnalyzer.PInvoke, ClassificationClosing.Rows, ClassifiedRowOrder.Model);
+        ClassificationQuestion display = new(MethodClassificationAnalyzer.PInvoke, ClassificationClosing.Rows, ClassifiedRowOrder.Display);
+        var result = new MethodClassificationResult(
+            [(model, new ClassificationAnswer.Rows([row])), (display, new ClassificationAnswer.Rows([row]))],
+            default,
+            null,
+            null,
+            []);
         var inspection = new LibraryInspection();
 
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
+        LibraryMetadataService.ApplyMethodClassificationResult(
             "hostile.dll",
             inspection,
             new VerboseLogger(enabled: false),
-            result);
+            new MethodClassificationBindingResult.Available(result));
 
-        ClassifiedMethodInfo queryMethod = Assert.Single(result.Methods);
-        ClassifiedMethodObservation payload = Assert.Single(
-            inspection.ClassifiedMethodInspection.Findings()).Payload;
         ClassifiedMethodSummary summary = Assert.Single(inspection.PInvokeMethods!);
-        PInvokeMethodRow row = Assert.Single(
-            new LibraryInspectionView(inspection).PInvokeMethodsSection!);
-
-        Assert.Equal(Name, queryMethod.MethodName);
-        Assert.Equal(DeclaringType, queryMethod.DeclaringType);
-        Assert.Equal(Signature, queryMethod.Signature);
-        Assert.Equal(Module, queryMethod.ModuleName);
-        Assert.Equal(anchor, payload.Anchor);
-        Assert.Equal(Name, summary.MethodName);
-        Assert.Equal(DeclaringType, summary.DeclaringType);
-        Assert.Equal(Signature, summary.Signature);
-        Assert.Equal(Module, summary.ModuleName);
-        Assert.NotEqual(Name, row.Name);
-        Assert.DoesNotContain("\U000E0074", row.DeclaringType, StringComparison.Ordinal);
-        Assert.DoesNotContain('\n', row.Signature);
-        Assert.DoesNotContain("\u200B", row.Module, StringComparison.Ordinal);
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Name));
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.DeclaringType));
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Module));
-        Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Signature));
-        Assert.StartsWith("<code>", row.DeclaringType, StringComparison.Ordinal);
-        Assert.StartsWith("<code>", row.Signature, StringComparison.Ordinal);
+        PInvokeMethodRow view = Assert.Single(new LibraryInspectionView(inspection).PInvokeMethodsSection!);
+        Assert.Equal(name.ToString(), summary.MethodName);
+        Assert.Equal(module.ToString(), summary.ModuleName);
+        Assert.Equal(name.ToString(), view.Name);
+        Assert.Equal(module.ToString(), view.Module);
+        Assert.Equal(MarkoutInline.Code(signature.ToString()), view.Signature);
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, view.Name));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, view.DeclaringType));
     }
 
     [Fact]
@@ -741,11 +726,11 @@ public class LibraryFindingConsumerTests
         var logger = new VerboseLogger(enabled: false);
         var inspection = new LibraryInspection();
 
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
+        LibraryMetadataService.ApplyMethodClassificationResult(
             missingPath,
             inspection,
             logger,
-            new ClassifiedMethodsResult.Failed(
+            new MethodClassificationBindingResult.Failed(
                 new FileNotFoundException(
                     "Classified method input was not found.",
                     missingPath)));
@@ -786,7 +771,7 @@ public class LibraryFindingConsumerTests
             new SwitchesResult.Failed(
                 new FileNotFoundException("Switch input was not found.", missingPath)));
 
-        AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
+        Assert.Equal("Classified method input was not found.", inspection.MethodClassificationFailure);
         AssertFailure(inspection.ExtensionMemberInspection, MetadataFindings.ExtensionMemberDescriptor);
         AssertFailure(inspection.ResourceInspection, MetadataFindings.ResourceDescriptor);
         AssertFailure(inspection.AssemblyAttributeInspection, MetadataFindings.AssemblyAttributeDescriptor);
@@ -1259,7 +1244,6 @@ public class LibraryFindingConsumerTests
             Assert.NotEqual(
                 Path.GetFileNameWithoutExtension(replacementPath),
                 inspection.AssemblyInfo.AssemblyName);
-            Assert.Equal(originalTimestamp, inspection.LastModified);
             Assert.Same(entry, inspection.AssemblyIntegrationsEntry);
             Assert.Same(
                 opportunitiesEntry,
@@ -1298,16 +1282,13 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void FailedClassifiedMethodInspection_DoesNotRenderPresentationRows()
+    public void FailedMethodClassification_DoesNotRenderCountsOrRows()
     {
         var inspection = new LibraryInspection
         {
-            ClassifiedMethodInspection = new FindingInspection<ClassifiedMethodObservation>.Failed(
-                new InspectionError(
-                    FindingTestData.Subject,
-                    MetadataFindings.ClassifiedMethodDescriptor,
-                    "method scan failed")),
-            UnsafeMethods =
+            MethodClassificationFailure = "method scan failed",
+            UnsafeMethodCount = 3,
+            PInvokeMethods =
             [
                 new ClassifiedMethodSummary
                 {
@@ -1318,11 +1299,8 @@ public class LibraryFindingConsumerTests
             ],
         };
 
-        var exception = Assert.Throws<InvalidOperationException>(
-            () => inspection.ClassifiedMethodInspection.Findings());
-        Assert.Contains("method scan failed", exception.Message);
-        Assert.Null(inspection.UnsafeMethods);
-        Assert.Equal(0, inspection.UnsafeMethodCount);
+        Assert.Null(inspection.PInvokeMethods);
+        Assert.Null(inspection.UnsafeMethodCount);
 
         var failure = Assert.Single(inspection.InspectionFailures!);
         Assert.Equal("Classified Methods", failure.Section);

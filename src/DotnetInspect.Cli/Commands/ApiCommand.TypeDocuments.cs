@@ -2,8 +2,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using DotnetInspect.Cli.CommandLine;
-using CSharpText.MemberSlicing;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
@@ -122,18 +123,46 @@ public partial class ApiCommand
                     section, StringComparer.OrdinalIgnoreCase))
                 .ToList();
         }
+        var bareDiscover = options.Discover is null or { Length: 0 };
+        HashSet<string> requestedDiscoverySections = bareDiscover
+            ? []
+            : GetRequestedMemberSections(filteredType, options);
+        if ((bareDiscover
+                || requestedDiscoverySections.Contains(
+                    SectionNames.UnsafeMembers))
+            && !ApplyTypeUnsafeMembersApplicability(
+                filteredType,
+                options,
+                effective))
+        {
+            return 1;
+        }
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
-        var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
             ? options.BodyKindQuery.HasFilter
                 ? effective
                 : options is MemberOptions { OverloadIndex: not null }
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
-            : [.. GetRequestedMemberSections(filteredType, options)
+            : [.. requestedDiscoverySections
                 .Where(section => !unprobed.Contains(section))];
-        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
+        HashSet<string> externallyProbedSections = memberPipeline
+            .QueryBoundSections
+            .Select(static binding => binding.Name)
+            .Where(unprobed.Contains)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool discoversOnlyExternallyProbedSections =
+            requestedDiscoverySections.Count > 0
+            && requestedDiscoverySections.All(
+                externallyProbedSections.Contains);
+        var renderManifest = discoversOnlyExternallyProbedSections
+            ? new RenderedSectionManifest()
+            : BuildTypeRenderManifest(
+                filteredType,
+                options,
+                discoveryRenderSections,
+                acquisition);
         if (bodyFilteredType is not null)
         {
             var bodyRenderManifest = BuildTypeRenderManifest(
@@ -196,6 +225,74 @@ public partial class ApiCommand
             listedCategoryDoors: memberPipeline.GetListedCategoryDoors(),
             exactOnlySections:
                 ApiMemberSectionPipelines.GetExactOnlySections(options));
+    }
+
+    private static bool ApplyTypeUnsafeMembersApplicability(
+        ApiType type,
+        ApiOptions options,
+        List<string> effective)
+    {
+        if (!effective.Contains(
+                SectionNames.UnsafeMembers,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        UnsafeEvidencePresenceResult result;
+        try
+        {
+            if (options.DllPath is not { } path
+                || type.MetadataToken is not { } token)
+                return true;
+            EntityHandle entity = MetadataTokens.EntityHandle(token);
+            if (entity.Kind != HandleKind.TypeDefinition)
+                return true;
+
+            using PdbContext context =
+                PdbContext.OpenMetadataOnly(path);
+            result = UnsafeEvidencePresenceQuery.ExecuteExactTypes(
+                path,
+                context,
+                (TypeDefinitionHandle)entity);
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(
+                $"Could not determine {SectionNames.UnsafeMembers} "
+                + $"applicability for {type.FullName}: {ex.Message}");
+            return false;
+        }
+
+        switch (result)
+        {
+            case UnsafeEvidencePresenceResult.Available
+                {
+                    HasEvidence: false,
+                }:
+                effective.RemoveAll(
+                    section => section.Equals(
+                        SectionNames.UnsafeMembers,
+                        StringComparison.OrdinalIgnoreCase));
+                return true;
+            case UnsafeEvidencePresenceResult.Available:
+                return true;
+            case UnsafeEvidencePresenceResult.ExecutionIncomplete incomplete:
+                CommandError.Write(
+                    $"Could not determine {SectionNames.UnsafeMembers} "
+                    + $"applicability for {type.FullName}: "
+                    + incomplete.Error.Message);
+                return false;
+            case UnsafeEvidencePresenceResult.Failed failed:
+                CommandError.Write(
+                    $"Could not determine {SectionNames.UnsafeMembers} "
+                    + $"applicability for {type.FullName}: "
+                    + failed.Error.Message);
+                return false;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown unsafe-evidence presence outcome.");
+        }
     }
 
     /// <summary>
@@ -405,8 +502,6 @@ public partial class ApiCommand
                 typeAnalysis ??= ApiAnalysisInspection.OpenTypeAnalysis(
                     renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions,
                     acquisition?.SourceAssembly);
-            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                TypeAnalysis().CompatibilityIndex();
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
@@ -434,7 +529,7 @@ public partial class ApiCommand
                 && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes)
                     || renderOptions.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysis().CallGraph, renderOptions.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, renderOptions);
@@ -457,7 +552,7 @@ public partial class ApiCommand
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysis().Optimization, renderOptions.IncludeSections,
                     renderOptions.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
@@ -466,7 +561,7 @@ public partial class ApiCommand
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysis().Leverage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
@@ -503,7 +598,7 @@ public partial class ApiCommand
                                 type,
                                 renderOptions)
                             : type,
-                        TypeAnalysisIndex(),
+                        TypeAnalysis().ImplementationProfiles,
                                 renderOptions is MemberOptions,
                                 restrictToModelMembers:
                             restrictImplementationProfiles,

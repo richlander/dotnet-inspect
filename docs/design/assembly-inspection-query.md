@@ -1317,6 +1317,40 @@ friend only its test assemblies. The current
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gate enforces the complete
 friend set rather than checking selected production assembly names.
 
+### Session-owned format admission
+
+Assembly Inspection owns general assembly-format admission for operations
+reached through `AssemblyInspectionSession`. The image owner classifies one
+immutable image and, for supported ECMA-335 metadata, establishes the retained
+`MetadataReader` before publishing the session. Unsupported Windows Metadata
+and malformed reader construction settle at that owner boundary before a
+Metadata producer runs. An image without managed metadata may still publish a
+session, but a metadata request settles as no metadata without invoking its
+producer.
+
+The admitted reader is a lifetime-bound precondition issued by the session.
+Metadata producers reached through that session consume the retained reader;
+they do not own general image-format classification or reader construction.
+Raw `PEReader` entry points that remain during incremental scanner migration
+are compatibility admission boundaries, not the producer contract. New
+session-backed producers consume the owner-issued precondition rather than
+copying those compatibility checks.
+
+Format admission does not make metadata rows trustworthy. Each producer
+remains responsible for high-fidelity answers on Roslyn-produced assemblies
+and for secure, bounded behavior on every admitted assembly. Guarded decoding,
+work budgets, recursion bounds, and visible partial or failed outcomes enforce
+that producer-local containment. General format admission and producer-local
+containment are separate boundaries; neither substitutes for the other.
+
+Implementation adoption must positively gate the supported ECMA-335,
+no-metadata, unsupported Windows Metadata, malformed-reader, lifetime, and
+visible producer-failure outcomes in Release. This design selects **no
+automated composition-absence gate** for the negative claim that no
+session-backed producer repeats admission. The absence remains unverified by
+automation and is enforced by owner review; implementation evidence must not
+describe positive session-path gates as repository-wide absence proof.
+
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable
 {
@@ -1353,6 +1387,118 @@ Mapping that constructs inspection facts belongs below the CLI; mapping typed
 facts into a presentation view does not move into the query merely to reduce
 adapter code. This keeps the assembly owner from regressing into formatter
 logic without making view types the currency of the service boundary.
+
+### Hierarchy relation producer and oracle contract
+
+Assembly Inspection owns the direct hierarchy question over one admitted
+image: which source Type definitions directly name one exact target definition
+as their base Type or an implemented interface? The target is a structured
+Metadata definition name, including namespace, nesting, and generic arity.
+The request may select one relation kind, public-only versus non-public
+declarations, hidden-declaration policy, an operation policy, row
+materialization, and a forward candidate bound. It does not accept display
+text, resolve Workspace focus, acquire another image, or perform transitive
+hierarchy traversal.
+
+The fidelity domain is the `TypeDef`, `TypeRef`, and canonical generic
+`TypeSpec` hierarchy shapes emitted by Roslyn. The producer gives exact answers
+for those shapes. Every supported admitted ECMA-335 image remains inert and
+bounded, but shapes outside the fidelity domain may produce a typed unsupported
+or partial outcome rather than a semantic answer. Unsupported Windows Metadata
+remains outside admission. A malformed or unsupported occurrence, visibility
+failure, cancellation, or exhausted operation bound cannot become a complete
+negative result.
+
+One logical candidate is one source Type and selected hierarchy kind.
+Repeated interface occurrences for that source remain one candidate with all
+physical occurrence tokens retained in metadata order. Each materialized row
+preserves the source definition address, structured source name, relation kind,
+and occurrence tokens. The result also carries the admitted-image receipt,
+candidate count, coverage, ordered diagnostics, disposition, applied forward
+plan, and whether production stopped early. Candidate count is an observed
+count unless complete coverage or an owner-issued exact witness establishes
+cardinality; consumers must not infer exact absence or Count from a partial
+zero.
+
+The producer may avoid work required only by an unrequested closing:
+
+- Exists may stop after the first candidate.
+- Head and a forward row window may stop after producing the required prefix
+  in Type-definition discovery order.
+- Count, Tail, and complete Rows inspect the complete requested population.
+- Exists and Count need not decode or retain source names or row projections.
+
+Early stopping remains visible through the result and does not strengthen
+coverage. Presentation sorting is downstream and cannot change the discovery
+order used by a forwarded closing. Subject Relations projection may later
+decode the retained occurrences into richer target identities, but that work
+is not part of the definition-name hierarchy question.
+
+Format admission is shared as described above. The hierarchy producer may also
+share narrow Metadata-owned primitives whose inputs and invariants are
+identical across callers:
+
+- structured definition-name construction and comparison;
+- guarded `TypeDef`, `TypeRef`, and canonical generic-`TypeSpec` decoding;
+- declaration visibility classification;
+- operation charging, coverage, diagnostics, and typed result contracts.
+
+Those primitives do not constitute a query implementation. Population
+traversal, occurrence enumeration, candidate grouping, terminal execution,
+early stopping, and row materialization are the hierarchy query and remain
+independently driven in the standard LINQ, NLinq, and Planner scorecard
+columns. Each column starts its own read over the same admitted immutable image
+and applies the same target, scope, visibility, ordering, projection, safety
+policy, and closing. LINQ is an idiomatic streaming `System.Linq` query, NLinq
+is the equivalent pinned struct query, and Planner is the shipping producer.
+Neither oracle calls the Planner query nor consumes a Planner-produced or
+shared materialized analysis sequence.
+
+A benchmark in which all columns consume one product analysis pass measures
+terminal overhead only. It may remain as a separately labeled diagnostic, but
+it is not the standard possibility-oracle comparison defined by
+[Performance oracles for QuerySpace enablement](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
+The standard report links each query implementation, its common population
+source, pinned NLinq provenance, exact invocation, and whether each Planner
+cell is shipping. A faster oracle identifies a concrete traversal, decoding,
+materialization, or closing choice that the Planner can adopt rather than
+having Planner work added to the oracle.
+
+These claims are unverified on this design-only slice. Implementation adoption
+uses the following Release gates:
+
+- `HierarchyAnalysisMatchesRoslynGenericRelationEvidence`,
+  `HierarchyTargetSelectionRetainsMatchingGenericTypeSpecifications`, and
+  `HierarchyTargetSelectionReusesChargedSourceNameAcrossOccurrences` in
+  `MetadataRelationInspectionTests` gate exact Roslyn-produced generic answers,
+  occurrence retention, and source-name materialization over pinned framework
+  and compiled fixture assemblies.
+- `HierarchyAnalysisForwardPlanStopsOnlyAfterItsBound` and
+  `HierarchyAnalysisContainsProjectionBudgetFailure` in
+  `MetadataRelationInspectionTests` gate forward stopping, non-materializing
+  Count, typed partial coverage, and retained diagnostics.
+- `HierarchyAnalysisContainsMalformedGenericTypeSpecifications` and
+  `HierarchyAnalysisRejectsCyclicVisibilityBeforeCandidateScan` in
+  `MetadataRelationInspectionTests` gate bounded malformed-`TypeSpec` and
+  visibility-graph behavior.
+- `subject-relations-scorecard check` over
+  `'<assembly>|<base|interface>|<target>'...` gates independently executed
+  LINQ, NLinq, and Planner Exists, Count, Rows, Head, Tail, and strict-window
+  answers over the pinned real assets and Metadata safety fixtures named by
+  the implementation PR.
+- `MetadataFormatAdmissionTests` and
+  `HierarchyAnalysisRejectsNativeImageBeforeProducerExecution` in
+  `MetadataRelationInspectionTests` retain the session admission, lifetime,
+  and unsupported-format boundary.
+
+The focused producer and scorecard adoption is tracked by
+[#8930](https://github.com/richlander/dotnet-inspect/pull/8930), and the
+host-neutral Subject Relations consumer by
+[#8931](https://github.com/richlander/dotnet-inspect/pull/8931). Subject
+Relations owns exact Workspace focus, cross-image correspondence, composition,
+and host projection; this section does not redefine those contracts. A reverse
+hierarchy index is a later implementation hypothesis, not part of this
+producer contract.
 
 ### 4. `MemorySafetyMetadataIndex` — shared module and member meaning
 
@@ -1619,7 +1765,7 @@ share a model:
 
 - `MemberCodeProvider` — per-member decompiled source / IL / attributes / facts (drives the
   decompiler and Research overlays).
-- `ILOffsetQuery` (the `library coordinate` command adapter) — parses command input and
+- `ILOffsetQuery` (the `library address` command adapter) — parses command input and
   forwards an `ILOffsetProjectionRequest` to Research.
 
 These want the same shape as the assembly seam, one level down: a query in, a finished result
@@ -1866,7 +2012,7 @@ interface IResearchFactProducer {
     IReadOnlyList<Annotation> Produce(ResearchFactContext context);
 }
 // ResearchFactRegistry holds the producers and Collect()s them;
-// ResearchAssemblyContext.Create(LibraryBodyIndex) builds the shared inputs once.
+// MemberProjectionAnalysisInput joins focused results from one execution.
 ```
 
 The mapping to this spec is nearly 1:1:
@@ -1874,7 +2020,7 @@ The mapping to this spec is nearly 1:1:
 | This spec | Research API |
 | --- | --- |
 | **facet** (one owner) | a producer's `Produces` set — one producer per fact id |
-| **shared PE-owner, parsed once** | `ResearchAssemblyContext.Create(index)` — built once, read by all producers |
+| **shared evidence input** | `MemberProjectionAnalysisInput` — exact focused results from one Analysis execution |
 | **session / hub** | `ResearchFactRegistry` — holds producers, `Collect`s over the shared context |
 | **facet dependencies** | producer `DependsOn` |
 | **CLI selects + renders; service produces** | Research's own contract: *"Producers contribute projection-neutral facts; presenters render the merged set."* |

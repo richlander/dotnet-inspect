@@ -12,6 +12,7 @@ using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -99,53 +100,12 @@ internal static class PlatformTypeCatalogRouting
         ArgumentNullException.ThrowIfNull(sourceOptions);
         cancellationToken.ThrowIfCancellationRequested();
 
-        InstalledPlatformHouseAdapter? installed =
-            dotnetRoot is null
-                ? null
-                : CreateInstalledAdapter(dotnetRoot);
-        await using var packageRuntime =
-            new DesktopPlatformPackageSourceRuntime(
-                context.CreatePackageSourceComposition,
-                sourceOptions,
-                "inspect-cli-platform");
-        PackagePlatformHouseAdapter package =
-            packageRuntime.CreateAdapter("cli-platform-type-routing-package");
-        PlatformHouseRequest request =
-            CreateRequest(installed, package, cancellationToken);
-
-        List<PlatformTargetDiscoverySource> discoverySources = [];
-        List<PlatformReferencePopulationRealizationSource>
-            realizationSources = [];
-        if (installed is not null)
-        {
-            discoverySources.Add(
-                InstalledPlatformTargetDiscovery.CreateSource(installed));
-            realizationSources.Add(
-                InstalledPlatformSelectedReferencePopulationRealization
-                    .CreateSource(
-                        installed,
-                        PlatformHouseCandidateIdentity.Create(
-                            "cli-platform-installed-reference-population")));
-        }
-        discoverySources.Add(
-            PackagePlatformTargetDiscovery.CreateSource(
-                package,
-                packageRuntime.IssueOperation));
-        realizationSources.Add(
-            PackagePlatformSelectedReferencePopulationRealization
-                .CreateSource(
-                    package,
-                    packageRuntime.IssueOperation,
-                    PlatformHouseCandidateIdentity.Create(
-                        "cli-platform-package-reference-population")));
-
         PlatformPopulationArtifactMaterializationOutcome realization =
-            await PlatformHouseSelectedReferencePopulationExecutor
-                .ExecuteAsync(
-                    request,
-                    discoverySources,
-                    realizationSources,
-                    "cli-platform-type-routing")
+            await RealizePopulationAsync(
+                    dotnetRoot,
+                    context,
+                    sourceOptions,
+                    cancellationToken)
                 .ConfigureAwait(false);
         if (realization
             is PlatformPopulationArtifactMaterializationOutcome.Terminal
@@ -206,6 +166,85 @@ internal static class PlatformTypeCatalogRouting
             _ => throw new InvalidOperationException(
                 "Unknown Platform type catalog derivation outcome."),
         };
+    }
+
+    internal static async ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RealizePopulationAsync(
+            string? dotnetRoot,
+            CommandContext context,
+            NuGetSourceOptions sourceOptions,
+            CancellationToken cancellationToken) =>
+        await RealizePopulationAsync(
+                dotnetRoot,
+                new PlatformLibraryPopulationDeclaration(
+                    PlatformFamily.DotNetRuntime),
+                context,
+                sourceOptions,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RealizePopulationAsync(
+            string? dotnetRoot,
+            PlatformLibraryPopulationDeclaration population,
+            CommandContext context,
+            NuGetSourceOptions sourceOptions,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        InstalledPlatformHouseAdapter? installed =
+            dotnetRoot is null
+                ? null
+                : CreateInstalledAdapter(dotnetRoot);
+        await using var packageRuntime =
+            new DesktopPlatformPackageSourceRuntime(
+                context.CreatePackageSourceComposition,
+                sourceOptions,
+                "inspect-cli-platform");
+        PackagePlatformHouseAdapter package =
+            packageRuntime.CreateAdapter("cli-platform-type-routing-package");
+        PlatformHouseRequest request =
+            CreateRequest(
+                installed,
+                package,
+                population.Family,
+                cancellationToken);
+
+        List<PlatformTargetDiscoverySource> discoverySources = [];
+        List<PlatformReferencePopulationRealizationSource>
+            realizationSources = [];
+        if (installed is not null)
+        {
+            discoverySources.Add(
+                InstalledPlatformTargetDiscovery.CreateSource(installed));
+            realizationSources.Add(
+                InstalledPlatformSelectedReferencePopulationRealization
+                    .CreateSource(
+                        installed,
+                        PlatformHouseCandidateIdentity.Create(
+                            "cli-platform-installed-reference-population")));
+        }
+        discoverySources.Add(
+            PackagePlatformTargetDiscovery.CreateSource(
+                package,
+                packageRuntime.IssueOperation));
+        realizationSources.Add(
+            PackagePlatformSelectedReferencePopulationRealization
+                .CreateSource(
+                    package,
+                    packageRuntime.IssueOperation,
+                    PlatformHouseCandidateIdentity.Create(
+                        "cli-platform-package-reference-population")));
+
+        return await PlatformHouseSelectedReferencePopulationExecutor
+                .ExecuteAsync(
+                    request,
+                    discoverySources,
+                    realizationSources,
+                    "cli-platform-type-routing")
+                .ConfigureAwait(false);
     }
 
     internal static InspectionEnvelope<PlatformTypeCatalogRouteOutcome> Resolve(
@@ -320,8 +359,18 @@ internal static class PlatformTypeCatalogRouting
     private static PlatformHouseRequest CreateRequest(
         InstalledPlatformHouseAdapter? installed,
         PackagePlatformHouseAdapter package,
+        PlatformFamily family,
         CancellationToken cancellationToken)
     {
+        string familyName = family switch
+        {
+            PlatformFamily.DotNetRuntime => "runtime",
+            PlatformFamily.AspNetCore => "aspnetcore",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(family),
+                family,
+                "Unsupported CLI Platform family."),
+        };
         PlatformTargetDiscoveryStage? preferred =
             installed is null
                 ? null
@@ -349,12 +398,12 @@ internal static class PlatformTypeCatalogRouting
 
         return new(
             PlatformHouseRequestIdentity.Create(
-                "cli-platform-type-routing"),
+                $"cli-platform-type-routing-{familyName}"),
             new PlatformTargetDemand.FamilyDefault(
-                PlatformFamily.DotNetRuntime,
+                family,
                 new PlatformVersionlessRuntimeTargetPolicy(
                     PlatformTargetSelectionPolicyIdentity.Create(
-                        "cli-versionless-runtime-default"),
+                        $"cli-versionless-{familyName}-default"),
                     PlatformTargetSelectionPolicyGeneration.Create(
                         "generation-1"),
                     PlatformVersion.Parse("10.0.1"),
@@ -365,13 +414,13 @@ internal static class PlatformTypeCatalogRouting
                     maxComparisons: 512)),
             new PlatformHouseRequestOrigin.Standalone(
                 PlatformStandaloneOperationIdentity.Create(
-                    "cli-platform-type-routing")),
+                    $"cli-platform-type-routing-{familyName}")),
             new PlatformHouseOperation.Realize(
                 new PlatformPopulationDemand.CompletePopulation(),
                 PlatformViewDemand.Reference),
             new PlatformSourcePlan(
                 PlatformSourcePlanIdentity.Create(
-                    "cli-platform-type-routing-sources"),
+                    $"cli-platform-type-routing-{familyName}-sources"),
                 PlatformSourcePolicyGeneration.Create("generation-1"),
                 [
                     new PlatformSourceSelection(
@@ -396,7 +445,7 @@ internal static class PlatformTypeCatalogRouting
             cancellationToken);
     }
 
-    private static CliPlatformTypeCatalogOutcome.NotCompleted HouseFailure(
+    internal static CliPlatformTypeCatalogOutcome.NotCompleted HouseFailure(
         PlatformPopulationArtifactMaterializationOutcome.Terminal terminal)
     {
         PlatformHouseOutcome<PlatformPopulationRealizationValue> outcome =
@@ -426,7 +475,7 @@ internal static class PlatformTypeCatalogRouting
             terminal.TerminalRealization.Receipt.HouseReceipt);
     }
 
-    private static async ValueTask<
+    internal static async ValueTask<
         ImmutableArray<PlatformHouseFailureKind>> RetireAsync(
             PlatformPopulationArtifactMaterializationOutcome.Completed
                 completed)

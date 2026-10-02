@@ -2,9 +2,20 @@ using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
+internal enum MetadataTypeNameBudgetKind
+{
+    EncodedBytes,
+    Characters,
+}
+
+internal readonly record struct MetadataTypeNameBudgetFailure(
+    MetadataTypeNameBudgetKind Kind,
+    long Limit,
+    long AttemptedCharge);
+
 /// <summary>
-/// Accumulates encoded then decoded type-name lengths against
-/// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/> so a relationship
+/// Accumulates encoded and decoded type-name lengths against their respective
+/// ceilings so a relationship
 /// reader can refuse a name before <see cref="MetadataReader.GetString(StringHandle)"/>
 /// materializes an over-budget heap entry or concatenates many shared ones.
 /// </summary>
@@ -47,6 +58,23 @@ internal struct MetadataTypeNameBudget
         Action<int>? beforeMaterialize,
         out string value,
         bool enforceCharacterBudget = true)
+        => TryRead(
+            reader,
+            handle,
+            delimiterChars,
+            beforeMaterialize,
+            out value,
+            out _,
+            enforceCharacterBudget);
+
+    internal bool TryRead(
+        MetadataReader reader,
+        StringHandle handle,
+        int delimiterChars,
+        Action<int>? beforeMaterialize,
+        out string value,
+        out MetadataTypeNameBudgetFailure failure,
+        bool enforceCharacterBudget = true)
     {
         if (handle.IsNil)
         {
@@ -58,9 +86,26 @@ internal struct MetadataTypeNameBudget
             value = string.Empty;
             encoded += delimiterChars;
             characters += delimiterChars;
-            return encoded <= MaxEncodedBytes
-                && (!enforceCharacterBudget
-                    || characters <= MetadataSafetyPolicy.MaxTypeNameCharacters);
+            if (encoded > MaxEncodedBytes)
+            {
+                failure = new(
+                    MetadataTypeNameBudgetKind.EncodedBytes,
+                    MaxEncodedBytes,
+                    encoded);
+                return false;
+            }
+            if (enforceCharacterBudget
+                && characters
+                    > MetadataSafetyPolicy.MaxTypeNameCharacters)
+            {
+                failure = new(
+                    MetadataTypeNameBudgetKind.Characters,
+                    MetadataSafetyPolicy.MaxTypeNameCharacters,
+                    characters);
+                return false;
+            }
+            failure = default;
+            return true;
         }
 
         int utf8Length = reader.GetBlobReader(handle).Length;
@@ -69,12 +114,25 @@ internal struct MetadataTypeNameBudget
         if (encoded > MaxEncodedBytes)
         {
             value = string.Empty;
+            failure = new(
+                MetadataTypeNameBudgetKind.EncodedBytes,
+                MaxEncodedBytes,
+                encoded);
             return false;
         }
 
         value = reader.GetString(handle);
         characters += value.Length + delimiterChars;
-        return !enforceCharacterBudget
-            || characters <= MetadataSafetyPolicy.MaxTypeNameCharacters;
+        if (enforceCharacterBudget
+            && characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            failure = new(
+                MetadataTypeNameBudgetKind.Characters,
+                MetadataSafetyPolicy.MaxTypeNameCharacters,
+                characters);
+            return false;
+        }
+        failure = default;
+        return true;
     }
 }

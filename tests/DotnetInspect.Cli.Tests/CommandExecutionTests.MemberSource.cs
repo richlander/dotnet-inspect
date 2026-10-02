@@ -268,11 +268,10 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.PdbSource, "## PDB Source")]
-    [InlineData(SectionNames.SourceDiff, "## Source Diff")]
+    [InlineData(SectionNames.PdbSource)]
+    [InlineData(SectionNames.SourceDiff)]
     public async Task Member_InvalidSourceCoordinatesReportVisibleSectionFailure(
-        string section,
-        string heading)
+        string section)
     {
         using var stream = File.OpenRead(TestAssemblyPath);
         using var peReader = new PEReader(stream);
@@ -309,7 +308,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains(heading, output);
+        Assert.DoesNotContain($"## {section}", output);
         Assert.Contains("sequence-point coordinates", output);
     }
 
@@ -1026,9 +1025,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## PDB Source", output);
         Assert.Contains(ApiCommand.BodylessMemberNote, output);
-        Assert.DoesNotContain("## Source Diff", output);
-        Assert.DoesNotContain("```", output);
-        Assert.DoesNotContain("..", output);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("PDB comparison unavailable", output);
     }
 
     [Fact]
@@ -1096,8 +1094,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Source Diff", output);
         Assert.Contains("--- PDB comparison", output);
         Assert.Contains("+++ Decompiled comparison", output);
-        // The decompiled side is the accessor's own body, spelled with its metadata name.
-        Assert.Contains("set_MaxDepth", output);
+        Assert.DoesNotContain("set_MaxDepth", output);
+        Assert.Contains("set", output);
         Assert.Contains("VerifyMutable();", output);
         Assert.Contains("_maxDepth = value;", output);
     }
@@ -1352,8 +1350,8 @@ public partial class CommandExecutionTests
                 "--library", library, "--all",
                 "-S", "Source Diff", "-v:d", "--tips", "q");
 
-            Assert.Equal(0, ordinalExit);
-            Assert.Equal(0, rawExit);
+            Assert.True(ordinalExit == 0, ordinalError);
+            Assert.True(rawExit == 0, rawError);
             Assert.Empty(ordinalError);
             Assert.Empty(rawError);
             string ordinalDiff = Assert.IsType<string>(
@@ -1392,7 +1390,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Collections.Generic.Stack",
-            "explicit:System.Collections.ICollection.get_IsSynchronized",
+            "System.Collections.ICollection.IsSynchronized:1",
             "--platform", "System.Collections",
             "-S", "Decompiled Source", "--tips", "q");
 
@@ -1414,7 +1412,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member",
             typeof(AttributedExplicitValuesFixture).FullName!,
-            $"explicit:{interfaceName}.get_Values",
+            $"{interfaceName}.Values:1",
             "--library",
             TestAssemblyPath,
             "-S",
@@ -1777,7 +1775,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_CountCountsCoordinateRows()
+    public async Task LibraryAddressFile_CountCountsCoordinateRows()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
@@ -1789,7 +1787,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath, "--count", "--tips", "q");
 
             Assert.Equal(0, exit);
@@ -1809,7 +1807,7 @@ public partial class CommandExecutionTests
     [InlineData(new[] { "--rows", "2..3" }, 2)]
     [InlineData(new[] { "--rows", "3.." }, 1)]
     [InlineData(new[] { "-n", "9" }, 3)]
-    public async Task LibraryCoordinateFile_CountCountsTheWindowItRenders(
+    public async Task LibraryAddressFile_CountCountsTheWindowItRenders(
         string[] window,
         int expected)
     {
@@ -1828,7 +1826,7 @@ public partial class CommandExecutionTests
         try
         {
             string[] head =
-                ["library", "coordinate", "--file", path, "--library", TestAssemblyPath];
+                ["library", "address", "--file", path, "--library", TestAssemblyPath];
             string[] tail = ["--tips", "q"];
 
             var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--jsonl", .. tail]);
@@ -1857,7 +1855,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_CountWindowsTheSameRowsTheTableKeeps()
+    public async Task LibraryAddressFile_CountWindowsTheSameRowsTheTableKeeps()
     {
         // A count can match the rendered row total while describing different rows.
         // Head and tail must therefore be shown to select genuinely different labels,
@@ -1872,11 +1870,11 @@ public partial class CommandExecutionTests
         try
         {
             var (headExit, headOut, _) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
                 "-n", "1", "--head", "--tips", "q");
             var (tailExit, tailOut, _) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
                 "-n", "1", "--tail", "--tips", "q");
 
@@ -1894,7 +1892,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_CountDoesNotRequireASectionFilter()
+    public async Task LibraryAddressFile_CountDoesNotRequireASectionFilter()
     {
         // --count here counts coordinate rows, not section rows, so demanding -S would force
         // the caller to name a section the batch does not render.
@@ -1903,7 +1901,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath, "--count", "--tips", "q");
 
             Assert.Equal(0, exit);
@@ -1917,7 +1915,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_RefusesExplicitSectionSelection()
+    public async Task LibraryAddressFile_RefusesExplicitSectionSelection()
     {
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -1929,7 +1927,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
                 "-S", "References",
                 "--count",
@@ -1938,7 +1936,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                "-S/--select is not available with library coordinate --file",
+                "-S/--select is not available with library address --file",
                 error);
         }
         finally
@@ -1948,19 +1946,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_ShapeProjectionIsRefusedWithItsActualReason()
+    public async Task LibraryAddressFile_ShapeProjectionIsRefusedWithItsActualReason()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path, "only 0x06000001+0x1\n", TestContext.Current.CancellationToken);
         try
         {
             var (exit, _, error) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath, "--value", "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Contains(
-                "--value is not available with library coordinate --file",
+                "--value is not available with library address --file",
                 error);
             // Not the section-count complaint, which is not the actual problem here.
             Assert.DoesNotContain("requires -S/--select", error);

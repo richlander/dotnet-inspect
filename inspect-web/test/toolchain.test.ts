@@ -187,6 +187,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
       "../playwright.worker-cpu.config.ts",
       "../playwright.package-adoption.config.ts",
       "../playwright.published-benchmark.config.ts",
+      "../playwright.find-unit-cost.config.ts",
       "../playwright.source-comparison.config.ts",
     ],
   );
@@ -547,7 +548,7 @@ test("facade compilation replaces stale transient inventories", () => {
 test("MSBuild admits only the exact generated facade modules after derivation", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const project = readFileSync(
-    resolve(root, "DotnetInspect.Web/DotnetInspect.Web.csproj"),
+    resolve(root, "../src/DotnetInspect.Web/DotnetInspect.Web.csproj"),
     "utf8",
   );
   const configuredModules = [
@@ -562,7 +563,7 @@ test("MSBuild admits only the exact generated facade modules after derivation", 
   assert.deepEqual(
     configuredModules,
     publishedFacadeModules.map(path =>
-      path.replace("DotnetInspect.Web/", "")),
+      `../../inspect-web/${path}`),
   );
   assert.ok(
     project.includes('<Content Remove="wwwroot\\inspect-web-*.js" />'),
@@ -575,7 +576,7 @@ test("MSBuild admits only the exact generated facade modules after derivation", 
   const target = targetMatch[0];
   const generation = target.indexOf("<Exec ");
   const admission = target.indexOf(
-    '<Content Include="@(_InspectWebGeneratedFacadeModule)" />',
+    '<Content Include="@(_InspectWebGeneratedFacadeModule)" Link="wwwroot\\%(Filename)%(Extension)" />',
   );
   assert.ok(generation >= 0 && admission > generation,
     "MSBuild must admit the exact facade set only after derivation");
@@ -1274,7 +1275,10 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
 
   assert.match(
     multiFacadeGenerationScript,
-    /canary="\$repo_root\/inspect-web\/multi-facade-canary"/);
+    /managed_canary="\$repo_root\/tests\/InspectWeb\.MultiFacadeCanary"/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /frontend_canary="\$repo_root\/inspect-web\/multi-facade-canary"/);
   assert.match(
     multiFacadeGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
@@ -1292,7 +1296,10 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
 
   assert.match(
     managedBridgeGenerationScript,
-    /canary="\$repo_root\/inspect-web\/managed-operation-bridge-canary"/);
+    /managed_canary="\$repo_root\/tests\/InspectWeb\.ManagedOperationBridgeCanary"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /frontend_canary="\$repo_root\/inspect-web\/managed-operation-bridge-canary"/);
   assert.match(
     managedBridgeGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
@@ -3029,6 +3036,7 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "playwright.worker-cpu.config.ts "
       + "playwright.package-adoption.config.ts "
       + "playwright.published-benchmark.config.ts "
+      + "playwright.find-unit-cost.config.ts "
       + "playwright.source-comparison.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
@@ -3087,6 +3095,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
   };
   const manifest: Record<string, ManifestEntry> = {
     "index.html": indexEntry,
+    "src/browser-package-entry-cache.ts": {
+      file: "browser-package-entry-cache.js",
+      isEntry: true,
+    },
     "src/dotnet-inspect.ts": {
       file: "assets/app.js",
       isDynamicEntry: true,
@@ -3104,6 +3116,7 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/index.js"), "");
   writeFileSync(join(site, "assets/index.css"), "");
   writeFileSync(join(site, "assets/app.js"), "");
+  writeFileSync(join(site, "browser-package-entry-cache.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
   writeFileSync(
@@ -3144,10 +3157,47 @@ test("the site artifact rejects a missing Vite output", (context) => {
     join(site, "index.html"),
     '<base href="/">'
       + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html is missing the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<script type="importmap">{}</script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places Vite entry 'assets\/index\.js' before the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
       + '<script type="importmap">{}</script>'
       + '<script type="module" src="/assets/index.js"></script>'
       + '<link rel="stylesheet" href="/assets/index.css">',
   );
+  manifest["src/browser-package-entry-cache.ts"] = {
+    file: "unexpected-root.js",
+    isEntry: true,
+  };
+  writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /manifest contains invalid asset 'unexpected-root\.js'/,
+  );
+
+  manifest["src/browser-package-entry-cache.ts"] = {
+    file: "browser-package-entry-cache.js",
+    isEntry: true,
+  };
   delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(

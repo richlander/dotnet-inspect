@@ -493,6 +493,7 @@ public static class DemoScenarioRunner
             TypeName = view.Type,
             Select = [.. runSections],
             IncludeSections = ToIncludeSet(runSections),
+            ExactIncludeSectionsOverride = ToIncludeSet(runSections),
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = format == OutputFormat.Markdown || embeddedMermaid,
@@ -561,6 +562,8 @@ public static class DemoScenarioRunner
             MemberDigest = selection.Anchor,
             Select = [.. runSections],
             IncludeSections = ToIncludeSet(runSections),
+            ExactIncludeSectionsOverride = ToIncludeSet(runSections),
+            MemberSectionsPreResolved = true,
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
             ShowDocs = false,
@@ -583,8 +586,8 @@ public static class DemoScenarioRunner
     /// when it does not (package-local entry points with empty Callers).
     /// Standalone mermaid: Call Graph only. Embedded mermaid requires a Call
     /// Graph bind (member pipeline) and keeps the Markdown companion set.
-    /// Structured document JSON is rejected for Call Graph/Callers binds until
-    /// those sections project into that payload.
+    /// Structured document JSON selects Call Graph alone because its semantic
+    /// graph document is the complete payload. Callers JSON remains unsupported.
     /// </summary>
     private static bool TryResolveRunSections(
         string boundSection,
@@ -617,10 +620,16 @@ public static class DemoScenarioRunner
             return true;
         }
 
-        if (format is OutputFormat.Json && (isCallGraph || isCallers))
+        if (format is OutputFormat.Json && isCallGraph)
+        {
+            runSections = [ProductDemoSections.CallGraph];
+            return true;
+        }
+
+        if (format is OutputFormat.Json && isCallers)
         {
             error =
-                "--json cannot represent Call Graph/Callers section output yet. "
+                "--json cannot represent Callers section output yet. "
                 + "Use default Markdown, --mermaid, or --table/--tsv/--jsonl.";
             return false;
         }

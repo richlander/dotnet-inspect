@@ -23,6 +23,9 @@ public abstract class SectionRowSetDeclaration<TIdentity, TProjection>
 
     internal abstract SectionRowSetDeclaration<TIdentity, TProjection>
         ResolveSnapshot(bool countOnly);
+
+    internal abstract SectionRowSetDeclaration<TIdentity, TProjection>
+        ResolveExactCountSnapshot(int exactCount);
 }
 
 public sealed class SectionRowSetDeclaration<
@@ -140,6 +143,16 @@ public sealed class SectionRowSetDeclaration<
                     _sourceRows,
                     _resultBinder!);
     }
+
+    internal override SectionRowSetDeclaration<TIdentity, TProjection>
+        ResolveExactCountSnapshot(int exactCount) =>
+        new SectionRowSetDeclaration<
+            TIdentity,
+            TProjection,
+            TRow>(
+                Identity,
+                TypedSchema,
+                exactCount);
 
     internal SectionRowSetResult<
         TIdentity,

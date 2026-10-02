@@ -30,6 +30,57 @@ public sealed class PackageRoleGroupId
 }
 
 /// <summary>
+/// Resource-free evidence for one exact package-acquired participant in an
+/// intrinsic CoreLib-ineligible role.
+/// </summary>
+public sealed class PackageIntrinsicCoreLibraryParticipantEvidence
+{
+    internal PackageIntrinsicCoreLibraryParticipantEvidence(
+        PackageRootIdentity package,
+        PackageCompileAsset asset,
+        AssemblyAcquisitionRegistration registration)
+    {
+        Package = package;
+        Asset = asset;
+        Registration = registration;
+    }
+
+    public PackageRootIdentity Package { get; }
+
+    public PackageCompileAsset Asset { get; }
+
+    public AssemblyAcquisitionRegistration Registration { get; }
+}
+
+/// <summary>
+/// Owner-issued proof that one complete projected package role cannot
+/// participate in intrinsic CoreLib binding.
+/// </summary>
+public sealed class PackageIntrinsicCoreLibraryIneligibilityReceipt
+{
+    internal PackageIntrinsicCoreLibraryIneligibilityReceipt(
+        PackageRoleGroupId group,
+        AssemblyBindingPolicyVersion bindingPolicyVersion,
+        ImmutableArray<PackageIntrinsicCoreLibraryParticipantEvidence>
+            participants)
+    {
+        Group = group;
+        BindingPolicyVersion = bindingPolicyVersion;
+        Participants = participants;
+    }
+
+    public PackageRoleGroupId Group { get; }
+
+    public AssemblyBindingPolicyVersion BindingPolicyVersion { get; }
+
+    public ImmutableArray<PackageIntrinsicCoreLibraryParticipantEvidence>
+        Participants
+    {
+        get;
+    }
+}
+
+/// <summary>
 /// Stable Queries-owned diagnostic for a failed package-role group release.
 /// </summary>
 public sealed record PackageRoleGroupReleaseDiagnostic
@@ -676,6 +727,8 @@ public sealed class PackageAssemblyContextRoleProjection
     readonly AssemblyContextGroup _group;
     readonly PackageRoleGroupId _groupIdentity;
     readonly ImmutableArray<PackageAssemblyRoleParticipant> _participants;
+    readonly PackageIntrinsicCoreLibraryIneligibilityReceipt
+        _intrinsicCoreLibraryIneligibility;
 
     internal PackageAssemblyContextRoleProjection(
         PackageAssemblyContextProjection projection,
@@ -687,6 +740,11 @@ public sealed class PackageAssemblyContextRoleProjection
         _groupIdentity = groupIdentity;
         _group = group;
         _participants = participants;
+        _intrinsicCoreLibraryIneligibility =
+            CreateIntrinsicCoreLibraryIneligibility(
+                groupIdentity,
+                group,
+                participants);
     }
 
     public PackageRoleGroupId GroupIdentity =>
@@ -695,11 +753,48 @@ public sealed class PackageAssemblyContextRoleProjection
     public ImmutableArray<PackageAssemblyRoleParticipant> Participants
         => _projection.Use(() => _participants);
 
+    public PackageIntrinsicCoreLibraryIneligibilityReceipt
+        IntrinsicCoreLibraryIneligibility =>
+            _projection.Use(() => _intrinsicCoreLibraryIneligibility);
+
     internal TResult Use<TResult>(
         Func<AssemblyContextGroup, TResult> callback)
     {
         ArgumentNullException.ThrowIfNull(callback);
         return _projection.Use(() => callback(_group));
+    }
+
+    static PackageIntrinsicCoreLibraryIneligibilityReceipt
+        CreateIntrinsicCoreLibraryIneligibility(
+        PackageRoleGroupId groupIdentity,
+        AssemblyContextGroup group,
+        ImmutableArray<PackageAssemblyRoleParticipant> participants)
+    {
+        var evidence = ImmutableArray.CreateBuilder<
+            PackageIntrinsicCoreLibraryParticipantEvidence>(
+                participants.Length);
+        foreach (PackageAssemblyRoleParticipant participant in participants)
+        {
+            ResolvedAssemblyReference assembly =
+                participant.Participant.Assembly;
+            if (assembly.Provenance
+                is not AssemblyResolutionProvenance.PackageAsset)
+            {
+                throw new InvalidOperationException(
+                    "An intrinsic CoreLib package-role ineligibility receipt "
+                    + "requires package acquisition provenance for every participant.");
+            }
+            evidence.Add(
+                new(
+                    participant.Package,
+                    participant.Asset,
+                    assembly.Registration));
+        }
+
+        return new(
+            groupIdentity,
+            group.BindingPolicyVersion,
+            evidence.MoveToImmutable());
     }
 }
 

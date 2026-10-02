@@ -167,7 +167,7 @@ public class RenderAbSensorTests
                 {
                     [key] = new(
                         """
-                        foreach (string description in values.Select<DotnetInspector.Services.NuspecData, string>(value => value.Description))
+                        foreach (string description in values.Select<DotnetInspector.Packages.NuspecData, string>(value => value.Description))
                         {
                         }
                         """,
@@ -180,7 +180,7 @@ public class RenderAbSensorTests
                     [key] = new(
                         "T",
                         "M",
-                        "(System.Collections.Generic.IReadOnlyList<DotnetInspector.Services.NuspecData> values)",
+                        "(System.Collections.Generic.IReadOnlyList<DotnetInspector.Packages.NuspecData> values)",
                         targetPath,
                         "fixture.dll",
                         """

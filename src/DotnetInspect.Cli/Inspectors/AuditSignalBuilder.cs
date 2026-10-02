@@ -3,6 +3,7 @@ using Inspector.Findings;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using InertText;
@@ -384,11 +385,25 @@ internal static class AuditSignalBuilder
                 ? null
                 : new SignalValue(FormatBool(context.Metadata.HasDisableRuntimeMarshalling), "DisableRuntimeMarshallingAttribute");
 
+        // Counts come from the analyzers' Count closings. A failed analyzer has
+        // no count, and the signal shows its failure instead of omitting the row.
         private static SignalValue? ResolveMemorySafetyUnsafePublicSignatures(in LibrarySignalContext context) =>
-            new(FormatCount(context.Inspection.UnsafeMethodCount), "public pointer signatures");
+            context.Inspection.MethodClassificationFailureOf(MethodClassificationAnalyzer.PointerSignature) is { } failure
+                ? new(UnavailableSignal, failure)
+                : context.Inspection.UnsafeMethodCount is { } count
+                    ? new(FormatCount(count), "public pointer signatures")
+                    : null;
 
         private static SignalValue? ResolveInteropPInvokeMethods(in LibrarySignalContext context) =>
-            new(FormatCount(context.PInvokeMethodCount ?? context.Inspection.PInvokeMethodCount), "all PInvokeImpl metadata");
+            context.PInvokeMethodCount is { } metadataCount
+                ? new(FormatCount(metadataCount), "all PInvokeImpl metadata")
+                : context.Inspection.MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is { } failure
+                    ? new(UnavailableSignal, failure)
+                    : context.Inspection.PInvokeMethodCount is { } count
+                        ? new(FormatCount(count), "all PInvokeImpl metadata")
+                        : null;
+
+        const string UnavailableSignal = "Unavailable";
     }
 
     private static class PackageSignalRows

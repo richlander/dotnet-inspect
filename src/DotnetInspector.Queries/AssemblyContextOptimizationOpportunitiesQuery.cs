@@ -40,7 +40,7 @@ public sealed record AssemblyContextOptimizationOpportunityMember(
 /// Ranked Analysis opportunities for one binding-consistent assembly context group.
 /// </summary>
 /// <remarks>
-/// The query owns every whole-assembly Analysis index, joins method bodies to the
+/// The query owns every whole-assembly Analysis execution, joins method bodies to the
 /// public API surface through product body selectors, and retains participant
 /// rejection or failure beside healthy rankings. Ordering, public-member
 /// attribution, and sequential execution are gated by
@@ -195,7 +195,7 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         AssemblyImageSnapshot snapshot,
         AssemblyOptimizationPublicMembers publicMembers)
     {
-        LibraryBodyIndex? index = null;
+        LibraryBodyAnalysisExecution? execution = null;
         try
         {
             var resolver = AssemblyContextAnalysisSource.Resolver(
@@ -205,21 +205,23 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                 LibraryBodyAnalysisRequest.Create(
                     LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities);
-            index = LibraryBodyAnalysisService.AnalyzeImage(
+            execution = LibraryBodyAnalysisService.ExecuteImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
                 request,
                 resolver);
 
+            LibraryOptimizationAnalysisResult optimization =
+                execution.Optimization;
             ImmutableArray<
                 OptimizationOpportunityMemberRanking> rankings =
                 OptimizationOpportunityRanking.RankMembers(
-                    index.OptimizationOpportunities.Where(
+                    optimization.Opportunities.Where(
                         opportunity =>
                             OptimizationOpportunityRanking
                                 .IncludePerformanceOpportunity(
                                     opportunity,
-                                    index.GeneratedFrameworkTypes)
+                                    optimization.GeneratedFrameworkTypes)
                             && OptimizationOpportunityRanking
                                 .IncludeInMemberTriage(
                                     opportunity)));
@@ -227,15 +229,15 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                 AggregatePublicMembers(
                     rankings,
                     publicMembers.Members),
-                index.GeneratedFrameworkTypes.ToImmutableHashSet(),
-                index.Diagnostics,
+                optimization.GeneratedFrameworkTypes,
+                execution.Receipt.Diagnostics,
                 publicMembers.InspectionFailures);
             resolver.ValidateForPublication();
             return result;
         }
         finally
         {
-            index?.ReleaseCallGraphCaches();
+            execution?.CallGraph.ReleaseCaches();
         }
     }
 

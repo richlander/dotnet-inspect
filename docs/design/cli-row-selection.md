@@ -621,6 +621,15 @@ One invocation is governed entirely by the active command or selected lens
 declaration and never changes meaning based on whether a later subsystem
 happens to handle the result.
 
+Find delegates a pure semantic `Head(N)` plan as one maximum-result budget
+across its Type or Member patterns. The Find execution owner may stop after
+`N` accepted unique hits and avoid later metadata rows, pattern groups, query
+participants, or source acquisition; every renderer and Count observes the
+same selected identities. Type candidates are classified independently in
+discovery order without whole-population ranking. The reverse-locator package
+route remains a declared complete-census boundary. Tail and Window remain
+post-classification operations.
+
 The package adoption consumes the online metadata-query evidence policy from
 [Package Source Model](package-source-model.md#metadata-only-version-queries).
 Semantic limits do not cap that discovery or relax its completeness rules.
@@ -1579,7 +1588,7 @@ The broad explicit-line rollout is enforced by:
 | `ImplementsCommandTests` and `ExtensionsCommandTests` | Existing semantic Head/Tail and Window selection remains intact, explicit line clipping is available, and numeric `-t` is ordinary type-filter input rather than a hidden row count or a compatibility diagnostic. |
 | `PackageChangesCommandTests` | Package activity retains semantic `-n`, does not reuse that count when line selection is explicit, and rejects JSON line clipping before acquisition. |
 | `CommandExecutionTests.Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization`, `Member_FactsProjectedJson_RejectsUnavailableWindow`, `Member_FactsProjectedJson_DeduplicatesEquivalentSelectors`, `Member_FactsCount_DoesNotActivateProjectedJsonAdoption`, `Member_FactsCount_LegacyRowsComposeWithInferredLines`, and `Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption` | Projected member Facts JSON applies semantic Head, Tail, and strict Window selection before serialization, equivalent selector spellings retain the same active adoption, terminal Count preserves legacy row/line composition, and effective or structural discovery remains outside that projection-specific declaration. |
-| `CommandExecutionTests.LibraryCoordinateCommand_InferredLinesComposeWithRows` | Inferred rendered-line selection composes with a command-owned legacy row window exactly as explicit `--lines` does, including Head and Tail direction. |
+| `CommandExecutionTests.LibraryAddressCommand_InferredLinesComposeWithRows` | Inferred rendered-line selection composes with a command-owned legacy row window exactly as explicit `--lines` does, including Head and Tail direction. |
 | `CliRowSelectionRouterIntegrationTests` | Uniform fallback candidates lower commandless `-n` as rendered-line selection, while candidates with different effective units require an explicit command before target acquisition. |
 | `PayloadLensContainmentTests` | Explicit line clipping preserves end-of-options ownership; row-shaped payload text after `--` is not interpreted as row selection. |
 

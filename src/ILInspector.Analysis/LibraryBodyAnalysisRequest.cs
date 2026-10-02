@@ -94,9 +94,11 @@ public sealed class LibraryBodyAnalysisRequest
 
     internal static LibraryBodyAnalysisRequest
         CreateImplementationMetrics(
-            ImplementationMetricEvidenceKind evidence,
+            ImplementationMetricKind metrics,
             ImplementationMetricWorkLimits limits,
-            IReadOnlySet<int> bodyScope)
+            IReadOnlySet<int> bodyScope,
+            LibraryBodyAnalysisFeatures features =
+                LibraryBodyAnalysisFeatures.None)
     {
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(bodyScope);
@@ -107,16 +109,40 @@ public sealed class LibraryBodyAnalysisRequest
                 nameof(bodyScope));
         }
         return new(
-            LibraryBodyAnalysisFeatures.None,
+            features,
             bodyScope,
             bodyTypeScope: null,
             resourceEffects: null,
             includeResourceLifecycle: false,
             new ImplementationMetricAnalysisRequest(
-                evidence,
+                metrics,
                 limits,
                 ImplementationMetricRequestOrigin.Explicit));
     }
+
+    /// <summary>
+    /// Selects source-native direct-invocation counts for an explicit method
+    /// scope under finite work bounds.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateDirectCallCounts(
+        ImplementationMetricWorkLimits limits,
+        IReadOnlySet<int> bodyScope) =>
+        CreateImplementationMetrics(
+            ImplementationMetricKind.DirectCallCount,
+            limits,
+            bodyScope);
+
+    /// <summary>
+    /// Selects source-native Calls-row cardinalities for an explicit method
+    /// scope under finite work bounds.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateCallSiteCounts(
+        ImplementationMetricWorkLimits limits,
+        IReadOnlySet<int> bodyScope) =>
+        CreateImplementationMetrics(
+            ImplementationMetricKind.CallSiteCount,
+            limits,
+            bodyScope);
 
     /// <summary>
     /// Selects Resource Occurrence Analysis with explicit admitted effect

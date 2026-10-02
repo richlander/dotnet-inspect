@@ -119,6 +119,13 @@ public partial class LibraryCommand
         new("References applicability", AssemblyReferencesQuery.Definition),
     ];
 
+    /// <summary>
+    /// The <c>--json</c> model dump shows every method classification count;
+    /// lists appear only when a row section asks for them.
+    /// </summary>
+    internal static readonly HostQueryDemand ModelDumpCountsDemand =
+        new("--json model counts", MethodClassificationDemand.ModelCounts);
+
     internal static readonly HostQueryDemand[]
         BareDiscoveryQueries =
         [
@@ -145,6 +152,11 @@ public partial class LibraryCommand
         WorkspaceContextLoadOptions? workspaceLoadOptions,
         CancellationToken cancellationToken = default)
     {
+        if (!ValidateLibraryMetricsTransport(options))
+            return 1;
+        if (!ValidateNameFamilyTransport(options))
+            return 1;
+
         if (!LibrarySourceAdapter.TryBind(
                 options,
                 out LibrarySourceBinding? source,
@@ -155,7 +167,9 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
-        if (DirectLibraryInspectionCommand.ShouldExecute(options))
+        if (DirectLibraryInspectionCommand.ShouldExecute(options)
+            && !(source.Selector is SourceSelector.PackageSource
+                && options.AddressRequest is not null))
         {
             return await DirectLibraryInspectionCommand.ExecuteAsync(
                     options,
@@ -168,7 +182,13 @@ public partial class LibraryCommand
         {
             return 1;
         }
+        bool packageAddress =
+            ShouldExecutePackageAddress(
+                options,
+                source,
+                preResolvedPackage: null);
         if (source.Selector is SourceSelector.PackageSource
+            && !packageAddress
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
@@ -186,7 +206,76 @@ public partial class LibraryCommand
         return await ExecuteBoundAsync(
             options,
             source,
-            preResolvedPackage: null).ConfigureAwait(false);
+            preResolvedPackage: null,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool ShouldExecutePackageAddress(
+        LibraryOptions options,
+        LibrarySourceBinding source,
+        PackageExtractionResult? preResolvedPackage) =>
+        source.Selector is SourceSelector.PackageSource
+        && preResolvedPackage is null
+        && options.AddressRequest is not null
+        && options.WorkspacePacket is null
+        && !options.JsonOutput
+        && !options.NamesakeLibrary
+        && !string.IsNullOrWhiteSpace(options.AssemblyName)
+        && TryGetPackageCompileLibrarySelection(
+            options.AssemblyName,
+            out _)
+        && HasOnlyPackageAddressSections(options)
+        && options.Discover is not { Length: 0 }
+        && !string.Equals(
+            options.Tfm,
+            "all",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryGetPackageCompileLibrarySelection(
+        string assemblyName,
+        out string? targetFramework)
+    {
+        targetFramework = null;
+        string path = assemblyName.Replace('\\', '/');
+        if (!path.Contains('/'))
+            return false;
+        if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            path += ".dll";
+
+        string[] segments = path.Split('/');
+        if (segments.Length != 3
+            || (!segments[0].Equals(
+                    "lib",
+                    StringComparison.OrdinalIgnoreCase)
+                && !segments[0].Equals(
+                    "ref",
+                    StringComparison.OrdinalIgnoreCase))
+            || !TfmResolver.IsTfmLike(segments[1])
+            || Path.GetFileNameWithoutExtension(segments[^1]).Length == 0)
+        {
+            return false;
+        }
+
+        targetFramework = segments[1];
+        return true;
+    }
+
+    private static bool HasOnlyPackageAddressSections(
+        LibraryOptions options)
+    {
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return true;
+
+        return options.AddressRequest
+            is LibraryAddressRequest.HeapPoint
+                ? sections.All(section =>
+                    section.Equals(
+                        MetadataSectionNames.Heap,
+                        StringComparison.OrdinalIgnoreCase))
+                : sections.All(section =>
+                    ILCoordinateSections.Contains(
+                        section,
+                        StringComparer.OrdinalIgnoreCase));
     }
 
     internal static async Task<int> ExecuteResolvedPackageAsync(
@@ -215,13 +304,15 @@ public partial class LibraryCommand
         return await ExecuteBoundAsync(
             options,
             source,
-            resolution).ConfigureAwait(false);
+            resolution,
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     static async Task<int> ExecuteBoundAsync(
         LibraryOptions options,
         LibrarySourceBinding source,
-        PackageExtractionResult? preResolvedPackage)
+        PackageExtractionResult? preResolvedPackage,
+        CancellationToken cancellationToken)
     {
         if (!options.Trace)
         {
@@ -229,7 +320,8 @@ public partial class LibraryCommand
                 options,
                 source,
                 trace: null,
-                preResolvedPackage).ConfigureAwait(false);
+                preResolvedPackage,
+                cancellationToken).ConfigureAwait(false);
         }
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
@@ -238,8 +330,8 @@ public partial class LibraryCommand
         {
             Command = new InertString(
                 TextPolicy.Field,
-                options.CoordinateRequest is not null
-                    ? "library coordinate"
+                options.AddressRequest is not null
+                    ? "library address"
                     : "library"),
             Target = new InertString(
                 TextPolicy.Field,
@@ -252,7 +344,8 @@ public partial class LibraryCommand
                 options,
                 source,
                 trace,
-                preResolvedPackage).ConfigureAwait(false);
+                preResolvedPackage,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -291,7 +384,8 @@ public partial class LibraryCommand
         LibraryOptions options,
         LibrarySourceBinding source,
         InspectionTrace? trace,
-        PackageExtractionResult? preResolvedPackage)
+        PackageExtractionResult? preResolvedPackage,
+        CancellationToken cancellationToken)
     {
         if (!LibraryNamespaceListingCommand.ValidateOptions(options))
             return 1;
@@ -365,9 +459,9 @@ public partial class LibraryCommand
         {
             return StructuralViewRegistry.Execute(
                 StructuralViewRegistry.Route(
-                    options.CoordinateRequest is null
+                    options.AddressRequest is null
                         ? StructuralViewIdentity.DirectLibrary
-                        : StructuralViewIdentity.LibraryCoordinate,
+                        : StructuralViewIdentity.LibraryAddress,
                     InspectionCatalogIdentity.Library),
                 StructuralDiscoveryRequest.From(options));
         }
@@ -390,9 +484,9 @@ public partial class LibraryCommand
             {
                 return StructuralViewRegistry.Execute(
                     StructuralViewRegistry.Route(
-                        options.CoordinateRequest is null
+                        options.AddressRequest is null
                             ? StructuralViewIdentity.DirectLibrary
-                            : StructuralViewIdentity.LibraryCoordinate,
+                            : StructuralViewIdentity.LibraryAddress,
                         InspectionCatalogIdentity.Library),
                     StructuralDiscoveryRequest.From(options));
             }
@@ -516,6 +610,28 @@ public partial class LibraryCommand
             IncludeSections =
                 libraryMetricsSelection.Sections,
         };
+        var nameFamilySelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.NameFamilies);
+        if (nameFamilySelection.Error is not null)
+        {
+            CommandError.Write(
+                nameFamilySelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                nameFamilySelection.Sections,
+        };
+        if (!ValidateLibraryMetricsTransport(options))
+            return 1;
+        if (!ValidateNameFamilyTransport(options))
+            return 1;
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -625,7 +741,15 @@ public partial class LibraryCommand
                 : [],
         };
 
-        if (!IsAllTfmPackageSelection(options)
+        // Coordinate file mode renders resolved coordinate rows rather than Library sections.
+        // Discovery likewise renders its own rows, while still allowing -S to narrow discovery.
+        bool rendersOwnPayload =
+            options.AddressRequest
+                is LibraryAddressRequest.FilePopulation
+            || options.Discover is not null;
+
+        if (!rendersOwnPayload
+            && !IsAllTfmPackageSelection(options)
             && LibrarySectionCardinality.ValidateExactTerminals(
                 options.Select,
                 options.SelectDefault,
@@ -643,6 +767,8 @@ public partial class LibraryCommand
         if (options.JsonOutput
             && !options.Count
             && options.IncludeSections is { Count: > 0 }
+            && !RequestsLibraryMetricsTransport(options)
+            && !RequestsNameFamilyTransport(options)
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Json,
                 options.IncludeSections))
@@ -660,6 +786,14 @@ public partial class LibraryCommand
                 CommandError.Write(
                     "Document --json cannot represent Library Metrics analysis. "
                     + "Use --jsonl, --tsv, or --table.");
+            }
+            else if (options.IncludeSections.Contains(
+                    SectionNames.NameFamilies))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent projected Name "
+                    + "Families rows. Select exactly Name Families for "
+                    + "complete Content JSON.");
             }
             else
             {
@@ -776,24 +910,24 @@ public partial class LibraryCommand
             return 1;
         }
 
-        if (options.CoordinateRequest
-                is LibraryCoordinateRequest.HeapPoint
+        if (options.AddressRequest
+                is LibraryAddressRequest.HeapPoint
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
         {
             CommandError.Write(
-                $"library coordinate requires the heap coordinate section. "
+                $"library address requires the heap coordinate section. "
                 + $"Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
             return 1;
         }
 
-        if (options.CoordinateRequest
-                is LibraryCoordinateRequest.IlPoint
+        if (options.AddressRequest
+                is LibraryAddressRequest.IlPoint
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
             CommandError.Write(
-                $"library coordinate requires an IL coordinate section. "
+                $"library address requires an IL coordinate section. "
                 + $"Omit -S or include -S \"{SectionNames.ILOffset}\", "
                 + $"-S \"{SectionNames.MemberContext}\", "
                 + $"-S \"{SectionNames.InstructionContext}\", "
@@ -802,16 +936,6 @@ public partial class LibraryCommand
                 + $"-S \"{SectionNames.ReturnAddressContext}\".");
             return 1;
         }
-
-        // Coordinate file mode counts resolved coordinate rows, not section rows, so it does not
-        // need a section filter to make --count meaningful.
-        var ilOffsetsBatchMode =
-            options.CoordinateRequest
-                is LibraryCoordinateRequest.FilePopulation;
-
-        // Discovery renders its own rows, so a section requirement describes a filter it does
-        // not use. -S still narrows effective discovery, so it stays permitted.
-        var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
 
         if (!rendersOwnPayload && options.Count)
         {
@@ -935,7 +1059,7 @@ public partial class LibraryCommand
         bool useEffectiveDiscoveryCache = fullEffectiveDiscovery
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
-            && options.CoordinateRequest is null
+            && options.AddressRequest is null
             && options.MetadataRoot == MetadataRootKind.Cli;
 
         if (trace is not null)
@@ -957,6 +1081,8 @@ public partial class LibraryCommand
             discoveryInspection && !fullEffectiveDiscovery
                 ? false
                 : options.FixedOverview);
+        bool wantsLibraryDocument =
+            LibraryMetadataService.WantsLibraryDocument(sectionPlan, options);
         bool wantsEcosystemDependencies =
             sectionPlan.Demands.Any(
                 static demand =>
@@ -972,6 +1098,10 @@ public partial class LibraryCommand
                     "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
+
+        if (!discoveryInspection
+            && LibraryMetadataService.WritesDefaultModelDump(options))
+            commandQueryDemand.Add(ModelDumpCountsDemand);
 
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(trace, commandQueryDemand);
@@ -1053,8 +1183,8 @@ public partial class LibraryCommand
                         framework!,
                         version,
                         "library --platform");
-                if (options.CoordinateRequest
-                        is LibraryCoordinateRequest.FilePopulation
+                if (options.AddressRequest
+                        is LibraryAddressRequest.FilePopulation
                     && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
@@ -1104,8 +1234,8 @@ public partial class LibraryCommand
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
                 bool sourceLinkAvailable = fullEffectiveDiscovery
-                    && options.CoordinateRequest
-                        is not LibraryCoordinateRequest.IlPoint
+                    && options.AddressRequest
+                        is not LibraryAddressRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         subject,
                         context.HttpClient,
@@ -1139,12 +1269,20 @@ public partial class LibraryCommand
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(resolvedPath!),
-                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery,
+                    trace: trace);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {resolvedPath}");
                     return 1;
                 }
+                LibraryDocumentInspection? documentInspection =
+                    await LibraryDocumentInspection.ReadAsync(
+                        inspection,
+                        resolvedPath!,
+                        packageName: null,
+                        isPlatformAssembly: true,
+                        requested: wantsLibraryDocument);
 
                 inspection.Source = SourceKind.Platform;
                 inspection.PlatformVersion = version;
@@ -1181,7 +1319,8 @@ public partial class LibraryCommand
                         resolvedPath!, inspection, options, pipeline, userVerbosity,
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
-                        inspectedContentHash: inspectedContentHash);
+                        inspectedContentHash: inspectedContentHash,
+                        documentInspection: documentInspection);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
                 if (!TrySelectLibraryEcosystemDependencies(
@@ -1190,10 +1329,19 @@ public partial class LibraryCommand
                 {
                     return 1;
                 }
+                if (RequestsLibraryMetricsTransport(options))
+                    return WriteLibraryMetricsTransport(inspection, options);
+                if (RequestsNameFamilyTransport(options))
+                    return WriteNameFamilyTransport(inspection, options);
+                if (RejectUnavailableNameFamilies(inspection, options))
+                    return 1;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
-                    return WriteLibraryShapeProjection(inspection, options);
+                    return WriteLibraryShapeProjection(
+                        inspection,
+                        options,
+                        documentInspection);
                 if (RejectEmptyExactSection(inspection, options, pipeline))
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
@@ -1207,7 +1355,12 @@ public partial class LibraryCommand
                     return 1;
                 }
 
-                OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
+                OutputFormatter.WriteLibraryResult(
+                    new LibraryInspectionRenderInput(
+                        inspection,
+                        documentInspection),
+                    options,
+                    pipeline);
                 return Math.Max(
                     IntegrityExitCode(inspection),
                     SelectedInspectionFailureExitCode(
@@ -1218,6 +1371,23 @@ public partial class LibraryCommand
             else if (source.Selector
                 is SourceSelector.PackageSource)
             {
+                if (ShouldExecutePackageAddress(
+                        options,
+                        source,
+                        preResolvedPackage))
+                {
+                    return await ExecutePackageAddressAsync(
+                        source.PackageTarget!,
+                        options,
+                        pipeline,
+                        userVerbosity,
+                        discoveryInspection,
+                        fullEffectiveDiscovery,
+                        discoveryExecutionScope,
+                        context,
+                        cancellationToken);
+                }
+
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath,
@@ -1255,8 +1425,8 @@ public partial class LibraryCommand
                         CancellationToken.None);
                 }
 
-                if (options.CoordinateRequest
-                        is LibraryCoordinateRequest.FilePopulation
+                if (options.AddressRequest
+                        is LibraryAddressRequest.FilePopulation
                     && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
@@ -1333,8 +1503,8 @@ public partial class LibraryCommand
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery
                     && primaryReady is not null
-                    && options.CoordinateRequest
-                        is not LibraryCoordinateRequest.IlPoint
+                    && options.AddressRequest
+                        is not LibraryAddressRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         primaryReady.Subject,
                         context.HttpClient,
@@ -1384,9 +1554,13 @@ public partial class LibraryCommand
                     extractPath, context.HttpClient, signatureResult,
                     queryPlan, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace,
-                    subjectSelections);
+                    subjectSelections, wantsLibraryDocument);
+                List<LibraryInspectionRenderInput> renderInputs =
+                    collection.RenderInputs;
                 List<LibraryInspection> inspections =
-                    collection.Inspections;
+                    renderInputs
+                        .Select(static input => input.Inspection)
+                        .ToList();
                 int descriptorSelectionExitCode =
                     collection.DescriptorSelectionFailures.Count > 0 ? 1 : 0;
 
@@ -1467,7 +1641,9 @@ public partial class LibraryCommand
                             inspectedContentHash:
                                 inspectedContentHash,
                             reportIdentifierFailures:
-                                !identifierAuditIncomplete));
+                                !identifierAuditIncomplete,
+                            documentInspection:
+                                renderInputs[0].DocumentInspection));
                 if (inspections.Count == 1
                     && !TrySelectAssemblyReferences(
                         inspections[0],
@@ -1479,6 +1655,38 @@ public partial class LibraryCommand
                     && !TrySelectLibraryEcosystemDependencies(
                         inspections[0],
                         options.EcosystemDependencyRowSelection))
+                {
+                    return 1;
+                }
+                if (RequestsLibraryMetricsTransport(options))
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Complete Library Metrics JSON requires one "
+                                + "exact Library.");
+                        return 1;
+                    }
+                    return WriteLibraryMetricsTransport(
+                        inspections[0],
+                        options);
+                }
+                if (RequestsNameFamilyTransport(options))
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Name Families requires one exact Library.");
+                        return 1;
+                    }
+                    return WriteNameFamilyTransport(
+                        inspections[0],
+                        options);
+                }
+                if (inspections.Count == 1
+                    && RejectUnavailableNameFamilies(
+                        inspections[0],
+                        options))
                 {
                     return 1;
                 }
@@ -1501,7 +1709,8 @@ public partial class LibraryCommand
                                 descriptorSelectionExitCode),
                             WriteLibraryShapeProjection(
                                 inspections[0],
-                                options)),
+                                options,
+                                renderInputs[0].DocumentInspection)),
                         !identifierAuditIncomplete,
                         inspections[0]);
                 if (RejectEmptyExactSection(inspections, options, pipeline))
@@ -1522,12 +1731,18 @@ public partial class LibraryCommand
                 }
 
                 if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
-                    OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
+                    OutputFormatter.WriteLibraryResult(
+                        renderInputs[0],
+                        options,
+                        pipeline);
                 else
                 {
                     if (RejectMultiAssemblyMetadataSelection(inspections, options))
                         return 1;
-                    OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
+                    OutputFormatter.WriteLibraryResults(
+                        renderInputs,
+                        options,
+                        pipeline);
                 }
 
                 return Math.Max(
@@ -1561,8 +1776,8 @@ public partial class LibraryCommand
 
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Local("library path");
-                if (options.CoordinateRequest
-                        is LibraryCoordinateRequest.FilePopulation
+                if (options.AddressRequest
+                        is LibraryAddressRequest.FilePopulation
                     && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
@@ -1610,8 +1825,8 @@ public partial class LibraryCommand
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery
-                    && options.CoordinateRequest
-                        is not LibraryCoordinateRequest.IlPoint
+                    && options.AddressRequest
+                        is not LibraryAddressRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         subject,
                         context.HttpClient,
@@ -1642,12 +1857,20 @@ public partial class LibraryCommand
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(assemblyPath!),
-                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery,
+                    trace: trace);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {assemblyPath}");
                     return 1;
                 }
+                LibraryDocumentInspection? documentInspection =
+                    await LibraryDocumentInspection.ReadAsync(
+                        inspection,
+                        assemblyPath!,
+                        packageName: null,
+                        isPlatformAssembly: false,
+                        requested: wantsLibraryDocument);
 
                 inspection.Source = SourceKind.File;
                 ApplyLibraryEcosystemDependencies(
@@ -1683,7 +1906,8 @@ public partial class LibraryCommand
                         assemblyPath!, inspection, options, pipeline, userVerbosity,
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
-                        inspectedContentHash: inspectedContentHash);
+                        inspectedContentHash: inspectedContentHash,
+                        documentInspection: documentInspection);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
                 if (!TrySelectLibraryEcosystemDependencies(
@@ -1692,10 +1916,19 @@ public partial class LibraryCommand
                 {
                     return 1;
                 }
+                if (RequestsLibraryMetricsTransport(options))
+                    return WriteLibraryMetricsTransport(inspection, options);
+                if (RequestsNameFamilyTransport(options))
+                    return WriteNameFamilyTransport(inspection, options);
+                if (RejectUnavailableNameFamilies(inspection, options))
+                    return 1;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
-                    return WriteLibraryShapeProjection(inspection, options);
+                    return WriteLibraryShapeProjection(
+                        inspection,
+                        options,
+                        documentInspection);
                 if (RejectEmptyExactSection(inspection, options, pipeline))
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
@@ -1709,7 +1942,12 @@ public partial class LibraryCommand
                     return 1;
                 }
 
-                OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
+                OutputFormatter.WriteLibraryResult(
+                    new LibraryInspectionRenderInput(
+                        inspection,
+                        documentInspection),
+                    options,
+                    pipeline);
                 return Math.Max(
                     IntegrityExitCode(inspection),
                     SelectedInspectionFailureExitCode(
@@ -1985,8 +2223,8 @@ public partial class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.FilePopulation
+        if (options.AddressRequest
+            is not LibraryAddressRequest.FilePopulation
             {
                 Population: { } population,
             })
@@ -2059,7 +2297,7 @@ public partial class LibraryCommand
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
         if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
-                options.CoordinateRowSelection,
+                options.AddressRowSelection,
                 options.Rows,
                 rows,
                 "IL coordinate",
@@ -2077,7 +2315,7 @@ public partial class LibraryCommand
         // non-zero exit remains the signal that some coordinate did not resolve.
         if (LensProjection.TryProject(
                 options,
-                "library coordinate --file",
+                "library address --file",
                 visibleRows.Count,
                 out var projectionExitCode,
                 ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"]))
@@ -2122,8 +2360,8 @@ public partial class LibraryCommand
     {
         var queryOptions = options with
         {
-            CoordinateRequest =
-                new LibraryCoordinateRequest.IlPoint(
+            AddressRequest =
+                new LibraryAddressRequest.IlPoint(
                     coordinate.Value,
                     coordinate.MethodToken,
                     coordinate.ILOffset),
@@ -2258,8 +2496,8 @@ public partial class LibraryCommand
     {
         var select = options.Select?.ToList() ?? [];
         bool hasILCoordinate =
-            options.CoordinateRequest
-                is LibraryCoordinateRequest.IlPoint;
+            options.AddressRequest
+                is LibraryAddressRequest.IlPoint;
         bool hasExplicitSelect = select.Count > 0;
 
         // Reject "<coordinate section>:<offset>" selectors. The legacy spellings ("IL Offset",
@@ -2279,8 +2517,8 @@ public partial class LibraryCommand
             {
                 return (
                     options,
-                    "IL coordinate parameters belong in the coordinate argument, "
-                    + $"not in -S. Use library coordinate 0x06000001+0x5 "
+                    "IL coordinate parameters belong in the address argument, "
+                    + $"not in -S. Use library address 0x06000001+0x5 "
                     + $"--library <path> -S \"{SectionNames.ILOffset}\".");
             }
         }
@@ -2312,11 +2550,11 @@ public partial class LibraryCommand
             return null;
 
         const string ilCoordinateRequired =
-            "IL coordinate sections require library coordinate "
+            "IL coordinate sections require library address "
             + "<token>+<offset>.";
         var heapCoordinateRequired =
-            $"\"{MetadataSectionNames.Heap}\" requires library coordinate "
-            + "\"<heap>:<address>\", for example library coordinate "
+            $"\"{MetadataSectionNames.Heap}\" requires library address "
+            + "\"<heap>:<address>\", for example library address "
             + "\"#Strings:0x1a4\".";
         var bodyKindRequired =
             $"\"{sections.FirstOrDefault(section => BodyKindQueryOptions.Sections.Contains(
@@ -2327,7 +2565,7 @@ public partial class LibraryCommand
         var removedBodyShapesSection = false;
 
         if (sections.Overlaps(ILCoordinateSections)
-            && !HasILCoordinateRequest(options))
+            && !HasILAddressRequest(options))
         {
             if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
             {
@@ -2342,8 +2580,8 @@ public partial class LibraryCommand
         }
 
         if (sections.Contains(MetadataSectionNames.Heap)
-            && options.CoordinateRequest
-                is not LibraryCoordinateRequest.HeapPoint)
+            && options.AddressRequest
+                is not LibraryAddressRequest.HeapPoint)
         {
             // Reached through @Metadata the section is dropped because a category selects whatever
             // applies. An exact selector is an error because the section cannot exist without its
@@ -2565,13 +2803,13 @@ public partial class LibraryCommand
         IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
             inspection.EcosystemDependencyRecognitionInspection?.Content
                 switch
-                {
-                    EcosystemDependencyRecognitionOutcome.Complete complete =>
-                        complete.Document.Classification.Recognized,
-                    EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                        incomplete.Document.Classification.Recognized,
-                    _ => [],
-                };
+            {
+                EcosystemDependencyRecognitionOutcome.Complete complete =>
+                    complete.Document.Classification.Recognized,
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized,
+                _ => [],
+            };
         if (!CliSemanticRowSelection.TrySelect(
                 intent,
                 rows,
@@ -2592,7 +2830,7 @@ public partial class LibraryCommand
         return true;
     }
 
-    private static void ApplyLibraryEcosystemDependencies(
+    internal static void ApplyLibraryEcosystemDependencies(
         LibraryInspection inspection,
         LibraryInspectionSubject subject,
         bool wantsEcosystemDependencies,
@@ -2609,18 +2847,24 @@ public partial class LibraryCommand
         }
         if (subject.AssemblyReference is not { } assembly)
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected input is not an assembly.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected input is not an assembly.");
+            }
             return;
         }
         if (!TryCreateExactLibrarySourceCoordinate(
                 assembly,
                 out ExactLibrarySourceCoordinate? source))
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected source does not have an exact Library coordinate.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected source does not have an exact Library coordinate.");
+            }
             return;
         }
 
@@ -2711,7 +2955,7 @@ public partial class LibraryCommand
         return false;
     }
 
-    private static bool RequiresLibraryEcosystemDiagnosticDisclosure(
+    internal static bool RequiresLibraryEcosystemDiagnosticDisclosure(
         LibraryOptions options) =>
         options.IncludeSections is { } sections
         && sections.Contains(SectionNames.EcosystemDependencies)
@@ -2790,8 +3034,8 @@ public partial class LibraryCommand
         NormalizeHeapCoordinateSelection(
             LibraryOptions options)
     {
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.HeapPoint)
+        if (options.AddressRequest
+            is not LibraryAddressRequest.HeapPoint)
             return (options, null);
 
         if (options.Discover != null || options.Select is { Length: > 0 })
@@ -2801,7 +3045,7 @@ public partial class LibraryCommand
     }
 
     /// <summary>
-    /// Reads the heap value named by the Coordinate child onto the model, which makes the
+    /// Reads the heap value named by the Address child onto the model, which makes the
     /// coordinate-scoped section applicable. Returns a process exit code, having written its own
     /// diagnostic, exactly as the IL-coordinate resolution above it does.
     ///
@@ -2816,8 +3060,8 @@ public partial class LibraryCommand
     private static int PopulateMetadataHeapIfRequested(
         LibraryInspection inspection, LibraryOptions options, VerboseLogger logger)
     {
-        if (options.CoordinateRequest
-                is not LibraryCoordinateRequest.HeapPoint coordinate
+        if (options.AddressRequest
+                is not LibraryAddressRequest.HeapPoint coordinate
             || (options.Discover == null && options.IncludeSections?.Contains(MetadataSectionNames.Heap) != true))
             return 0;
 
@@ -2894,8 +3138,8 @@ public partial class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (options.CoordinateRequest
-                is LibraryCoordinateRequest.FilePopulation
+        if (options.AddressRequest
+                is LibraryAddressRequest.FilePopulation
             && options.Discover is not null)
         {
             return await PopulateILCoordinatePopulationForDiscoveryAsync(
@@ -2909,8 +3153,8 @@ public partial class LibraryCommand
                 logger);
         }
 
-        if (options.CoordinateRequest
-                is not LibraryCoordinateRequest.IlPoint
+        if (options.AddressRequest
+                is not LibraryAddressRequest.IlPoint
             || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
 
@@ -2937,8 +3181,8 @@ public partial class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.FilePopulation
+        if (options.AddressRequest
+            is not LibraryAddressRequest.FilePopulation
             {
                 Population: { } population,
             })
@@ -3269,14 +3513,22 @@ public partial class LibraryCommand
     private static bool IsAllTfmPackageSelection(LibraryOptions options)
         => LibrarySectionCardinality.IsAllTfmPackageSelection(options);
 
-    private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
+    private static int WriteLibraryShapeProjection(
+        LibraryInspection inspection,
+        LibraryOptions options,
+        LibraryDocumentInspection? documentInspection = null)
     {
         var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
         var section = options.IncludeSections!.Single();
         var rows = section switch
         {
             SectionNames.SourceLinkFiles => ProjectLibrarySourceFiles(inspection, section, kind, options),
-            "Library Info" => ProjectLibraryInfo(inspection, section, kind, options),
+            "Library Info" => ProjectLibraryInfo(
+                inspection,
+                section,
+                kind,
+                options,
+                documentInspection),
             SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
             SectionNames.MemberContext => ProjectLibraryMemberContext(inspection, section, kind, options),
             SectionNames.InstructionContext => ProjectLibraryInstructionContext(inspection, section, kind, options),
@@ -3693,11 +3945,19 @@ public partial class LibraryCommand
             _ => null
         };
 
-    private static List<ShapeProjectionRow> ProjectLibraryInfo(LibraryInspection inspection, string section, ShapeProjectionKind kind, LibraryOptions options)
+    private static List<ShapeProjectionRow> ProjectLibraryInfo(
+        LibraryInspection inspection,
+        string section,
+        ShapeProjectionKind kind,
+        LibraryOptions options,
+        LibraryDocumentInspection? documentInspection)
     {
         if (kind != ShapeProjectionKind.Value)
             return [];
-        var info = new LibraryInspectionView(inspection).AssemblyInfoSection;
+        var info = new LibraryInspectionView(
+            inspection,
+            topFieldsOnly: false,
+            documentInspection).AssemblyInfoSection;
         if (info is null)
             return [];
 
@@ -3775,7 +4035,8 @@ public partial class LibraryCommand
         bool sourceLinkAvailable = false,
         bool cache = true,
         string? inspectedContentHash = null,
-        bool reportIdentifierFailures = true)
+        bool reportIdentifierFailures = true,
+        LibraryDocumentInspection? documentInspection = null)
     {
         // Seed the network-free SourceLink-availability fact so the SourceLink section family
         // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
@@ -3832,7 +4093,12 @@ public partial class LibraryCommand
         // schemas after the selected producers have run.
         var filteredSchema = fullEffectiveness
             ? FilterSchemaToEffectiveFields(
-                inspection, allEffective, schemaMap, pipeline, allEffective.ToArray())
+                inspection,
+                allEffective,
+                schemaMap,
+                pipeline,
+                allEffective.ToArray(),
+                documentInspection)
             : schemaMap;
         var failureOptions = options.IncludeSections is not { Count: > 0 }
             && effectivenessScope is { Count: > 0 }
@@ -4033,7 +4299,7 @@ public partial class LibraryCommand
     {
         if (options.IncludeSections is { Count: > 0 })
             sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
-        if (!HasILCoordinateRequest(options))
+        if (!HasILAddressRequest(options))
         {
             sections = sections
                 .Where(section => !ILCoordinateSections.Contains(
@@ -4041,8 +4307,8 @@ public partial class LibraryCommand
                     StringComparer.OrdinalIgnoreCase))
                 .ToList();
         }
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.HeapPoint)
+        if (options.AddressRequest
+            is not LibraryAddressRequest.HeapPoint)
         {
             sections = sections
                 .Where(section => !section.Equals(
@@ -4053,10 +4319,10 @@ public partial class LibraryCommand
         return sections;
     }
 
-    private static bool HasILCoordinateRequest(LibraryOptions options) =>
-        options.CoordinateRequest
-            is LibraryCoordinateRequest.IlPoint
-                or LibraryCoordinateRequest.FilePopulation;
+    private static bool HasILAddressRequest(LibraryOptions options) =>
+        options.AddressRequest
+            is LibraryAddressRequest.IlPoint
+                or LibraryAddressRequest.FilePopulation;
 
     private static int RenderEffective(List<string> effective, DocumentSchema schema, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
@@ -4092,7 +4358,8 @@ public partial class LibraryCommand
     /// </summary>
     private static DocumentSchema FilterSchemaToEffectiveFields(LibraryInspection inspection,
         List<string> effectiveSections, DocumentSchema schema, SectionPipeline<LibraryInspection> pipeline,
-        string[] discover)
+        string[] discover,
+        LibraryDocumentInspection? documentInspection)
     {
         // Resolve which sections are being discovered
         var targetSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -4112,7 +4379,10 @@ public partial class LibraryCommand
         if (filteredSections.Count == 0)
             return schema;
 
-        var view = new LibraryInspectionView(inspection);
+        var view = new LibraryInspectionView(
+            inspection,
+            topFieldsOnly: false,
+            documentInspection);
         var writerOpts = new MarkoutWriterOptions { IncludeSections = filteredSections };
         var renderManifest = RenderManifestFormatter.Capture(
             view,
@@ -4332,7 +4602,7 @@ public partial class LibraryCommand
     }
 
     private readonly record struct PackageInspectionCollection(
-        List<LibraryInspection> Inspections,
+        List<LibraryInspectionRenderInput> RenderInputs,
         List<LibraryInspectionSubject> Subjects,
         List<(
             string FileName,
@@ -4351,9 +4621,10 @@ public partial class LibraryCommand
         AssemblyContextIntegrationsBatch? integrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null,
         IReadOnlyList<LibraryInspectionSubjectSelection>?
-            subjectSelections = null)
+            subjectSelections = null,
+        bool readLibraryDocument = true)
     {
-        List<LibraryInspection> inspections = [];
+        List<LibraryInspectionRenderInput> renderInputs = [];
         List<LibraryInspectionSubject> subjects = [];
         List<(
             string FileName,
@@ -4428,6 +4699,13 @@ public partial class LibraryCommand
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
                 continue;
             }
+            LibraryDocumentInspection? documentInspection =
+                await LibraryDocumentInspection.ReadAsync(
+                    inspection,
+                    targetPath,
+                    packageName,
+                    isPlatformAssembly: false,
+                    requested: readLibraryDocument);
             if (options.CollectIdentifierConfusionReferenceTree
                 && inspection.IdentifierConfusionFailure is { } failure)
             {
@@ -4446,12 +4724,15 @@ public partial class LibraryCommand
                 inspection.SignatureStatus = signatureResult.StatusMessage;
             }
 
-            inspections.Add(inspection);
+            renderInputs.Add(
+                new LibraryInspectionRenderInput(
+                    inspection,
+                    documentInspection));
             subjects.Add(subject);
         }
 
         return new PackageInspectionCollection(
-            inspections,
+            renderInputs,
             subjects,
             identifierAuditFailures,
             descriptorSelectionFailures);
@@ -4619,9 +4900,11 @@ public partial class LibraryCommand
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
-    private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);
+    internal sealed record ToolPayloadResolution(
+        PackageExtractionResult? Result,
+        string? Error);
 
-    private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
+    internal static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
         PackageExtractionResult package,
         PackageReferenceTarget originalPackageTarget,
         NuGetSourceOptions? sourceOptions,
@@ -4664,7 +4947,7 @@ public partial class LibraryCommand
         return new(payload, null);
     }
 
-    private static string? GetToolPayloadPackageId(string extractPath, string? packageName)
+    internal static string? GetToolPayloadPackageId(string extractPath, string? packageName)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
         if (Directory.Exists(toolsDir))
@@ -4748,18 +5031,18 @@ internal sealed record LibraryInspectionSubject(
 
         return ResolvedAssemblyReference.SelectFromPath(path, provenance)
             switch
-            {
-                AssemblyDescriptorSelectionResult.Ready ready =>
-                    new LibraryInspectionSubjectSelection.Ready(
-                        new LibraryInspectionSubject(path, ready.Reference)),
-                AssemblyDescriptorSelectionResult.Descriptorless =>
-                    new LibraryInspectionSubjectSelection.Ready(
-                        new LibraryInspectionSubject(path, null)),
-                AssemblyDescriptorSelectionResult.Rejected rejected =>
-                    new LibraryInspectionSubjectSelection.Rejected(
-                        rejected.Failure),
-                _ => throw new UnreachableException(),
-            };
+        {
+            AssemblyDescriptorSelectionResult.Ready ready =>
+                new LibraryInspectionSubjectSelection.Ready(
+                    new LibraryInspectionSubject(path, ready.Reference)),
+            AssemblyDescriptorSelectionResult.Descriptorless =>
+                new LibraryInspectionSubjectSelection.Ready(
+                    new LibraryInspectionSubject(path, null)),
+            AssemblyDescriptorSelectionResult.Rejected rejected =>
+                new LibraryInspectionSubjectSelection.Rejected(
+                    rejected.Failure),
+            _ => throw new UnreachableException(),
+        };
     }
 
     internal SourceLinkService OpenSourceLink(Action<string>? log = null) =>

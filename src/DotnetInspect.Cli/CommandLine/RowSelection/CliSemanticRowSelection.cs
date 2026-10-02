@@ -224,4 +224,46 @@ internal static class CliSemanticRowSelection
 
         return exact;
     }
+
+    public static bool TrySelectCount(
+        RowSelectionIntent<string>? intent,
+        int availableCount,
+        Func<int, int, int, string> formatFailure,
+        out int selectedCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(availableCount);
+        ArgumentNullException.ThrowIfNull(formatFailure);
+
+        if (intent is not { Operations.Count: > 0 })
+        {
+            selectedCount = availableCount;
+            return true;
+        }
+
+        RowSelectionPlan<string> plan =
+            RowsCohortExecutor.CreateUnorderedPlan(intent);
+        if (!RowSelectionCountExecutor.TryApply(
+                availableCount,
+                plan,
+                out RowSelectionCountResult result))
+        {
+            throw new InvalidOperationException(
+                "An unordered row-selection plan must be "
+                    + "count-applicable.");
+        }
+        if (result.IsSuccess)
+        {
+            selectedCount = result.Count;
+            return true;
+        }
+
+        RowWindowFailure failure = result.Failure!;
+        CommandError.Write(
+            formatFailure(
+                failure.StageNumber,
+                failure.RequiredPosition,
+                failure.AvailableCount));
+        selectedCount = 0;
+        return false;
+    }
 }

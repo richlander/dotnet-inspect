@@ -44,6 +44,7 @@ export interface WorkspaceView {
   memberTraitFilter: string;
   memberTextFilter: string;
   selectedOverloadIndex: number | null;
+  memberDocumentFingerprint?: string;
   bodyTarget: BodyTarget | null;
   memberSection: MemberSection;
   atPackageRoot: boolean;
@@ -71,6 +72,7 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     ma: view.memberAccessibilityFilter,
     mr: view.memberTraitFilter,
     o: view.selectedOverloadIndex,
+    mf: view.memberDocumentFingerprint ?? "",
     b: graphTarget ? null : encodeBodyTarget(view.bodyTarget),
     g: graphTarget,
     s: view.memberSection,
@@ -763,7 +765,8 @@ function decodeWorkspaceShareResult(
   const memberSection = section && isMemberSection(section)
     ? section
     : null;
-  const packageLens = isPackageLens(state.view.lens)
+  const packageLens = !(state.view.type && state.view.lens === "overview")
+    && isPackageLens(state.view.lens)
     ? state.view.lens
     : null;
   const libraryLens = state.view.lens?.startsWith("library:")
@@ -818,7 +821,10 @@ function resolveView(token: string): {
 } {
   const workspaceSubjectOpen = token === "workspace";
   const atPackageRoot =
-    workspaceSubjectOpen || token === "pkg" || token.startsWith("pkg:");
+    workspaceSubjectOpen
+    || token === "package"
+    || token === "pkg"
+    || token.startsWith("pkg:");
   const atLibraryRoot = token === "library" || token.startsWith("library:");
   const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
   const libraryLensToken = atLibraryRoot ? token.split(":")[1] : undefined;
@@ -930,7 +936,7 @@ function resolveWorkspaceLocation(
   let memberBrowse = false;
   let memberTextFilter = "";
   let memberKindFilter = "all";
-  let memberAccessibilityFilter = "all";
+  let memberAccessibilityFilter = "public";
   let memberTraitFilter = "";
   let graphTarget: GraphMemberShareIdentity | null = null;
   let shareState: BrowserWorkspaceShareState | null = null;
@@ -963,7 +969,7 @@ function resolveWorkspaceLocation(
     memberBrowse = false;
     memberTextFilter = "";
     memberKindFilter = "all";
-    memberAccessibilityFilter = "all";
+    memberAccessibilityFilter = "public";
     memberTraitFilter = "";
     graphTarget = null;
   }

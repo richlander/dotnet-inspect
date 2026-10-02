@@ -25,6 +25,57 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
+    public void NoMetadataSettlesSessionBackedMetadataProducers()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    MetadataAdmissionCleanupTests.BuildNoMetadataImage(),
+                    writable: false));
+
+        Assert.False(session.HasMetadata);
+        AssertNoMetadata(
+            Assert.IsType<MetadataRelationInspectionOutcome.Rejected>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.AssemblyReferences],
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken))
+                .Format);
+        AssertNoMetadata(
+            Assert.IsType<MetadataLibrarySignatureUseOutcome.Rejected>(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken))
+                .Format);
+        AssertNoMetadata(
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationOutcome.Rejected>(
+                    session.AssemblyReferenceRelations(
+                        new(
+                            MetadataOperationPolicy.Unbounded,
+                            count: new()),
+                        TestContext.Current.CancellationToken))
+                .Format);
+        AssertNoMetadata(
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Rejected>(
+                    session.ExtensionRelations(
+                        new(
+                            new(
+                                new(
+                                    "System.Private.CoreLib",
+                                    new Version(11, 0, 0, 0),
+                                    Culture: null,
+                                    PublicKeyToken: null),
+                                TypeName("System", "Object")),
+                            MetadataOperationPolicy.Unbounded,
+                            count: new()),
+                        TestContext.Current.CancellationToken))
+                .Format);
+    }
+
+    [Fact]
     public void OpenPrefetched_TransfersStreamOwnershipAndPostsDetachedDeclarations()
     {
         var stream =
@@ -153,6 +204,59 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
+    public void SnapshotOperation_BindsExactOperationAndStableSubject()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        var firstOperation = new object();
+        var secondOperation = new object();
+
+        var first = session.SnapshotOperation(
+            firstOperation,
+            access =>
+            {
+                Assert.Same(firstOperation, access.Operation);
+                Assert.True(access.HasMetadata);
+                string? assemblyName = access.InspectImage(
+                    reader =>
+                        reader.GetMetadataReader()
+                            .GetString(
+                                reader.GetMetadataReader()
+                                    .GetAssemblyDefinition()
+                                    .Name));
+                return (access.Subject, assemblyName);
+            });
+        AssemblyInspectionSubjectIdentity secondSubject =
+            session.SnapshotOperation(
+                secondOperation,
+                access =>
+                {
+                    Assert.Same(secondOperation, access.Operation);
+                    return access.Subject;
+                });
+
+        Assert.Equal(SelfName, first.assemblyName);
+        Assert.Same(first.Subject, secondSubject);
+    }
+
+    [Fact]
+    public void SnapshotOperation_RejectsDisposedSessionBeforeCallback()
+    {
+        var session = AssemblyInspectionSession.Open(SelfPath);
+        session.Dispose();
+        bool invoked = false;
+
+        Assert.Throws<ObjectDisposedException>(
+            () => session.SnapshotOperation(
+                new object(),
+                access =>
+                {
+                    invoked = true;
+                    return access.Subject;
+                }));
+        Assert.False(invoked);
+    }
+
+    [Fact]
     public void BorrowedSessionSnapshot_UsesTheLenderLifetime()
     {
         using var context = PdbContext.Open(SelfPath);
@@ -176,6 +280,21 @@ public class AssemblyInspectionSessionTests
                     return state;
                 }));
         Assert.False(invoked);
+    }
+
+    [Fact]
+    public void BorrowedSessionRelations_RequireTheLenderLifetime()
+    {
+        using var context = PdbContext.Open(SelfPath);
+        using var session = AssemblyInspectionSession.Borrow(context);
+        context.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => session.Relations(
+                new(
+                    [MetadataRelationFamily.AssemblyReferences],
+                    MetadataOperationPolicy.Unbounded),
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -204,7 +323,6 @@ public class AssemblyInspectionSessionTests
         Assert.NotEmpty(session.ApiSurface(includeAll: true).Types);
         Assert.NotNull(session.Resources());
         Assert.NotNull(session.CustomAttributes());
-        Assert.NotNull(session.ClassifiedMethods());
         Assert.NotNull(session.TypeForwarders());
         Assert.NotNull(session.UnionTypes());
         Assert.NotNull(session.Switches());
@@ -268,6 +386,92 @@ public class AssemblyInspectionSessionTests
             error);
         Assert.NotNull(body);
         Assert.NotEmpty(body.IL);
+    }
+
+    [Fact]
+    public void MethodBodies_ResolveUniqueMethodRejectsAmbiguousName()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        string declaringType = Assert.Single(
+            session.MethodBodies.EnumerateMethods(),
+            method => method.Name == nameof(MethodBodyFixture.Echo))
+            .DeclaringType;
+
+        Assert.NotNull(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Echo),
+                publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Overloaded),
+                publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Pick),
+                publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.pick),
+                publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.PickField),
+                publicOnly: true));
+    }
+
+    [Fact]
+    public void MethodBodies_ResolveAccessorMethodUsesAccessorOrdinal()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        string declaringType = Assert.Single(
+            session.MethodBodies.EnumerateMethods(),
+            method => method.Name == nameof(MethodBodyFixture.Echo))
+            .DeclaringType;
+
+        var getter =
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Value),
+                accessorIndex: 0,
+                publicOnly: true);
+        var setter =
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Value),
+                accessorIndex: 1,
+                publicOnly: true);
+
+        Assert.NotNull(getter);
+        Assert.NotNull(setter);
+        Assert.NotEqual(
+            getter.MetadataToken,
+            setter.MetadataToken);
+
+        var writeOnly =
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.SetterOnly),
+                accessorIndex: 0,
+                publicOnly: true);
+
+        Assert.NotNull(writeOnly);
+        Assert.Null(
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.SetterOnly),
+                accessorIndex: 1,
+                publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.ValueField),
+                accessorIndex: 0,
+                publicOnly: true));
     }
 
     [Fact]
@@ -351,6 +555,17 @@ public class AssemblyInspectionSessionTests
             peReader.GetMetadataReader());
     }
 
+    static MetadataTypeDefinitionName TypeName(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [.. segments])).Name;
+
+    static void AssertNoMetadata(MetadataImageFormatResult? format) =>
+        Assert.IsType<MetadataImageFormatResult.NoMetadata>(format);
+
     sealed class DisposeCountingStream(Stream inner) : Stream
     {
         bool _innerDisposed;
@@ -398,5 +613,34 @@ public class AssemblyInspectionSessionTests
     public static class MethodBodyFixture
     {
         public static T Echo<T>(T value) => value;
+
+        public static int Overloaded(int value) => value;
+
+        public static string Overloaded(string value) => value;
+
+        public static int Value { get; set; }
+
+        public static int SetterOnly
+        {
+            set { }
+        }
+
+        public static void Pick()
+        {
+        }
+
+        public static void pick(int value)
+        {
+        }
+
+        public static int PickField;
+
+        public static void pickField()
+        {
+        }
+
+        public static int ValueField;
+
+        public static int valueField { get; set; }
     }
 }

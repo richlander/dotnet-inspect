@@ -205,6 +205,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/inspect-web-runtime-cohort-nightly.yml
     with:
+      source_sha: ${{ github.sha }}
       dotnet_sdk_version: ${{ needs.discover.outputs.sdk_version }}
       dotnet_sdk_feature_band: ${{ needs.discover.outputs.sdk_feature_band }}
       dotnet_runtime_version: ${{ needs.discover.outputs.runtime_version }}

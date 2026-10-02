@@ -48,10 +48,28 @@ observation layer. It must not use that parse to construct or rewrite the C#
 artifact it later compiles as evidence. C# spelling, declaration shape, body
 layout, and artifact replacement remain product responsibilities.
 
-Syntax and semantic validity bind the same first product projection. The
-harness may sample that immutable rendered artifact for the semantic lane, but
-must not invoke a mutating raising pipeline again and accidentally compile a
-different second projection.
+Fidelity skeletons may add sibling and containing declaration context and may
+re-indent a product-issued whole-member artifact, but they preserve that
+artifact's token stream. They do not change accessibility, attributes,
+signatures, initializers, or bodies to make the target compile. A product
+artifact that does not bind remains a visible recompile or context failure;
+legacy harness-spelled targets retain non-product provenance and cannot be
+reported as product-whole-member evidence.
+`ProductWholeMemberSplice_PreservesConstructorArtifact` gates token preservation
+in the PR-fast suite.
+`Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure` retains
+the broader Deep Inspect case: the unchanged artifact produces the visible
+scaffold failure that accessibility rewriting previously hid.
+
+Syntax and semantic validity bind the same first product projection, using the
+product printer's fully qualified type artifact before host-owned
+collision-aware shortening. The harness may sample that immutable rendered
+artifact for the semantic lane and wrap it in its declaration shell, but must
+not rewrite the body or invoke a mutating raising pipeline again and
+accidentally compile a different second projection. Missing fully qualified
+target-assembly namespaces remain explicit shell-visibility noise (`CS0400`);
+the harness does not reference the inspected assembly and accidentally bind a
+different product version already present in its own runtime closure.
 `CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
 gates this ownership boundary with compiler-produced runtime-async IL.
 

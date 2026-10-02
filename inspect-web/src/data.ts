@@ -23,13 +23,13 @@ const lenses = [
   ["source", "Source"]
 ] as const;
 
-export type TypeLens = (typeof lenses)[number][0];
+export type TypeLens = (typeof lenses)[number][0] | "overview";
 
 export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && lenses.some(([id]) => id === value);
+    && (value === "overview" || lenses.some(([id]) => id === value));
 }
 
 export const packageLenses = [
@@ -67,7 +67,6 @@ export function isLibraryLens(
 
 export const memberSectionDefinitions = [
   ["overview", "Overview"],
-  ["implementation-profiles", "Implementation profiles"],
   ["call-graph", "Call graph"],
   ["facts", "Facts"],
   ["source", "Source"],
@@ -1335,17 +1334,45 @@ export interface CallGraphDiagnostics {
   bindingIdentityConflicts?: number;
   hasAnalysisFailureBoundary?: boolean;
   unavailableDependencyRoutes?: number;
+  hasIncompleteCorrespondence?: boolean;
+  unclassifiedBoundaryEdges?: number;
+  unclassifiedBoundaryNamedEdges?: number;
+  unclassifiedBoundaryAssemblies?: readonly string[];
+  physicalOccurrenceUnavailableEdges?: number;
 }
 
 export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | null | undefined): string {
   if (!diagnostics) return "";
   const evidence: string[] = [];
-  if ((diagnostics.incompleteNodes ?? 0) > 0)
-    evidence.push(`${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}`);
-  if ((diagnostics.incompleteEdges ?? 0) > 0)
-    evidence.push(`${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}`);
+  const unclassifiedAssemblies = [
+    ...new Set(
+      (diagnostics.unclassifiedBoundaryAssemblies ?? [])
+        .filter(assembly => assembly.trim().length > 0),
+    ),
+  ];
+  if ((diagnostics.unclassifiedBoundaryEdges ?? 0) > 0) {
+    const count = diagnostics.unclassifiedBoundaryEdges ?? 0;
+    const namedCount = Math.min(
+      diagnostics.unclassifiedBoundaryNamedEdges ?? 0,
+      count,
+    );
+    const target = namedCount === count && unclassifiedAssemblies.length
+      ? ` in ${plainTextList(unclassifiedAssemblies)}`
+      : "";
+    evidence.push(
+      `${count} call target${count === 1 ? "" : "s"}${target} could not be classified against the loaded package definitions`,
+    );
+  } else if (diagnostics.hasIncompleteCorrespondence
+    || (diagnostics.incompleteNodes ?? 0) > 0
+    || (diagnostics.incompleteEdges ?? 0) > 0) {
+    evidence.push("some member signatures could not be resolved against the loaded assemblies");
+  }
   if ((diagnostics.bindingIdentityConflicts ?? 0) > 0)
-    evidence.push(`${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}`);
+    evidence.push("some call targets matched conflicting assembly identities");
+  if ((diagnostics.physicalOccurrenceUnavailableEdges ?? 0) > 0) {
+    const count = diagnostics.physicalOccurrenceUnavailableEdges ?? 0;
+    evidence.push(`physical call-site evidence is unavailable for ${count} edge${count === 1 ? "" : "s"}`);
+  }
   if (diagnostics.hasAnalysisFailureBoundary)
     evidence.push("one or more method bodies could not be analyzed");
   if ((diagnostics.unavailableDependencyRoutes ?? 0) > 0)
@@ -1357,6 +1384,13 @@ export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | 
     ? `${evidence[0]} and ${evidence[1]}`
     : `${evidence.slice(0, -1).join(", ")}, and ${evidence.at(-1)}`;
   return `Partial call graph: ${detail}.`;
+}
+
+function plainTextList(values: readonly string[]): string {
+  const quoted = values.map(value => `"${value}"`);
+  if (quoted.length === 1) return quoted[0] ?? "";
+  if (quoted.length === 2) return `${quoted[0]} and ${quoted[1]}`;
+  return `${quoted.slice(0, -1).join(", ")}, and ${quoted.at(-1)}`;
 }
 
 export interface TitledParameter {
@@ -1626,7 +1660,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "source", "annotated", "compare"]);
+  new Set<MemberSection>(["facts", "annotated", "compare"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
@@ -1642,20 +1676,21 @@ export function memberSectionIdsFor(
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
     : [...allMemberSections];
-  const eligibleSections = member?.kind === "method"
-    && (member.overloads?.length ?? 0) > 1
-    ? sections
-    : sections.filter(id => id !== "implementation-profiles");
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")
-    ? eligibleSections.filter(id => id !== "source")
-    : eligibleSections;
+    ? sections.filter(id => id !== "source")
+    : sections;
 }
 
 export function typeLensesFor(
   pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
+  forwarded = false,
 ): readonly (readonly [TypeLens, string])[] {
-  if (pkg?.isRuntimePack) return lenses.filter(([id]) => id === "api");
+  if (forwarded) return [["overview", "Overview"]];
+  if (pkg?.source?.kind === "file")
+    return lenses.filter(([id]) => id === "api");
+  if (pkg?.isRuntimePack)
+    return lenses.filter(([id]) => id === "api" || id === "source");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"

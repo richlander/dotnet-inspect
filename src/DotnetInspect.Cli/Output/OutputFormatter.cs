@@ -607,10 +607,23 @@ public static class OutputFormatter
 
     public static void WriteLibraryResult(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
+        => WriteLibraryResult(
+            new LibraryInspectionRenderInput(inspection, null),
+            options,
+            pipeline);
+
+    internal static void WriteLibraryResult(
+        LibraryInspectionRenderInput input,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
     {
+        LibraryInspection inspection = input.Inspection;
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
-        var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+        var auditView = new LibraryInspectionView(
+            inspection,
+            topFieldsOnly,
+            input.DocumentInspection);
         var includeSections = pipeline.ComputeIncludeSections(
             inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
         var writerOpts = new MarkoutWriterOptions
@@ -624,7 +637,7 @@ public static class OutputFormatter
                 SectionNames.ReferenceHierarchy))
         {
             WriteLibraryResults(
-                [inspection],
+                [input],
                 options,
                 pipeline);
             return;
@@ -812,7 +825,21 @@ public static class OutputFormatter
 
     public static void WriteLibraryResults(List<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
+        => WriteLibraryResults(
+            inspections
+                .Select(static inspection =>
+                    new LibraryInspectionRenderInput(inspection, null))
+                .ToList(),
+            options,
+            pipeline);
+
+    internal static void WriteLibraryResults(
+        List<LibraryInspectionRenderInput> inputs,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
     {
+        List<LibraryInspection> inspections =
+            inputs.Select(static input => input.Inspection).ToList();
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
 
@@ -834,9 +861,13 @@ public static class OutputFormatter
         if (options.Count)
         {
             var projection = new CountProjection();
-            foreach (var inspection in inspections)
+            foreach (var input in inputs)
             {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                LibraryInspection inspection = input.Inspection;
+                var auditView = new LibraryInspectionView(
+                    inspection,
+                    topFieldsOnly,
+                    input.DocumentInspection);
                 projection.Merge(CaptureLibraryCountProjection(
                     auditView, inspection, WriterOptions(inspection), options.Rows, options.Fields, options.Columns));
             }
@@ -1145,9 +1176,13 @@ public static class OutputFormatter
                     ?? string.Empty,
                 "Libraries"
             };
-            documents.AddRange(inspections.Select(inspection =>
+            documents.AddRange(inputs.Select(input =>
             {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                LibraryInspection inspection = input.Inspection;
+                var auditView = new LibraryInspectionView(
+                    inspection,
+                    topFieldsOnly,
+                    input.DocumentInspection);
                 var writerOpts = WriterOptions(inspection);
                 var title = LibraryViewText.DocumentTitle(inspection);
                 var body = RemovePlainTextDocumentTitle(
@@ -1166,9 +1201,13 @@ public static class OutputFormatter
                     Path.GetFileNameWithoutExtension(inspections[0].FileName)) ?? string.Empty),
                 RenderMarkdownHeading(2, "Libraries")
             };
-            documents.AddRange(inspections.Select(inspection =>
+            documents.AddRange(inputs.Select(input =>
             {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                LibraryInspection inspection = input.Inspection;
+                var auditView = new LibraryInspectionView(
+                    inspection,
+                    topFieldsOnly,
+                    input.DocumentInspection);
                 var title = LibraryViewText.DocumentTitle(inspection);
                 var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
                     auditView, inspection, WriterOptions(inspection), pipeline, options.Rows));
@@ -1183,9 +1222,13 @@ public static class OutputFormatter
         }
         else
         {
-            foreach (var inspection in inspections)
+            foreach (var input in inputs)
             {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                LibraryInspection inspection = input.Inspection;
+                var auditView = new LibraryInspectionView(
+                    inspection,
+                    topFieldsOnly,
+                    input.DocumentInspection);
                 var writerOpts = WriterOptions(inspection);
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                 WriteLibraryTabular(auditView, inspection, writerOpts, options);
@@ -1346,9 +1389,47 @@ public static class OutputFormatter
                 SectionNames.ReferenceHierarchy,
                 count);
         }
+        ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
+    }
+
+    /// <summary>
+    /// Under <c>--count</c> the Async Methods and P/Invoke Methods sections ask
+    /// their analyzer for a Count, not rows, so the windowed count comes from
+    /// that answer.
+    /// </summary>
+    internal static void ApplyClassificationCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows)
+    {
+        if (includedSections is null)
+            return;
+
+        if (includedSections.Contains(SectionNames.AsyncMethods)
+            && inspection.AsyncMethodDisplayRows.IsDefault
+            && inspection.AsyncMethodCount is int asyncCount)
+        {
+            projection.SetRows(SectionNames.AsyncMethods, WindowedCount(asyncCount, rows));
+        }
+
+        if (includedSections.Contains(SectionNames.PInvokeMethods)
+            && inspection.PInvokeMethodDisplayRows.IsDefault
+            && inspection.PInvokeMethodCount is int pInvokeCount)
+        {
+            projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
+        }
+
+        static int WindowedCount(int count, RowWindow? rows)
+        {
+            if (rows is not { IsUnlimited: false } window)
+                return count;
+            (int keepStart, int keepEnd) = window.Resolve(count);
+            return keepEnd - keepStart;
+        }
     }
 
     private static void ApplyILCoordinateCardinality(

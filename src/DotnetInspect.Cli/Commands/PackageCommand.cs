@@ -520,7 +520,7 @@ public partial class PackageCommand
                     packageArgs[0],
                     explicitVersion);
             int? houseResult =
-                await TryWriteLiteralHouseDocumentExportAsync(
+                await TryWriteLiteralHouseDocumentContentAsync(
                         [houseTarget],
                         options,
                         context)
@@ -1130,6 +1130,18 @@ public partial class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
+        int? packageFileInventoryExitCode =
+            preResolved is null
+                ? await TryExecutePackageFileInventoryAsync(
+                        target,
+                        options,
+                        context,
+                        pipeline)
+                    .ConfigureAwait(false)
+                : null;
+        if (packageFileInventoryExitCode is { } inventoryExitCode)
+            return inventoryExitCode;
+
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
         InspectionResult? observedInspection = null;
@@ -1284,6 +1296,9 @@ public partial class PackageCommand
             if (options.PackageLibrary != null)
             {
                 return await ExecutePackageLibraryAsync(
+                    client,
+                    logger,
+                    target,
                     extractPath,
                     target.IsLocalFile,
                     target.OriginalArgument,
@@ -1389,7 +1404,10 @@ public partial class PackageCommand
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            PopulatePackageFileSections(result, extractPath, options);
+            PopulatePackageFileSectionsLegacy(
+                result,
+                extractPath,
+                options);
             if (ShouldPopulatePackageContentAudit(
                     producerOptions,
                     pipeline))

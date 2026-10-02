@@ -214,6 +214,27 @@ public sealed class EcosystemPackRegistryTests
     }
 
     [Fact]
+    public void CorePackagesAreBoundedAtTwelve()
+    {
+        EcosystemPackRegistration pack =
+            Pack("ecosystem.first", 100, null, Demo("first", 100, CreateFirstRecords));
+
+        EcosystemPackDescriptor atBound = Assert.Single(
+            Registry(pack with { CorePackages = CorePackages(12) }).Packs);
+        Assert.Equal(12, atBound.CorePackages.Length);
+
+        ArgumentException overBound = Assert.Throws<ArgumentException>(
+            () => Registry(pack with { CorePackages = CorePackages(13) }));
+        Assert.Contains("13 core packages", overBound.Message, StringComparison.Ordinal);
+
+        static PackageCoordinate[] CorePackages(int count) =>
+        [
+            .. Enumerable.Range(1, count).Select(
+                index => new PackageCoordinate($"Example.Core{index}")),
+        ];
+    }
+
+    [Fact]
     public void EmptyKnowledgePreservesCapabilityRequirements()
     {
         EcosystemPackRegistry registry = Registry(

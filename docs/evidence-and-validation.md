@@ -77,6 +77,279 @@ insufficient. If there is no such trigger, omit the extra claim and gate.
   property must name the gate that enforces it, or explicitly mark the
   property as unverified.
 
+## NativeAOT before/after for modernization
+
+Every modernization or legacy-path replacement requires before/after
+performance evidence from exact NativeAOT production binaries. Measure every
+terminal supported by the adopted surface, like Count. A terminal omitted
+from the report is unverified and prevents a merge-readiness claim for that
+adoption.
+
+NativeAOT is the only accepted performance measurement for both end-to-end
+results and kernel-level scorecards. CoreCLR timing, BenchmarkDotNet, profiler
+output, static analysis, and lower-level counters may diagnose a result, but
+they cannot establish a performance claim or substitute for NativeAOT numbers.
+
+The operator requires those numbers before merge. Publish the numeric results
+in both the visible agent session and the PR body; an artifact, issue comment,
+or external report alone is insufficient. Review and independent gates may run
+in parallel while measurement is pending, but the candidate is not merge-ready
+until both publication surfaces contain the exact-head evidence.
+
+Compare the exact effective base with the exact candidate head. Run the
+complete production-host command or operation, including startup, acquisition,
+planning, execution, and output consumption. A lower-level benchmark may
+explain the result, but it does not replace the end-to-end comparison.
+
+The report must identify:
+
+- the base and head commits, product versions, NativeAOT target, and binary
+  identities;
+- the pinned real assets, exact commands or requests, and every measured
+  terminal;
+- representative zero, small, and population-sensitive scenarios when work
+  scales with candidate or result count;
+- warmup, sample count, execution ordering or interleaving, host, and relevant
+  machine state;
+- median and tail latency for base and head; and
+- expected and observed cardinality plus a stable content or identity check
+  where result values are produced.
+
+Interpret the result against the modernization's stated intent. Separate
+startup and fixed acquisition cost from work that grows with the population
+when that distinction matters. A slower result is not dismissed because the
+implementation follows the new architecture: explain it through changed
+behavior or work, show that it remains inside the named product target, and
+show that the overall intent still holds. Otherwise the candidate is not
+merge-ready.
+
+Use [#8411](https://github.com/richlander/dotnet-inspect/pull/8411) as the
+reporting precedent. It compared exact NativeAOT base/head apphosts for every
+supported terminal, verified result cardinality, reported median and p95, and
+explained a bounded terminal tradeoff alongside substantial end-to-end
+improvements.
+
+## Performance oracles for QuerySpace enablement
+
+The end-to-end comparison above proves what a user sees. It does not show
+how close the new execution comes to what the query could cost, because
+startup and acquisition often mask the work. QuerySpace enablement therefore
+also reports a kernel-level **performance scorecard** with four standard
+columns:
+
+- **Old** (Before) is the path being replaced, exactly as it runs today: a
+  legacy loop, or rows built and then filtered, counted, or trimmed. It is the
+  improvement target and leaves when the path it measures is retired.
+- **LINQ** is an idiomatic streaming `System.Linq` pipeline over the same
+  population, written as an ordinary C# author would: select the elements,
+  project them, then apply the closing. It shows what the ordinary library
+  alternative costs.
+- **NLinq** is the standing oracle: an [NLinq](https://github.com/agocke/NLinq)
+  query over a struct source of the population, written as an NLinq author
+  would write it. The pinned fixture, its population sources, and any
+  operators it lacks are owned by the fixture, never written per question.
+- **Planner** (After) is the enablement being measured.
+
+Do not construct a hand-written loop as an oracle. What such a loop measures
+depends on its author's choices, and it costs one loop per question where
+NLinq costs one source per population. A hand-written loop appears only as
+the Old column of a path that already exists.
+
+**Same contract, independent read.** LINQ, NLinq, and Planner answer the same
+question over the same scope, predicates, projection, and closing. For an
+Analysis producer, fairness has two independent requirements:
+
+- **Fidelity** is exact agreement on the owner-named Roslyn-produced assembly
+  patterns. A comparator need not reproduce answers outside that fidelity
+  domain.
+- **Safety** is bounded, inert behavior for every supported ECMA-335 input.
+  Safety does not require semantic rejection of every non-Roslyn shape when
+  the owning contract permits a wrong but contained answer.
+
+The columns need not execute the same implementation, incidental reads, or
+checks. They may differ in iteration, fusion, query execution, decoder
+specialization, and source-native facts. A comparator is unfair when it omits
+work required by either fidelity or safety; change that comparator rather than
+crediting its time. Conversely, when LINQ or NLinq satisfies both requirements
+and beats Planner, the result is evidence that Planner should be capable of
+meeting or beating it. Do not erase that evidence by adding Planner's
+unconsumed work to the oracle or by requiring Planner to perform richer
+semantic validation than its contract needs.
+
+Share product-owned facts and mechanisms when their inputs and invariants
+align, but do not use implementation identity as the fairness test. Run the
+same Roslyn fidelity corpus and ECMA safety fixtures against every column.
+Agreement on benign assets alone is insufficient.
+
+Make each comparison inspectable and reusable. The report links the exact
+LINQ, NLinq, and Planner query implementations, population source, pinned
+NLinq provenance, and invocation. Do not publish ratios without the code that
+produced each column. When an oracle wins, identify the concrete implementation
+choice Planner can adopt.
+
+Commit those implementations, sources, provenance, and invocations with the
+enablement so later work can rerun and extend the same comparison. These
+benchmarks are development aids, not continually supported tests or a product
+performance offering, and they need not be built or run by CI. A shared
+performance harness may centralize them later; do not block an individual
+producer enablement on that future work.
+
+When a comparison exposes a safety check, place it at the narrowest shared
+owner. First distinguish
+[session-owned format admission](design/assembly-inspection-query.md#session-owned-format-admission)
+from containment of admitted metadata rows: admission classifies the image and
+establishes the reader, but does not make rows trustworthy. A reusable
+row- or signature-decoding containment rule belongs in the narrowest shared
+Metadata primitive so multiple producers inherit it once. A check or bound
+specific to one producer's consumed facts or work remains in that producer.
+Do not make each producer repeat general containment, move row trust into
+format admission, or move niche producer policy into a shared decoder.
+
+**The frontier lane.** LINQ and NLinq are standard possibility oracles, not
+frontier experiments, when they satisfy the fidelity and safety contract. A
+bespoke algorithm outside those columns remains a separately labeled frontier
+experiment. It may change the algorithm but not the contract. A frontier win
+that preserves Roslyn fidelity and ECMA safety becomes a Planner hypothesis;
+port it to the product and re-measure it through the standard columns.
+
+Every scorecard closing has an NLinq query; when NLinq lacks an operator, the
+fixture adds it. A source-native answer, such as a count from a table size, is
+a Planner technique, not an exception: its ratio to NLinq shows what it skips.
+To show the Planner against a source-native ceiling, add a labeled column
+beside the standard ones. It is not checked by regression tracking, and its
+answers must agree with the other columns.
+
+**The fixture** lives in `tests/`, because it is test infrastructure rather
+than an inspected artifact:
+
+- `tests/NLinq.Oracle` is the pinned NLinq copy, with its provenance in
+  `PROVENANCE.md`.
+- `tests/DotnetInspector.PerformanceOracles` adds the operators NLinq lacks
+  (`Take`, `Skip`, stable `OrderBy`, `TryTakeExactly` for a strict window, and
+  `TakeLast`), the method-definition source, and the `Scorecard` harness that
+  checks answers and times rotated rounds. `MethodPopulation<TSelection>`
+  supplies the LINQ and NLinq columns for any method selection; an enablement
+  registers its Old and Planner columns beside them.
+- `tests/ILInspector.Metadata.PerformanceOracles.Tests` owns the privileged
+  Metadata test projection. `MemberGroupPopulation` projects Metadata's
+  prepared exact-overload model through LINQ, NLinq, and the shipping Planner
+  kernel, preserving the same selection, row projection, bounds, and closing
+  without exposing raw-reader lifetime through the public product API.
+- `tests/DotnetInspector.Queries.PerformanceOracles` owns the Type Find
+  population comparison, keeping its Queries dependency out of the generic
+  fixture and product API.
+- `tools/QuerySpaceScorecard` runs a scorecard over the public-methods
+  population. `queryspace-scorecard check <assembly>...` compares answers, and
+  `queryspace-scorecard time [--rounds N] [--budget-ms N] [--tsv <path>]
+  <assembly>...` prints the ratios and absolute medians. Time the NativeAOT
+  publish, not `dotnet run`.
+- `tools/MemberGroupScorecard` checks and times exact-overload Count and Rows,
+  plus exact Member ordinal and fingerprint selection, over pinned
+  `System.Text.Json` scenarios. It reports preparation, kernel, and composed
+  costs separately; its answer hashes cover the complete normalized result.
+  Publish it for the target RID and run
+  `membergroup-scorecard <check|time|exact-check|exact-time>
+  <System.Text.Json.dll>`.
+- `tools/MemberBodySizeScorecard` checks the current focused Analysis route
+  against LINQ, NLinq, and an explicitly experimental #8577 breadth-limited
+  Planner over the same prepared logical-to-physical body population. It
+  scores body-size Exists, Count, Head, Tail, Rows, and strict Window for
+  one-logical-method and public-family breadth, reports current focused
+  preparation (including attribution and body-size evidence) separately, and
+  retains generated bodies. Publish it for the target RID and run the
+  resulting `analysis-harness <check|time> <System.Private.CoreLib.dll>
+  <System.Text.Json.dll>`.
+- `tools/TypeFindPopulationScorecard` checks and times one complete immutable
+  Type population through LINQ, pinned NLinq, and the shipping selector. Its
+  normalized rows include the selected tier, effective pattern, exact
+  association, name, and similarity. Run
+  `type-find-population-scorecard <pattern> <check|time> <assembly>...`.
+  The shipping column is `Selector`, not `Planner`, because it settles an
+  already materialized population rather than executing a QuerySpace plan.
+
+**The scorecard** scores Old, LINQ, NLinq, and Planner for Exists, Count,
+Head(N), Tail(N), Rows, and Rows(n..m), over one open query on pinned real
+assets:
+
+- Report each cell as a ratio to NLinq, measured by the same binary in the
+  same run. Give the geometric mean across assets and the range, with
+  absolute medians alongside.
+- On the owner-named Roslyn fidelity corpus, check that every column gives the
+  same Boolean, count, or row identity for every closing and asset. Report a
+  strict window's failure as a failure, never as a success.
+- Run every column against the producer's ECMA safety fixtures. Check bounded,
+  inert behavior and each owner-required visible failure independently.
+  Require matching semantic answers on a safety-only input only when the
+  owning contract requires them.
+- Mark each Planner cell as shipping in the candidate or measured only in an
+  experiment.
+- Run on at least two machines, and exclude a loaded run with its reason.
+
+Performance regression tracking uses only the NLinq ratio. It stays
+meaningful after Old is retired and cancels most machine differences. It
+moves when the Planner's performance changes, which is the regression it
+tracks, and also when the query, the pinned oracle, or the measurement
+conditions change, so record those alongside each tracked ratio.
+
+Use the [Producer Planning
+scorecard](https://github.com/richlander/dotnet-inspect/pull/8736) as the
+reporting precedent. It showed the Planner at 0.47–1.02× of NLinq and a
+build-every-row baseline at up to 7,000× on the same questions, while the
+end-to-end command stayed at parity because presence is a small part of it.
+
+## NLinq oracle for finite incidence
+
+A producer-owned finite-incidence optimization may reuse the pinned NLinq
+fixture without pretending to be a QuerySpace enablement. The scorecard times
+one complete batch: product code first constructs the real detached population
+outside the timed region, then each column builds the incidence and issues
+every population member's slice. Compare exact ordered values, including empty
+slices, before timing. Use a generic fixture-owned NLinq terminal rather than a
+question-specific hand-written loop.
+
+The ownership direct-call scorecard follows that contract. Analysis produces
+the detached method and `DirectCall` populations from each real assembly before
+timing. Those shared product facts are the incidence input; the comparison does
+not claim to measure call discovery, metadata resolution, or ECMA decoding.
+LINQ, NLinq, and Focused — the shipping
+`LibraryCallGraphAnalysisResult.DirectCallsByEvidenceMethod` route —
+independently build physical-method-token incidence, and the answer check
+compares every complete ordered call slice. Roslyn fidelity is exact ordered
+agreement on the acquired population. Safety for admitted ECMA input remains
+owned by the shared Analysis acquisition; the incidence operation itself is
+bounded by the finite detached arrays it receives.
+
+The Focused route removes the scorecard's `LibraryBodyIndex` dependency but
+remains the pre-Planner baseline. A successor adds the method-targeted
+population as Planner, moves the remaining production consumers onto it, and
+retires the direct-call compatibility-index surface. The quadratic legacy scan
+is already retired and therefore remains in its preserved fixed-input
+before/after evidence rather than making every multi-round oracle run repeat
+that cost.
+
+Run the answer check against one or more product binaries:
+
+```bash
+dotnet run --project tools/OwnershipIncidenceScorecard -c Release -- \
+  check <assembly>...
+```
+
+For timing, publish `tools/OwnershipIncidenceScorecard` as NativeAOT and run
+the resulting apphost:
+
+```bash
+dotnet publish tools/OwnershipIncidenceScorecard -c Release -r <rid> \
+  -p:PublishAot=true -p:IsPublishable=true -o <output>
+
+ownership-incidence-scorecard time \
+  [--rounds N] [--budget-ms N] [--tsv <path>] <assembly>...
+```
+
+Report Focused/NLinq ratios and absolute medians alongside the end-to-end
+service measurement. The kernel oracle tracks incidence regressions; it does
+not replace profiling or allocation evidence for reaching definitions or other
+Analysis dataflow.
+
 ## Use evidence envelopes during command development
 
 `EvidenceInspectionEnvelope<TContent, TEvidence>` is the shared shape for
@@ -119,7 +392,7 @@ The current command families expose these useful evidence patterns:
 | Did a change begin at this version boundary? | Exact endpoint and build identities, work-item and pair counts, typed failures, and `PairFinding` state for the owner-issued Finding. | An adjacent `Added`, `Removed`, `Changed`, or `Present` classification for the selected pair. | A sparse timeline probe only locates a candidate boundary; a similarity score only ranks candidates. |
 | Why is decompiled or source-backed output different? | Module version ID, MethodDef token, IL offset, fidelity grade, stable `DEC####` causes, symbol source, and PDB checksum algorithm, value, and verification result. | The physical body inspected, why fidelity degraded, and whether fetched source bytes match the PDB. | Readable decompiled C# is not authored source; a checksum match does not validate semantic equivalence. |
 | Which static performance candidate should be measured? | Finding and candidate identity, provenance, module version ID, source and evidence MethodDef tokens, IL offset, operation token, loop/amplification facts, priority, and confidence. | The exact IL-visible shape and a stable coordinate for a runtime/static join. | Static evidence does not prove runtime heat, frequency, allocated bytes, or improvement; use a benchmark or profiler from the same build. |
-| Did acquisition use the intended input? | Admitted source authority, exact package/library coordinate, selected asset, provenance, bounded acquisition completion, and typed rejection or failure. | Which authorized input produced the inspection and why another candidate was rejected. | Do not retain credentials, sensitive locators, response bodies, or an unbounded request transcript. |
+| Did acquisition use the intended input? | Admitted source authority, exact package/library address, selected asset, provenance, bounded acquisition completion, and typed rejection or failure. | Which authorized input produced the inspection and why another candidate was rejected. | Do not retain credentials, sensitive locators, response bodies, or an unbounded request transcript. |
 
 Existing command-level traces remain useful while developing a host adapter.
 For example, library `--trace` shows query demand, prerequisite expansion,

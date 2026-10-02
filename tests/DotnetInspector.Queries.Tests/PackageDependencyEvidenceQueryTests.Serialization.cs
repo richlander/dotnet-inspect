@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using InertText;
 using NuGetFetch;

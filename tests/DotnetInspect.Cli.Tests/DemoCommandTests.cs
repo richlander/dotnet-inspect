@@ -283,13 +283,24 @@ public class DemoCommandTests
     }
 
     [Fact]
-    public void Runner_CallGraph_Json_FailsClosed()
+    public void Runner_CallGraph_Json_SelectsCompleteGraphDocument()
     {
         var resolved = ResolveDemo(ProductDemoIds.ExtensionsCallGraph);
-        Assert.False(
+        Assert.True(
             DemoScenarioRunner.TryCreateOptions(
-                resolved, OutputFormat.Json, noHeader: false, out _, out var error));
-        Assert.Contains("--json cannot represent Call Graph", error, StringComparison.Ordinal);
+                resolved, OutputFormat.Json, noHeader: false, out var options, out var error),
+            error);
+        var member = Assert.IsType<MemberOptions>(options);
+        Assert.Equal(
+            [SectionNames.CallGraph],
+            Assert.IsType<string[]>(member.Select));
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.CallGraph,
+            },
+            member.IncludeSections);
+        Assert.True(member.JsonOutput);
     }
 
     [Fact]
@@ -1075,15 +1086,21 @@ public class DemoCommandTests
     }
 
     [Fact]
-    public async Task Cli_DemoCallGraph_Json_FailsClosed()
+    public async Task Cli_DemoCallGraph_JsonEmitsCompleteGraphDocument()
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
             ProductDemoIds.ExtensionsCallGraph,
             "--json");
 
-        Assert.Equal(1, exitCode);
-        Assert.Contains("--json cannot represent Call Graph", error, StringComparison.Ordinal);
+        Assert.True(exitCode == 0, error + "\n" + output);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("nodes").EnumerateArray());
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("edges").EnumerateArray());
+        Assert.NotEmpty(
+            document.RootElement.GetProperty("occurrences").EnumerateArray());
         Assert.DoesNotContain("\"members\"", output, StringComparison.Ordinal);
     }
 

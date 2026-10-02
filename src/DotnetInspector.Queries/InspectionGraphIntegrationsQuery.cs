@@ -1846,12 +1846,13 @@ public static class InspectionGraphIntegrationsQuery
             [
                 .. _failures.Select(failure =>
                     new InspectionGraphFailure(
-                        InspectionGraphIntegrationsCatalog
-                            .ProjectionFailure,
+                        new InspectionGraphFailurePayload(
+                            InspectionGraphIntegrationsCatalog
+                                .ProjectionFailure,
+                            new InspectionGraphIntegrationFailureEvidence(
+                                failure.Details)),
                         InspectionGraphTarget.Node(
-                            failure.TargetId),
-                        new InspectionGraphIntegrationFailureEvidence(
-                            failure.Details))),
+                            failure.TargetId))),
             ];
             ImmutableArray<InspectionGraphSeed> seeds =
                 InspectionGraphSeedBinder.Bind(

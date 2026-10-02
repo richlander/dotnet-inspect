@@ -40,14 +40,14 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsGeneratedRootGetterThatDiscardsTypeInfo()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         MethodIdentity getter = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == "get_WidgetDto"
                 && method.DeclaringType.Name == "FixtureJsonContext");
         DirectCall getTypeInfo = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == getter.MetadataToken
                 && call.Callee.Name == "GetTypeInfo");
@@ -79,14 +79,14 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsGeneratedRootGetterThatReturnsNullOnTheFreshPath()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         MethodIdentity getter = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == "get_WidgetDto"
                 && method.DeclaringType.Name == "FixtureJsonContext");
         FieldStoreFact cacheStore = Assert.Single(
-            bodyIndex.FieldStores,
+            bodyAnalysis.FieldStores,
             store => store.EvidenceMethod.MetadataToken
                 == getter.MetadataToken);
 
@@ -118,18 +118,18 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void PatchedRootGetter_ReportsNullAsAProvenReturnAlternative()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         MethodIdentity getter = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == "get_WidgetDto"
                 && method.DeclaringType.Name == "FixtureJsonContext");
         FieldStoreFact cacheStore = Assert.Single(
-            bodyIndex.FieldStores,
+            bodyAnalysis.FieldStores,
             store => store.EvidenceMethod.MetadataToken
                 == getter.MetadataToken);
 
-        MethodReturnFlow authentic = RootGetterReturnFlow(bodyIndex);
+        MethodReturnFlow authentic = RootGetterReturnFlow(bodyAnalysis);
         Assert.True(authentic.Value.IsResolved);
         Assert.Collection(
             authentic.Value.Sources.OrderBy(source => source.Kind),
@@ -158,7 +158,7 @@ public sealed class GeneratedJsExportAuthenticationTests
         {
             File.WriteAllBytes(path, image);
             MethodReturnFlow patched = RootGetterReturnFlow(
-                OpenWireContractBodyIndex(path));
+                OpenWireContractBodyAnalysis(path));
             Assert.True(patched.Value.IsResolved);
             Assert.Contains(
                 patched.Value.Sources,
@@ -185,15 +185,15 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsGeneratedContextConstructorThatDropsOptions()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         MethodIdentity constructor = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == ".ctor"
                 && method.DeclaringType.Name == "FixtureJsonContext"
                 && method.ParameterTypes.Length == 1);
         DirectCall baseCall = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == constructor.MetadataToken
                 && call.Callee.Name == ".ctor"
@@ -216,14 +216,14 @@ public sealed class GeneratedJsExportAuthenticationTests
     }
 
     static MethodReturnFlow RootGetterReturnFlow(
-        LibraryBodyIndex bodyIndex)
+        LibraryJsonWireContractAnalysisResult bodyAnalysis)
     {
         MethodIdentity getter = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == "get_WidgetDto"
                 && method.DeclaringType.Name == "FixtureJsonContext");
         return Assert.Single(
-            bodyIndex.ReturnFlows,
+            bodyAnalysis.ReturnFlows,
             flow => flow.EvidenceMethod.MetadataToken
                 == getter.MetadataToken);
     }
@@ -232,14 +232,14 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsGeneratedContextWithUnlinkedDefaultInstance()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         MethodIdentity staticConstructor = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == ".cctor"
                 && method.DeclaringType.Name == "FixtureJsonContext");
         FieldStoreFact instanceStore = Assert.Single(
-            bodyIndex.FieldStores,
+            bodyAnalysis.FieldStores,
             store => store.EvidenceMethod.MetadataToken
                     == staticConstructor.MetadataToken
                 && store.FieldName == "<Default>k__BackingField");
@@ -264,9 +264,9 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsUnreachableGeneratedWrapperEntry()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
-        MethodIdentity wrapper = PingWrapper(bodyIndex);
+        MethodIdentity wrapper = PingWrapper(bodyAnalysis);
 
         // The wrapper keeps its call to the generated stub, but returns before
         // reaching it.
@@ -287,9 +287,9 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsRegistrationWithMismatchedSignatureHash()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
-        DirectCall registration = PingRegistration(bodyIndex);
+        DirectCall registration = PingRegistration(bodyAnalysis);
         ResolvedValueSource? hash = registration.ResolvedArgumentValues[1].Single;
         Assert.NotNull(hash);
         Assert.Equal(
@@ -297,7 +297,7 @@ public sealed class GeneratedJsExportAuthenticationTests
             hash.Kind);
         Assert.True(
             RuntimeJsExportWrapperName.TryGetSignatureHash(
-                PingWrapper(bodyIndex).Name,
+                PingWrapper(bodyAnalysis).Name,
                 "Ping",
                 out uint expected));
         Assert.Equal(expected, unchecked((uint)hash.Int32Value!));
@@ -319,10 +319,10 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsDelegateRegistrationWithMismatchedSignatureHash()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         DirectCall registration =
-            Registration(bodyIndex, "ReportValue");
+            Registration(bodyAnalysis, "ReportValue");
         ResolvedValueSource hash =
             Assert.IsType<ResolvedValueSource>(
                 registration.ResolvedArgumentValues[1].Single);
@@ -347,16 +347,16 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsDelegateRegistrationWithWrongNestedDescriptor()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         DirectCall registration =
-            Registration(bodyIndex, "TransformValue");
+            Registration(bodyAnalysis, "TransformValue");
         DirectCall functionFactory =
-            DelegateDescriptorFactory(bodyIndex, registration);
+            DelegateDescriptorFactory(bodyAnalysis, registration);
         ResolvedValueSource stringDescriptor = Assert.IsType<ResolvedValueSource>(
             functionFactory.ResolvedArgumentValues[1].Single);
         int booleanMarshalerToken = MarshalerFactoryToken(
-            bodyIndex,
+            bodyAnalysis,
             registration,
             "get_Boolean");
 
@@ -384,17 +384,17 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsDelegateRegistrationWithWrongResultDescriptor()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         DirectCall registration =
-            Registration(bodyIndex, "TransformValue");
+            Registration(bodyAnalysis, "TransformValue");
         DirectCall functionFactory =
-            DelegateDescriptorFactory(bodyIndex, registration);
+            DelegateDescriptorFactory(bodyAnalysis, registration);
         ResolvedValueSource resultDescriptor =
             Assert.IsType<ResolvedValueSource>(
                 functionFactory.ResolvedArgumentValues[2].Single);
         int stringMarshalerToken = MarshalerFactoryToken(
-            bodyIndex,
+            bodyAnalysis,
             registration,
             "get_String");
 
@@ -422,17 +422,17 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsDelegateRegistrationWithWrongOuterFactory()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         DirectCall registration =
-            Registration(bodyIndex, "TransformValue");
+            Registration(bodyAnalysis, "TransformValue");
         DirectCall functionFactory =
-            DelegateDescriptorFactory(bodyIndex, registration);
+            DelegateDescriptorFactory(bodyAnalysis, registration);
         DirectCall actionRegistration =
-            Registration(bodyIndex, "ObserveValues");
+            Registration(bodyAnalysis, "ObserveValues");
         DirectCall actionFactory =
             DelegateDescriptorFactory(
-                bodyIndex,
+                bodyAnalysis,
                 actionRegistration);
 
         PatchIl(
@@ -459,22 +459,22 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsDelegateRegistrationWithReorderedDescriptors()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
         DirectCall registration =
-            Registration(bodyIndex, "TransformValue");
+            Registration(bodyAnalysis, "TransformValue");
         DirectCall functionFactory =
-            DelegateDescriptorFactory(bodyIndex, registration);
+            DelegateDescriptorFactory(bodyAnalysis, registration);
         ResolvedValueSource firstDescriptor = Assert.IsType<ResolvedValueSource>(
             functionFactory.ResolvedArgumentValues[0].Single);
         ResolvedValueSource secondDescriptor = Assert.IsType<ResolvedValueSource>(
             functionFactory.ResolvedArgumentValues[1].Single);
         int intMarshalerToken = MarshalerFactoryToken(
-            bodyIndex,
+            bodyAnalysis,
             registration,
             "get_Int32");
         int stringMarshalerToken = MarshalerFactoryToken(
-            bodyIndex,
+            bodyAnalysis,
             registration,
             "get_String");
 
@@ -512,25 +512,25 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsDelegateWrapperThatCallsDifferentExport()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
-        MethodIdentity wrapper = Wrapper(bodyIndex, "ReportValue");
+        MethodIdentity wrapper = Wrapper(bodyAnalysis, "ReportValue");
         DirectCall wrapperCall = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == wrapper.MetadataToken
                 && call.CalleeDefinitionToken != 0);
         MethodIdentity stub = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.MetadataToken
                 == wrapperCall.CalleeDefinitionToken);
         DirectCall exportCall = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == stub.MetadataToken
                 && call.Callee.Name == "ReportValue");
         MethodIdentity otherExport = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == "ReportValueAgain"
                 && method.DeclaringType.Name == nameof(FixtureExports));
 
@@ -558,9 +558,9 @@ public sealed class GeneratedJsExportAuthenticationTests
     public void Build_RejectsRegistrationWithSwappedDescriptorElement()
     {
         byte[] image = FixtureImage();
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(
             typeof(FixtureExports).Assembly.Location);
-        DirectCall registration = PingRegistration(bodyIndex);
+        DirectCall registration = PingRegistration(bodyAnalysis);
         SpanArgumentElements? descriptor =
             registration.SpanArgumentSources.ForArgument(2);
         Assert.NotNull(descriptor);
@@ -574,7 +574,7 @@ public sealed class GeneratedJsExportAuthenticationTests
         // one-element descriptor; only the marshaler the element holds stops
         // matching the export's own Task return.
         int stringMarshalerToken = Assert.Single(
-            bodyIndex.DirectCalls
+            bodyAnalysis.DirectCalls
                 .Where(call =>
                     call.EvidenceMethod.MetadataToken
                         == registration.EvidenceMethod.MetadataToken
@@ -607,15 +607,15 @@ public sealed class GeneratedJsExportAuthenticationTests
     {
         string path =
             typeof(ScalarContextOptionsFixtureExports).Assembly.Location;
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
         MethodIdentity staticConstructor = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == ".cctor"
                 && method.DeclaringType.Name
                     == nameof(ExtraStaticsScalarContext));
         Assert.Equal(
             2,
-            bodyIndex.DirectCalls.Count(call =>
+            bodyAnalysis.DirectCalls.Count(call =>
                 call.EvidenceMethod.MetadataToken
                     == staticConstructor.MetadataToken
                 && call.Kind == CallKind.NewObject
@@ -646,7 +646,7 @@ public sealed class GeneratedJsExportAuthenticationTests
 
         JsExportSurface surface = JsExportSurfaceBuilder.Build(
             apiSurface,
-            bodyIndex);
+            bodyAnalysis);
 
         Assert.Equal(
             "int",
@@ -663,7 +663,7 @@ public sealed class GeneratedJsExportAuthenticationTests
     [Fact]
     public void GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence()
     {
-        LibraryBodyIndex loaderBodies = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult loaderBodies = WireContractTestAnalysis.Open(
             typeof(JsExportSurfaceLoader).Assembly.Location,
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
@@ -684,17 +684,54 @@ public sealed class GeneratedJsExportAuthenticationTests
                 == read.EvidenceMethod.MetadataToken);
         DirectCall bodyReader = Assert.Single(
             loaderBodies.DirectCalls,
-            call => call.Callee.Name == "OpenFromPrefetchedImage"
+            call => call.Callee.Name == "ExecuteImage"
                 && call.Callee.DeclaringType.Name
-                    == nameof(LibraryBodyIndex)
+                    == nameof(LibraryBodyAnalysisService)
                 && call.EvidenceMethod.Name
                     == nameof(JsExportSurfaceLoader.TryLoad));
+        DirectCall request = Assert.Single(
+            loaderBodies.DirectCalls,
+            call => call.Callee.Name == "Create"
+                && call.Callee.DeclaringType.Name
+                    == nameof(LibraryBodyAnalysisRequest)
+                && call.EvidenceMethod.Name
+                    == nameof(JsExportSurfaceLoader.TryLoad));
+        DirectCall focusedRootResult = Assert.Single(
+            loaderBodies.DirectCalls,
+            call => call.Callee.Name == "get_JsonWireContracts"
+                && call.Callee.DeclaringType.Name
+                    == nameof(LibraryBodyAnalysisExecution)
+                && call.EvidenceMethod.Name
+                    == nameof(JsExportSurfaceLoader.TryLoad));
+        Assert.Single(
+            loaderBodies.DirectCalls,
+            call => call.Callee.Name == "get_JsonWireContracts"
+                && call.Callee.DeclaringType.Name
+                    == nameof(LibraryBodyAnalysisExecution)
+                && call.EvidenceMethod.Name
+                    == "TryLoadReferencedTypeDefinitions");
         Assert.Equal(
             read.EvidenceMethod.MetadataToken,
             metadataReader.EvidenceMethod.MetadataToken);
         Assert.Equal(
             read.EvidenceMethod.MetadataToken,
             bodyReader.EvidenceMethod.MetadataToken);
+        Assert.Equal(
+            read.EvidenceMethod.MetadataToken,
+            request.EvidenceMethod.MetadataToken);
+        Assert.Equal(
+            read.EvidenceMethod.MetadataToken,
+            focusedRootResult.EvidenceMethod.MetadataToken);
+        Assert.DoesNotContain(
+            loaderBodies.DirectCalls,
+            call => call.Callee.Name == "CompatibilityIndex"
+                && call.Callee.DeclaringType.Name
+                    == nameof(LibraryBodyAnalysisExecution));
+        Assert.DoesNotContain(
+            loaderBodies.DirectCalls,
+            call => call.Callee.Name == "OpenFromPrefetchedImage"
+                && call.Callee.DeclaringType.Name
+                    == nameof(LibraryBodyIndex));
         Assert.DoesNotContain(
             loaderBodies.DirectCalls,
             call => call.Callee.Name == "Open"
@@ -720,7 +757,7 @@ public sealed class GeneratedJsExportAuthenticationTests
         string path = typeof(FixtureExports).Assembly.Location;
         return JsExportSurfaceBuilder.Build(
             ExtractApiSurface(path),
-            OpenWireContractBodyIndex(path));
+            OpenWireContractBodyAnalysis(path));
     }
 
     /// <summary>
@@ -748,7 +785,7 @@ public sealed class GeneratedJsExportAuthenticationTests
                 Assert.Throws<UnsupportedJsExportSurfaceException>(
                     () => JsExportSurfaceBuilder.Build(
                         ExtractApiSurface(path),
-                        OpenWireContractBodyIndex(path)));
+                        OpenWireContractBodyAnalysis(path)));
             return exception.Message;
         }
         finally
@@ -760,33 +797,33 @@ public sealed class GeneratedJsExportAuthenticationTests
     static byte[] FixtureImage()
         => File.ReadAllBytes(typeof(FixtureExports).Assembly.Location);
 
-    static MethodIdentity PingWrapper(LibraryBodyIndex bodyIndex)
-        => Wrapper(bodyIndex, "Ping");
+    static MethodIdentity PingWrapper(LibraryJsonWireContractAnalysisResult bodyAnalysis)
+        => Wrapper(bodyAnalysis, "Ping");
 
-    static DirectCall PingRegistration(LibraryBodyIndex bodyIndex)
-        => Registration(bodyIndex, "Ping");
+    static DirectCall PingRegistration(LibraryJsonWireContractAnalysisResult bodyAnalysis)
+        => Registration(bodyAnalysis, "Ping");
 
     static MethodIdentity Wrapper(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         string exportName) =>
         Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name.StartsWith(
                 $"__Wrapper_{exportName}_",
                 StringComparison.Ordinal));
 
     static DirectCall Registration(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         string exportName) =>
         Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.Callee.Name == "BindManagedFunction"
                 && call.FirstArgumentStringLiteral?.EndsWith(
                     $":{exportName}",
                     StringComparison.Ordinal) == true);
 
     static DirectCall DelegateDescriptorFactory(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         DirectCall registration)
     {
         SpanArgumentElements descriptor = Assert.IsType<SpanArgumentElements>(
@@ -795,18 +832,18 @@ public sealed class GeneratedJsExportAuthenticationTests
             Assert.IsType<ResolvedValueSource>(
                 Assert.Single(descriptor.Elements.Skip(1)).Single);
         return Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == registration.EvidenceMethod.MetadataToken
                 && call.ILOffset == delegateDescriptor.ILOffset);
     }
 
     static int MarshalerFactoryToken(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         DirectCall registration,
         string factoryName) =>
         Assert.Single(
-            bodyIndex.DirectCalls
+            bodyAnalysis.DirectCalls
                 .Where(call =>
                     call.EvidenceMethod.MetadataToken
                         == registration.EvidenceMethod.MetadataToken
@@ -868,8 +905,8 @@ public sealed class GeneratedJsExportAuthenticationTests
         return ApiSurfaceExtractor.Extract(peReader, includeAll: true);
     }
 
-    static LibraryBodyIndex OpenWireContractBodyIndex(string path) =>
-        LibraryBodyIndex.Open(
+    static LibraryJsonWireContractAnalysisResult OpenWireContractBodyAnalysis(string path) =>
+        WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);

@@ -2,13 +2,12 @@ import type { MemberSection, TypeLens } from "./data.ts";
 import type { MemberGroup, MemberOverloadSummary } from "./type-panel.ts";
 
 export const MEMBER_TRAITS = [
-  ["isStatic", "static"],
-  ["isUnsafe", "unsafe"],
-  ["isVirtual", "virtual"],
-  ["isAbstract", "abstract"],
-  ["isOverride", "override"],
-  ["isExtension", "extension"],
-  ["isObsolete", "obsolete"],
+  ["", "all"],
+  ["static", "static"],
+  ["instance", "instance"],
+  ["virtual", "virtual"],
+  ["interface", "interface"],
+  ["extensions", "extensions"],
 ] as const;
 
 export interface MemberGroupFilters {
@@ -22,17 +21,19 @@ export interface MemberGroupFilters {
 interface FilterableMemberOverload extends MemberOverloadSummary {
   accessibility?: string;
   isStatic?: boolean;
-  isUnsafe?: boolean;
   isVirtual?: boolean;
-  isAbstract?: boolean;
-  isOverride?: boolean;
   isExtension?: boolean;
-  isObsolete?: boolean;
+  isExplicitInterfaceImplementation?: boolean;
 }
 
 export interface FilterableMemberGroup extends MemberGroup {
   overloads: readonly FilterableMemberOverload[];
 }
+
+type FilteredMemberGroup<TGroup extends FilterableMemberGroup> =
+  Omit<TGroup, "overloads"> & {
+    overloads: Array<TGroup["overloads"][number]>;
+  };
 
 export function memberGroupMatches(
   group: FilterableMemberGroup,
@@ -43,28 +44,73 @@ export function memberGroupMatches(
     return false;
   }
 
-  return group.overloads.some(overload => {
-    if (filters.accessibility
-        && filters.accessibility !== "all"
-        && overload.accessibility !== filters.accessibility) {
+  const overloads = group.overloads.filter(
+    overload => memberMatchesTrait(overload, filters.trait ?? ""));
+  return overloads.length > 0 && (
+    !query
+    || group.name.toLowerCase().includes(query)
+    || overloads.some(
+      overload => overload.signature.toLowerCase().includes(query))
+  );
+}
+
+export function memberMatchesTrait(
+  member: FilterableMemberOverload,
+  trait: string,
+): boolean {
+  switch (trait) {
+    case "":
+      return true;
+    case "static":
+      return member.isStatic === true && member.isExtension !== true;
+    case "instance":
+      return member.isStatic !== true && member.isExtension !== true;
+    case "virtual":
+      return member.isVirtual === true;
+    case "interface":
+      return member.isExplicitInterfaceImplementation === true;
+    case "extensions":
+      return member.isExtension === true;
+    default:
       return false;
+  }
+}
+
+export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
+  groups: readonly TGroup[],
+  filters: MemberGroupFilters,
+): FilteredMemberGroup<TGroup>[] {
+  const query = (filters.query ?? "").trim().toLowerCase();
+  return groups.flatMap(group => {
+    if (filters.kind
+      && filters.kind !== "all"
+      && group.kind !== filters.kind) {
+      return [];
     }
-    if (filters.trait
-        && !MEMBER_TRAITS.some(
-          ([property]) => property === filters.trait && overload[property])) {
-      return false;
+
+    const overloads = group.overloads.filter(
+      overload => memberMatchesTrait(overload, filters.trait ?? ""));
+    if (overloads.length === 0 || (
+      query
+      && !group.name.toLowerCase().includes(query)
+      && !overloads.some(
+        overload => overload.signature.toLowerCase().includes(query))
+    )) {
+      return [];
     }
-    return !query
-      || group.name.toLowerCase().includes(query)
-      || overload.signature.toLowerCase().includes(query);
+
+    return [{ ...group, overloads }];
   });
 }
 
-export function filterMemberGroups(
+export function memberKindCount(
   groups: readonly FilterableMemberGroup[],
-  filters: MemberGroupFilters,
-): FilterableMemberGroup[] {
-  return groups.filter(group => memberGroupMatches(group, filters));
+  kind: string,
+): number {
+  return groups.reduce(
+    (count, group) =>
+      count + (group.kind === kind ? group.overloads.length : 0),
+    0);
 }
 
 export interface MemberScopeState {
@@ -318,7 +364,7 @@ export function restoreMemberHistoryState(
     memberBrowseTypeId: restoreMemberScope ? type!.id : "",
     memberKindFilter: type ? (view.memberKindFilter ?? "all") : "all",
     memberAccessibilityFilter:
-      type ? (view.memberAccessibilityFilter ?? "all") : "all",
+      type ? (view.memberAccessibilityFilter ?? "public") : "public",
     memberTraitFilter: type ? (view.memberTraitFilter ?? "") : "",
     memberTextFilter: type ? (view.memberTextFilter ?? "") : "",
     selectedOverloadIndex: restoreMemberScope ? overloadIndex : null,

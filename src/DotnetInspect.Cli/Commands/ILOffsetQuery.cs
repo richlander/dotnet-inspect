@@ -236,15 +236,16 @@ internal static class ILOffsetQuery
                 ? $"{failure.Message} {detail}"
                 : failure.Message;
 
-    static LibraryCoordinateRequest.IlPoint Coordinate(
+    static LibraryAddressRequest.IlPoint Coordinate(
         LibraryOptions options)
-        => options.CoordinateRequest
-            is LibraryCoordinateRequest.IlPoint coordinate
+        => options.AddressRequest
+            is LibraryAddressRequest.IlPoint coordinate
                 ? coordinate
                 : throw new UnreachableException(
                     "IL coordinate resolution requires an admitted IL point.");
 
-    static ILOffsetProjectionCapabilities ProjectionCapabilities(LibraryOptions options)
+    internal static ILOffsetProjectionCapabilities ProjectionCapabilities(
+        LibraryOptions options)
     {
         var capabilities = ILOffsetProjectionCapabilities.None;
         if (RequiresSourceLocation(options))

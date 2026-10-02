@@ -31,8 +31,39 @@ The library CLI, package `--all-libraries`, `extensions`, `implements`, and
 `find` now host workspace-backed queries. Independent search fan-out remains
 sequential and bounded to one retained participant at a time; group-scoped
 Integrations and extension reachability retain compatible participants for
-cross-assembly composition. The components below are the current hosts, shared
-substrates, and inspection producers that will extend that space.
+cross-assembly composition.
+
+Three shared systems keep the command core small while inspection stays deep:
+
+- a **registry** of installed capability:
+  [Inspection Capability Composition](design/inspection-capability-composition.md)
+  and [analysis descriptors](design/analysis-surfaces-and-universes.md#analysis)
+  with their
+  [operation participation](design/analysis-surfaces-and-universes.md#operation-participation);
+- a **subject** system:
+  [Inspection Subject Navigation](design/inspection-subject-navigation.md) and
+  [Workspace Definitions](design/workspace-definitions.md); and
+- a family of **shared structures and formats**, each kept by its own owner:
+
+| Structure | Role |
+| --- | --- |
+| [`InspectionEnvelope<TContent>`](design/inspection-envelope.md) | Delivery of Content, Share, and diagnostics |
+| `Finding<T>` and `PairFinding<T>` ([Finding nomenclature](design/finding-nomenclature.md)), with `FindingKey` ([Finding coordinates](design/finding-coordinates.md)) | Observation, identity, and correspondence |
+| [`AnalysisDiff<T>`](design/analysis-diff.md) | Relation partition of two compared sequences |
+| [`ComparisonDocument<T>`](design/comparison-document.md) | Composition of compared subjects and their comparison payloads |
+| [`InspectionGraphDocument`](design/inspection-graph-document.md) | Topology |
+| `AnnotatedSourceDocument` ([Member body substrate](design/member-body-substrate.md)) | Placement at source and IL coordinates |
+| Markout | Format lowering |
+
+New analyses and operations reach users through these structures. An analysis
+contributes typed values into the structure that an operation owns, and the
+operation delivers them as envelope Content. It does not add an
+operation-specific result shape or an adapter written for one analysis. A
+deliberate exception names its payload or host, its rationale, and its
+lowering boundary in its owning design.
+
+The components below are the current hosts, shared substrates, and inspection
+producers that will extend that space.
 
 - `src/DotnetInspect.Cli/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
@@ -92,8 +123,16 @@ substrates, and inspection producers that will extend that space.
   explicit-source suppression, and named platform/package scope expansion. Its
   [Find type-search service](design/find-search-service.md) owns the
   CLI-scoped boundary from host-authorized candidate collection through typed
-  exact, glob, namespace-prefix, partial, and miss classification; Metadata
-  retains candidate facts and the command retains presentation.
+  exact, glob, namespace-prefix, partial, and miss classification. Its
+  [Type Find population selection](design/type-find-population-selection.md)
+  dependency owns host-neutral first-nonempty Prefix, Substring, and Partial
+  settlement while retaining exact caller associations; Metadata retains
+  candidate facts and the command retains presentation.
+  [Ecosystem Find Search](design/ecosystem-find-search.md) owns the
+  host-neutral bounded-before-prefix scheduler that deduplicates concrete
+  source work, reduces owner-issued Find blocks to every admitting Ecosystem,
+  and preserves phase, membership, failure, and completion evidence for CLI
+  and Browser adoption.
   Its [ReadyToRun CLI projection](design/readytorun-cli-projection.md) owns the
   explicit ReadyToRun section lens and metadata-root subject selection while
   retaining PE and metadata interpretation in `ILInspector.Metadata`.
@@ -262,6 +301,11 @@ substrates, and inspection producers that will extend that space.
   Metadata's physical exception-region facts and Instructions' decoded
   exception-flow facts under the
   [exception facts composition](design/exception-facts-composition.md).
+  The target
+  [Assembly Analysis Operation](design/assembly-analysis-operation.md)
+  composes a resource-free producer description, exact owner-issued assembly
+  access, QuerySpace sources, stateless service execution, and detached
+  producer outcomes without taking ownership from those focused contracts.
   `AnalysisFindings` exposes reusable typed censuses and comparisons for
   allocations, call sites, unsafe operations, and unsafe declaration/body
   evidence.
@@ -781,6 +825,14 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Find type-search service](design/find-search-service.md): CLI-scoped
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
+- [Ecosystem Find Search](design/ecosystem-find-search.md): host-neutral
+  bounded-before-prefix scheduling, distinct-source deduplication,
+  cross-Ecosystem membership reduction, durable Find blocks, and terminal
+  completion for CLI and Browser adoption.
+- [Type Find population
+  selection](design/type-find-population-selection.md): host-neutral
+  first-nonempty Prefix, Substring, and Partial settlement over one complete
+  ordered population while retaining exact caller associations.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Inspection envelope](design/inspection-envelope.md): host-neutral terminal
   wrapper preserving owner-issued primary content and typed cross-host
@@ -803,6 +855,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   operation-scoped binding from one exact finite universe description and
   validated plan to owner-issued executable capabilities, deterministic
   population and context access, retained lifetimes, and visible failure.
+- [Evidence and metric coordination](design/evidence-metric-coordination.md):
+  prerequisite normalization, compatible acquisition and derivation sharing,
+  typed fact or edge handoff, metric and roll-up execution, and exact
+  population-bound work receipts without redefining producer or metric
+  semantics.
 - [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
   type views, compiler handoff, related generator categories, and migration from
   direct JavaScript plus declaration emission.

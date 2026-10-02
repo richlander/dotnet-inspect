@@ -38,6 +38,9 @@ class FakeElement {
   tabIndex = -1;
   private readonly listeners = new Map<string, EventListener[]>();
   private dataId: string | null = null;
+  closestSelector: string | null = null;
+  bounds = { x: 0, y: 0, width: 10, height: 10 };
+  transformSource: FakeElement | null = null;
 
   constructor(options: { dataId?: string; id?: string } = {}) {
     this.dataId = options.dataId ?? null;
@@ -69,6 +72,28 @@ class FakeElement {
       : this.attributes.get(name) ?? null;
   }
 
+  closest(selector: string) {
+    return selector === this.closestSelector ? this : null;
+  }
+
+  getBBox() {
+    return this.bounds;
+  }
+
+  getBoundingClientRect() {
+    const transform =
+      /^translate\(([^p]+)px, ([^p]+)px\) scale\(([^)]+)\)$/
+        .exec(this.transformSource?.style.transform ?? "");
+    const scale = transform ? Number(transform[3]) : 1;
+    const x = this.bounds.x * scale + (transform ? Number(transform[1]) : 0);
+    const y = this.bounds.y * scale + (transform ? Number(transform[2]) : 0);
+    return rect(
+      this.bounds.width * scale,
+      this.bounds.height * scale,
+      x,
+      y);
+  }
+
   setAttribute(name: string, value: string) {
     this.attributes.set(name, value);
   }
@@ -83,9 +108,17 @@ class FakeSvg extends FakeElement {
   readonly viewBox: { baseVal: { width: number; height: number } };
   private readonly nodes: FakeElement[];
 
-  constructor(nodes: FakeElement[], width = 100, height = 50) {
+  private readonly focusNode: FakeElement | null;
+
+  constructor(
+    nodes: FakeElement[],
+    width = 100,
+    height = 50,
+    focusNode: FakeElement | null = null,
+  ) {
     super();
     this.nodes = nodes;
+    this.focusNode = focusNode;
     this.viewBox = { baseVal: { width, height } };
   }
 
@@ -95,6 +128,10 @@ class FakeSvg extends FakeElement {
 
   querySelectorAll(selector: string) {
     return selector === "g.node" ? this.nodes : [];
+  }
+
+  querySelector(selector: string) {
+    return selector === "g.node.target" ? this.focusNode : null;
   }
 
   setAttribute(name: string, value: string) {
@@ -144,16 +181,16 @@ class FakeContainer {
   }
 }
 
-function rect(width: number, height: number) {
+function rect(width: number, height: number, x = 0, y = 0) {
   return {
-    bottom: height,
+    bottom: y + height,
     height,
-    left: 0,
-    right: width,
-    top: 0,
+    left: x,
+    right: x + width,
+    top: y,
     width,
-    x: 0,
-    y: 0,
+    x,
+    y,
     toJSON() {},
   };
 }
@@ -509,6 +546,37 @@ test("automatic framing stays legible while explicit Fit uses its lower floor", 
   assert.deepEqual(graphTransform(svg), { scale: 0.2, x: -400, y: 45 });
   reset.dispatch("click");
   assert.deepEqual(graphTransform(svg), { scale: 0.05, x: -25, y: 48.75 });
+});
+
+test("dense call graphs center their target in Explore until Fit shows the whole graph", () => {
+  const target = new FakeElement();
+  target.bounds = { x: 2_400, y: 20, width: 200, height: 10 };
+  const svg = new FakeSvg([target], 5_000, 50, target);
+  target.transformSource = svg;
+  const viewport = new FakeViewport(svg);
+  viewport.closestSelector = ".graph-explorer";
+  const targetButton = new FakeElement();
+  const reset = new FakeElement();
+  targetButton.dataset.zoom = "target";
+  reset.dataset.zoom = "reset";
+
+  bindGraphPanZoom(
+    fakeDom.parentNode(new FakeContainer([targetButton, reset])),
+    fakeDom.htmlElement(viewport),
+    {
+      focusNodeSelector: "g.node.target",
+      keybindings: new KeybindingRegistry(),
+    });
+
+  assert.deepEqual(
+    graphTransform(svg),
+    { scale: 0.65, x: -1_525, y: 33.75 });
+  reset.dispatch("click");
+  assert.deepEqual(graphTransform(svg), { scale: 0.05, x: -25, y: 48.75 });
+  targetButton.dispatch("click");
+  assert.deepEqual(
+    graphTransform(svg),
+    { scale: 0.65, x: -1_525, y: 33.75 });
 });
 
 test("graph bindings tolerate missing rendered surfaces", () => {

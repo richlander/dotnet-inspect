@@ -275,13 +275,18 @@ public sealed partial class PackageRangedRealizationTests
         IPackageEntryStore entries = store;
         if (directory)
         {
-            Assert.True(entries.TryReadDirectory(PclStorage, PclStorageVersion, out ReadOnlyMemory<byte> region, out _));
-            Assert.Equal(new byte[] { 1, 2, 3 }, region.ToArray());
+            PackageEntryDirectory? cached =
+                await entries.ReadDirectoryAsync(PclStorage, PclStorageVersion);
+            Assert.NotNull(cached);
+            Assert.Equal(new byte[] { 1, 2, 3 }, cached.Region.ToArray());
         }
         else
         {
-            Assert.True(entries.TryReadEntry(
-                PclStorage, PclStorageVersion, "lib/net45/PCLStorage.dll", out byte[] content));
+            byte[]? content = await entries.ReadEntryAsync(
+                PclStorage,
+                PclStorageVersion,
+                "lib/net45/PCLStorage.dll");
+            Assert.NotNull(content);
             Assert.Equal(new byte[] { 1, 2, 3 }, content);
         }
 
@@ -350,13 +355,18 @@ public sealed partial class PackageRangedRealizationTests
         // The cached directory still describes the original archive, and the
         // entry the changed read lacked was not published from it.
         IPackageEntryStore entries = store;
-        Assert.True(entries.TryReadDirectory(PclStorage, PclStorageVersion, out ReadOnlyMemory<byte> region, out long length));
-        Assert.Equal(archive.Length, length);
+        PackageEntryDirectory? cached =
+            await entries.ReadDirectoryAsync(PclStorage, PclStorageVersion);
+        Assert.NotNull(cached);
+        Assert.Equal(archive.Length, cached.ArchiveLength);
         Assert.NotNull(ZipFetch.ZipArchiveReader.ReadDirectoryFromRegion(
-                region, length, new ZipFetch.ZipReadLimits())
+                cached.Region, cached.ArchiveLength, new ZipFetch.ZipReadLimits())
             .Find("lib/sl5/PCLStorage.xml"));
-        Assert.False(entries.TryReadEntry(
-            PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml", out _));
+        Assert.Null(
+            await entries.ReadEntryAsync(
+                PclStorage,
+                PclStorageVersion,
+                "lib/net45/PCLStorage.xml"));
 
         await AssertLaterReadIsServedFromTheCompleteStoreAsync(store, changed);
     }
@@ -509,9 +519,9 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Contains(
             settlement.Result.Evidence.Failures,
             failure => failure is PackageHouseFailure.Authority
-                {
-                    Failure.Kind: PackageAuthorityFailureKind.AuthenticationRequired,
-                }
+            {
+                Failure.Kind: PackageAuthorityFailureKind.AuthenticationRequired,
+            }
                 || failure is PackageHouseFailure.Source
                 {
                     Failure.Kind: PackageSourceFailureKind.AuthenticationRequired,
@@ -710,7 +720,13 @@ public sealed partial class PackageRangedRealizationTests
             string version,
             IEnumerable<string>? implementationNames = null,
             PackageHouseAssetSelectionKind selection =
-                PackageHouseAssetSelectionKind.Compile)
+                PackageHouseAssetSelectionKind.Compile,
+            PackageHouseEvidenceDemand evidenceDemand =
+                PackageHouseEvidenceDemand.None,
+            PackageHouseLibraryHandoffMode libraryHandoff =
+                PackageHouseLibraryHandoffMode.PackageOnly,
+            PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+                PackageHouseLibraryCompanionDemand.None)
         {
             // The real assets here are small, so the ranged gates set a zero
             // size cut; size first itself is gated separately.
@@ -727,7 +743,10 @@ public sealed partial class PackageRangedRealizationTests
                 PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
                 PackageHouseTargetContext.Exact(framework),
                 selection,
-                implementationNames: implementationNames);
+                libraryHandoff,
+                implementationNames: implementationNames,
+                evidenceDemand: evidenceDemand,
+                libraryCompanionDemand: libraryCompanionDemand);
             return house.ExecuteAsync(
                 request,
                 Root.IssueOperationLease(
@@ -737,12 +756,12 @@ public sealed partial class PackageRangedRealizationTests
         }
 
         /// <summary>
-        /// Acquires PCLStorage with a document demand; the real asset is
+        /// Acquires PCLStorage with a file demand; the real asset is
         /// small, so a zero size cut reads it by range.
         /// </summary>
-        public Task<PackageHouseSettlement> AcquireDocumentsAsync(
+        public Task<PackageHouseSettlement> AcquireFilesAsync(
             IPackageStore store,
-            PackageDocumentDemand documents,
+            PackageFileDemand files,
             PackagePayloadAccess access = PackagePayloadAccess.Ranged,
             long sizeCut = 0)
         {
@@ -757,9 +776,98 @@ public sealed partial class PackageRangedRealizationTests
                 new PackageHouseDemand.Exact(
                     PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
                 PackageHouseOperation.Create(PackageHouseOperationProfile.Acquire),
-                documentDemand: documents);
+                fileDemand: files);
             return house.ExecuteAsync(
                 request,
+                Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    request.Operation.RequestTimeout,
+                    request.Operation.OperationTimeout));
+        }
+
+        public Task<PackageHouseSettlement> AcquireContentAsync(
+            IPackageStore store,
+            PackageHouseContentQuery query,
+            long sizeCut = 0,
+            string packageId = PclStorage,
+            string version = PclStorageVersion)
+        {
+            var house = new PackageHouse(
+                Authorization,
+                PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store,
+                    log: Log.Enqueue,
+                    rangedSizeCut: sizeCut));
+            var request = new PackageHouseRequest(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(packageId, version)),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                contentQuery: query);
+            return house.ExecuteAsync(
+                request,
+                Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    request.Operation.RequestTimeout,
+                    request.Operation.OperationTimeout));
+        }
+
+        public Task<PackageFileAcquisitionResult> AcquireFileAsync(
+            IPackageStore store,
+            string path,
+            long sizeCut = 0,
+            string packageId = PclStorage,
+            string version = PclStorageVersion)
+        {
+            var request = new PackageFileAcquisitionRequest(
+                PackageSourceCoordinate.Create(
+                    packageId,
+                    version),
+                path,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire));
+            return PackageFileAcquisition.ExecuteAsync(
+                request,
+                Authorization,
+                new PackageFileAcquisitionPlan(
+                    (_, _) => store,
+                    log: Log.Enqueue,
+                    rangedSizeCut: sizeCut),
+                Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    request.Operation.RequestTimeout,
+                    request.Operation.OperationTimeout));
+        }
+
+        public Task<PackageLibraryRealizationResult> RealizeLibraryAsync(
+            IPackageStore store,
+            string framework,
+            PackageLibrarySelector selector,
+            PackageLibraryRealizationDepth depth,
+            long sizeCut = 0,
+            string packageId = PclStorage,
+            string version = PclStorageVersion,
+            PackageHouseLibraryCompanionDemand companionDemand =
+                PackageHouseLibraryCompanionDemand.None)
+        {
+            var request = new PackageLibraryRealizationRequest(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(
+                        packageId,
+                        version)),
+                framework,
+                selector,
+                depth,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                companionDemand);
+            return PackageLibraryRealization.ExecuteAsync(
+                request,
+                Authorization,
+                new PackageLibraryRealizationPlan(
+                    (_, _) => store,
+                    log: Log.Enqueue,
+                    rangedSizeCut: sizeCut),
                 Root.IssueOperationLease(
                     TestContext.Current.CancellationToken,
                     request.Operation.RequestTimeout,

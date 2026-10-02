@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -140,6 +141,56 @@ public sealed class PackageDependencyGroupsQueryTests
         DeclaredPackageDependency dependency = Assert.Single(result.Groups[1].Dependencies);
         Assert.Equal("Second.Dependency", dependency.Id);
         Assert.Equal("2.*", dependency.VersionRange);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UsesPackageOwnedFrameworkReferenceFacts()
+    {
+        const string manifest = """
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>Example.Package</id>
+                <version>1.0.0</version>
+                <dependencies>
+                  <group targetFramework="net8.0" />
+                </dependencies>
+                <frameworkReferences>
+                  <group targetFramework="net8.0">
+                    <frameworkReference name="Microsoft.AspNetCore.App" />
+                  </group>
+                </frameworkReferences>
+              </metadata>
+            </package>
+            """;
+        byte[] bytes = Encoding.UTF8.GetBytes(manifest);
+        PackageManifestFacts direct = Assert.IsType<
+            PackageManifestFactsResult.Available>(
+                PackageManifestFactsProjection.Execute(
+                    bytes,
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0"))).Value;
+        PackageDependencyGroupsResult.Available archive =
+            Assert.IsType<PackageDependencyGroupsResult.Available>(
+                await ExecuteAsync(
+                    Content(("Example.Package.nuspec", manifest)),
+                    "Example.Package",
+                    "net8.0"));
+
+        PackageManifestFrameworkReferenceGroup directGroup = Assert.Single(
+            Assert.IsType<
+                PackageManifestFrameworkReferenceFactsResult.Available>(
+                    direct.FrameworkReferences).Value.Groups);
+        PackageManifestFrameworkReferenceGroup archiveGroup = Assert.Single(
+            Assert.IsType<
+                PackageManifestFrameworkReferenceFactsResult.Available>(
+                    archive.Manifest.FrameworkReferences).Value.Groups);
+        Assert.Equal(
+            directGroup.CanonicalTargetFramework,
+            archiveGroup.CanonicalTargetFramework);
+        Assert.Equal(
+            directGroup.References.Select(reference => reference.Name),
+            archiveGroup.References.Select(reference => reference.Name));
     }
 
     [Theory]

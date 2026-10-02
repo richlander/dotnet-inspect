@@ -58,6 +58,22 @@ internal interface ILibraryMethodAnalysisInfrastructure
         GenericScope scope,
         MethodIdentity caller);
 
+    IMethodCallResolver CreateCallResolver(
+        GenericScope scope,
+        MethodDefinitionHandle caller);
+
+    (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
+        ResolveMethodOwner(
+            int token,
+            GenericScope scope,
+            int maximumMethodSignatureBytes,
+            int unitToken);
+
+    MethodSignatureOutcome MethodSignature(
+        BlobHandle signature,
+        int maximumMethodSignatureBytes,
+        int unitToken);
+
     CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
         int operandToken,
         MemberRef member,
@@ -87,6 +103,12 @@ internal interface ILibraryMethodAnalysisInfrastructure
 
     bool HasGeneratedCodeAttribute(
         CustomAttributeHandleCollection attributes);
+
+    bool TryResolveLocalTypeDefinition(
+        TypeRef type,
+        out TypeDefinitionHandle handle);
+
+    bool CanCanonicalizeCurrentModuleReference(TypeRef type);
 
     bool HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes);
@@ -189,17 +211,44 @@ internal sealed class LibraryMethodAnalysisResult
     public bool ScopeExcluded;
     public bool HasSignals;
     public BodySignals Signals;
+    public MethodImplementationMetricEvidence? ImplementationMetrics;
+    public AnalysisDiagnostic? ImplementationMetricDiagnostic;
     public MethodBodyImplementationMetrics? ImplementationProfile;
-    public LeakTriageResult? LeakTriage;
-    public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
     public AnalysisDiagnostic? Diagnostic;
     public MethodIdentity? DeclaredSource;
     public MethodBodyAnalysisContext? ResourceOccurrenceContext;
 }
 
-internal readonly record struct UnsafeEvidencePresenceMethodResult(
-    bool HasEvidence,
-    AnalysisDiagnostic? Diagnostic);
+/// <summary>The outcome of the declaration phase of unsafe-evidence presence.</summary>
+internal enum UnsafePresenceDeclaration
+{
+    Evidence,
+    NoManagedBody,
+    BodyRequired,
+}
+
+/// <summary>
+/// Per-unit state shared by the declaration and body phases of
+/// unsafe-evidence presence; it lives only for one unit.
+/// </summary>
+internal sealed class UnsafePresenceUnit(
+    TypeDefinitionHandle typeHandle,
+    TypeDefinition typeDefinition,
+    MethodDefinitionHandle methodHandle,
+    MethodDefinition methodDefinition)
+{
+    public TypeDefinitionHandle TypeHandle => typeHandle;
+
+    public TypeDefinition TypeDefinition => typeDefinition;
+
+    public MethodDefinitionHandle MethodHandle => methodHandle;
+
+    public MethodDefinition MethodDefinition => methodDefinition;
+
+    public GenericScope? Scope { get; set; }
+
+    public MethodIdentity? Caller { get; set; }
+}
 
 internal enum UnsafeCallProbeResult
 {
@@ -214,11 +263,13 @@ internal enum UnsafeCallProbeResult
 /// retains scheduling and primary-image lifetime. The primary metadata
 /// resolver owns metadata-dependent judgments and adapters.
 /// </summary>
-internal sealed class LibraryMethodAnalysisRunner(
+internal sealed partial class LibraryMethodAnalysisRunner(
     ILibraryMethodAnalysisInfrastructure infrastructure,
     LibraryBodyExceptionTypeClassifier? exceptionTypes = null,
     ImplementationMetricWorkBudget?
-        implementationMetricWork = null)
+        implementationMetricWork = null,
+    ImplementationMetricExecutionRecorder?
+        implementationMetricRecorder = null)
 {
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
@@ -229,190 +280,192 @@ internal sealed class LibraryMethodAnalysisRunner(
     readonly ImplementationMetricWorkBudget?
         _implementationMetricWork =
             implementationMetricWork;
+    readonly ImplementationMetricExecutionRecorder?
+        _implementationMetricRecorder =
+            implementationMetricRecorder;
 
-    internal UnsafeEvidencePresenceMethodResult ProbeUnsafeEvidence(
-        TypeDefinitionHandle typeHandle,
-        TypeDefinition typeDefinition,
-        MethodDefinitionHandle methodHandle)
+    /// <summary>
+    /// Unsafe-evidence presence, declaration phase: checks the definition's
+    /// unsafe API type and signature before any body is read.
+    /// </summary>
+    internal UnsafePresenceDeclaration ProbeUnsafeDeclaration(
+        UnsafePresenceUnit unit)
     {
         MetadataReader reader = _infrastructure.Reader;
-        MethodIdentity? caller = null;
-        try
+        MethodDefinition methodDefinition = unit.MethodDefinition;
+        TypeDefinitionHandle typeHandle = unit.TypeHandle;
+        MethodIdentity Caller() => PresenceCaller(unit);
+
+        bool hasUnsafeSignature =
+            SignatureMayContainUnsafeType(
+                methodDefinition.Signature);
+        if (hasUnsafeSignature
+            && !SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                methodDefinition.Signature,
+                SignatureBlobGuard.Kind.Method))
         {
-            var methodDefinition =
-                reader.GetMethodDefinition(methodHandle);
-            GenericScope? scope = null;
-            GenericScope Scope()
-                => scope ??= _infrastructure.CreatePresenceScope(
-                    typeDefinition,
-                    methodDefinition,
-                    _unsafePresenceWork);
-            MethodIdentity Caller()
-                => caller ??=
-                    _infrastructure.CreatePresenceMethodIdentity(
-                        typeHandle,
-                        methodHandle,
-                        methodDefinition,
-                        Scope(),
-                        _unsafePresenceWork);
+            throw new BadImageFormatException(
+                "An unsafe method signature exceeds the safe decoding limits.");
+        }
+        if ((MayBeUnsafeApiType(reader, typeHandle)
+                || hasUnsafeSignature)
+            && MethodSafetyAnalysis.HasUnsafeDeclaration(
+                Caller()))
+        {
+            return UnsafePresenceDeclaration.Evidence;
+        }
+        if (methodDefinition.RelativeVirtualAddress == 0
+            || !HasManagedIlBody(
+                methodDefinition.ImplAttributes))
+        {
+            return UnsafePresenceDeclaration.NoManagedBody;
+        }
 
-            bool hasUnsafeSignature =
-                SignatureMayContainUnsafeType(
-                    methodDefinition.Signature);
-            if (hasUnsafeSignature
-                && !SignatureBlobGuard.IsSafeToDecode(
-                    reader,
-                    methodDefinition.Signature,
-                    SignatureBlobGuard.Kind.Method))
-            {
-                throw new BadImageFormatException(
-                    "An unsafe method signature exceeds the safe decoding limits.");
-            }
-            if ((MayBeUnsafeApiType(reader, typeHandle)
-                    || hasUnsafeSignature)
-                && MethodSafetyAnalysis.HasUnsafeDeclaration(
-                    Caller()))
-            {
-                return new(true, null);
-            }
-            if (methodDefinition.RelativeVirtualAddress == 0
-                || !HasManagedIlBody(
-                    methodDefinition.ImplAttributes))
-            {
-                return new(false, null);
-            }
+        return UnsafePresenceDeclaration.BodyRequired;
+    }
 
-            var body = _infrastructure.PeReader.GetMethodBody(
-                methodDefinition.RelativeVirtualAddress);
-            if (!body.LocalSignature.IsNil)
+    /// <summary>
+    /// Unsafe-evidence presence, body phase: the unsafe local-signature check
+    /// and the instruction scan with its call probe, stopping at the first
+    /// evidence.
+    /// </summary>
+    internal bool ProbeUnsafeBody(
+        UnsafePresenceUnit unit,
+        MethodBodyBlock body)
+    {
+        MetadataReader reader = _infrastructure.Reader;
+        GenericScope Scope() => PresenceScope(unit);
+
+        if (!body.LocalSignature.IsNil)
+        {
+            var localSignature =
+                reader.GetStandaloneSignature(
+                    body.LocalSignature);
+            UnsafeSignatureMarkers markers =
+                _unsafeSignatureMarkers.GetMarkers(
+                    localSignature.Signature);
+            if (markers != UnsafeSignatureMarkers.None)
             {
-                var localSignature =
-                    reader.GetStandaloneSignature(
-                        body.LocalSignature);
-                UnsafeSignatureMarkers markers =
-                    _unsafeSignatureMarkers.GetMarkers(
-                        localSignature.Signature);
-                if (markers != UnsafeSignatureMarkers.None)
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        localSignature.Signature,
+                        SignatureBlobGuard.Kind
+                            .LocalVariables))
                 {
-                    if (!SignatureBlobGuard.IsSafeToDecode(
-                            reader,
-                            localSignature.Signature,
-                            SignatureBlobGuard.Kind
-                                .LocalVariables))
-                    {
-                        throw new BadImageFormatException(
-                            "An unsafe local signature exceeds the safe decoding limits.");
-                    }
-                    ImmutableArray<TypeRef> localTypes =
-                        DecodeLocalTypes(body, Scope());
-                    if (MethodSafetyAnalysis.HasUnsafeLocals(
-                            localTypes))
-                    {
-                        return new(true, null);
-                    }
+                    throw new BadImageFormatException(
+                        "An unsafe local signature exceeds the safe decoding limits.");
+                }
+                ImmutableArray<TypeRef> localTypes =
+                    DecodeLocalTypes(body, Scope());
+                if (MethodSafetyAnalysis.HasUnsafeLocals(
+                        localTypes))
+                {
+                    return true;
                 }
             }
+        }
 
-            bool hasEvidence = false;
-            InstructionDecoder.Visit(
-                body,
-                (operation, operandToken, instructionSize) =>
+        bool hasEvidence = false;
+        InstructionDecoder.Visit(
+            body,
+            (operation, operandToken, instructionSize) =>
+            {
+                _unsafePresenceWork.ReserveIlBytes(
+                    instructionSize);
+                switch (operation)
                 {
-                    _unsafePresenceWork.ReserveIlBytes(
-                        instructionSize);
-                    switch (operation)
-                    {
-                        case ILOpCode.Call:
-                        case ILOpCode.Callvirt:
-                        case ILOpCode.Newobj:
-                        case ILOpCode.Ldftn:
-                        case ILOpCode.Ldvirtftn:
-                            UnsafeCallProbeResult callProbe =
-                                ProbeUnsafeCall(
-                                    reader,
-                                    operandToken);
-                            if (callProbe
-                                == UnsafeCallProbeResult.Evidence)
-                            {
-                                hasEvidence = true;
-                                return false;
-                            }
-                            if (callProbe
-                                == UnsafeCallProbeResult.Incomplete)
-                            {
-                                throw new BadImageFormatException(
-                                    "An unsafe call signature exceeds the safe decoding limits.");
-                            }
-                            if (callProbe
-                                == UnsafeCallProbeResult
-                                    .RequiresResolution)
-                            {
-                                MemberRef member =
-                                    _infrastructure
-                                        .ResolvePresenceMethod(
-                                            operandToken,
-                                            Scope(),
-                                            _unsafePresenceWork);
-                                CallerUnsafeMode? targetCallerUnsafeMode =
-                                    operation is
-                                        ILOpCode.Call
-                                        or ILOpCode.Callvirt
-                                        or ILOpCode.Newobj
-                                            ? _infrastructure
-                                                .ResolveSameImageCallerUnsafeMode(
-                                                    operandToken,
-                                                    member,
-                                                    _unsafePresenceWork)
-                                            : null;
-                                if (MethodSafetyAnalysis.IsUnsafeCall(
-                                        member,
-                                        targetCallerUnsafeMode))
-                                {
-                                    hasEvidence = true;
-                                    return false;
-                                }
-                                if (member.Kind
-                                    == MemberKind.Unsupported)
-                                {
-                                    throw new BadImageFormatException(
-                                        "An unsafe call signature could not be decoded.");
-                                }
-                            }
-                            return true;
-
-                        case ILOpCode.Calli:
+                    case ILOpCode.Call:
+                    case ILOpCode.Callvirt:
+                    case ILOpCode.Newobj:
+                    case ILOpCode.Ldftn:
+                    case ILOpCode.Ldvirtftn:
+                        UnsafeCallProbeResult callProbe =
+                            ProbeUnsafeCall(
+                                reader,
+                                operandToken);
+                        if (callProbe
+                            == UnsafeCallProbeResult.Evidence)
+                        {
                             hasEvidence = true;
                             return false;
-
-                        default:
-                            if (MethodSafetyAnalysis.IsUnsafeOperation(
-                                operation,
-                                includeIndirectOperations: false))
+                        }
+                        if (callProbe
+                            == UnsafeCallProbeResult.Incomplete)
+                        {
+                            throw new BadImageFormatException(
+                                "An unsafe call signature exceeds the safe decoding limits.");
+                        }
+                        if (callProbe
+                            == UnsafeCallProbeResult
+                                .RequiresResolution)
+                        {
+                            MemberRef member =
+                                _infrastructure
+                                    .ResolvePresenceMethod(
+                                        operandToken,
+                                        Scope(),
+                                        _unsafePresenceWork);
+                            CallerUnsafeMode? targetCallerUnsafeMode =
+                                operation is
+                                    ILOpCode.Call
+                                    or ILOpCode.Callvirt
+                                    or ILOpCode.Newobj
+                                        ? _infrastructure
+                                            .ResolveSameImageCallerUnsafeMode(
+                                                operandToken,
+                                                member,
+                                                _unsafePresenceWork)
+                                        : null;
+                            if (MethodSafetyAnalysis.IsUnsafeCall(
+                                    member,
+                                    targetCallerUnsafeMode))
                             {
                                 hasEvidence = true;
                                 return false;
                             }
-                            return true;
-                    }
-                }
-            );
+                            if (member.Kind
+                                == MemberKind.Unsupported)
+                            {
+                                throw new BadImageFormatException(
+                                    "An unsafe call signature could not be decoded.");
+                            }
+                        }
+                        return true;
 
-            return new(hasEvidence, null);
-        }
-        catch (Exception ex)
-            when (IsRecoverableMethodFailure(ex))
-        {
-            return new(
-                false,
-                new AnalysisDiagnostic(
-                    MetadataTokens.GetToken(methodHandle),
-                    MethodLabel(
-                        typeHandle,
-                        methodHandle),
-                    $"{ex.GetType().Name}: {ex.Message}",
-                    DeclaringType: caller?.DeclaringType));
-        }
+                    case ILOpCode.Calli:
+                        hasEvidence = true;
+                        return false;
+
+                    default:
+                        if (MethodSafetyAnalysis.IsUnsafeOperation(
+                            operation,
+                            includeIndirectOperations: false))
+                        {
+                            hasEvidence = true;
+                            return false;
+                        }
+                        return true;
+                }
+            }
+        );
+
+        return hasEvidence;
     }
+
+    GenericScope PresenceScope(UnsafePresenceUnit unit) =>
+        unit.Scope ??= _infrastructure.CreatePresenceScope(
+            unit.TypeDefinition,
+            unit.MethodDefinition,
+            _unsafePresenceWork);
+
+    MethodIdentity PresenceCaller(UnsafePresenceUnit unit) =>
+        unit.Caller ??= _infrastructure.CreatePresenceMethodIdentity(
+            unit.TypeHandle,
+            unit.MethodHandle,
+            unit.MethodDefinition,
+            PresenceScope(unit),
+            _unsafePresenceWork);
 
     UnsafeCallProbeResult ProbeUnsafeCall(
         MetadataReader reader,
@@ -591,15 +644,22 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
         bool includeImplementationProfiles = plan.Includes(
             LibraryBodyAnalysisFeatures.ImplementationProfiles);
-        bool includeLeakTriage = plan.Includes(
-            LibraryBodyAnalysisFeatures.LeakTriage);
-        bool includeOwnershipFlow = plan.Includes(
-            LibraryBodyAnalysisFeatures.OwnershipFlow);
         bool includeJsonWireContractFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         bool includeCallValueFlow = plan.RequiresCallValueFlow;
         bool includeLocalThrows = plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
+        if (plan.ImplementationMetrics
+                is { UsesFocusedExecution: true }
+            && !includeMethodEvidence)
+        {
+            return AnalyzeFocusedImplementationMetrics(
+                typeHandle,
+                typeDefinition,
+                typeSourceGenerated,
+                methodHandle,
+                plan);
+        }
         LibraryBodyExceptionTypeClassifier? localExceptionTypes =
             includeLocalThrows
                 ? exceptionTypes ?? throw new InvalidOperationException(
@@ -610,14 +670,7 @@ internal sealed class LibraryMethodAnalysisRunner(
         IReadOnlySet<int>? requestedMethodScope =
             plan.RequestedMethodScope;
         if (!includeMethodEvidence)
-        {
-            return includeLeakTriage
-                ? AnalyzeLeakTriageMethod(
-                    typeHandle,
-                    typeDefinition,
-                    methodHandle)
-                : new LibraryMethodAnalysisResult();
-        }
+            return new LibraryMethodAnalysisResult();
 
         var result = new LibraryMethodAnalysisResult
         {
@@ -664,8 +717,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                 ? ImmutableArray.CreateBuilder<MethodReturnFlow>()
                 : null;
         MetadataReader reader = _infrastructure.Reader;
-        LeakTriageFailureKind leakFailureKind =
-            LeakTriageFailureKind.MethodMetadata;
         try
         {
             var methodDefinition =
@@ -884,53 +935,107 @@ internal sealed class LibraryMethodAnalysisRunner(
                     $"{ex.GetType().Name}: {ex.Message}",
                     DeclaringType: caller.DeclaringType);
             }
-            leakFailureKind =
-                LeakTriageFailureKind.BodyAcquisition;
+            if (plan.RequestedFeatures
+                == LibraryBodyAnalysisFeatures.None)
+            {
+                _implementationMetricWork
+                    ?.ThrowIfMetricWorkExhausted(
+                        caller.MetadataToken);
+            }
+            using ImplementationMetricExecutionRecorder.StageAttempt?
+                bodyAcquisition = StartMetricStage(
+                    plan,
+                    ImplementationMetricWorkStage
+                        .ManagedBodyAcquisition);
             MethodBodyData metadataBody = RequireMethodBody(
                 _infrastructure.PeReader,
                 caller.MetadataToken);
-            _implementationMetricWork?.AdmitMetricBody(
-                caller.MetadataToken,
-                metadataBody.IL.Length);
             var body = _infrastructure.PeReader.GetMethodBody(
                 methodDefinition.RelativeVirtualAddress);
-            var il = metadataBody.IL.ToArray();
-            if (includeLeakTriage)
+            bodyAcquisition?.Complete();
+            bool metricBodyAdmitted = true;
+            try
             {
-                if (!SignatureBlobGuard.IsSafeToDecode(
-                    reader,
-                    methodDefinition.Signature,
-                    SignatureBlobGuard.Kind.Method))
-                {
-                    result.LeakTriage =
-                        LeakTriageAnalyzer.Failed(
-                            caller.MetadataToken,
-                            LeakTriageFailureKind.MethodMetadata,
-                            "SignatureLimit");
-                }
-                else
-                {
-                    result.LeakTriage =
-                        LeakTriageAnalyzer.AnalyzeMethodDetailed(
-                            LeakTriageAnalyzer
-                                .CreateAssemblyScanMethodIdentity(
-                                    caller),
-                            metadataBody,
-                            token => _infrastructure.ResolveMethod(
-                                token,
-                                scope,
-                                methodHandle),
-                            token =>
-                                ResourceExceptionPathAnalyzer.ResolveCatchTypeRef(
-                                    reader,
-                                    MetadataTokens.EntityHandle(token),
-                                    scope));
-                }
+                _implementationMetricWork?.AdmitMetricBody(
+                    caller.MetadataToken,
+                    metadataBody.IL.Length);
             }
+            catch (ImplementationMetricWorkLimitExceededException ex)
+                when (plan.RequestedFeatures
+                    != LibraryBodyAnalysisFeatures.None)
+            {
+                metricBodyAdmitted = false;
+                result.ImplementationMetricDiagnostic =
+                    new AnalysisDiagnostic(
+                        caller.MetadataToken,
+                        MethodLabel(
+                            typeHandle,
+                            methodHandle),
+                        $"{ex.GetType().Name}: {ex.Message}",
+                        SourceMethodToken:
+                            result.DeclaredSource?.MetadataToken,
+                        DeclaringType: caller.DeclaringType,
+                        SourceDeclaringType:
+                            result.DeclaredSource?.DeclaringType);
+            }
+            var il = metadataBody.IL.ToArray();
+            if (plan.ImplementationMetrics
+                    is { IncludesHeaderMetrics: true } metricPlan
+                && metricBodyAdmitted)
+            {
+                result.ImplementationMetrics =
+                    CreateHeaderMetrics(
+                        metricPlan,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        metadataBody);
+            }
+            if (plan.ImplementationMetrics
+                    is { RequiresDirectCallDiscovery: true }
+                && metricBodyAdmitted)
+            {
+                using ImplementationMetricExecutionRecorder.StageAttempt?
+                    discovery = StartMetricStage(
+                        plan,
+                        ImplementationMetricWorkStage
+                            .DirectCallDiscovery);
+                MethodCallAnalysis.DiscoveryCounts counts =
+                    MethodCallAnalysis.DiscoverCounts(body);
+                discovery?.Complete();
+                result.ImplementationMetrics =
+                    CreateDirectCallDiscoveryMetrics(
+                        plan.ImplementationMetrics!,
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        counts);
+            }
+            using ImplementationMetricExecutionRecorder.StageAttempt?
+                localDecode = StartMetricStage(
+                    plan,
+                    ImplementationMetricWorkStage
+                        .LocalSignatureDecode);
             LocalTypeDecodeResult localTypes =
                 DecodeLocalTypesWithStatus(
                     body,
                     scope);
+            localDecode?.Complete();
+            if (plan.ImplementationMetrics
+                    is { IncludesLocalMetric: true }
+                && metricBodyAdmitted)
+            {
+                result.ImplementationMetrics =
+                    CreateLocalMetrics(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        localTypes);
+            }
+            using ImplementationMetricExecutionRecorder.StageAttempt?
+                contextConstruction = StartMetricStage(
+                    plan,
+                    ImplementationMetricWorkStage
+                        .CanonicalMethodContext);
             MethodBodyAnalysisContext context =
                 MethodBodyAnalysisContext.Create(
                 caller,
@@ -938,18 +1043,58 @@ internal sealed class LibraryMethodAnalysisRunner(
                 localTypes.Types,
                 localTypes.DeclaredCount,
                 localTypes.IncompleteReason);
+            contextConstruction?.Complete();
             if (plan.IncludesResourceOccurrences)
                 result.ResourceOccurrenceContext = context;
             MethodInstructions methodInstructions =
                 context.Instructions;
-            if (includeImplementationProfiles)
+            ImplementationMetricAnalysisPlan? implementationMetricPlan =
+                plan.ImplementationMetrics;
+            bool measureInstructionShape =
+                includeImplementationProfiles
+                || implementationMetricPlan
+                    ?.IncludesInstructionShapeMetric == true;
+            bool measureControlFlow =
+                includeImplementationProfiles
+                || implementationMetricPlan
+                    ?.IncludesControlFlowMetric == true;
+            MethodImplementationContextMeasurements?
+                contextMeasurements = null;
+            if (metricBodyAdmitted
+                && (measureInstructionShape
+                    || measureControlFlow))
+            {
+                contextMeasurements =
+                    MethodImplementationProfileAnalysis
+                        .MeasureContext(
+                            context,
+                            measureInstructionShape,
+                            measureControlFlow);
+            }
+            if (implementationMetricPlan
+                    is { IncludesFocusedContextMetrics: true }
+                && contextMeasurements is { } focusedMeasurements
+                && metricBodyAdmitted)
+            {
+                result.ImplementationMetrics =
+                    CreateContextMetrics(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        focusedMeasurements);
+            }
+            if (includeImplementationProfiles
+                && metricBodyAdmitted)
             {
                 result.ImplementationProfile =
                     MethodImplementationProfileAnalysis.Measure(
                         context,
                         result.DeclaredMethod ?? caller,
                         il.Length,
-                        asyncBody is not null);
+                        asyncBody is not null,
+                        contextMeasurements
+                        ?? throw new InvalidOperationException(
+                            "Implementation profiles require context measurements."));
             }
             // Build allocation's Layer-1 indexes before other topic producers,
             // then keep every result and query bound to this exact context.
@@ -966,10 +1111,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                     evidence);
             bool hasUnsafeLocals =
                 localSafety.HasUnsafeLocals;
-            // Discover allocation occurrences once. The main allocation output
-            // needs escape classification, while Performance Triage's
-            // optimization-opportunity pass reuses the same discovered
-            // occurrences.
+            // Discover and classify allocation occurrences once. Performance
+            // Triage consumes the allocation owner's lifetime verdict rather
+            // than running a parallel escape analysis.
             if (includeAllocations)
                 allocationFacts.Collect(methodAnalysisResolver);
             result.Allocations =
@@ -1032,6 +1176,24 @@ internal sealed class LibraryMethodAnalysisRunner(
                 && !collectOwnershipDerivedOpportunities;
             try
             {
+                bool collectDirectCallFacts =
+                    implementationMetricPlan
+                        ?.RequiresDirectCallFacts == true
+                    && metricBodyAdmitted;
+                if (collectDirectCallFacts)
+                {
+                    result.ImplementationMetrics =
+                        MarkDirectCallCollection(
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            complete: false);
+                }
+                using ImplementationMetricExecutionRecorder.StageAttempt?
+                    directCallCollection = StartMetricStage(
+                        plan,
+                        ImplementationMetricWorkStage
+                            .DirectCallCollection);
                 MethodCallAnalysis.Collect(
                     context,
                     _infrastructure.CreateCallResolver(
@@ -1057,6 +1219,16 @@ internal sealed class LibraryMethodAnalysisRunner(
                     localThrows: isReferenceAssembly ? null : localThrowSites,
                     qualifyExceptionType: localExceptionTypes is null
                         ? null : localExceptionTypes.Qualify);
+                directCallCollection?.Complete();
+                if (collectDirectCallFacts)
+                {
+                    result.ImplementationMetrics =
+                        MarkDirectCallCollection(
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            complete: true);
+                }
                 if (localThrowSites is not null && !isReferenceAssembly)
                 {
                     result.LocalThrows = new MethodLocalThrowEvidence.Inspected(
@@ -1111,6 +1283,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                             resultSinks);
                 }
             }
+
             if (includeOpportunities)
             {
                 var methodAttributes =
@@ -1237,13 +1410,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                         asyncSource?.DeclaringType);
                 }
             }
-            if (includeOwnershipFlow)
-            {
-                result.OwnershipFlow =
-                    ArrayPoolOwnershipFlow.Analyze(
-                        context,
-                        calls.ToImmutable());
-            }
         }
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))
@@ -1259,15 +1425,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                 DeclaringType: result.Caller?.DeclaringType,
                 SourceDeclaringType:
                     result.DeclaredSource?.DeclaringType);
-            if (includeLeakTriage
-                && result.LeakTriage is null)
-            {
-                result.LeakTriage =
-                    LeakTriageAnalyzer.Failed(
-                        MetadataTokens.GetToken(methodHandle),
-                        leakFailureKind,
-                        ex.GetType().Name);
-            }
         }
         finally
         {
@@ -1304,98 +1461,576 @@ internal sealed class LibraryMethodAnalysisRunner(
         }
     }
 
-    LibraryMethodAnalysisResult AnalyzeLeakTriageMethod(
+    LibraryMethodAnalysisResult AnalyzeFocusedImplementationMetrics(
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition,
-        MethodDefinitionHandle methodHandle)
+        bool typeSourceGenerated,
+        MethodDefinitionHandle methodHandle,
+        LibraryBodyAnalysisPlan plan)
     {
         var result = new LibraryMethodAnalysisResult();
         MetadataReader reader = _infrastructure.Reader;
-        LeakTriageFailureKind leakFailureKind =
-            LeakTriageFailureKind.MethodMetadata;
         try
         {
-            var methodDefinition =
+            MethodDefinition methodDefinition =
                 reader.GetMethodDefinition(methodHandle);
-            if (!HasManagedIlBody(
-                    methodDefinition.ImplAttributes))
-                return result;
-            if (methodDefinition.RelativeVirtualAddress == 0)
-                return result;
-
-            var scope = _infrastructure.CreateScope(
+            result.Token = MetadataTokens.GetToken(methodHandle);
+            result.HasBody =
+                methodDefinition.RelativeVirtualAddress != 0
+                && HasManagedIlBody(
+                    methodDefinition.ImplAttributes);
+            GenericScope scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    reader,
-                    methodDefinition.Signature,
-                    SignatureBlobGuard.Kind.Method))
+            MethodIdentity caller =
+                _infrastructure.CreateMethodIdentity(
+                    typeHandle,
+                    methodHandle,
+                    methodDefinition,
+                    scope);
+            result.HasCaller = true;
+            result.Caller = caller;
+            result.Token = caller.MetadataToken;
+            if (!result.HasBody)
+                return result;
+
+            IReadOnlySet<int>? bodyScope = plan.MethodScope;
+            Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
+            if (bodyScope is not null
+                && !bodyScope.Contains(caller.MetadataToken))
             {
-                result.LeakTriage =
-                    LeakTriageAnalyzer.Failed(
-                        MetadataTokens.GetToken(methodHandle),
-                        LeakTriageFailureKind.MethodMetadata,
-                        "SignatureLimit");
                 return result;
             }
-
-            var signature =
-                methodDefinition.DecodeSignature(
-                    TypeRefDecoder.Instance,
-                    scope);
-            var method = new MethodIdentity(
-                _infrastructure.AssemblyName,
-                _infrastructure.Mvid,
-                TypeRefDecoder.Instance.GetTypeFromDefinition(
-                    reader,
-                    typeHandle,
-                    0),
-                reader.GetString(methodDefinition.Name),
-                signature.ParameterTypes,
-                signature.ReturnType,
-                MetadataTokens.GetToken(methodHandle),
-                (methodDefinition.Attributes
-                    & MethodAttributes.Static) != 0)
+            bool directlySelectedType =
+                bodyTypeScope?.Invoke(caller.DeclaringType)
+                    == true;
+            if (bodyTypeScope is not null)
             {
-                SignatureHeader = signature.Header.RawValue,
-                RequiredParameterCount =
-                    signature.RequiredParameterCount,
-                IsVirtualDispatchOpen =
-                    _infrastructure.DispatchCanTargetOverride(
-                        typeDefinition,
-                        methodDefinition),
-            };
+                ImmutableArray<TypeRef> sourceTypes = [];
+                bool mappedEvidence =
+                    plan.TypeScopeEvidenceSources
+                        ?.TryGetValue(
+                            caller.MetadataToken,
+                            out sourceTypes)
+                    == true;
+                if (!directlySelectedType
+                    && (!mappedEvidence
+                        || !sourceTypes.Any(bodyTypeScope)))
+                {
+                    return result;
+                }
+            }
 
-            leakFailureKind =
-                LeakTriageFailureKind.BodyAcquisition;
-            MethodBodyData body = RequireMethodBody(
-                _infrastructure.PeReader,
-                method.MetadataToken);
-            result.LeakTriage =
-                LeakTriageAnalyzer.AnalyzeMethodDetailed(
-                    method,
-                    body,
-                    token => _infrastructure.ResolveMethod(
-                        token,
-                        scope,
+            bool directlySelectedBody =
+                directlySelectedType
+                || plan.RequestedMethodScope?.Contains(
+                    caller.MetadataToken)
+                    == true;
+            try
+            {
+                MethodIdentity? declaredMethod =
+                    _infrastructure.ResolveDeclaredMethod(
+                        methodHandle,
+                        methodDefinition,
+                        caller,
+                        typeSourceGenerated,
+                        bodyScope,
+                        bodyTypeScope,
+                        plan.RequestedMethodScope,
+                        directlySelectedBody);
+                result.DeclaredMethod = declaredMethod;
+                DeclaredOwnerResolution ownerResolution =
+                    declaredMethod is null
+                        ? DeclaredOwnerResolution.None
+                        : DeclaredOwnerResolution.Resolved;
+                if (declaredMethod is not null
+                    && CompilerGeneratedNames
+                        .IsLocalFunctionOrLambda(
+                            declaredMethod.Name))
+                {
+                    ownerResolution =
+                        _infrastructure.ResolveUltimateDeclaredMethod(
+                            methodHandle,
+                            methodDefinition,
+                            caller,
+                            typeSourceGenerated,
+                            out _,
+                            out AuthenticatedSourceOwner?
+                                ultimateOwner);
+                    if (ownerResolution
+                        == DeclaredOwnerResolution.Resolved)
+                    {
+                        result.DeclaredMethod =
+                            ultimateOwner?.Method;
+                    }
+                }
+                if (ownerResolution is
+                    DeclaredOwnerResolution.Unresolved
+                    or DeclaredOwnerResolution.Rejected)
+                {
+                    result.DeclaredMethod = null;
+                }
+                result.DeclaredSource =
+                    result.DeclaredMethod;
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                if (!directlySelectedBody)
+                    throw;
+                result.DeclaredMethod = null;
+                result.DeclaredSource = null;
+                result.Diagnostic = new AnalysisDiagnostic(
+                    MetadataTokens.GetToken(methodHandle),
+                    MethodLabel(
+                        typeHandle,
                         methodHandle),
-                    token =>
-                        ResourceExceptionPathAnalyzer.ResolveCatchTypeRef(
-                            reader,
-                            MetadataTokens.EntityHandle(token),
-                            scope));
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    DeclaringType: caller.DeclaringType);
+            }
+
+            ImplementationMetricAnalysisPlan metricPlan =
+                plan.ImplementationMetrics
+                ?? throw new InvalidOperationException(
+                    "Focused metric execution requires a metric plan.");
+            _implementationMetricWork
+                ?.ThrowIfMetricWorkExhausted(
+                    caller.MetadataToken);
+            using ImplementationMetricExecutionRecorder.StageAttempt?
+                bodyAcquisition = StartMetricStage(
+                    plan,
+                    ImplementationMetricWorkStage
+                        .ManagedBodyAcquisition);
+            MethodBodyData metadataBody = RequireMethodBody(
+                _infrastructure.PeReader,
+                caller.MetadataToken);
+            MethodBodyBlock? body =
+                metricPlan.RequiresMethodBodyBlock
+                    ? _infrastructure.PeReader.GetMethodBody(
+                        methodDefinition.RelativeVirtualAddress)
+                    : null;
+            bodyAcquisition?.Complete();
+            _implementationMetricWork?.AdmitMetricBody(
+                caller.MetadataToken,
+                metadataBody.IL.Length);
+            if (metricPlan.IncludesHeaderMetrics)
+            {
+                result.ImplementationMetrics =
+                    CreateHeaderMetrics(
+                        metricPlan,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        metadataBody);
+            }
+            if (body is null)
+                return result;
+
+            if (metricPlan.RequiresDirectCallDiscovery)
+            {
+                try
+                {
+                    using ImplementationMetricExecutionRecorder.StageAttempt?
+                        discovery = StartMetricStage(
+                            plan,
+                            ImplementationMetricWorkStage
+                                .DirectCallDiscovery);
+                    MethodCallAnalysis.DiscoveryCounts counts =
+                        MethodCallAnalysis.DiscoverCounts(body);
+                    discovery?.Complete();
+                    result.ImplementationMetrics =
+                        CreateDirectCallDiscoveryMetrics(
+                            metricPlan,
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            counts);
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.ImplementationMetricDiagnostic =
+                        new AnalysisDiagnostic(
+                            caller.MetadataToken,
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}",
+                            SourceMethodToken:
+                                result.DeclaredSource?.MetadataToken,
+                            DeclaringType:
+                                caller.DeclaringType,
+                            SourceDeclaringType:
+                                result.DeclaredSource?.DeclaringType);
+                }
+            }
+            if (!metricPlan.RequiresLocalSignatureDecode)
+                return result;
+
+            LocalTypeDecodeResult localTypes;
+            try
+            {
+                using ImplementationMetricExecutionRecorder.StageAttempt?
+                    localDecode = StartMetricStage(
+                        plan,
+                        ImplementationMetricWorkStage
+                            .LocalSignatureDecode);
+                localTypes =
+                    DecodeLocalTypesWithStatus(
+                        body,
+                        scope);
+                localDecode?.Complete();
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                result.ImplementationMetricDiagnostic =
+                    new AnalysisDiagnostic(
+                        caller.MetadataToken,
+                        MethodLabel(
+                            typeHandle,
+                            methodHandle),
+                        $"{ex.GetType().Name}: {ex.Message}",
+                        SourceMethodToken:
+                            result.DeclaredSource?.MetadataToken,
+                        DeclaringType:
+                            caller.DeclaringType,
+                        SourceDeclaringType:
+                            result.DeclaredSource?.DeclaringType);
+                return result;
+            }
+            if (metricPlan.IncludesLocalMetric)
+            {
+                result.ImplementationMetrics =
+                    CreateLocalMetrics(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        localTypes);
+            }
+            MethodBodyAnalysisContext? context = null;
+            if (metricPlan.RequiresCanonicalContext)
+            {
+                try
+                {
+                    using ImplementationMetricExecutionRecorder.StageAttempt?
+                        contextConstruction = StartMetricStage(
+                            plan,
+                            ImplementationMetricWorkStage
+                                .CanonicalMethodContext);
+                    context =
+                        MethodBodyAnalysisContext.Create(
+                            caller,
+                            metadataBody,
+                            localTypes.Types,
+                            localTypes.DeclaredCount,
+                            localTypes.IncompleteReason);
+                    contextConstruction?.Complete();
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.ImplementationMetricDiagnostic =
+                        new AnalysisDiagnostic(
+                            caller.MetadataToken,
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}",
+                            SourceMethodToken:
+                                result.DeclaredSource?.MetadataToken,
+                            DeclaringType:
+                                caller.DeclaringType,
+                            SourceDeclaringType:
+                                result.DeclaredSource?.DeclaringType);
+                }
+            }
+            if (context is not null
+                && metricPlan.IncludesFocusedContextMetrics)
+            {
+                try
+                {
+                    MethodImplementationContextMeasurements measurements =
+                        MethodImplementationProfileAnalysis
+                            .MeasureContext(
+                                context,
+                                metricPlan
+                                    .IncludesInstructionShapeMetric,
+                                metricPlan
+                                    .IncludesControlFlowMetric);
+                    result.ImplementationMetrics =
+                        CreateContextMetrics(
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            measurements);
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.ImplementationMetricDiagnostic ??=
+                        new AnalysisDiagnostic(
+                            caller.MetadataToken,
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}",
+                            SourceMethodToken:
+                                result.DeclaredSource?.MetadataToken,
+                            DeclaringType:
+                                caller.DeclaringType,
+                            SourceDeclaringType:
+                                result.DeclaredSource?.DeclaringType);
+                }
+            }
+            if (context is not null
+                && metricPlan.RequiresDirectCallFacts)
+            {
+                var calls =
+                    ImmutableArray.CreateBuilder<DirectCall>();
+                result.ImplementationMetrics =
+                    MarkDirectCallCollection(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        complete: false);
+                try
+                {
+                    using ImplementationMetricExecutionRecorder.StageAttempt?
+                        directCallCollection = StartMetricStage(
+                            plan,
+                            ImplementationMetricWorkStage
+                                .DirectCallCollection);
+                    MethodCallAnalysis.CollectDirectCalls(
+                        context,
+                        _infrastructure.CreateCallResolver(
+                            scope,
+                            caller),
+                        calls);
+                    directCallCollection?.Complete();
+                    result.ImplementationMetrics =
+                        MarkDirectCallCollection(
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            complete: true);
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.ImplementationMetricDiagnostic ??=
+                        new AnalysisDiagnostic(
+                            caller.MetadataToken,
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}",
+                            SourceMethodToken:
+                                result.DeclaredSource?.MetadataToken,
+                            DeclaringType:
+                                caller.DeclaringType,
+                            SourceDeclaringType:
+                                result.DeclaredSource?.DeclaringType);
+                }
+                finally
+                {
+                    result.Calls = calls.ToImmutable();
+                }
+            }
         }
         catch (Exception ex)
-            when (LeakTriageAnalyzer.IsRecoverable(ex))
+            when (IsRecoverableMethodFailure(ex))
         {
-            result.LeakTriage =
-                LeakTriageAnalyzer.Failed(
-                    MetadataTokens.GetToken(methodHandle),
-                    leakFailureKind,
-                    ex.GetType().Name);
+            result.Diagnostic = new AnalysisDiagnostic(
+                MetadataTokens.GetToken(methodHandle),
+                MethodLabel(
+                    typeHandle,
+                    methodHandle),
+                $"{ex.GetType().Name}: {ex.Message}",
+                SourceMethodToken:
+                    result.DeclaredSource?.MetadataToken,
+                DeclaringType: result.Caller?.DeclaringType,
+                SourceDeclaringType:
+                    result.DeclaredSource?.DeclaringType);
+        }
+        return result;
+    }
+
+    ImplementationMetricExecutionRecorder.StageAttempt?
+        StartMetricStage(
+            LibraryBodyAnalysisPlan plan,
+            ImplementationMetricWorkStage stage) =>
+        plan.ImplementationMetrics is null
+            ? null
+            : _implementationMetricRecorder?.Start(stage);
+
+    static MethodImplementationMetricEvidence CreateHeaderMetrics(
+        ImplementationMetricAnalysisPlan plan,
+        MethodIdentity method,
+        MethodIdentity evidenceMethod,
+        MethodBodyData body)
+    {
+        ImplementationMetricExceptionRegionCounts?
+            exceptionRegions = null;
+        if (plan.RequestedMetrics.HasFlag(
+                ImplementationMetricKind
+                    .ExceptionRegions))
+        {
+            int catches = 0;
+            int filters = 0;
+            int finallys = 0;
+            int faults = 0;
+            foreach (MethodExceptionClause clause
+                in body.ExceptionRegionCatalog.Clauses)
+            {
+                switch (clause.Kind)
+                {
+                    case ExceptionRegionKind.Catch:
+                        catches++;
+                        break;
+                    case ExceptionRegionKind.Filter:
+                        filters++;
+                        break;
+                    case ExceptionRegionKind.Finally:
+                        finallys++;
+                        break;
+                    case ExceptionRegionKind.Fault:
+                        faults++;
+                        break;
+                }
+            }
+            exceptionRegions = new(
+                catches,
+                filters,
+                finallys,
+                faults);
         }
 
-        return result;
+        return new(
+            method,
+            evidenceMethod,
+            plan.RequestedMetrics.HasFlag(
+                ImplementationMetricKind.BodySize)
+                ? body.IL.Length
+                : null,
+            exceptionRegions,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+    }
+
+    static MethodImplementationMetricEvidence
+        CreateDirectCallDiscoveryMetrics(
+            ImplementationMetricAnalysisPlan plan,
+            MethodImplementationMetricEvidence? existing,
+            MethodIdentity method,
+            MethodIdentity evidenceMethod,
+            MethodCallAnalysis.DiscoveryCounts counts)
+    {
+        ImplementationMetricDirectCallCount? invocationEvidence =
+            plan.IncludesDirectCallCountMetric
+                || plan.IncludesDirectCallMetric
+                ? new(counts.InvocationCount)
+                : null;
+        ImplementationMetricCallSiteCount? callSiteEvidence =
+            plan.IncludesCallSiteCountMetric
+                ? new(counts.CallSiteCount)
+                : null;
+        return existing is null
+            ? new(
+                method,
+                evidenceMethod,
+                null,
+                null,
+                null,
+                null,
+                null,
+                invocationEvidence,
+                callSiteEvidence,
+                null)
+            : existing with
+            {
+                DirectCallCount = invocationEvidence,
+                CallSiteCount = callSiteEvidence,
+            };
+    }
+
+    static MethodImplementationMetricEvidence CreateLocalMetrics(
+        MethodImplementationMetricEvidence? existing,
+        MethodIdentity method,
+        MethodIdentity evidenceMethod,
+        LocalTypeDecodeResult locals)
+    {
+        ImplementationMetricLocalEvidence evidence =
+            new(
+                locals.DeclaredCount,
+                locals.IncompleteReason);
+        return existing is null
+            ? new(
+                method,
+                evidenceMethod,
+                null,
+                null,
+                evidence,
+                null,
+                null,
+                null,
+                null,
+                null)
+            : existing with { Locals = evidence };
+    }
+
+    static MethodImplementationMetricEvidence CreateContextMetrics(
+        MethodImplementationMetricEvidence? existing,
+        MethodIdentity method,
+        MethodIdentity evidenceMethod,
+        MethodImplementationContextMeasurements measurements)
+    {
+        return existing is null
+            ? new(
+                method,
+                evidenceMethod,
+                null,
+                null,
+                null,
+                measurements.InstructionShape,
+                measurements.ControlFlow,
+                null,
+                null,
+                null)
+            : existing with
+            {
+                InstructionShape = measurements.InstructionShape,
+                ControlFlow = measurements.ControlFlow,
+            };
+    }
+
+    static MethodImplementationMetricEvidence MarkDirectCallCollection(
+        MethodImplementationMetricEvidence? existing,
+        MethodIdentity method,
+        MethodIdentity evidenceMethod,
+        bool complete)
+    {
+        MethodImplementationMetricEvidence evidence =
+            existing
+            ?? new(
+                method,
+                evidenceMethod,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+        return evidence with
+        {
+            DirectCallCollectionAttempted = true,
+            DirectCallCollectionComplete = complete,
+        };
     }
 
     internal static bool HasManagedIlBody(

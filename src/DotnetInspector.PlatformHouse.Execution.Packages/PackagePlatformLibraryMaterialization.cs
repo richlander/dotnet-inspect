@@ -86,7 +86,7 @@ public abstract class PackagePlatformLibraryMaterializationResult
             : base(library)
         {
             ArgumentNullException.ThrowIfNull(artifacts);
-            if (library.Value.Reference.Contents.Any(
+            if (library.Value.Library.Contents.Any(
                     content => !ReferenceEquals(
                         content.ArtifactReference.Generation,
                         artifacts.Generation)))
@@ -182,6 +182,25 @@ public static class PackagePlatformLibraryMaterializer
             reference: null,
             implementation,
             consumedWork);
+
+    internal static ValueTask<
+        PackagePlatformLibraryMaterializationResult>
+        MaterializeImplementationAsync(
+            PlatformHouseRequest request,
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded implementation,
+            PlatformHouseConsumedWork consumedWork,
+            Func<PlatformHouseConsumedWork> currentWork)
+    {
+        ArgumentNullException.ThrowIfNull(currentWork);
+        return MaterializeAsync(
+            request,
+            PlatformViewDemand.Implementation,
+            reference: null,
+            implementation,
+            consumedWork,
+            currentWork);
+    }
 
     /// <summary>
     /// Materializes one authoritative package-backed reference population.
@@ -306,7 +325,8 @@ public static class PackagePlatformLibraryMaterializer
                 PackageReferenceRealization>.Succeeded? reference,
             PackagePlatformHouseResult<
                 PackageImplementationRealization>.Succeeded? implementation,
-            PlatformHouseConsumedWork consumedWork)
+            PlatformHouseConsumedWork consumedWork,
+            Func<PlatformHouseConsumedWork>? currentWork = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(consumedWork);
@@ -321,13 +341,22 @@ public static class PackagePlatformLibraryMaterializer
                     PlatformLibraryArtifactMaterializationItem> items);
 
         PlatformLibraryArtifactMaterializationOutcome outcome =
-            await PlatformHouseArtifactMaterializer.MaterializeAsync(
-                    request,
-                    expectedView,
-                    prepared ? items : [],
-                    consumedWork,
-                    IdentityPrefix)
-                .ConfigureAwait(false);
+            currentWork is null
+                ? await PlatformHouseArtifactMaterializer.MaterializeAsync(
+                        request,
+                        expectedView,
+                        prepared ? items : [],
+                        consumedWork,
+                        IdentityPrefix)
+                    .ConfigureAwait(false)
+                : await PlatformHouseArtifactMaterializer.MaterializeAsync(
+                        request,
+                        expectedView,
+                        prepared ? items : [],
+                        consumedWork,
+                        IdentityPrefix,
+                        currentWork)
+                    .ConfigureAwait(false);
         return outcome switch
         {
             PlatformLibraryArtifactMaterializationOutcome.Completed completed =>
@@ -448,10 +477,10 @@ public static class PackagePlatformLibraryMaterializer
             {
                 Population:
                     PlatformPopulationDemand.Library
-                    {
-                        Value:
+                {
+                    Value:
                             PlatformLibraryDemand.Assembly assembly,
-                    },
+                },
             }
             || !ValidContribution(
                 request,
@@ -492,10 +521,10 @@ public static class PackagePlatformLibraryMaterializer
             {
                 Population:
                     PlatformPopulationDemand.Library
-                    {
-                        Value:
+                {
+                    Value:
                             PlatformLibraryDemand.Assembly assembly,
-                    },
+                },
             }
             || !ValidContribution(
                 request,

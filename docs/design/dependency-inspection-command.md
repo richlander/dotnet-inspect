@@ -1313,7 +1313,7 @@ selected group remain distinct states.
 
 When `--tfm` is omitted, a package root may retain the dependency-group owner's
 package-local no-request selection, while recursive package-manifest traversal
-uses `TraversalTargetFrameworkPolicy.ProductDefault(net12.0)`. Supplying
+uses `TraversalTargetFrameworkPolicy.ProductDefault(net11.0)`. Supplying
 `--tfm` configures the traversal policy as well as the command's existing root
 selection gesture. Candidate-acquired manifests use compatible selection
 against that one traversal target; a selected lower framework never replaces

@@ -2,8 +2,10 @@ using DotnetInspect.Cli.Sections;
 using System.Globalization;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Services;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -26,7 +28,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "Required argument missing for option",
+            $"{option} requires at least one name. Omit {option} for the default view",
             error,
             StringComparison.Ordinal);
     }
@@ -58,6 +60,35 @@ public partial class CommandExecutionTests
             "at DotnetInspect",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("-S", "package", "System.Text.Json", "-S")]
+    [InlineData("--select", "package", "System.Text.Json", "--select")]
+    [InlineData("-s", "project", ".", "-s")]
+    [InlineData("--section", "library", "System.Text.Json", "--section")]
+    [InlineData("-S", "type", "System.Text.Json.JsonSerializer", "-S")]
+    [InlineData("-S", "diff", "System.Text.Json@9.0.0..10.0.0", "--envelope", "-S")]
+    [InlineData("-S", "System.Text.Json", "-S")]
+    public async Task SectionSelection_ValuelessSelectorNamesAlternativesWithoutStack(
+        string alias,
+        params string[] args)
+    {
+        var (exit, output, error) = await RunAppAsync(["--offline", .. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{alias} requires at least one name. Omit {alias} for the default view, "
+            + $"name a section or @category with {alias} <name>, or list them with -D.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Required argument missing", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(InvalidOperationException),
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("at DotnetInspect", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -524,7 +555,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareSimpleType_UsesTargetBoundPlatformCatalog()
+    public async Task Router_BareSimpleType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
             "Regex", "--markdown", "--tips", "q");
@@ -567,7 +598,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_AmbiguousTargetBoundPlatformCatalog_ReportsAmbiguity()
+    public async Task Router_AmbiguousTargetBoundPlatformLocator_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
             "Timer", "--markdown", "--tips", "q");
@@ -594,8 +625,24 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("No members matched", error);
     }
 
+    [Theory]
+    [InlineData("System.Numerics.String")]
+    [InlineData("System.Numerics.String.IsNullOrEmpty")]
+    public async Task
+        Router_QualifiedCompatibilityRoutePreservesAmbiguity(string query)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            query, "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Platform type lookup is ambiguous across 2 candidates.",
+            error);
+    }
+
     [Fact]
-    public async Task Router_BareGenericType_UsesTargetBoundPlatformCatalog()
+    public async Task Router_BareGenericType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
             "List<T>", "--markdown", "--tips", "q");
@@ -1459,7 +1506,9 @@ public partial class CommandExecutionTests
         Assert.Equal(1, deferred.Exit);
         Assert.Empty(deferred.Output);
         Assert.Contains(
-            "--tree is a standalone output format and cannot combine with another output format.",
+            section is null
+                ? "--tree is a standalone output format and cannot combine with another output format."
+                : "Complete Call Graph JSON does not support row, line, field, column, count, or presentation projections.",
             deferred.Error);
         Assert.DoesNotContain("File not found", deferred.Error);
         Assert.DoesNotContain("Document --json cannot represent", deferred.Error);
@@ -1675,13 +1724,18 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(2, false)]
-    [InlineData(3, false)]
-    [InlineData(2, true)]
-    [InlineData(3, true)]
+    [InlineData(2, false, false)]
+    [InlineData(3, false, false)]
+    [InlineData(2, true, false)]
+    [InlineData(3, true, false)]
+    [InlineData(2, false, true)]
+    [InlineData(3, false, true)]
+    [InlineData(2, true, true)]
+    [InlineData(3, true, true)]
     public async Task Router_DeferredProjectSourcePreservesRepeatedOptionArity(
         int projectCount,
-        bool explicitPlatform)
+        bool explicitPlatform,
+        bool structuralDiscovery)
     {
         var repositoryRoot =
             CommandErrorOwnershipTests.RepositoryRoot();
@@ -1711,6 +1765,8 @@ public partial class CommandExecutionTests
             tail.Add("--project");
             tail.Add(projects[i]);
         }
+        if (structuralDiscovery)
+            tail.AddRange(["-D", "--schema", "--table"]);
         tail.AddRange(["--tips", "q"]);
 
         var target = explicitPlatform
@@ -1775,6 +1831,93 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Router_SurroundingWhitespacePreservesPlatformType()
+    {
+        string[] tail =
+        [
+            "--markdown",
+            "--tips",
+            "q",
+        ];
+        var direct = await RunAppAsync(["Regex", .. tail]);
+        var routed = await RunAppAsync([" Regex ", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task
+        Router_CompleteLocatorMissSkipsLegacyRuntimeReverseFallback()
+    {
+        using RouterDecisionLog.Capture decisions =
+            RouterDecisionLog.Begin();
+
+        var (exit, _, _) = await RunAppAsync(
+            "System.Text.Json.DoesNotExist",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain(
+            decisions.Decisions,
+            static decision =>
+                decision.Stage
+                    == "platform-runtime-reverse-fallback");
+    }
+
+    [Fact]
+    public async Task
+        Router_UnclassifiedCompleteLocatorMissSearchesPlatformOnce()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "System.DoesNotExist",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in runtime@",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in aspnetcore@",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in netstandard@",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public async Task
+        Router_RuntimeOnlyAssemblyPrefixUsesLocatorCompatibility()
+    {
+        using RouterDecisionLog.Capture decisions =
+            RouterDecisionLog.Begin();
+
+        var (exit, output, error) = await RunAppAsync(
+            "System.Private.CoreLib.JsonSerializer.Serialize",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+        Assert.DoesNotContain(
+            decisions.Decisions,
+            static decision =>
+                decision.Stage
+                    == "platform-runtime-reverse-fallback");
+    }
+
+    [Fact]
     public async Task Router_ExplicitLibraryQualifiedMemberUsesAssemblySource()
     {
         const string typeName =
@@ -1813,7 +1956,7 @@ public partial class CommandExecutionTests
         [
             target,
             "-t",
-            "5",
+            target,
             "--all",
             "-S",
             "Type Info",
@@ -2920,10 +3063,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Contains(
-            "# System.Text.Json.JsonSerializer",
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Deserialize (",
             routed.Output);
-        Assert.Contains("## Methods", routed.Output);
+        Assert.DoesNotContain("## Methods", routed.Output);
     }
 
     [Fact]
@@ -3470,12 +3613,19 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task BareQualifiedPlatformMember_TrueAmbiguityStillFails()
     {
+        using RouterDecisionLog.Capture decisions =
+            RouterDecisionLog.Begin();
         var (exit, output, error) = await RunAppAsync(
             "System.Numerics.Enumerator.X", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Platform type lookup is ambiguous", error);
+        Assert.DoesNotContain(
+            decisions.Decisions,
+            static decision =>
+                decision.Stage
+                    == "platform-runtime-reverse-fallback");
     }
 
     [Theory]

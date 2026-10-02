@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Models;
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -14,9 +15,12 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using Inspector.Findings;
+using Inspector.Artifacts;
 using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 using Analysis = ILInspector.Analysis;
 using MetadataResource = ILInspector.Metadata.ManifestResourceInfo;
+
+using DotnetInspect.Cli.Commands;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -61,6 +65,17 @@ internal static class LibraryMetadataService
                 queryPlan is null
                     ? queries
                     : queryPlan.Queries;
+            if (requiredQueries?.Contains(
+                    LibraryNameFamilyQuery.Definition) == true
+                && assemblyReference is
+                {
+                    Registration.ArtifactRegistration: null,
+                })
+            {
+                assemblyReference = CreateArtifactBackedReference(
+                    path,
+                    assemblyReference);
+            }
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures =
@@ -180,6 +195,12 @@ internal static class LibraryMetadataService
                         MetadataRoot = options.MetadataRoot,
                         BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.None,
                         Trace = trace,
+                        RequestedQueries = requiredQueries,
+                        CountOnly = options.Count,
+                        NameFamilyPopulation =
+                            options.NameFamilyPopulation,
+                        NameFamilyRowSelection =
+                            options.NameFamilyRowSelection,
                     };
                     await RunTypedQueriesAsync(
                         path,
@@ -320,6 +341,12 @@ internal static class LibraryMetadataService
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
                     BodyAnalysisRequest = bodyAnalysisRequest,
                     Trace = trace,
+                    RequestedQueries = requiredQueries,
+                    CountOnly = options.Count,
+                    NameFamilyPopulation =
+                        options.NameFamilyPopulation,
+                    NameFamilyRowSelection =
+                        options.NameFamilyRowSelection,
                 };
 
                 await RunTypedQueriesAsync(
@@ -363,11 +390,14 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         UnionTypesQuery.Execute(session));
-                    ApplyClassifiedMethodsResult(
+                    ApplyMethodClassificationResult(
                         path,
                         inspection,
                         logger,
-                        ClassifiedMethodsQuery.Execute(session));
+                        new MethodClassificationBindingResult.Available(
+                            MethodClassificationQuery.Execute(
+                                session,
+                                MethodClassificationDemand.AllQuestions)));
                 }
 
                 catch (Exception ex)
@@ -380,8 +410,7 @@ internal static class LibraryMetadataService
                                 path, MetadataFindings.ExtensionMemberDescriptor, ex),
                             displayOrder: null);
                     }
-                    inspection.ClassifiedMethodInspection ??= FailedInspection<ClassifiedMethodObservation>(
-                        path, MetadataFindings.ClassifiedMethodDescriptor, ex);
+                    inspection.MethodClassificationFailure ??= ex.Message;
                     inspection.ResourceInspection ??= FailedInspection<MetadataResource>(
                         path, MetadataFindings.ResourceDescriptor, ex);
                     if (inspection.AssemblyAttributeInspection is null)
@@ -438,7 +467,6 @@ internal static class LibraryMetadataService
             }
 
             inspection.FileSize = pdbContext.FileSize;
-            inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
             // Cheap discovery needs local applicability facts, not the source-analysis model.
             // Preserve the PDB facts that drive section gates, then avoid source findings,
@@ -549,6 +577,63 @@ internal static class LibraryMetadataService
     /// PDB acquisition, SourceLink detection, and builder inference.
     /// </summary>
     /// <param name="skipPdbDownload">Skip downloading PDB from symbol servers (for quiet/minimal verbosity).</param>
+    private static ResolvedAssemblyReference
+        CreateArtifactBackedReference(
+            string path,
+            ResolvedAssemblyReference original)
+    {
+        string fullPath = Path.GetFullPath(path);
+        byte[] bytes = File.ReadAllBytes(fullPath);
+        ImmutableArray<byte> snapshot =
+            ImmutableCollectionsMarshal.AsImmutableArray(bytes);
+        var authority = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization authorization =
+            authority.CreateAdmissionAuthorization();
+        ArtifactAcquisitionRegistration registration;
+        using (ArtifactContributionScope scope =
+            authority.BeginContribution(authorization))
+        {
+            var provenance = new LibraryArtifactSnapshotProvenance(
+                fullPath,
+                snapshot.Length,
+                File.GetLastWriteTimeUtc(fullPath));
+            ArtifactContribution contribution = scope.Register(
+                provenance,
+                _ => OpenSnapshot(snapshot),
+                kind: "library-local-snapshot");
+            registration = contribution.Registration;
+            _ = authority.CreateRetainedContent(
+                registration,
+                snapshot);
+        }
+        authority.CompleteAdmission(authorization);
+
+        return ResolvedAssemblyReference
+                .CreateFromArtifactPathIfManaged(
+                    registration,
+                    fullPath,
+                    () => OpenSnapshot(snapshot),
+                    original.Provenance,
+                    original.LastWriteTimeUtc)
+            ?? throw new BadImageFormatException(
+                "The selected Library snapshot has no managed metadata.");
+    }
+
+    private static MemoryStream OpenSnapshot(
+        ImmutableArray<byte> snapshot) =>
+        new(
+            ImmutableCollectionsMarshal.AsArray(snapshot)!,
+            index: 0,
+            count: snapshot.Length,
+            writable: false,
+            publiclyVisible: false);
+
+    private sealed record LibraryArtifactSnapshotProvenance(
+        string FullPath,
+        int ContentLength,
+        DateTime ObservedLastWriteTimeUtc)
+        : IArtifactProvenance;
+
     public static async Task AuditAsync(
         SourceLinkService service,
         LibraryInspection inspection,
@@ -818,6 +903,60 @@ internal static class LibraryMetadataService
     /// assembly Microsoft never built. A symbol server that served the PDB is evidence about the
     /// publisher; a self-declared source URL is not.
     /// </remarks>
+    /// <summary>
+    /// Whether the request renders the Library document's scalar fields: the
+    /// Library Info section, or the <c>-v:q</c> context line. Other requests,
+    /// including the legacy <c>--json</c> model dump, skip the second image read.
+    /// </summary>
+    internal static bool WantsLibraryDocument(
+        SectionQueryPlan sectionPlan,
+        LibraryOptions options) =>
+        !WritesLegacyModelDump(options)
+        && (OutputFormatter.ShouldRenderLibraryContext(options)
+            || sectionPlan.Demands.Any(
+                static demand => demand.Section == SectionNames.LibraryInfo));
+
+    /// <summary>
+    /// Whether the request is the default <c>--json</c> model dump, with no
+    /// section selected. It shows every method classification count.
+    /// </summary>
+    internal static bool WritesDefaultModelDump(LibraryOptions options) =>
+        WritesLegacyModelDump(options)
+        && options.IncludeSections is not { Count: > 0 };
+
+    /// <summary>
+    /// Whether the request's output is the legacy <c>LibraryInspection</c> JSON
+    /// model dump, which never renders the view. <c>--json</c> combined with a
+    /// projection (<c>--value</c>, <c>--urls</c>, <c>--paths</c>, <c>--print</c>)
+    /// or <c>--count</c> renders view fields instead.
+    /// </summary>
+    internal static bool WritesLegacyModelDump(LibraryOptions options) =>
+        options.JsonOutput
+        && !options.Count
+        && !options.Print
+        && !options.Value
+        && !options.Urls
+        && !options.Paths;
+
+    /// <summary>
+    /// The adapter role the host selected: package and Platform images outside a
+    /// <c>ref/</c> folder are implementations; reference assets and direct files
+    /// are API-only.
+    /// </summary>
+    internal static AssemblyContextLibraryRole LibraryInfoRole(
+        string path,
+        string? packageName,
+        bool isPlatformAssembly)
+    {
+        if (packageName is null && !isPlatformAssembly)
+            return AssemblyContextLibraryRole.ApiOnly;
+        string? frameworkFolder = Path.GetDirectoryName(Path.GetFullPath(path));
+        string? assetFolder = frameworkFolder is null ? null : Path.GetDirectoryName(frameworkFolder);
+        return string.Equals(Path.GetFileName(assetFolder), "ref", StringComparison.OrdinalIgnoreCase)
+            ? AssemblyContextLibraryRole.ApiOnly
+            : AssemblyContextLibraryRole.Implementation;
+    }
+
     public static string? InferBuilder(LibraryInspection inspection)
     {
         var company = inspection.AssemblyInfo?.Company;
@@ -1574,11 +1713,11 @@ internal static class LibraryMetadataService
             ReferenceTreePathComparer(OperatingSystem.IsWindows());
 
         public static AssemblyReferenceTraversalKeyComparer BindingIdentity
-            { get; } = new(preserveReferenceNameSpelling: false);
+        { get; } = new(preserveReferenceNameSpelling: false);
 
         public static AssemblyReferenceTraversalKeyComparer
             PreserveReferenceNameSpelling
-            { get; } = new(preserveReferenceNameSpelling: true);
+        { get; } = new(preserveReferenceNameSpelling: true);
 
         private readonly bool _preserveReferenceNameSpelling;
 
@@ -1721,7 +1860,7 @@ internal static class LibraryMetadataService
             method);
 
     // Overload that also treats members of structurally-detected generated framework types
-    // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypes) as generated, so their
+    // (protobuf/gRPC, see LibraryOptimizationAnalysisResult.GeneratedFrameworkTypes) as generated, so their
     // thick static initializers and stubs are marked in Top Leverage and suppressed from
     // Performance Triage even though no [GeneratedCode] attribute is emitted.
     internal static bool IsGeneratedMethod(
@@ -1790,11 +1929,6 @@ internal static class LibraryMetadataService
             .ToHashSet();
 
     internal static void ReportOptimizationDiagnostics(
-        Analysis.LibraryBodyIndex index,
-        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
-        => ReportOptimizationDiagnostics(index.Diagnostics, include);
-
-    internal static void ReportOptimizationDiagnostics(
         IEnumerable<Analysis.AnalysisDiagnostic> diagnostics,
         Func<Analysis.AnalysisDiagnostic, bool>? include = null)
     {
@@ -1809,13 +1943,6 @@ internal static class LibraryMetadataService
                 + diagnostic.Message);
         }
     }
-
-    internal static void ReportImplementationProfileDiagnostics(
-        Analysis.LibraryBodyIndex index,
-        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
-        => ReportImplementationProfileDiagnostics(
-            index.Diagnostics,
-            include);
 
     internal static void ReportImplementationProfileDiagnostics(
         IEnumerable<Analysis.AnalysisDiagnostic> diagnostics,
@@ -2097,11 +2224,11 @@ internal static class LibraryMetadataService
     }
 
     internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryOptimizationAnalysisResult optimization,
         PerformanceTriageOptions? options)
         => options?.IncludesAllocationFanout == true
-            ? index.OptimizationOpportunities.Concat(index.AllocationFanoutOpportunities)
-            : index.OptimizationOpportunities;
+            ? optimization.Opportunities.Concat(optimization.AllocationFanoutOpportunities)
+            : optimization.Opportunities;
 
     static string? FormatToken(int? token)
         => token is { } value ? $"0x{value:X8}" : null;
@@ -2167,11 +2294,14 @@ internal static class LibraryMetadataService
             ApplyAssemblyReferencesResult(path, inspection, logger, references);
         }
 
-        if (results.TryGet(
-                ClassifiedMethodsQuery.Definition,
-                out ClassifiedMethodsResult? classifiedMethods))
+        // Every requested classification consumer reads the one shared request.
+        foreach (InspectionQuery<MethodClassificationBindingResult> demand in MethodClassificationDemand.All)
         {
-            ApplyClassifiedMethodsResult(path, inspection, logger, classifiedMethods);
+            if (results.TryGet(demand, out MethodClassificationBindingResult? methodClassification))
+            {
+                ApplyMethodClassificationResult(path, inspection, logger, methodClassification);
+                break;
+            }
         }
 
         if (results.TryGet(
@@ -2217,6 +2347,17 @@ internal static class LibraryMetadataService
                 out LibraryMetricsResult? libraryMetrics))
         {
             ApplyLibraryMetricsResult(path, inspection, logger, libraryMetrics);
+        }
+
+        if (results.TryGet(
+                LibraryNameFamilyQuery.Definition,
+                out LibraryNameFamilyQueryResult? nameFamilies))
+        {
+            ApplyLibraryNameFamilyResult(
+                path,
+                inspection,
+                logger,
+                nameFamilies);
         }
 
         if (results.TryGet(
@@ -2519,6 +2660,35 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ApplyLibraryNameFamilyResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryNameFamilyQueryResult result)
+    {
+        inspection.NameFamilyQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryNameFamilyQueryResult.Available:
+            case LibraryNameFamilyQueryResult.Unavailable:
+            case LibraryNameFamilyQueryResult.Rejected:
+            case LibraryNameFamilyQueryResult.SelectionFailed:
+                break;
+
+            case LibraryNameFamilyQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting Library name families in {path}: "
+                        + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Library name-family result "
+                        + $"'{result.GetType().Name}'.");
+        }
+    }
+
     internal static ImmutableArray<Analysis.OptimizationOpportunity>
         SelectPerformanceTriageOpportunities(
             OptimizationOpportunitiesResult.Available available,
@@ -2729,86 +2899,120 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyClassifiedMethodsResult(
+    /// <summary>
+    /// Maps each classification answer into the model. The query owns every
+    /// count and order; this binding filters, sorts, merges, and counts nothing.
+    /// </summary>
+    internal static void ApplyMethodClassificationResult(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        ClassifiedMethodsResult result)
+        MethodClassificationBindingResult result)
     {
         switch (result)
         {
-            case ClassifiedMethodsResult.Available available:
-                inspection.ClassifiedMethodInspection =
-                    MetadataFindings.InspectClassifiedMethods(
-                        available.Methods,
-                        FindingSubjectFor(path));
-
-                var unsafeMethods = available.Methods
-                    .Where(m => m.Classification == MethodClassification.Unsafe)
-                    .Select(m => new ClassifiedMethodSummary
-                    {
-                        MethodName = m.MethodName,
-                        DeclaringType = m.DeclaringType,
-                        Signature = m.Signature
-                    })
-                    .OrderBy(m => m.DeclaringType)
-                    .ThenBy(m => m.MethodName)
-                    .ToList();
-
-                var pinvokeMethods = available.Methods
-                    .Where(m => m.Classification == MethodClassification.PInvoke)
-                    .Select(m => new ClassifiedMethodSummary
-                    {
-                        MethodName = m.MethodName,
-                        DeclaringType = m.DeclaringType,
-                        Signature = m.Signature,
-                        ModuleName = m.ModuleName
-                    })
-                    .OrderBy(m => m.DeclaringType)
-                    .ThenBy(m => m.MethodName)
-                    .ToList();
-
-                var asyncMethods = available.Methods
-                    .Where(m => m.Classification is MethodClassification.RuntimeAsync
-                                                 or MethodClassification.StateMachineAsync)
-                    .Select(m => new AsyncMethodSummary
-                    {
-                        MethodName = m.MethodName,
-                        DeclaringType = m.DeclaringType,
-                        Signature = m.Signature,
-                        Kind = m.Classification == MethodClassification.RuntimeAsync
-                            ? AsyncMethodSummary.RuntimeKind
-                            : AsyncMethodSummary.StateMachineKind
-                    })
-                    .OrderBy(m => m.Kind, StringComparer.Ordinal)
-                    .ThenBy(m => m.DeclaringType)
-                    .ThenBy(m => m.MethodName)
-                    .ToList();
-
-                inspection.UnsafeMethods =
-                    unsafeMethods.Count > 0 ? unsafeMethods : null;
-                inspection.PInvokeMethods =
-                    pinvokeMethods.Count > 0 ? pinvokeMethods : null;
-                inspection.AsyncMethods =
-                    asyncMethods.Count > 0 ? asyncMethods : null;
+            case MethodClassificationBindingResult.Available available:
+                foreach ((ClassificationQuestion question, ClassificationAnswer answer) in available.Result.Answers)
+                    ApplyClassificationAnswer(path, inspection, logger, question, answer);
                 break;
 
-            case ClassifiedMethodsResult.Failed failed:
+            case MethodClassificationBindingResult.Failed failed:
                 logger.LogWarning(
-                    $"Error scanning classified methods in {path}: {failed.Error.Message}");
-                inspection.ClassifiedMethodInspection =
-                    FailedInspection<ClassifiedMethodObservation>(
-                        path,
-                        MetadataFindings.ClassifiedMethodDescriptor,
-                        failed.Error);
-                inspection.UnsafeMethods = null;
-                inspection.PInvokeMethods = null;
-                inspection.AsyncMethods = null;
+                    $"Error classifying methods in {path}: {failed.Error.Message}");
+                inspection.MethodClassificationFailure = failed.Error.Message;
                 break;
 
             default:
                 throw new InvalidOperationException(
-                    $"Unknown classified-methods result '{result.GetType().Name}'.");
+                    $"Unknown method classification result '{result.GetType().Name}'.");
+        }
+    }
+
+    static void ApplyClassificationAnswer(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ClassificationQuestion question,
+        ClassificationAnswer answer)
+    {
+        switch (answer)
+        {
+            case ClassificationAnswer.Count count:
+                switch (question.Analyzer)
+                {
+                    case MethodClassificationAnalyzer.PInvoke:
+                        inspection.PInvokeMethodCount = count.Value;
+                        break;
+                    case MethodClassificationDemand.AsyncAnalyzer:
+                        inspection.AsyncMethodCount = count.Value;
+                        break;
+                    case MethodClassificationAnalyzer.PointerSignature:
+                        inspection.UnsafeMethodCount = count.Value;
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"No consumer asks for the {question.Analyzer} count.");
+                }
+
+                break;
+
+            case ClassificationAnswer.Rows rows:
+                switch ((question.Analyzer, question.Order))
+                {
+                    case (MethodClassificationAnalyzer.PInvoke, ClassifiedRowOrder.Display):
+                        inspection.PInvokeMethodDisplayRows = rows.Methods;
+                        break;
+                    case (MethodClassificationAnalyzer.PInvoke, _):
+                        inspection.PInvokeMethods =
+                        [
+                            .. rows.Methods.Select(static row => new ClassifiedMethodSummary
+                            {
+                                MethodName = row.MethodName.ToString(),
+                                DeclaringType = row.DeclaringType.ToString(),
+                                Signature = row.Signature.ToString(),
+                                ModuleName = row.ModuleName?.ToString(),
+                            }),
+                        ];
+                        break;
+                    case (MethodClassificationDemand.AsyncAnalyzer, ClassifiedRowOrder.Display):
+                        inspection.AsyncMethodDisplayRows = rows.Methods;
+                        break;
+                    case (MethodClassificationDemand.AsyncAnalyzer, _):
+                        inspection.AsyncMethods =
+                        [
+                            .. rows.Methods.Select(static row => new AsyncMethodSummary
+                            {
+                                MethodName = row.MethodName.ToString(),
+                                DeclaringType = row.DeclaringType.ToString(),
+                                Signature = row.Signature.ToString(),
+                                Kind = row.Classification == MethodClassification.RuntimeAsync
+                                    ? AsyncMethodSummary.RuntimeKind
+                                    : AsyncMethodSummary.StateMachineKind,
+                            }),
+                        ];
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"No consumer asks for {question.Analyzer} rows.");
+                }
+
+                break;
+
+            case ClassificationAnswer.Failed failed:
+                string reason = $"{question.Analyzer} analyzer failed at {failed.Failure.Unit}: {failed.Failure.Message}";
+                logger.LogWarning($"Error classifying methods in {path}: {reason}");
+                inspection.FailMethodClassification(question.Analyzer, reason);
+                break;
+
+            case ClassificationAnswer.Aborted aborted:
+                string critical = $"{question.Analyzer} analyzer aborted at {aborted.Critical.Unit}: {aborted.Critical.Budget}.";
+                logger.LogWarning($"Error classifying methods in {path}: {critical}");
+                inspection.FailMethodClassification(question.Analyzer, critical);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"No consumer asks the {question.Closing} closing.");
         }
     }
 
@@ -2890,6 +3094,12 @@ internal static class LibraryMetadataService
                 inspection.UnsafeEvidencePresent =
                     available.HasEvidence;
                 inspection.UnsafeEvidencePresenceError = null;
+                break;
+
+            case UnsafeEvidencePresenceResult.ExecutionIncomplete incomplete:
+                inspection.UnsafeEvidencePresent = null;
+                inspection.UnsafeEvidencePresenceError =
+                    incomplete.Error;
                 break;
 
             case UnsafeEvidencePresenceResult.Failed failed:

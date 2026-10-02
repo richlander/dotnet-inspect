@@ -444,6 +444,27 @@ Host bindings may expose fewer controls than the complete route. Omission
 means that the host does not expose that capability. It does not authorize a
 host-local facet, alternate execution path, or changed result contract.
 
+## Analysis participation registration
+
+An analysis that takes part in an operation registers once, through a static
+capability module. The registration contains:
+
+- the owner-issued `AnalysisDescriptor`, with its stable analysis identity and
+  per-operation participation declarations owned by
+  [Inspection Analysis Requests](analysis-surfaces-and-universes.md#operation-participation);
+- the typed producer binding that the operation dispatches for each declared
+  report surface; and
+- the operation consumer binding that selects analyses by that identity.
+
+The same registration serves discovery and dispatch. An operation must not
+list one analysis set for explanation while dispatching another. Catalog
+enumeration lists each analysis and the operations and surfaces it takes part
+in, without executing a producer.
+
+This registration does not require the operation to be a Query Space route.
+It does not define analysis identity, participation, set validation, or result
+semantics. Those remain with their owners.
+
 ## Static modules and cold materialization
 
 Registration is explicit and statically enumerable. Reflection, assembly
@@ -659,7 +680,7 @@ binding-owned typed execution path. A descriptor registered beside a handler
 or export that directly bypasses that binding does not satisfy adoption.
 
 The first implementation uses
-`dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release` for the
+`dotnet run --project tests/DotnetInspect.Web.Tests -c Release` for the
 Browser-managed binding and
 `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` for
 resource-free catalog construction. NativeAOT and single-threaded Wasm remain

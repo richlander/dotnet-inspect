@@ -162,6 +162,48 @@ public sealed record NavigationNonReadyPackageEvaluation
 }
 
 /// <summary>
+/// Current registration-revision evidence for one exact Ecosystem occurrence.
+/// </summary>
+public sealed record NavigationEcosystemEvaluation
+{
+    public NavigationEcosystemEvaluation(
+        WorkspaceRegistrationRevision registrations,
+        WorkspaceEcosystemRegistrationOccurrence occurrence)
+    {
+        ArgumentNullException.ThrowIfNull(registrations);
+        ArgumentNullException.ThrowIfNull(occurrence);
+        if (!ReferenceEquals(registrations.Workspace, occurrence.Workspace)
+            || !registrations.EcosystemContributions.Any(
+                contribution => ReferenceEquals(
+                    contribution.Ecosystem,
+                    occurrence)))
+        {
+            throw new ArgumentException(
+                "The Ecosystem occurrence must belong to the exact registration revision.",
+                nameof(occurrence));
+        }
+
+        Occurrence = occurrence.Identity;
+        Id = occurrence.Declaration.Id;
+    }
+
+    public NavigationEcosystemEvaluation(
+        WorkspaceTopLevelInventorySelection.Ecosystem selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        Occurrence = selection.Occurrence;
+        Id = selection.Id;
+    }
+
+    public WorkspaceEcosystemRegistrationOccurrenceIdentity Occurrence
+    {
+        get;
+    }
+
+    public WorkspaceEcosystemRegistrationId Id { get; }
+}
+
+/// <summary>
 /// One exact retained Package and contiguous structural context beneath it.
 /// </summary>
 public sealed record NavigationRetainedSubjectContext
@@ -297,7 +339,8 @@ public sealed class NavigationWorkspaceSnapshot
         ImmutableArray<NavigationLensDescriptor> lenses,
         NavigationLensOutcome lensOutcome,
         NavigationSubjectInventory? inventory,
-        ImmutableArray<NavigationDescendantLensDescriptor> descendantLenses = default)
+        ImmutableArray<NavigationDescendantLensDescriptor> descendantLenses = default,
+        StructuralSubjectIdentity.EcosystemSubject? ecosystem = null)
     {
         Scope = scope;
         Workspace = workspace;
@@ -314,6 +357,7 @@ public sealed class NavigationWorkspaceSnapshot
         LensOutcome = lensOutcome;
         Inventory = inventory;
         DescendantLenses = descendantLenses.IsDefault ? [] : descendantLenses;
+        Ecosystem = ecosystem;
     }
 
     public WorkspaceScopeSnapshot Scope { get; }
@@ -345,6 +389,8 @@ public sealed class NavigationWorkspaceSnapshot
     public NavigationSubjectInventory? Inventory { get; }
 
     public ImmutableArray<NavigationDescendantLensDescriptor> DescendantLenses { get; }
+
+    public StructuralSubjectIdentity.EcosystemSubject? Ecosystem { get; }
 }
 
 /// <summary>Inputs for one pure stateless Navigation snapshot evaluation.</summary>
@@ -354,6 +400,8 @@ public sealed record NavigationWorkspaceSnapshotRequest
 
     public NavigationPackageEvaluation? Package { get; init; }
 
+    public NavigationEcosystemEvaluation? Ecosystem { get; init; }
+
     public StructuralSubjectIdentity? ActiveSubject { get; init; }
 
     public NavigationRetainedSubjectContext? RetainedContext { get; init; }
@@ -362,6 +410,7 @@ public sealed record NavigationWorkspaceSnapshotRequest
 internal sealed record NavigationWorkspaceSnapshotComposition(
     WorkspaceScopeSnapshot Scope,
     StructuralSubjectIdentity.WorkspaceSubject Workspace,
+    StructuralSubjectIdentity.EcosystemSubject? Ecosystem,
     WorkspacePackageOccurrence? ActiveOccurrence,
     StructuralSubjectIdentity ActiveSubject,
     NavigationRetainedSubjectContext? RetainedContext,
@@ -437,7 +486,8 @@ public static class NavigationWorkspaceSnapshotEvaluation
             source.Scope, source.Workspace, source.ActiveOccurrence, source.ActiveSubject,
             source.RetainedContext, source.TypeInventoryLibraryContext, source.Packages,
             source.Hierarchy, source.Libraries, source.Types, source.Members, source.Lenses,
-            source.LensOutcome, source.Inventory, descriptors.ToImmutable());
+            source.LensOutcome, source.Inventory, descriptors.ToImmutable(),
+            source.Ecosystem);
     }
 
     public static NavigationWorkspaceSnapshot Evaluate(
@@ -488,19 +538,30 @@ public static class NavigationWorkspaceSnapshotEvaluation
                     "A restoration without a prepared Package cannot retain "
                         + "an occurrence context.");
             }
+            StructuralSubjectIdentity.EcosystemSubject? ecosystem =
+                request.Ecosystem is null
+                    ? null
+                    : StructuralSubjectIdentity.ForEcosystem(
+                        workspace,
+                        request.Ecosystem.Occurrence,
+                        request.Ecosystem.Id);
             if (requestedSubject is not null
-                && requestedSubject != workspace)
+                && requestedSubject != workspace
+                && requestedSubject != ecosystem)
             {
                 return new NavigationRestorationSubjectPreparation.Rejected(
                     NavigationRestorationRejectionKind.InvalidContext,
                     "A restoration without a prepared Package can select only "
-                        + "the exact Workspace subject.");
+                        + "the exact Workspace or prepared Ecosystem subject.");
             }
             return new NavigationRestorationSubjectPreparation.Ready(
                 PrepareComposition(
                     request with
                     {
-                        ActiveSubject = requestedSubject ?? workspace,
+                        ActiveSubject =
+                            requestedSubject
+                            ?? (StructuralSubjectIdentity?)ecosystem
+                            ?? workspace,
                     }));
         }
 
@@ -594,6 +655,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
         return Compose(
             composition.Scope,
             composition.Workspace,
+            composition.Ecosystem,
             composition.ActiveOccurrence,
             composition.ActiveSubject,
             composition.RetainedContext,
@@ -618,22 +680,49 @@ public static class NavigationWorkspaceSnapshotEvaluation
         ImmutableArray<NavigationPackageDescriptor> packages =
             PackageDescriptors(request.Scope);
 
+        if (request.Package is not null && request.Ecosystem is not null)
+        {
+            throw new ArgumentException(
+                "A snapshot cannot prepare Package and Ecosystem subjects together.",
+                nameof(request));
+        }
+
         if (request.Package is null)
         {
+            StructuralSubjectIdentity.EcosystemSubject? ecosystem = null;
+            if (request.Ecosystem is { } ecosystemEvaluation)
+            {
+                if (!ReferenceEquals(
+                        ecosystemEvaluation.Occurrence.WorkspaceIdentity,
+                        workspaceIdentity))
+                {
+                    throw new ArgumentException(
+                        "The prepared Ecosystem occurrence must belong to the exact Workspace.",
+                        nameof(request));
+                }
+                ecosystem = StructuralSubjectIdentity.ForEcosystem(
+                    workspace,
+                    ecosystemEvaluation.Occurrence,
+                    ecosystemEvaluation.Id);
+            }
             if (request.RetainedContext is not null
                 || request.ActiveSubject is not null
-                    && request.ActiveSubject != workspace)
+                    && request.ActiveSubject != workspace
+                    && request.ActiveSubject != ecosystem)
             {
                 throw new ArgumentException(
-                    "A snapshot without an active occurrence can retain only the Workspace subject.",
+                    "A snapshot without a Package occurrence can retain only the Workspace or prepared Ecosystem subject.",
                     nameof(request));
             }
 
             StructuralSubjectIdentity active =
-                request.ActiveSubject ?? workspace;
+                request.ActiveSubject
+                ?? (StructuralSubjectIdentity?)ecosystem
+                ?? workspace;
             return new NavigationWorkspaceSnapshotComposition(
                 request.Scope,
                 workspace,
+                ecosystem,
                 ActiveOccurrence: null,
                 active,
                 RetainedContext: null,
@@ -724,6 +813,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
         return new NavigationWorkspaceSnapshotComposition(
             request.Scope,
             workspace,
+            Ecosystem: null,
             occurrenceDescriptor.Occurrence,
             activeSubject,
             retainedContext,
@@ -766,6 +856,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
         return Compose(
             source.Scope,
             source.Workspace,
+            source.Ecosystem,
             context.Package.Occurrence,
             destination,
             context,
@@ -793,8 +884,12 @@ public static class NavigationWorkspaceSnapshotEvaluation
         if (subject == source.ActiveSubject)
             return source;
 
-        NavigationRetainedSubjectContext? context = source.RetainedContext;
+        NavigationRetainedSubjectContext? context =
+            subject is StructuralSubjectIdentity.EcosystemSubject
+                ? null
+                : source.RetainedContext;
         if (subject != source.Workspace
+            && subject is not StructuralSubjectIdentity.EcosystemSubject
             && subject != context?.Package
             && subject != context?.Library
             && subject != context?.Type
@@ -1031,6 +1126,11 @@ public static class NavigationWorkspaceSnapshotEvaluation
         [
             workspace.Hierarchy[0],
             new(
+                StructuralSubjectKind.Ecosystem,
+                Subject: null,
+                NavigationDescriptorState.Unavailable,
+                IsActive: false),
+            new(
                 StructuralSubjectKind.Package,
                 package,
                 state,
@@ -1078,6 +1178,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
         Compose(
             source.Scope,
             source.Workspace,
+            source.Ecosystem,
             context?.Package.Occurrence,
             active,
             context,
@@ -1097,6 +1198,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
     static NavigationWorkspaceSnapshot Compose(
         WorkspaceScopeSnapshot scope,
         StructuralSubjectIdentity.WorkspaceSubject workspace,
+        StructuralSubjectIdentity.EcosystemSubject? ecosystem,
         WorkspacePackageOccurrence? activeOccurrence,
         StructuralSubjectIdentity activeSubject,
         NavigationRetainedSubjectContext? retainedContext,
@@ -1147,6 +1249,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
         ImmutableArray<NavigationHierarchyDescriptor> hierarchy =
             Hierarchy(
                 workspace,
+                ecosystem,
                 activeSubject,
                 retainedContext,
                 packages,
@@ -1210,7 +1313,8 @@ public static class NavigationWorkspaceSnapshotEvaluation
             members,
             lenses,
             outcome,
-            inventory);
+            inventory,
+            ecosystem: ecosystem);
     }
 
     static ImmutableArray<NavigationPackageDescriptor> PackageDescriptors(
@@ -1275,6 +1379,8 @@ public static class NavigationWorkspaceSnapshotEvaluation
         {
             StructuralSubjectIdentity.WorkspaceSubject workspace =>
                 workspace == snapshot.Workspace,
+            StructuralSubjectIdentity.EcosystemSubject ecosystem =>
+                ecosystem == snapshot.Ecosystem,
             StructuralSubjectIdentity.PackageSubject package =>
                 package.Occurrence == snapshot.ActiveOccurrence
                 && snapshot.Packages.Any(row => row.Occurrence == package.Occurrence
@@ -1558,6 +1664,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
 
     static ImmutableArray<NavigationHierarchyDescriptor> Hierarchy(
         StructuralSubjectIdentity.WorkspaceSubject workspace,
+        StructuralSubjectIdentity.EcosystemSubject? ecosystem,
         StructuralSubjectIdentity activeSubject,
         NavigationRetainedSubjectContext? retainedContext,
         ImmutableArray<NavigationPackageDescriptor> packages,
@@ -1572,6 +1679,18 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 workspace,
                 NavigationDescriptorState.Available,
                 workspace == activeSubject);
+        NavigationHierarchyDescriptor ecosystemSlot =
+            ecosystem is not null
+                ? new(
+                    StructuralSubjectKind.Ecosystem,
+                    ecosystem,
+                    NavigationDescriptorState.Available,
+                    ecosystem == activeSubject)
+                : new(
+                    StructuralSubjectKind.Ecosystem,
+                    Subject: null,
+                    NavigationDescriptorState.Unavailable,
+                    IsActive: false);
         NavigationHierarchyDescriptor packageSlot =
             retainedContext is not null
                 ? new(
@@ -1582,7 +1701,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 : new(
                     StructuralSubjectKind.Package,
                     Subject: null,
-                    packages.IsEmpty
+                    ecosystem is not null || packages.IsEmpty
                         ? NavigationDescriptorState.Unavailable
                         : NavigationDescriptorState.SelectionRequired,
                     IsActive: false);
@@ -1645,6 +1764,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
         return
         [
             workspaceSlot,
+            ecosystemSlot,
             packageSlot,
             librarySlot,
             typeSlot,

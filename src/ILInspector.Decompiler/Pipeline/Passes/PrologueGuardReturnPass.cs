@@ -3,29 +3,23 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Folds a leading prologue guard — <c>if (c) goto L; …return/throw arm…; L:</c>
 /// at the very start of a method body — into the structured guard
-/// <c>if (!c) { …arm… }</c> when the rest of the container stays flat only
-/// because it is EH-entangled.
+/// <c>if (!c) { …arm… }</c>.
 ///
 /// <para>
 /// <see cref="StructuringPass"/> is two-phase and all-or-nothing per container:
-/// a container holding the target of a surviving <c>Leave</c> (the
-/// <c>leave-target-in-container</c> stop) keeps its <em>entire</em> flat form,
-/// so an otherwise-trivial prologue guard sitting in front of an EH/loop residue
-/// never folds (issue #1089, slice 4; specimen <c>Interop.Sys::GetCwd()</c>).
-/// This pass recovers just that pristine prologue without touching the recovered
-/// <c>try</c>/<c>catch</c>/<c>finally</c> nodes or relocating any block across an
-/// EH boundary.
+/// if any later region remains unstructureable, an otherwise-trivial guard at
+/// the start of the method also stays flat. This pass independently owns that
+/// pristine leading slice, so later irreducible control flow does not prevent a
+/// source-like guard return (issue #1089, slice 4; issue #8498).
 /// </para>
 ///
 /// <para>
-/// The fold is gated to be EH-safe by construction: it fires only on a container
-/// that <see cref="StructuringPass"/> declines for <c>leave-target-in-container</c>,
-/// and only when the guard's fallthrough arm is a straight-line block sequence
-/// terminating in <c>return</c>/<c>throw</c> that lies <em>entirely before</em> the
-/// first leave-target — i.e. in the prologue, never crossing into a region. The
-/// negation mirrors <see cref="StructuringPass"/>'s blessed fallthrough-first
-/// guard shape (<see cref="Conditions.Negate"/>), so a folded prologue is
-/// opcode-identical to the same guard structured in a non-EH method.
+/// The fold owns only a straight-line, externally unentered fallthrough arm
+/// ending in <c>return</c>/<c>throw</c>. It never crosses a surviving
+/// <c>leave</c> target or consumes internal control flow. The negation mirrors
+/// <see cref="StructuringPass"/>'s blessed fallthrough-first guard shape
+/// (<see cref="Conditions.Negate"/>), so the fold is opcode-identical to the
+/// same guard structured as part of a fully reducible container.
 /// </para>
 /// </summary>
 public sealed class PrologueGuardReturnPass : IIrPass
@@ -34,24 +28,13 @@ public sealed class PrologueGuardReturnPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        // Surviving leaves are the cross-container early exits the EH pass left
-        // flat; their target blocks are why StructuringPass keeps the container
-        // flat. No leaves means StructuringPass already owns this method.
         var leaveTargets = function.Descendants.OfType<Leave>()
             .Select(leave => leave.TargetOffset)
             .ToHashSet();
-        if (leaveTargets.Count == 0)
-            return;
 
         var container = function.Body;
         var blocks = container.Blocks;
         if (blocks.Count < 3)
-            return;
-
-        // Only fire when StructuringPass declines this container for the exact
-        // leave-target-in-container reason — otherwise the prologue would fold
-        // through the normal structurer and this pass must not double-handle it.
-        if (!blocks.Any(b => leaveTargets.Contains(b.StartOffset)))
             return;
 
         var entry = blocks[0];
@@ -105,7 +88,7 @@ public sealed class PrologueGuardReturnPass : IIrPass
             blocks[i].Detach();
 
         context.Stepper.StepOver(
-            $"fold prologue guard at IL_{entry.StartOffset:X4} (EH-entangled body stays flat)",
+            $"fold independently owned prologue guard at IL_{entry.StartOffset:X4}",
             container);
     }
 

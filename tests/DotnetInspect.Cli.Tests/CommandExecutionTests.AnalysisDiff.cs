@@ -1105,7 +1105,7 @@ public partial class CommandExecutionTests
                 "-t",
                 "N.Healthy",
                 "-S",
-                DiffSections.FindingTransitions.Name,
+                DiffSections.Transitions.Name,
                 "--tips",
                 "q");
             var findingJson = await RunAppAsync(
@@ -1115,7 +1115,7 @@ public partial class CommandExecutionTests
                 "-t",
                 "N.Healthy",
                 "-S",
-                DiffSections.FindingTransitions.Name,
+                DiffSections.Transitions.Name,
                 "--json",
                 "--tips",
                 "q");
@@ -1126,7 +1126,7 @@ public partial class CommandExecutionTests
                 "-t",
                 "N.Healthy",
                 "-S",
-                DiffSections.FindingTransitions.Name,
+                DiffSections.Transitions.Name,
                 "--table",
                 "--tips",
                 "q");
@@ -1152,14 +1152,31 @@ public partial class CommandExecutionTests
                 findingMarkdown.Output,
                 StringComparison.Ordinal);
             Assert.Equal(1, findingJson.Exit);
-            Assert.Contains(
-                "inspection_failures",
-                findingJson.Output,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "invalid AssemblyRef row",
-                findingJson.Output,
-                StringComparison.Ordinal);
+            Assert.Empty(findingJson.Error);
+            using (JsonDocument findingDocument =
+                JsonDocument.Parse(findingJson.Output))
+            {
+                JsonElement root = findingDocument.RootElement;
+                Assert.Equal(
+                    "Transitions",
+                    root.GetProperty("comparison")
+                        .GetProperty("views").GetString());
+                Assert.Equal(
+                    "Compared",
+                    root.GetProperty("outcomes")[0]
+                        .GetProperty("kind").GetString());
+                Assert.Empty(
+                    root.GetProperty("transitions").EnumerateArray());
+                Assert.Contains(
+                    root.GetProperty("apiInspectionFailures")
+                        .EnumerateArray(),
+                    failure => failure.GetProperty("detail")
+                        .GetString()?
+                        .Contains(
+                            "invalid AssemblyRef row",
+                            StringComparison.Ordinal)
+                        is true);
+            }
             Assert.Equal(1, findingTable.Exit);
             Assert.Contains(
                 "API comparison is incomplete",
@@ -1239,12 +1256,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Diff_FindingTransitions_ConfirmsPackageTypeIntroduction()
+    public async Task Diff_Transitions_ConfirmsPackageTypeIntroduction()
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Text.Json@8.0.6..9.0.0",
             "-t", "System.Text.Json.Schema.JsonSchemaExporter",
-            "-S", "Finding Transitions", "--table", "--tips", "q");
+            "-S", "Transitions", "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1382,8 +1399,15 @@ public partial class CommandExecutionTests
             jsonRow.GetProperty("cohort_size").ValueKind);
     }
 
-    [Fact]
-    public async Task Diff_FindingTransitions_ConfirmsAllocationIntroduction()
+    [Theory]
+    [InlineData("allocation", "RegressesAllocInLoop", "analysis.allocation", "Newobj")]
+    [InlineData("call-site", "RegressesAllocInLoop", "analysis.call-site", ".Add(")]
+    [InlineData("unsafety", "AddsUnsafe", "analysis.unsafety", "StackAlloc")]
+    public async Task Diff_Analysis_ConfirmsBodyFindingIntroduction(
+        string analysis,
+        string member,
+        string finding,
+        string evidence)
     {
         var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
         var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
@@ -1391,69 +1415,25 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", $"{oldPath}..{newPath}",
             "-t", "DiffFixtureSample.DiffSample",
-            "-m", "RegressesAllocInLoop",
-            "--finding", "analysis.allocation",
+            "-m", member,
+            "--analysis", analysis,
             "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("PairFinding.Added", output);
-        Assert.Contains("analysis.allocation", output);
-        Assert.Contains("RegressesAllocInLoop", output);
-        Assert.Contains("absent", output);
-        Assert.Contains("present", output);
-    }
-
-    [Fact]
-    public async Task Diff_FindingTransitions_ConfirmsCallSiteIntroduction()
-    {
-        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
-        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
-
-        var (exit, output, error) = await RunAppAsync(
-            "diff", "--library", $"{oldPath}..{newPath}",
-            "-t", "DiffFixtureSample.DiffSample",
-            "-m", "RegressesAllocInLoop",
-            "--finding", "analysis.call-site",
-            "--table", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("PairFinding.Added", output);
-        Assert.Contains("analysis.call-site", output);
-        Assert.Contains("RegressesAllocInLoop", output);
-        Assert.Contains(".Add(", output);
-        Assert.Contains("absent", output);
-        Assert.Contains("present", output);
-    }
-
-    [Fact]
-    public async Task Diff_FindingTransitions_ConfirmsUnsafetyIntroduction()
-    {
-        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
-        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
-
-        var (exit, output, error) = await RunAppAsync(
-            "diff", "--library", $"{oldPath}..{newPath}",
-            "-t", "DiffFixtureSample.DiffSample",
-            "-m", "AddsUnsafe",
-            "--finding", "analysis.unsafety",
-            "--table", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("PairFinding.Added", output);
-        Assert.Contains("analysis.unsafety", output);
-        Assert.Contains("AddsUnsafe", output);
-        Assert.Contains("StackAlloc", output);
+        Assert.Contains(finding, output);
+        Assert.Contains(member, output);
+        Assert.Contains(evidence, output);
         Assert.Contains("absent", output);
         Assert.Contains("present", output);
     }
 
     [Theory]
-    [InlineData("csharp.line", "return 1;", "return 2;")]
-    [InlineData("il.op", "ldc.i4 1", "ldc.i4 2")]
-    public async Task Diff_FindingTransitions_ConfirmsImplementationOccurrenceChanges(
+    [InlineData("csharp", "csharp.line", "return 1;", "return 2;")]
+    [InlineData("il", "il.op", "ldc.i4 1", "ldc.i4 2")]
+    public async Task Diff_Analysis_ConfirmsImplementationOccurrenceChanges(
+        string analysis,
         string descriptor,
         string oldEvidence,
         string newEvidence)
@@ -1465,7 +1445,7 @@ public partial class CommandExecutionTests
             "diff", "--library", $"{oldPath}..{newPath}",
             "-t", "DiffFixtureSample.DiffSample",
             "-m", "ConstantValue",
-            "--finding", descriptor,
+            "--analysis", analysis,
             "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -1478,10 +1458,357 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("csharp.line")]
-    [InlineData("il.op")]
-    public async Task Diff_FindingTransitions_ImplementationFindingsRequireOneMemberBeforeAcquisition(
-        string descriptor)
+    [InlineData("call-site", "DiffFixtureSample.DiffSample", "NoSuchMember")]
+    [InlineData("call-site,allocation", "DiffFixtureSample.NoSuchType", "Foo")]
+    [InlineData("csharp", "DiffFixtureSample.DiffSample", "NoSuchMember")]
+    public async Task Diff_Analysis_BodyOnlySetTargetFailureIsRequestFailure(
+        string analyses,
+        string type,
+        string member)
+    {
+        // A member target that does not resolve fails the request before any
+        // analysis runs, whether or not the set includes api: never a
+        // Failed outcome row.
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", $"{oldPath}..{newPath}",
+            "-t", type,
+            "-m", member,
+            "--analysis", analyses,
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(member, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Failed", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Summary", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Transitions", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Diff_Analysis_SeveralAnalysesDefaultToSummaryInSelectionOrder()
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", $"{oldPath}..{newPath}",
+            "-t", "DiffFixtureSample.DiffSample",
+            "-m", "RegressesAllocInLoop",
+            "--analysis", "call-site,api",
+            "--analysis", "allocation",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Summary", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Transitions", output, StringComparison.Ordinal);
+        string[] rows =
+        [
+            .. output.Split('\n').Where(line =>
+                line.StartsWith("| call-site |", StringComparison.Ordinal)
+                || line.StartsWith("| api |", StringComparison.Ordinal)
+                || line.StartsWith("| allocation |", StringComparison.Ordinal)),
+        ];
+        Assert.Collection(
+            rows,
+            row => Assert.StartsWith("| call-site | Compared |", row, StringComparison.Ordinal),
+            row => Assert.StartsWith("| api | Compared |", row, StringComparison.Ordinal),
+            row => Assert.StartsWith("| allocation | Compared | 1 |", row, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Diff_Analysis_SystemTextJsonGenericMemberKeepsCallSiteFindings()
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis");
+        string range =
+            $"{Path.Combine(root, "9.0.0", "System.Text.Json.dll")}.."
+            + Path.Combine(root, "10.0.0", "System.Text.Json.dll");
+
+        var summary = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "--member", "Serialize:1",
+            "--analysis", "api,call-site,allocation",
+            "--tips", "q");
+        var transitions = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "--member", "Serialize:1",
+            "--analysis", "api,call-site,allocation",
+            "-S", "Transitions",
+            "--tips", "q");
+
+        Assert.Equal(0, summary.Exit);
+        Assert.Empty(summary.Error);
+        Assert.Contains("| api | Compared | 0 | 0 | 0 | 1 |", summary.Output, StringComparison.Ordinal);
+        Assert.Contains("| call-site | Compared | 0 | 0 | 0 | 2 |", summary.Output, StringComparison.Ordinal);
+        Assert.Contains("| allocation | Compared | 0 | 0 | 0 | 0 |", summary.Output, StringComparison.Ordinal);
+        Assert.Equal(0, transitions.Exit);
+        Assert.Empty(transitions.Error);
+        Assert.Contains("GetTypeInfo", transitions.Output, StringComparison.Ordinal);
+        Assert.Contains("WriteString", transitions.Output, StringComparison.Ordinal);
+        Assert.True(
+            transitions.Output.IndexOf("| api.member |", StringComparison.Ordinal)
+            < transitions.Output.IndexOf("| analysis.call-site |", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Serialize:6", "TValue", 3)]
+    [InlineData("Serialize:8", "object", 6)]
+    public async Task Diff_Implementation_SystemTextJsonMemberKeepsIlEvidence(
+        string selector,
+        string parameter,
+        int expectedIlRows)
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis");
+        string range =
+            $"{Path.Combine(root, "9.0.0", "System.Text.Json.dll")}.."
+            + Path.Combine(root, "10.0.0", "System.Text.Json.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "--member", selector,
+            "-S", "Implementation Diff",
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement[] rows =
+        [
+            .. output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line).RootElement.Clone())
+                .Where(root => root.TryGetProperty("member", out _)),
+        ];
+        string member = Assert.Single(
+            rows.Select(row => row.GetProperty("member").GetString())
+                .Distinct())!;
+        Assert.Contains(parameter, member, StringComparison.Ordinal);
+        Assert.Equal(
+            expectedIlRows,
+            rows.Count(row =>
+                row.GetProperty("mechanism").GetString() == "IL"));
+        Assert.Contains(
+            rows,
+            row => row.GetProperty("mechanism").GetString() == "C#");
+    }
+
+    [Theory]
+    [InlineData("Complexity Context", "analysis.complexity.normal-flow")]
+    [InlineData(
+        "Structural Context",
+        "research.complexity.structural-cohort")]
+    public async Task Diff_Context_SystemTextJsonGenericMemberUsesTypedTarget(
+        string section,
+        string expectedKind)
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis");
+        string range =
+            $"{Path.Combine(root, "9.0.0", "System.Text.Json.dll")}.."
+            + Path.Combine(root, "10.0.0", "System.Text.Json.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "--member", "Serialize:6",
+            "-S", section,
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement row = Assert.Single(
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line).RootElement.Clone()),
+            root => root.TryGetProperty("member", out _));
+        Assert.Contains(
+            "Serialize(System.IO.Stream, TValue,",
+            row.GetProperty("member").GetString(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            expectedKind,
+            row.GetProperty("kind").GetString());
+    }
+
+    [Theory]
+    [InlineData("csharp", "csharp.line")]
+    [InlineData("il", "il.op")]
+    public async Task Diff_Analysis_SystemTextJsonGenericMemberKeepsRetainedFindings(
+        string analysis,
+        string expectedFinding)
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis");
+        string range =
+            $"{Path.Combine(root, "9.0.0", "System.Text.Json.dll")}.."
+            + Path.Combine(root, "10.0.0", "System.Text.Json.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "--member", "Serialize:6",
+            "--analysis", analysis,
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement[] rows =
+        [
+            .. output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line).RootElement.Clone())
+                .Where(root => root.TryGetProperty("finding", out _)),
+        ];
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal(
+                expectedFinding,
+                row.GetProperty("finding").GetString()));
+        Assert.Single(
+            rows.Select(row => row.GetProperty("target").GetString()!
+                    .Split(" :: ", StringSplitOptions.None)[0])
+                .Distinct());
+        Assert.All(
+            rows,
+            row => Assert.Contains(
+                "Serialize(System.IO.Stream, TValue,",
+                row.GetProperty("target").GetString(),
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Diff_Implementation_UnresolvedTarget_FailsVisibly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--library",
+            $"{FixtureCatalog.DiffPair.OldAssemblyPath()}.."
+                + FixtureCatalog.DiffPair.NewAssemblyPath(),
+            "--type", "DiffFixtureSample.DiffSample",
+            "--member", "DefinitelyMissing",
+            "-S", "Implementation Diff",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "did not resolve to an Analysis method",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Diff_Transitions_TypeSurfaceShowsApiTypeThenApiMember()
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis");
+        string range =
+            $"{Path.Combine(root, "9.0.0", "System.Text.Json.dll")}.."
+            + Path.Combine(root, "10.0.0", "System.Text.Json.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "-S", "Transitions",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] findings =
+        [
+            .. output.Split('\n')
+                .Where(line => line.StartsWith("| PairFinding.", StringComparison.Ordinal))
+                .Select(line => line.Split('|')[2].Trim()),
+        ];
+        Assert.Equal("api.type", findings[0]);
+        Assert.Single(findings, finding => finding == "api.type");
+        Assert.All(findings.Skip(1), finding => Assert.Equal("api.member", finding));
+        Assert.Contains("PairFinding.Added", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("csharp")]
+    [InlineData("il")]
+    [InlineData("allocation")]
+    [InlineData("call-site")]
+    [InlineData("unsafety")]
+    public async Task Diff_Analysis_BodyAnalysesRejectTypeSurfaceBeforeAcquisition(
+        string analysis)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "--analysis", analysis,
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"'{analysis}' does not support the Type surface", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("csharp")]
+    [InlineData("allocation")]
+    public async Task Diff_Analysis_BodyAnalysesRequireExactlyOneMemberBeforeAcquisition(
+        string analysis)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "-m", "Run",
+            "-m", "Stop",
+            "--analysis", analysis,
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"'{analysis}' requires exactly 1 target at the Member surface", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_Analysis_RejectsEveryOffendingEntryBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "--analysis", "api,,nope,API,api",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("'' is an empty entry.", error, StringComparison.Ordinal);
+        Assert.Contains("'nope' is not a registered analysis", error, StringComparison.Ordinal);
+        Assert.Contains("'API' is not a registered analysis", error, StringComparison.Ordinal);
+        Assert.Contains("'api' repeats an earlier entry.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_Analysis_RejectsLibrarySurfaceForMemberAnalysisBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "--analysis", "allocation",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("'allocation' does not support the Library surface", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("api.type", "api")]
+    [InlineData("API.Member", "api")]
+    [InlineData("api.attribute", "api-attribute")]
+    [InlineData("analysis.allocation", "allocation")]
+    [InlineData("Analysis.Call-Site", "call-site")]
+    [InlineData("analysis.unsafety", "unsafety")]
+    [InlineData("csharp.line", "csharp")]
+    [InlineData("IL.OP", "il")]
+    public async Task Diff_PairwiseFinding_IsRejectedWithAnalysisGuidance(
+        string descriptor,
+        string analysis)
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
@@ -1491,61 +1818,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains($"--finding {descriptor} requires exactly one --member", error);
+        Assert.Contains($"use --analysis {analysis} ", error, StringComparison.Ordinal);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task Diff_FindingTransitions_AllocationRequiresOneMemberBeforeAcquisition()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "diff", "--library", "missing-old.dll..missing-new.dll",
-            "-t", "Sample.Widget",
-            "--finding", "analysis.allocation",
-            "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("requires exactly one --member", error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Diff_FindingTransitions_CallSiteRequiresOneMemberBeforeAcquisition()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "diff", "--library", "missing-old.dll..missing-new.dll",
-            "-t", "Sample.Widget",
-            "--finding", "analysis.call-site",
-            "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "--finding analysis.call-site requires exactly one --member",
-            error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Diff_FindingTransitions_UnsafetyRequiresOneMemberBeforeAcquisition()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "diff", "--library", "missing-old.dll..missing-new.dll",
-            "-t", "Sample.Widget",
-            "--finding", "analysis.unsafety",
-            "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "--finding analysis.unsafety requires exactly one --member",
-            error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Diff_FindingTransitions_RejectsUnknownDescriptorBeforeAcquisition()
+    public async Task Diff_PairwiseUnknownFinding_ListsAnalysisIdentities()
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
@@ -1555,50 +1833,118 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Unsupported Finding descriptor 'analysis.unknown'", error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "--analysis (api, api-attribute, allocation, call-site, unsafety, csharp, il)",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Diff_FindingTransitions_RequiresFocusedTargetBeforeAcquisition()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "diff", "--library", "missing-old.dll..missing-new.dll",
-            "-S", "Finding Transitions", "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("Finding Transitions requires --type", error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Diff_FindingTransitions_RejectsCompatibilityFiltersBeforeAcquisition()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "diff", "--library", "missing-old.dll..missing-new.dll",
-            "-t", "Sample.Widget", "-S", "Finding Transitions",
-            "--additive", "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("cannot be combined", error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Diff_FindingTransitions_RejectsImplementationDiffBeforeAcquisition()
+    public async Task Diff_RetiredFindingTransitionsSection_IsRejectedWithGuidance()
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
             "-S", "Finding Transitions",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("use -S Transitions", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Diff_AnalysisJsonProjection_IsRejectedBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "--analysis", "api",
+            "--json", "--rows", "1",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Complete analysis Diff transport cannot be combined",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_HistoryRejectsAnalysis()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--package", "System.Text.Json@8.0.0..9.0.0",
+            "--history",
+            "-t", "System.Text.Json.JsonSerializer",
+            "--analysis", "api",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--history does not accept --analysis", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Diff_Transitions_RequiresTypeOrMemberSurfaceBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-S", "Transitions", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("The Transitions view requires the Type or Member surface", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_Changes_RequiresApiAnalysisBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget", "-m", "Run",
+            "--analysis", "allocation", "-S", "Changes", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("The Changes view projects the 'api' analysis", error);
+    }
+
+    [Theory]
+    [InlineData("Transitions", "--additive")]
+    [InlineData("Transitions", "--breaking")]
+    [InlineData("Summary", "--changed")]
+    [InlineData("Summary", "--name-only")]
+    public async Task Diff_AnalysisViews_RejectApiPostFiltersBeforeAcquisition(
+        string view,
+        string filter)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget", "-S", view,
+            filter, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("refine the Changes view only", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_Transitions_RejectsImplementationDiffBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "-S", "Transitions",
             "-S", "Implementation Diff",
             "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Finding Transitions must be selected by itself", error);
+        Assert.Contains("cannot be combined with Implementation Diff", error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1644,25 +1990,30 @@ public partial class CommandExecutionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task Diff_FindingTransitions_ImpliedSelectionRejectsCompositionBeforeAcquisition()
+    [Theory]
+    [InlineData("Analysis Diff")]
+    [InlineData("Implementation Diff")]
+    [InlineData("Complexity Context")]
+    [InlineData("Structural Context")]
+    public async Task Diff_Analysis_RejectsUnmigratedRoutesBeforeAcquisition(
+        string route)
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
             "-m", "HotPath",
-            "--finding", "analysis.allocation",
-            "-S", "Analysis Diff",
-            "--json", "--tips", "q");
+            "--analysis", "allocation",
+            "-S", route,
+            "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Finding Transitions must be selected by itself", error);
+        Assert.Contains($"--analysis cannot be combined with {route}", error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task Diff_FindingTransitions_IsDiscoverableAndSelectableForLocalPair()
+    public async Task Diff_Transitions_IsDiscoverableAndSelectableForLocalPair()
     {
         var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
         var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
@@ -1673,11 +2024,13 @@ public partial class CommandExecutionTests
         var (selectExit, selectOutput, selectError) = await RunAppAsync(
             "diff", "--library", range,
             "-t", "DiffFixtureSample.DiffSample",
-            "-S", "Finding Transitions", "--table", "--tips", "q");
+            "-S", "Transitions", "--table", "--tips", "q");
 
         Assert.Equal(0, discoverExit);
         Assert.Empty(discoverError);
-        Assert.Contains("Finding Transitions", discoverOutput);
+        Assert.Contains("Transitions", discoverOutput);
+        Assert.Contains("Summary", discoverOutput);
+        Assert.DoesNotContain("Finding Transitions", discoverOutput);
         Assert.Contains("Complexity Context", discoverOutput);
         Assert.Contains("Structural Context", discoverOutput);
         Assert.Equal(0, selectExit);
@@ -1720,7 +2073,7 @@ public partial class CommandExecutionTests
             category.Output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            DiffSections.FindingTransitions.Name,
+            DiffSections.Transitions.Name,
             category.Output,
             StringComparison.Ordinal);
     }
@@ -1739,7 +2092,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData()]
     [InlineData("--schema")]
-    public async Task Diff_DiscoveryGlobDoesNotExposeExactOnlyFindingTransitions(
+    public async Task Diff_DiscoveryGlobDoesNotExposeExactOnlyTransitions(
         params string[] schema)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1753,7 +2106,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Diff_SelectGlobMatchingOnlyFindingTransitionsFailsBeforeAcquisition()
+    public async Task Diff_SelectGlobMatchingOnlyTransitionsFailsBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",

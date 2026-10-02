@@ -186,6 +186,28 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
+    public async Task TypeCommand_UnsafeMembersDiscovery_DoesNotBuildIndex()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            Discover = [SectionNames.UnsafeMembers],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(0, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public async Task LibraryCommand_MultipleAnalysisSections_BuildsIndexOnce()
     {
@@ -223,8 +245,8 @@ public class IndexBuildInvariantTests
             [FixtureAssembly],
             new DiffOptions());
 
-        Assert.Single(input.OldAnalyses);
-        Assert.Single(input.NewAnalyses);
+        Assert.Single(input.Old);
+        Assert.Single(input.New);
         Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
     }
 
@@ -365,10 +387,25 @@ public class IndexBuildInvariantTests
             Assert.Fail(
                 failed.Error.ToString());
         }
-        Assert.IsType<
+        var available = Assert.IsType<
             DotnetInspector.Queries
                 .UnsafeEvidencePresenceResult.Available>(
                     result);
+        Assert.Equal(
+            ILInspector.Analysis.Planning
+                .MethodDefinitionSourceCompletion.Satisfied,
+            available.SourceReceipt.Completion);
+        ILInspector.Analysis.Planning.ProducerParticipation participation =
+            available.Receipt.For(
+                ILInspector.Analysis.Planning
+                    .UnsafeEvidencePresenceProducer.Instance);
+        Assert.Equal(
+            ILInspector.Analysis.Planning.ProducerOutcome.Stopped,
+            participation.Outcome);
+        Assert.True(available.HasEvidence);
+        Assert.Equal(
+            available.Receipt.UnitsVisited,
+            participation.UnitsCompleted);
         Assert.Throws<InvalidOperationException>(
             () => context.GetPrefetchedImage());
     }

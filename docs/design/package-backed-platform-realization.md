@@ -23,6 +23,13 @@ Step 5a is implemented by `PackagePlatformSource` in
 source and adapter; the adapter advertises independently authorized discovery,
 reference, and implementation capabilities.
 
+Exact named implementation realization and ranged runtime-pack acquisition are
+tracked by
+[#8883](https://github.com/richlander/dotnet-inspect/issues/8883). That focused
+extension consumes the existing named-block contract from
+[Package read demand](package-read-demand.md) without moving archive read
+planning, size-first policy, or entry caching into this owner.
+
 The first consumers are the CLI and Browser/Wasm production hosts through
 Workspace adoption in step 8 and production-host adoption in step 9. This step
 builds their shared source substrate; it does not move either host onto it yet.
@@ -437,6 +444,13 @@ An opaque PlatformHouse `PlatformLibraryIdentity` cannot be projected to a
 package member. The adapter rejects that demand until a source-issued library
 identity correspondence exists.
 
+An arbitrary source `AssemblyRef` whose version may differ from the selected
+target does not enter this exact demand directly.
+[Platform assembly-reference binding](platform-assembly-reference-binding.md)
+owns the distinct namesake Reference binding demand and returns the canonical
+target identity. Subsequent exact Reference or implementation realization
+uses that identity through this contract unchanged.
+
 ## Step 5b: implementation coordinate and closure
 
 Step 5b adds one exact implementation source coordinate:
@@ -489,6 +503,86 @@ producer, package content generation, digest, and assembly identity. Duplicate
 logical coordinates, package-content collisions, duplicate assembly
 identities, manifest/member mismatches, or incompatible framework closure
 reject atomically.
+
+## Exact-library implementation realization
+
+Implementation realization accepts one closed source population demand:
+
+- `CompletePopulation` realizes every manifest-managed implementation member
+  in the support closure; and
+- `Assembly` carries one exact Metadata `AssemblyReferenceIdentity` and
+  realizes only its equivalent manifest-managed member.
+
+`PackagePlatformHouseAdapter` maps an exact
+`PlatformLibraryDemand.Assembly` to the source `Assembly` demand before
+acquisition. An opaque Platform Library demand still has no package-member
+correspondence and is rejected before source work. Complete Platform population
+requests map to `CompletePopulation`.
+
+For `Assembly`, the requested simple name projects to `<name>.dll` only as an
+acquisition candidate. Each selected dependency manifest remains the authority
+for implementation membership, and decoded Metadata identity remains the
+completion gate. The source:
+
+1. validates every manifest-managed logical coordinate in the resolved
+   framework closure without opening assembly bodies;
+2. finds exactly one case-insensitive manifest coordinate whose filename is
+   `<name>.dll`;
+3. reads that member's body;
+4. applies the ordinary assembly, ECMA-335, WinMD, size, and identity checks;
+   and
+5. requires the decoded identity to be equivalent to the exact demand.
+
+An absent logical name is source absence. More than one matching logical
+coordinate, a path/manifest collision, malformed assembly, or same-name
+identity mismatch is rejected source evidence. A successful exact realization
+contains one Library and is authoritative for that exact demand; it makes no
+complete-population claim.
+
+## Ranged exact implementation acquisition
+
+Complete-population implementation realization preserves complete payload
+acquisition. Exact `Assembly` realization supplies a `PackageRangedRead` for
+each runtime-pack candidate. Its selector consumes the package directory and
+materializes:
+
+- the exact same-named `<Framework>.runtimeconfig.json`;
+- the exact same-named `<Framework>.deps.json`; and
+- the requested `<name>.dll` when that runtime pack lists it beneath the exact
+  RID and target-framework prefix.
+
+The two manifests are required. The requested DLL is optional in each
+individual pack because an ASP.NET Core focus request may bind in its .NET
+Runtime support pack, and a .NET Runtime binding-support request may be absent
+from the ASP.NET Core root pack. After the manifest-defined support closure is
+resolved, exactly one manifest-managed candidate must answer the demand.
+
+Acquisition is staged by framework. The root pack's retained manifests first
+establish its framework references and roll-forward policy. When ASP.NET Core
+requires .NET Runtime support, the source resolves the compatible runtime-pack
+version and performs a second ranged acquisition with the same selector shape.
+It never needs an assembly body to decide which support pack to acquire.
+
+The selector follows the named aligned-block rule owned by
+[Package read demand](package-read-demand.md#named-implementation-and-aligned-blocks).
+The requested DLL is a block anchor. The range reader may retain other complete
+entries covered by that immutable block, but this source opens only the
+manifest-managed requested candidate. Package size-first policy may still
+choose complete acquisition for an archive under the cut, and a source that
+cannot satisfy Range follows the package owner's visible fallback contract.
+
+The adjacent Portable PDB rule remains the one already owned by
+[selected-Library companion demand](package-read-demand.md#selected-library-companion-demand):
+a requested implementation DLL is the block anchor and a listed
+same-directory, same-stem `.pdb` is an optional exact entry, never another
+anchor. No Platform content demand requests that companion at this stage. The
+pinned
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128` package lists
+`System.Text.Json.dll` and both manifests but no `System.Text.Json.pdb` and no
+package-local PDB entries. This extension therefore neither downloads unused
+symbol bytes nor invents Platform PDB absence evidence. A later focused
+PlatformHouse companion-demand adoption may request the existing package rule
+when a real package-backed Platform asset demonstrates it.
 
 ## Generations and PlatformHouse projection
 
@@ -551,7 +645,9 @@ to such an unmeasured failed, rejected, or incomplete attempt, so later sources
 cannot reuse the delegated assembly, compiled-XML, or byte allowance.
 Successful implementation realization retains the exact source-observed byte
 total for selected runtime-configuration and dependency manifests plus realized
-assemblies. The House adapter uses that total for both success and
+assemblies. An exact realization counts only its consumed manifests and
+requested assembly, not unrelated manifest members or archive transfer. The
+House adapter uses that total for both success and
 requested-member absence rather than treating Library payload length as all
 source work.
 Discovery expiry retains failures from completed authorities and the package
@@ -644,6 +740,24 @@ The step 5b Release gates additionally prove:
 - distinct timeout and cancellation behavior; and
 - equal CLI-capable filesystem and Browser/Wasm in-memory realization.
 
+The exact-library ranged extension adds Release gates proving:
+
+- an exact `System.Text.Json` demand reads the required manifests and only the
+  aligned block containing `System.Text.Json.dll`;
+- the ranged and complete paths return equivalent one-Library source evidence
+  and Metadata identity;
+- ASP.NET Core focus and .NET Runtime binding-support demands select the
+  correct pack without reading unrelated assembly bodies;
+- a missing member is unavailable, while duplicate logical coordinates and
+  same-name identity mismatch are rejected;
+- a complete-population demand preserves the existing population and
+  acquisition behavior;
+- a repeated exact demand can be answered from the package entry cache without
+  another package request; and
+- the real .NET 11 runtime pack uses `206` responses and no complete archive
+  body for `System.Text.Json`, while recording that no package-local PDB
+  companion exists.
+
 The normal solution build, dependency-policy evaluator, CI routing gate, and
 project-graph tests enforce the dependency direction. Minimized fixtures are
 the ordinary CI gate. The pinned
@@ -675,6 +789,13 @@ After 5a and 5b:
 downstream Browser performance beneficiary. Step 5b removes broad repeated
 runtime-pack scanning by defining manifest membership, while step 9 owns the
 Browser migration that realizes the performance change.
+
+The exact-library ranged extension is a focused completion of step 5b rather
+than another counted PlatformHouse step. It removes the remaining
+closure-wide assembly-identity census for one-Library implementation demand.
+The later step-9 Inspect Web adoption owns preflight-free Browser Range
+requests and refresh-persistent package-entry caching; this source extension
+does not redefine those host policies.
 
 ## Demo
 

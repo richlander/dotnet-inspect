@@ -47,7 +47,7 @@ async function openPublishedSite(page: Page): Promise<void> {
     await host.initializeRuntime(runtime);
     await packages.initializeRuntime(runtime);
     await source.initializeRuntime(runtime);
-    host.configureHost(origin);
+    await host.configureHost(origin);
     await host.runEntryPoint();
   }, new URL(site!).origin);
 }
@@ -394,6 +394,10 @@ test.describe("published authored Source comparison transport", () => {
 
       const authoredMember = await memberSource(page, "1.0.0");
       const authoredType = await typeSource(page, "1.0.0");
+      const decompiledType = await typeSource(
+        page,
+        "1.0.0",
+        "decompiler-source");
       const apiType = await typeSource(page, "1.0.0", "api-declarations");
       const allType = await typeSource(page, "1.0.0", "all-declarations");
       if (apiType.value?.kind !== "apiDeclarations"
@@ -476,6 +480,8 @@ test.describe("published authored Source comparison transport", () => {
           await applicationPage.locator(".load-error").textContent()
             ?? "Published application failed to load the fixture package.");
       }
+      await expect(applicationPage.locator("#app"))
+        .not.toHaveAttribute("aria-busy", "true", { timeout: 180_000 });
       await selectFirstExactLibrary(applicationPage);
       await chooseSubject(applicationPage, "type");
       await applicationPage.locator("#type-list [data-type]")
@@ -572,17 +578,20 @@ test.describe("published authored Source comparison transport", () => {
         .first();
       await buildValueOutline.click();
       await expect(selectedBody).toBeDisabled();
-      const selectedSourceOffset = async () =>
-        await applicationPage.evaluate(() => {
-          const source = document.querySelector<HTMLElement>(
-            ".type-explorer-source pre");
-          const selected = document.querySelector<HTMLElement>(
-            ".type-explorer-source [aria-current=\"true\"]");
-          if (source === null || selected === null)
-            throw new Error("Selected Type Explorer source declaration was not rendered.");
+      const selectedSource = applicationPage.locator(
+        ".type-explorer-source [aria-current=\"true\"]");
+      const selectedSourceOffset = async () => {
+        await expect(selectedSource).toBeVisible();
+        return await selectedSource.evaluate(selected => {
+          const source = selected
+            .closest(".type-explorer-source")
+            ?.querySelector<HTMLElement>("pre");
+          if (source === null || source === undefined)
+            throw new Error("Type Explorer source was not rendered.");
           return selected.getBoundingClientRect().top
             - source.getBoundingClientRect().top;
         });
+      };
       const buildValueOffset = await selectedSourceOffset();
       const staticMembers = applicationPage.getByRole("radio", {
         name: "Static",
@@ -646,6 +655,20 @@ test.describe("published authored Source comparison transport", () => {
       await expect(
         applicationPage.locator("#annotated-modal-title"),
       ).toBeFocused();
+      await expect(
+        applicationPage.locator(".annotated-source-signature"),
+      ).toContainText("public int Value()");
+      await expect(
+        applicationPage.locator(".annotated-source-signature"),
+      ).not.toContainText("M:");
+      await applicationPage
+        .locator("#annotated-source-backdrop [data-annotated-action='copy']")
+        .click();
+      await expect.poll(() => applicationPage.evaluate(() =>
+        (window as typeof window & {
+          __copiedMemberSource?: string;
+        }).__copiedMemberSource,
+      )).toContain("public int Value()");
       await expect(applicationPage).toHaveURL(
         typeExplorerBeforeInspect.url);
       await applicationPage.locator("#annotated-modal-close").click();
@@ -721,6 +744,12 @@ test.describe("published authored Source comparison transport", () => {
       }).click();
       await expect(applicationPage).toHaveURL(typeSourceUrl);
       await expect(applicationPage.locator("#explore-source")).toBeFocused();
+      await typeView.selectOption("decompiler-source");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(decompiledType.value?.kind === "source"
+          ? decompiledType.value.value.text
+          : null);
+      await expect(applicationPage.locator("#explore-source")).toHaveCount(1);
       await typeView.selectOption("api-declarations");
       await expect.poll(() => sourceCode.textContent())
         .toBe(apiDeclarations.content.text);
@@ -747,7 +776,8 @@ test.describe("published authored Source comparison transport", () => {
       const fallbackType = await typeSource(unavailablePage, "2.0.0");
       await unavailablePage.close();
       const evidence = {
-        authoredMember, fallbackMember, authoredType, fallbackType, apiType, allType,
+        authoredMember, fallbackMember, authoredType, decompiledType,
+        fallbackType, apiType, allType,
         initializedGetter, declinedGetter,
         changed, exact, moved, movedAndEdited, unavailable,
       };
@@ -777,9 +807,20 @@ test.describe("published authored Source comparison transport", () => {
         throw new Error("Expected an authored type source code view.");
       expect(authoredType.value.value.provider).toBe("pdb");
       expect(authoredType.value.value.text).toContain("class Counter");
-      expect(authoredType.value.value.text).toContain("1 + 2");
+      expect(authoredType.value.value.text)
+        .toContain("public int Value() => 1 + 2;");
       expect(authoredType.value.value.pdbSourceLimitation).toBeNull();
       expect(authoredType.value.value.url).toBeTruthy();
+      expect(decompiledType.kind).toBe("Succeeded");
+      expect(decompiledType.value?.kind).toBe("source");
+      if (decompiledType.value?.kind !== "source")
+        throw new Error("Expected an explicit decompiler type source code view.");
+      expect(decompiledType.value.value.provider).toBe("decompiled");
+      expect(decompiledType.value.value.text).toContain("class Counter");
+      expect(decompiledType.value.value.text)
+        .toContain("public int Value() => 3;");
+      expect(decompiledType.value.value.pdbSourceLimitation).toBeNull();
+      expect(decompiledType.value.value.url).toBeNull();
       expect(fallbackType.kind).toBe("Succeeded");
       expect(fallbackType.value?.kind).toBe("source");
       if (fallbackType.value?.kind !== "source")

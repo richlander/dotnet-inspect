@@ -39,6 +39,8 @@ public sealed class GraphNodeStorageKey : IEquatable<GraphNodeStorageKey>
     }
 
     internal AssemblyReferenceIdentity AssemblyIdentity { get; }
+    internal AssemblyAcquisitionRegistration SourceRegistration =>
+        _source;
     internal string SourceReceiptEvidence =>
         MetadataReceiptEvidence.For(_source);
     public Guid ModuleVersionId { get; }
@@ -106,6 +108,14 @@ public enum GraphNodeIdentityKind
 }
 
 /// <summary>
+/// Portable address of one method definition in a compiled artifact.
+/// </summary>
+public sealed record GraphArtifactMemberAddress(
+    AssemblyReferenceIdentity AssemblyIdentity,
+    Guid ModuleVersionId,
+    int MethodToken);
+
+/// <summary>
 /// Analysis-owned graph identity. Catalog correspondence is preferred when
 /// available; physical storage identity keeps incomplete occurrences distinct.
 /// </summary>
@@ -130,6 +140,13 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
             or GraphNodeIdentityKind.ArtifactMember
             or GraphNodeIdentityKind.DetachedCatalog;
 
+    /// <summary>
+    /// Exact artifact-member address when this identity represents a compiled
+    /// method definition.
+    /// </summary>
+    public GraphArtifactMemberAddress? ArtifactMemberAddress =>
+        _value as GraphArtifactMemberAddress;
+
     internal static GraphNodeIdentity FromStorage(
         GraphNodeStorageKey storage) =>
         new(GraphNodeIdentityKind.Storage, storage);
@@ -150,7 +167,7 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
 
         return new(
             GraphNodeIdentityKind.ArtifactMember,
-            new ArtifactMemberKey(
+            new GraphArtifactMemberAddress(
                 definition.AssemblyIdentity,
                 definition.ModuleVersionId,
                 definition.MethodToken));
@@ -200,11 +217,6 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
         GraphNodeIdentity? left,
         GraphNodeIdentity? right) =>
         !Equals(left, right);
-
-    sealed record ArtifactMemberKey(
-        AssemblyReferenceIdentity AssemblyIdentity,
-        Guid ModuleVersionId,
-        int MethodToken);
 }
 
 /// <summary>How strongly a graph occurrence corresponds to other occurrences.</summary>

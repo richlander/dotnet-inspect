@@ -68,6 +68,12 @@ public sealed record GenericRecord<TValue>(
     IReadOnlyDictionary<string, TValue> Lookup,
     Boxed<TValue> Choice);
 
+public sealed record ArrayBox<TValue>(TValue[] Values);
+
+public sealed record KeyBox<TKey>(
+    Dictionary<TKey, int> Values)
+    where TKey : notnull;
+
 public sealed record BlobDto(
     byte[] Blob,
     byte[]? MaybeBlob,
@@ -102,6 +108,28 @@ public sealed record ConditionalOutputDto(string Name)
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonElement? NullablePayload { get; init; }
 }
+
+public sealed record DirectionalServerNoteDto(string Name)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)]
+    public string ServerNote { get; init; } = "";
+}
+
+public sealed record DirectionalBox<TValue>(TValue Value);
+
+public sealed record DirectionalEnvelopeDto(
+    DirectionalServerNoteDto Direct,
+    DirectionalServerNoteDto[] Items,
+    IReadOnlyDictionary<string, DirectionalServerNoteDto> Lookup,
+    DirectionalBox<DirectionalServerNoteDto> Box)
+{
+    public DirectionalEnvelopeDto? Next { get; init; }
+}
+
+public sealed record DirectionalOuterDto(
+    DirectionalEnvelopeDto Envelope);
+
+public union DirectionalChoice(DirectionalServerNoteDto, string);
 
 public sealed class HiddenTypeJsonIncludeDto
 {
@@ -151,6 +179,8 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 
 [JsonSerializable(typeof(GenericRecord<int>))]
 [JsonSerializable(typeof(GenericRecord<WidgetDto>))]
+[JsonSerializable(typeof(ArrayBox<byte>))]
+[JsonSerializable(typeof(KeyBox<string>))]
 [JsonSerializable(
     typeof(GenericNested<string>),
     TypeInfoPropertyName = "NullableGenericNested")]
@@ -161,6 +191,13 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(GenericNestedChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(DirectionalServerNoteDto))]
+[JsonSerializable(typeof(DirectionalEnvelopeDto))]
+[JsonSerializable(typeof(DirectionalOuterDto))]
+[JsonSerializable(typeof(DirectionalChoice))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class DirectionalJsonContext : JsonSerializerContext;
 
 [SupportedOSPlatform("browser")]
 public static partial class TypeScriptFixtureExports
@@ -228,6 +265,49 @@ public static partial class TypeScriptFixtureExports
         JsonSerializer.Serialize(
             new ConditionalOutputDto(name),
             FixtureJsonContext.Default.ConditionalOutputDto);
+
+    [JSExport]
+    public static string AddServerNote(string payloadJson)
+    {
+        DirectionalServerNoteDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalJsonContext.Default.DirectionalServerNoteDto)!;
+        return JsonSerializer.Serialize(
+            payload with { ServerNote = "server" },
+            DirectionalJsonContext.Default.DirectionalServerNoteDto);
+    }
+
+    [JSExport]
+    public static string ReemitDirectionalEnvelope(string payloadJson)
+    {
+        DirectionalEnvelopeDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalJsonContext.Default.DirectionalEnvelopeDto)!;
+        return JsonSerializer.Serialize(
+            payload,
+            DirectionalJsonContext.Default.DirectionalEnvelopeDto);
+    }
+
+    [JSExport]
+    public static string ReemitDirectionalOuter(string payloadJson)
+    {
+        DirectionalOuterDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalJsonContext.Default.DirectionalOuterDto)!;
+        return JsonSerializer.Serialize(
+            payload,
+            DirectionalJsonContext.Default.DirectionalOuterDto);
+    }
+
+    [JSExport]
+    public static string GetDirectionalChoice() =>
+        JsonSerializer.Serialize(
+            new DirectionalChoice(
+                new DirectionalServerNoteDto("choice")
+                {
+                    ServerNote = "server",
+                }),
+            DirectionalJsonContext.Default.DirectionalChoice);
 
     [JSExport]
     public static string GetInspectionEvidence(bool includePayload)
@@ -373,6 +453,20 @@ public static partial class TypeScriptFixtureExports
                 new Boxed<WidgetDto>(new WidgetDto(name, 13))),
             GenericRecordJsonContext.Default.GenericRecordWidgetDto);
     }
+
+    public static string GetByteArrayBox() =>
+        JsonSerializer.Serialize(
+            new ArrayBox<byte>([1, 2]),
+            GenericRecordJsonContext.Default.ArrayBoxByte);
+
+    public static string GetStringKeyBox() =>
+        JsonSerializer.Serialize(
+            new KeyBox<string>(
+                new Dictionary<string, int>
+                {
+                    ["one"] = 1,
+                }),
+            GenericRecordJsonContext.Default.KeyBoxString);
 
     [JSExport]
     public static string GetNullableGenericNested() =>

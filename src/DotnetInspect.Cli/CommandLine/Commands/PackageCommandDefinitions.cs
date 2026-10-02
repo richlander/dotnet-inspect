@@ -329,8 +329,10 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             isActive: result =>
-                result.GetResult(opts.Select)
-                    is { Implicit: false }
+                PackageOptionsParser.IsDependencyQueryRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 && !(result.GetResult(opts.Rows)
                         is { Implicit: false }
                     && result.GetResult(opts.Limit)
@@ -354,8 +356,10 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             isActive: result =>
-                result.GetResult(opts.Select)
-                    is { Implicit: false }
+                PackageOptionsParser.IsDependencyQueryRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 && result.GetResult(opts.Rows)
                     is { Implicit: false }
                 && result.GetResult(opts.Limit)
@@ -364,6 +368,31 @@ public static class PackageCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                legacyPackageSectionRows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                PackageOptionsParser.IsGenericPackageSectionRowSelection(
+                    result,
+                    opts,
+                    commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering),
+            defaultUnit:
+                CliRowSelectionDefaultUnit.RenderedLines);
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(
@@ -522,13 +551,19 @@ public static class PackageCommandDefinitions
     {
         var queryCommand = new Command(
             "query",
-            "Query exact package IDs or package-ID prefixes");
+            "Query exact package IDs, package-ID prefixes, or Ecosystems");
 
         var inputArg = new Argument<string?>("package")
         {
             Description =
                 "Exact package ID or literal package-ID prefix ending in '*'",
             Arity = ArgumentArity.ZeroOrOne
+        };
+        var ecosystemOption = new Option<string?>("--ecosystem")
+        {
+            Description =
+                "Query an Ecosystem's core packages and recorded prefixes "
+                + "(for example aspire or ecosystem.aspire) instead of a package argument"
         };
         var takeOption = new Option<string[]>("--take")
         {
@@ -564,6 +599,7 @@ public static class PackageCommandDefinitions
             Description = "Minified JSON (use with --json or --envelope)"
         };
         queryCommand.Arguments.Add(inputArg);
+        queryCommand.Options.Add(ecosystemOption);
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
         queryCommand.Options.Add(nuspecOnlyOption);
@@ -744,12 +780,10 @@ public static class PackageCommandDefinitions
 
             string? input = parseResult.GetValue(inputArg);
             if (string.IsNullOrWhiteSpace(input))
-            {
-                CommandError.Write(
-                    "Package Query requires an exact package ID or a literal "
-                    + "package-ID prefix ending in '*'.");
-                return 1;
-            }
+                input = null;
+            string? ecosystem = parseResult.GetValue(ecosystemOption);
+            string[] whereExpressions =
+                parseResult.GetValue(opts.RowWhere) ?? [];
 
             string[]? select = opts.ParseSelect(parseResult);
             HashSet<string>? includeSections = null;
@@ -780,7 +814,8 @@ public static class PackageCommandDefinitions
 
             if (!PackageQueryOptions.TryCreate(
                     input,
-                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    ecosystem,
+                    whereExpressions,
                     parseResult.GetValue(nuspecOnlyOption),
                     CliExecutionBoundCommandRegistry.GetPreparedValue(parseResult),
                     rowSelection,

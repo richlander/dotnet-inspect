@@ -9,7 +9,7 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class DirectLibraryInspectionCommand
 {
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
+    internal static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
             maxTypes: 5_000,
             maxMembers: 100_000,
@@ -28,7 +28,9 @@ internal static class DirectLibraryInspectionCommand
 
     internal static bool ShouldExecute(
         LibraryOptions options) =>
-        options.EnvelopeOutput;
+        options.EnvelopeOutput
+        && !LibraryCommand.IsExactLibraryMetricsSelection(options)
+        && !LibraryCommand.IsExactNameFamilySelection(options);
 
     internal static async Task<int> ExecuteAsync(
         LibraryOptions options,
@@ -80,7 +82,10 @@ internal static class DirectLibraryInspectionCommand
                     new(),
                     @namespace: options.TypeNamespace,
                     namespaceMatch: namespaceMatch),
-                s_bounds);
+                s_bounds,
+                new LibraryEnablementsRequest(),
+                new LibraryImageFactsRequest(),
+                new LibraryDescriptionFactsRequest());
         }
         catch (ArgumentException failure)
         {
@@ -117,7 +122,7 @@ internal static class DirectLibraryInspectionCommand
         return wrote
             && envelope.Content
                 is LibraryInspectionOutcome.Available available
-            && available.Document.Types.Count
+            && available.Document.Types!.Count
                 is LibraryTypePopulationCountOutcome.Counted
             ? 0
             : 1;

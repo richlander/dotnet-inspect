@@ -21,9 +21,10 @@ namespace DotnetInspect.Cli.Tests;
 internal static class WorkspaceProjectionFixture
 {
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
-    static readonly byte[] BodyIndexImage = Image("SealingOnly", metadata => Define(metadata));
-    static readonly LibraryBodyIndex BodyIndex = LibraryBodyIndex.OpenFromPrefetchedImage(
-        "SealingOnly.dll", [.. BodyIndexImage], LibraryBodyAnalysisFeatures.None);
+    static readonly byte[] CallGraphImage = Image("SealingOnly", metadata => Define(metadata));
+    static readonly LibraryCallGraphAnalysisResult CallGraph = LibraryBodyAnalysisService.ExecuteImage(
+            "SealingOnly.dll", [.. CallGraphImage], LibraryBodyAnalysisRequest.Create(LibraryBodyAnalysisFeatures.None))
+        .CallGraph;
 
     internal static async Task ExerciseAll(WorkspaceProjectionContractAudit audit)
     {
@@ -669,7 +670,7 @@ internal static class WorkspaceProjectionFixture
         var sealedPopulation = Assert.IsType<QueryComparisonPopulation<ImplementationComparisonBinding>>(
             Assert.IsType<QueryPopulationSealingOutcome.Sealed>(QueryComparisonPopulationSealer.Execute(
                 new ImplementationComparisonPopulationRequest(
-                    assemblies.Select(assembly => new ImplementationComparisonBinding(assembly, new Policy(), BodyIndex)).ToArray(), [])))
+                    assemblies.Select(assembly => new ImplementationComparisonBinding(assembly, new Policy(), CallGraph)).ToArray(), [])))
                 .Population);
         return sealedPopulation.Before.ToDictionary(input => input.Binding.Assembly.Registration, input => input.Id);
     }

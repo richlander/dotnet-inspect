@@ -73,8 +73,7 @@ interface ImplementationProfilePhysicalRow {
   readonly logicalMethod: BrowserImplementationProfileMethod;
   readonly evidenceMethod: BrowserImplementationProfileMethod;
   readonly generatedEvidence: boolean;
-  readonly relativeInstructionPercent: number | null;
-  readonly relativeInstructionText: string;
+  readonly instructionText: string;
   readonly evidenceCues: ReadonlyArray<string>;
   readonly rawMetrics: ReadonlyArray<ImplementationProfileRawMetric>;
   readonly relationships: ReadonlyArray<BrowserImplementationProfileRelationship>;
@@ -91,8 +90,6 @@ interface ImplementationProfileFamilyProjection {
   readonly display: string;
   readonly rows: ReadonlyArray<ImplementationProfileOverloadRow>;
   readonly physicalRowCount: number;
-  readonly relativeBarsVisible: boolean;
-  readonly maximumInstructionCount: number;
   readonly relationships: ReadonlyArray<BrowserImplementationProfileRelationship>;
   readonly subject: BrowserImplementationProfileSubject;
   readonly share: BrowserAnalysisInspectionShare;
@@ -169,26 +166,33 @@ type ImplementationProfileCacheStatus =
   | "settled"
   | "producer-failed";
 
-export interface ImplementationProfileResultCache {
+/**
+ * Single-flight result cache keyed by an exact request identity. A settled or
+ * producer-failed entry belongs only to its key; retry replaces only a
+ * producer failure.
+ */
+export interface KeyedResultCache<TRequest, TResult> {
   load(
-    request: ImplementationProfileFamilyRequest,
-    producer: (
-      request: ImplementationProfileFamilyRequest,
-    ) => Promise<BrowserImplementationProfiles>,
-  ): Promise<BrowserImplementationProfiles>;
-  retry(request: ImplementationProfileFamilyRequest): boolean;
-  status(request: ImplementationProfileFamilyRequest):
-    ImplementationProfileCacheStatus;
+    request: TRequest,
+    producer: (request: TRequest) => Promise<TResult>,
+  ): Promise<TResult>;
+  retry(request: TRequest): boolean;
+  status(request: TRequest): ImplementationProfileCacheStatus;
 }
 
-type CacheEntry =
+export type ImplementationProfileResultCache = KeyedResultCache<
+  ImplementationProfileFamilyRequest,
+  BrowserImplementationProfiles
+>;
+
+type CacheEntry<TResult> =
   | {
       readonly kind: "in-flight";
-      readonly promise: Promise<BrowserImplementationProfiles>;
+      readonly promise: Promise<TResult>;
     }
   | {
       readonly kind: "settled";
-      readonly result: BrowserImplementationProfiles;
+      readonly result: TResult;
     }
   | {
       readonly kind: "producer-failed";
@@ -224,18 +228,6 @@ export interface ImplementationProfileCoordinator {
     selection: ImplementationProfileFamilySelection,
   ): Promise<void>;
   deactivate(): boolean;
-}
-
-export interface ImplementationProfileBindingActions {
-  readonly onRetry: () => void;
-}
-
-export function bindImplementationProfileState(
-  root: ParentNode,
-  actions: ImplementationProfileBindingActions,
-): void {
-  root.querySelector("[data-implementation-profile-retry]")
-    ?.addEventListener("click", actions.onRetry);
 }
 
 interface ImplementationProfileOperationInput {
@@ -287,13 +279,15 @@ export function implementationProfileCacheKey(
       ]);
 }
 
-export function createImplementationProfileResultCache():
-ImplementationProfileResultCache {
-  const entries = new Map<string, CacheEntry>();
+export function createKeyedResultCache<TRequest, TResult>(
+  keyOf: (request: TRequest) => string,
+  validate: (result: TResult, request: TRequest) => void,
+): KeyedResultCache<TRequest, TResult> {
+  const entries = new Map<string, CacheEntry<TResult>>();
 
   return {
     load(request, producer) {
-      const key = implementationProfileCacheKey(request);
+      const key = keyOf(request);
       const existing = entries.get(key);
       if (existing?.kind === "in-flight") return existing.promise;
       if (existing?.kind === "settled")
@@ -301,7 +295,7 @@ ImplementationProfileResultCache {
       if (existing?.kind === "producer-failed")
         return Promise.reject(producerError(existing.error));
 
-      let produced: Promise<BrowserImplementationProfiles>;
+      let produced: Promise<TResult>;
       try {
         produced = producer(request);
       } catch (error: unknown) {
@@ -309,11 +303,10 @@ ImplementationProfileResultCache {
         return Promise.reject(producerError(error));
       }
 
-      let entry: Extract<CacheEntry, { readonly kind: "in-flight" }>;
+      let entry: Extract<CacheEntry<TResult>, { readonly kind: "in-flight" }>;
       const promise = produced.then(
         result => {
-          validateInspection(result);
-          validateInspectionForRequest(result, request);
+          validate(result, request);
           if (entries.get(key) === entry)
             entries.set(key, { kind: "settled", result });
           return result;
@@ -334,17 +327,27 @@ ImplementationProfileResultCache {
     },
 
     retry(request) {
-      const key = implementationProfileCacheKey(request);
+      const key = keyOf(request);
       if (entries.get(key)?.kind !== "producer-failed") return false;
       entries.delete(key);
       return true;
     },
 
     status(request) {
-      return entries.get(implementationProfileCacheKey(request))?.kind
-        ?? "missing";
+      return entries.get(keyOf(request))?.kind ?? "missing";
     },
   };
+}
+
+export function createImplementationProfileResultCache():
+ImplementationProfileResultCache {
+  return createKeyedResultCache(
+    implementationProfileCacheKey,
+    (result, request) => {
+      validateInspection(result);
+      validateInspectionForRequest(result, request);
+    },
+  );
 }
 
 function validateInspection(
@@ -729,23 +732,10 @@ function projectAvailableFamily(
       bodyTokens.has(body.methodToken));
     return { member, rosterIndex, physical, unavailableBodies };
   });
-  const allProfiles = attributed.flatMap(item =>
-    item.physical.map(physical => physical.profile));
-  const physicalRowCount = allProfiles.length;
-  const maximumInstructionCount = allProfiles.reduce(
-    (maximum, profile) => Math.max(maximum, profile.instructionCount),
+  const physicalRowCount = attributed.reduce(
+    (count, item) => count + item.physical.length,
     0,
   );
-  const uniformlyTiny = allProfiles.every(profile =>
-    profile.instructionCount <= 8
-    && profile.branchCount === 0
-    && profile.loopCount === 0
-    && exceptionRegionCount(profile) === 0
-    && !profile.unsafe
-    && profile.reflectionCallCount === 0);
-  const relativeBarsVisible = physicalRowCount >= 2
-    && !uniformlyTiny
-    && maximumInstructionCount > 0;
   const relationships = content.overloadRelationships;
 
   const rows = attributed.map(item => {
@@ -762,20 +752,12 @@ function projectAvailableFamily(
         );
       const generatedEvidence =
         profile.methodKey !== profile.evidenceMethodKey;
-      const relativeInstructionPercent = relativeBarsVisible
-        ? Math.round(
-            (profile.instructionCount / maximumInstructionCount) * 100,
-          )
-        : null;
       return {
         profile,
         logicalMethod,
         evidenceMethod,
         generatedEvidence,
-        relativeInstructionPercent,
-        relativeInstructionText: relativeInstructionPercent === null
-          ? `${profile.instructionCount} instructions`
-          : `${profile.instructionCount} instructions; ${relativeInstructionPercent}% of the largest physical body in this overload family`,
+        instructionText: `${profile.instructionCount} instruction${profile.instructionCount === 1 ? "" : "s"}`,
         evidenceCues: evidenceCues(profile, generatedEvidence),
         rawMetrics: rawMetrics(profile),
         relationships: relationships.filter(relationship =>
@@ -805,8 +787,6 @@ function projectAvailableFamily(
     display: selection.display,
     rows: rows.map(({ rosterIndex: _rosterIndex, ...row }) => row),
     physicalRowCount,
-    relativeBarsVisible,
-    maximumInstructionCount,
     relationships,
     subject,
     share,
@@ -855,7 +835,10 @@ export function createImplementationProfileCoordinator(
       }
       case "terminal": {
         const input = inputFor(event.operationId);
-        if (!input.selection.isCurrent()) break;
+        if (!input.selection.isCurrent()) {
+          releaseLoading(input);
+          break;
+        }
         dependencies.state.implementationProfiles =
           event.outcome.kind === "succeeded"
             ? event.outcome.value
@@ -875,6 +858,14 @@ export function createImplementationProfileCoordinator(
         break;
     }
     return undefined;
+  };
+  // An operation that ends without publishing releases the loading state it
+  // published, so returning to its view re-requests (a cache hit) instead of
+  // showing loading with nothing in flight.
+  const releaseLoading = (input: ImplementationProfileOperationInput) => {
+    const published = dependencies.state.implementationProfiles;
+    if (published.status === "loading" && published.request === input.request)
+      dependencies.state.implementationProfiles = { status: "idle" };
   };
   const session: Session = dependencies.operationAuthority.createSession({
     feature: { publish },
@@ -902,6 +893,7 @@ export function createImplementationProfileCoordinator(
       };
       const finish = (inspection: BrowserImplementationProfiles): undefined => {
         if (!input.selection.isCurrent()) {
+          releaseLoading(input);
           sink.reportTerminal({ kind: "canceled", reason: "superseded" });
           return quiesce();
         }
@@ -917,6 +909,7 @@ export function createImplementationProfileCoordinator(
       };
       const fail = (error: unknown): undefined => {
         if (!input.selection.isCurrent()) {
+          releaseLoading(input);
           sink.reportTerminal({ kind: "canceled", reason: "superseded" });
           return quiesce();
         }
@@ -1087,12 +1080,6 @@ function renderPhysicalRow(
   index: number,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const bar = row.relativeInstructionPercent === null
-    ? ""
-    : `<div class="implementation-profile-bar" role="img" aria-label="${escapeHtml(row.relativeInstructionText)}">
-        <span class="implementation-profile-bar-fill" style="width: ${row.relativeInstructionPercent}%"></span>
-        <span>${escapeHtml(row.relativeInstructionText)}</span>
-      </div>`;
   const methodIdentity = row.generatedEvidence
     ? `<p><span>Logical overload:</span> <code>${escapeHtml(row.logicalMethod.display)}</code><br><span>Physical evidence:</span> <code>${escapeHtml(row.evidenceMethod.display)}</code></p>`
     : `<p><span>Physical evidence:</span> <code>${escapeHtml(row.evidenceMethod.display)}</code></p>`;
@@ -1110,8 +1097,7 @@ function renderPhysicalRow(
   return `<article class="implementation-profile-physical-row" aria-labelledby="implementation-profile-physical-${index}">
     <h4 id="implementation-profile-physical-${index}">${escapeHtml(row.generatedEvidence ? "Generated physical body" : "Physical body")}</h4>
     ${methodIdentity}
-    <p class="implementation-profile-instruction-cue">${escapeHtml(row.relativeInstructionText)}</p>
-    ${bar}
+    <p class="implementation-profile-instruction-cue">${escapeHtml(row.instructionText)}</p>
     ${cues}
     <details>
       <summary>Raw implementation metrics</summary>
@@ -1130,10 +1116,14 @@ function renderFamily(
     { readonly status: "available" | "incomplete" | "empty" }
   >,
   escapeHtml: (value: unknown) => string,
+  stableSelector: string | null,
 ): string {
   const family = state.family;
   let physicalIndex = 0;
-  const rows = family.rows.map((row, rowIndex) => {
+  const visibleRows = stableSelector === null
+    ? family.rows
+    : family.rows.filter(row => row.member.stableSelector === stableSelector);
+  const rows = visibleRows.map((row, rowIndex) => {
     const physical = row.physicalRows.map(item =>
       renderPhysicalRow(item, physicalIndex++, escapeHtml)).join("");
     const unavailable = renderUnavailableBodies(
@@ -1163,9 +1153,7 @@ function renderFamily(
         <p>Available physical evidence is shown, but coverage or diagnostics qualify this family.</p>
       </section>`
     : "";
-  const barNote = family.relativeBarsVisible
-    ? `<p>Instruction bars are relative only to the largest physical body in this overload family. Raw counts remain authoritative.</p>`
-    : `<p>Relative instruction bars are omitted because this family has fewer than two physical rows or only uniformly tiny bodies without structural evidence. Raw counts remain available.</p>`;
+  const barNote = "";
   const diagnosticDetails = state.status === "incomplete"
     ? `<details class="implementation-profile-qualification">
         <summary>Coverage and diagnostic details</summary>
@@ -1205,6 +1193,7 @@ function renderFamily(
 export function renderImplementationProfileState(
   state: ImplementationProfileState | ImplementationProfileProjectionOutcome,
   escapeHtml: (value: unknown) => string,
+  stableSelector: string | null = null,
 ): string {
   switch (state.status) {
     case "idle":
@@ -1214,7 +1203,7 @@ export function renderImplementationProfileState(
     case "available":
     case "incomplete":
     case "empty":
-      return renderFamily(state, escapeHtml);
+      return renderFamily(state, escapeHtml, stableSelector);
     case "rejected":
       return renderFailure("Implementation profile request rejected", state, escapeHtml);
     case "failed":

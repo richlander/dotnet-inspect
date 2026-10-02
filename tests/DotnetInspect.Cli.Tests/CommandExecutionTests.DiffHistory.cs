@@ -208,7 +208,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--envelope cannot be combined with -S", error);
+        Assert.Contains(
+            "--envelope carries complete Diff History content and cannot be combined with presentation projections.",
+            error);
         Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
     }
 

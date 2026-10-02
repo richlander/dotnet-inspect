@@ -1375,7 +1375,7 @@ public class FindCommandIntegrationTests
         var (exit, output, error) = RunCli(
             [
                 "find",
-                "JsonDocument,ZzzNoSuchApi6585*",
+                "JsonConverter`?,ZzzNoSuchApi6585*",
                 "--platform-library",
                 "System.Text.Json",
                 "--rows",
@@ -2205,12 +2205,13 @@ public class FindCommandIntegrationTests
         // Test scenario:
         // - Good FQN type (exact match)
         // - Good UQN type (exact match)
-        // - Misspelled FQN (partial match)
+        // - Truncated FQN (namespace-prefix match)
+        // - Truncated UQN (prefix match)
         // - Misspelled UQN (partial match)
         // - Glob pattern (multiple exact matches)
         var options = new FindOptions
         {
-            Pattern = "System.Text.Json.JsonSerializer,JsonDocument,System.Text.Json.JsonSeriali,TypedResul,Sorted*",
+            Pattern = "System.Text.Json.JsonSerializer,JsonDocument,System.Text.Json.JsonSeriali,TypedResul,JsonSerialiser,Sorted*",
             PlatformFrameworks = ["runtime", "aspnetcore", "netstandard"]
         };
 
@@ -2233,11 +2234,9 @@ public class FindCommandIntegrationTests
         Assert.Contains("SortedList", output);
         Assert.Contains("SortedSet", output);
 
-        // Misspelled patterns appear in Match column as "partial"
-        Assert.Contains("partial", output);
-
-        // Misspelled UQN - should have partial match to TypedResults
-        Assert.Contains("TypedResul", output);
+        // Truncated names are prefix matches; only the misspelling is partial.
+        Assert.Contains("| prefix |", output);
+        Assert.Contains("| partial |", output);
         Assert.Contains("TypedResults", output);
     }
 
@@ -2247,7 +2246,7 @@ public class FindCommandIntegrationTests
         // Test scenario: same as above plus patterns with no matches at all
         var options = new FindOptions
         {
-            Pattern = "System.Text.Json.JsonSerializer,JsonDocument,System.Text.Json.JsonSeriali,TypedResul,Sorted*,System.Nonexistent.FooBarXyz,XyzNonexistent123",
+            Pattern = "System.Text.Json.JsonSerializer,JsonDocument,System.Text.Json.JsonSeriali,TypedResul,JsonSerialiser,Sorted*,System.Nonexistent.FooBarXyz,XyzNonexistent123",
             PlatformFrameworks = ["runtime", "aspnetcore", "netstandard"]
         };
 
@@ -2264,8 +2263,9 @@ public class FindCommandIntegrationTests
         Assert.Contains("JsonDocument", output);
         Assert.Contains("SortedDictionary", output);
 
-        // Partial matches appear as rows with "partial" match kind
-        Assert.Contains("partial", output);
+        // Broadened matches appear as rows with their tier's match kind.
+        Assert.Contains("| prefix |", output);
+        Assert.Contains("| partial |", output);
         Assert.Contains("TypedResults", output);
 
         // Unmatched patterns are diagnostic context rather than selectable rows.

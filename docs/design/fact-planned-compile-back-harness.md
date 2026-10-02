@@ -275,6 +275,39 @@ proof. It can ask product code for an artifact, but it should not construct C#
 itself. It can use Research facts, but Research should not know that a particular
 fact is required to turn `RecompileFail` into `Exact`.
 
+#### Standalone method target selection
+
+The standalone selector returns a tools-owned plan containing selected targets,
+typed exclusions, and candidate/eligibility counters. A method enters its
+cap-eligible sequence only after one completed CSharp decision:
+
+- an ordinary method has a positive `CSharpMemberArtifactEligibility` result;
+- an explicit or operator MethodImpl body has a
+  `CSharpMethodDeclarationPost.Capture` plus
+  `CSharpDeclarationRepresentability.Decide` result of `Representable`.
+- a property, indexer, or event accessor has a
+  `CSharpAccessorDeclarationPost.Capture` plus
+  `CSharpAccessorDeclarationRepresentability.Decide` result of
+  `Representable`.
+
+The exact paths retain the accepted method or accessor declaration request.
+`Unrepresentable` and `Unavailable` results remain typed selector exclusions
+and never fall through to ordinary artifact eligibility. A body with
+MethodSemantics evidence must complete the accessor decision; unavailable
+MethodSemantics is also an exclusion rather than proof of an ordinary method.
+Each accepted accessor request retains the complete aggregate and identifies
+the exact selected body while assigning sibling policy to the other
+conventional accessors. Stable sampling and the cross-assembly cap apply only
+after those product decisions and the canonical target signature are complete.
+
+Before QuerySpace adoption, a test-only NLinq baseline reads the complete
+pre-cap declaration-candidate population independently of the standalone
+selector. It reuses the product-owned CSharp decisions, then queries exact
+eligible Count, complete eligible target Rows, and deterministically ordered
+typed exclusion Rows. The baseline is behavioral evidence for the later
+QuerySpace replacement; it is not a production source adapter or performance
+claim, and it does not replace stable sampling or cap selection.
+
 ### Product artifact provider
 
 Own C# artifact production.

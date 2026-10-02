@@ -108,6 +108,67 @@ recorded approval and exact approved scope. Treat that record as a
 candidate-formation fact: verify that the design conforms to it, but do not
 infer, grant, or broaden approval.
 
+Check the exact head for substrate drift and layering. A change that adds a
+private copy of logic an existing shared substrate owns, defines a reusable
+declaration such as a row vocabulary, producer declaration, or descriptor in a
+host or behind host-only helpers, or filters, orders, limits, or counts product
+rows outside the owning QuerySpace vocabulary, or merges several consumers'
+requests for one resource outside QuerySpace, violates the repository's
+host-neutral substrate rule. Report it with the existing substrate symbol and
+the new copy or placement as evidence. For a QuerySpace adoption, verify
+whether predicates, Count, Exists, and limits reach acquisition or scope, or
+run only after a complete row list is materialized. Materializing and then
+filtering is a finding unless the owning design names it as a reference slice
+and names the deferred pushdown. Pre-existing drift the change does not touch
+is a non-blocking observation.
+
+For a modernization, producer, query, or metadata-decoding path, validate work
+reduction and code sharing together. Determine whether acquisition, decoding,
+materialization, and traversal are optimal for each terminal and the data it
+actually presents: avoid unrelated work while sharing mechanisms whose inputs,
+invariants, and outputs genuinely align. Do not treat either extreme as the
+default. Separate metadata decoders for every query can duplicate
+correctness-sensitive logic and carrying cost; one monolithic decoder that
+computes every possible fact can defeat terminal pushdown. Require the
+candidate frame to identify shared and specialized stages, alternatives
+rejected, measured costs, and expected consumers, then judge whether that
+boundary is a pragmatic middle ground. Report a defect when exact-head evidence
+shows material unnecessary work or unjustified duplication that violates the
+owned work-reduction claim; otherwise classify a different preferred factoring
+as a design question, not a blocking finding.
+
+NativeAOT is the only accepted performance measurement. Other runtimes,
+profilers, counters, or static evidence may explain a result but cannot prove a
+performance claim. The operator requires exact-head NativeAOT numbers before
+merge, published in both the visible agent session and PR body. Review may run
+while measurement is pending, but do not report the candidate as merge-ready
+until both publication surfaces contain the numbers.
+
+For an Analysis producer, review fidelity and safety as separate properties.
+Fidelity is exact agreement on the owner-named Roslyn-produced assembly
+patterns. Safety is bounded, inert behavior for every supported ECMA-335 input;
+it does not require semantic rejection of every non-Roslyn shape when the
+owner permits a wrong but contained answer. Do not require a producer to read,
+decode, or validate facts it does not consume merely because a richer resolver
+does so. Admit such a finding only when the omitted work breaks the stated
+Roslyn fidelity or an identified ECMA safety invariant.
+
+Treat LINQ and NLinq as possibility oracles, not implementations that must
+repeat Planner's incidental work. A comparator is fair only when it satisfies
+the same Roslyn fidelity and ECMA safety rules; change a comparator that does
+not. When a fair comparator beats Planner, treat the result as evidence that
+Planner should be capable of meeting or beating it, not as a reason to burden
+the comparator or Planner with unowned checks. Require the comparison to link
+the exact LINQ, NLinq, and Planner implementations and pinned provenance so the
+fairness and transferable technique are auditable. For a safety concern,
+name the exact owner and invariant instead of saying only "move it upstream."
+[Session-owned format admission](design/assembly-inspection-query.md#session-owned-format-admission)
+classifies the image and establishes the retained reader; it does not make
+metadata rows trustworthy. A reusable row- or signature-decoding containment
+rule belongs in its narrowest shared Metadata primitive, while a check or
+bound specific to one producer's consumed facts or work remains with that
+producer.
+
 For rendering, verify that structured information survives to the rendering
 boundary. Markout is the default host-neutral, multi-format substrate. A
 host-specific path that bypasses it must identify the host, rationale, typed
@@ -171,5 +232,14 @@ For every finding, provide:
   implementation.
 
 Separate blocking findings from non-blocking observations and scope proposals.
-Do not turn a scope proposal into a defect by assigning it a severity. If there
-are no qualifying findings, write **CLEAN** and name the exact reviewed head.
+Do not turn a scope proposal into a defect by assigning it a severity.
+
+When the candidate frame carries prior findings or obligations, give each one
+an explicit disposition: still present, resolved, reclassified, or dismissed.
+For a reclassification or dismissal, name the governing owner and claim or the
+finding-admission element that exact-head evidence no longer establishes. A
+clean review still reports these dispositions; bare "no significant issues"
+does not satisfy this contract.
+
+If there are no qualifying findings, write **CLEAN** and name the exact
+reviewed head.

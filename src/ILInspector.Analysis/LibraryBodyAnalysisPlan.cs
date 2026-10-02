@@ -4,6 +4,7 @@ namespace ILInspector.Analysis;
 
 internal sealed record LibraryBodyAnalysisPlan(
     LibraryBodyAnalysisFeatures Features,
+    LibraryBodyAnalysisFeatures RequestedFeatures,
     IReadOnlySet<int>? MethodScope,
     Func<TypeRef, bool>? TypeScope,
     IReadOnlyDictionary<int, ImmutableArray<TypeRef>>?
@@ -37,6 +38,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         ImplementationMetricAnalysisRequest?
             implementationMetrics = null)
     {
+        LibraryBodyAnalysisFeatures requestedFeatures =
+            features;
         if (includeResourceLifecycle && resourceEffects is null)
         {
             throw new ArgumentException(
@@ -67,7 +70,8 @@ internal sealed record LibraryBodyAnalysisPlan(
                 ? null
                 : ImplementationMetricAnalysisPlan.Create(
                     implementationMetrics);
-        if (metricPlan is not null)
+        if (metricPlan is not null
+            && !metricPlan.UsesFocusedExecution)
         {
             // Temporary execution bridge. The selective stages replace and
             // delete these compatibility features in later #8450 slices.
@@ -90,8 +94,6 @@ internal sealed record LibraryBodyAnalysisPlan(
         {
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         }
-        if ((features & LibraryBodyAnalysisFeatures.OwnershipFlow) != 0)
-            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features
                 & (LibraryBodyAnalysisFeatures.JsonWireContractFlow
                     | LibraryBodyAnalysisFeatures.LocalThrows
@@ -102,15 +104,9 @@ internal sealed record LibraryBodyAnalysisPlan(
         }
         if (resourceEffects is not null)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0
-            && (methodScope is not null || typeScope is not null))
-        {
-            throw new ArgumentException(
-                "Leak Triage requires a full assembly body census.");
-        }
-
         return new(
             features,
+            requestedFeatures,
             methodScope,
             typeScope,
             RequestedMethodScope: methodScope,

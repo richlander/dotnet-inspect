@@ -225,6 +225,7 @@ const documentWithTighterGeneric: AnnotatedSourceDocument = {
 };
 const result: AnnotatedSourceResult = {
   document: documentWithTighterGeneric,
+  signature: inertString("public void Sample()"),
   viewerCatalog: {
     defaultFindingIds: [0, 1],
     supportedMedia: ["CSharp", "Il"],

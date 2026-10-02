@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   createSpotlight,
+  distinctSpotlightResults,
   nextSpotlightScope,
   nextSpotlightSelection,
+  spotlightCapabilityDraftValue,
+  spotlightResultIdentity,
 } from "../src/spotlight.ts";
 import { visibleSpotlightPackageHits } from "../src/spotlight-package-search.ts";
 import type {
@@ -40,6 +43,9 @@ interface HarnessOptions {
   pickResult?: (result: SpotlightResult) => void;
   packageSearchError?: () => string;
   packageSearchLoading?: () => boolean;
+  typeSearchLoading?: () => boolean;
+  typeSearchNotice?: () => string;
+  capabilitySearchMessage?: () => string;
 }
 
 // The library owns the real DOM event/element contract; this harness models only the
@@ -86,6 +92,9 @@ function createHarness({
   pickResult = () => {},
   packageSearchError,
   packageSearchLoading = () => false,
+  typeSearchLoading,
+  typeSearchNotice,
+  capabilitySearchMessage,
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
     spotlightOpen: false,
@@ -113,6 +122,11 @@ function createHarness({
     resetPackageSearch: () => {},
     packageSearchLoading,
     ...(packageSearchError ? { packageSearchError } : {}),
+    ...(typeSearchLoading ? { typeSearchLoading } : {}),
+    ...(typeSearchNotice ? { typeSearchNotice } : {}),
+    scheduleCapabilitySearch: () => {},
+    resetCapabilitySearch: () => {},
+    ...(capabilitySearchMessage ? { capabilitySearchMessage } : {}),
     packageCount: () => 1,
     render: () => {},
     focusAfterDismiss,
@@ -184,6 +198,7 @@ function withBoundSpotlight(
       addEventListener: (name: string, listener: EventListener) => {
         listeners.set(name, listener);
       },
+      getAttribute: () => null,
       focus: () => { activeElement = result; },
     };
     return result;
@@ -208,10 +223,18 @@ function withBoundSpotlight(
   input.focus = () => { activeElement = input; };
   const cancel = element("spotlight-cancel");
   const backdrop = element("spotlight-backdrop");
-  const rows = [...harness.spotlight.modalHtml().matchAll(/data-sl-index="(\d+)"/g)]
-    .map(match => ({
+  const html = harness.spotlight.modalHtml();
+  const rendered = harness.spotlight.results();
+  const rows = [...html.matchAll(/data-sl-index="(\d+)"/g)]
+    .map((match, index) => ({
       ...element(`spotlight-result-${match[1]}`),
-      dataset: { slIndex: match[1] },
+      dataset: {
+        slIndex: match[1],
+        slResultIdentity: spotlightResultIdentity(rendered[index]!),
+      },
+      getAttribute: (name: string) => name === "data-sl-result-identity"
+        ? spotlightResultIdentity(rendered[index]!)
+        : null,
       classList: { toggle: () => {} },
       setAttribute: () => {},
       scrollIntoView: () => {},
@@ -220,7 +243,10 @@ function withBoundSpotlight(
     innerHTML: "",
     querySelector: () => null,
     querySelectorAll: (selector: string) =>
-      selector === ".spotlight-item" || selector === "[data-sl-index]" ? rows : [],
+      selector === ".spotlight-item"
+        || selector === "[data-sl-result-identity]"
+        ? rows
+        : [],
   };
   const root = {
     querySelector: (selector: string) => {
@@ -230,7 +256,8 @@ function withBoundSpotlight(
       if (selector === "#spotlight-results") return results;
       return null;
     },
-    querySelectorAll: (selector: string) => selector === "[data-sl-index]" ? rows : [],
+    querySelectorAll: (selector: string) =>
+      selector === "[data-sl-result-identity]" ? rows : [],
   };
   const document = fakeDom.document({
     ...root,
@@ -263,6 +290,25 @@ const packageRows: SpotlightPackageResult[] = [
   { kind: "pkg-nuget", hit: { id: "Beta", version: "2.0.0" }, ranges: [] },
   { kind: "pkg-recent", entry: { id: "Gamma", version: "3.0.0" }, ranges: [] },
 ];
+
+test("Spotlight result composition keeps the first exact identity", () => {
+  const first = packageRows[0]!;
+  const duplicate = {
+    ...first,
+    ranges: [[1, 3]] as [number, number][],
+  };
+  const second = packageRows[1]!;
+
+  const distinct = distinctSpotlightResults([
+    first,
+    duplicate,
+    second,
+    first,
+  ]);
+
+  assert.deepEqual(distinct, [first, second]);
+  assert.equal(distinct[0], first);
+});
 
 test("Add package is a named package-only picker without commands or removal", () => {
   const pkg = { id: "Platform", version: "10.0.0", isRuntimePack: true };
@@ -341,6 +387,27 @@ test("Add package dispatches rendered loaded, NuGet and recent rows only to Add"
   assert.equal(normalPicks, 0);
 });
 
+test("result activation follows rendered identity instead of a reused index", () => {
+  let current = [packageRows[0]!, packageRows[1]!];
+  const picked: SpotlightPackageResult[] = [];
+  const harness = createHarness({ searchResults: () => current });
+  withStubbedFocusTarget(() => harness.spotlight.openForPackageAddition({
+    pickResult: result => picked.push(result),
+    focusAfterDismiss: () => {},
+  }));
+
+  withBoundSpotlight(harness, dom => {
+    current = [packageRows[2]!, packageRows[0]!, packageRows[1]!];
+    harness.spotlight.modalHtml();
+    dom.clickRow(0);
+    current = [packageRows[1]!];
+    harness.spotlight.modalHtml();
+    dom.clickRow(0);
+  });
+
+  assert.deepEqual(picked, [packageRows[0]]);
+});
+
 test("Add package keeps selection identity as pending results change", () => {
   let current = [packageRows[0]!, packageRows[2]!];
   const harness = createHarness({ searchResults: () => current });
@@ -392,6 +459,86 @@ test("Add package keeps arrows in results, preserves text selection, and tabs to
   });
   assert.equal(dismissed, 1);
   assert.equal(harness.state.spotlightOpen, false);
+});
+
+test("retained Add package backdrop tabs through replacement controls after rebinding", () => {
+  const harness = createHarness();
+  withStubbedFocusTarget(() => harness.spotlight.openForPackageAddition({
+    pickResult: () => {},
+    focusAfterDismiss: () => {},
+  }));
+  let activeElement: { id: string } | null = null;
+  function element(id: string) {
+    const result = {
+      id,
+      addEventListener: () => {},
+      getAttribute: () => null,
+      focus: () => { activeElement = result; },
+    };
+    return result;
+  }
+  function inputElement(id: string) {
+    return {
+      ...element(id),
+      value: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+      selectionDirection: "none",
+      setAttribute: () => {},
+      removeAttribute: () => {},
+      setSelectionRange: () => {},
+    };
+  }
+  const backdrop = element("spotlight-backdrop");
+  const results = {
+    innerHTML: "",
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  };
+  let input = inputElement("spotlight-input-old");
+  let cancel = element("spotlight-cancel-old");
+  const root = {
+    querySelector: (selector: string) => {
+      if (selector === "#spotlight-input") return input;
+      if (selector === "#spotlight-cancel") return cancel;
+      if (selector === "#spotlight-backdrop") return backdrop;
+      if (selector === "#spotlight-results") return results;
+      return null;
+    },
+    querySelectorAll: () => [],
+  };
+  const document = fakeDom.document({
+    ...root,
+    get activeElement() { return activeElement; },
+  });
+  const press = (key: string, shiftKey = false) => {
+    const target = fakeDom.eventTarget(activeElement ?? input);
+    return harness.keybindings.dispatch(fakeDom.keyboardEvent({
+      key,
+      shiftKey,
+      target,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      defaultPrevented: false,
+      composedPath: () => [target, fakeDom.eventTarget(backdrop)],
+      preventDefault: () => {},
+    })).handled;
+  };
+
+  withStubbedFocusTarget(() => {
+    const boundRoot = fakeDom.parentNode(root);
+    harness.spotlight.bind(boundRoot, "modal");
+    input = inputElement("spotlight-input-current");
+    cancel = element("spotlight-cancel-current");
+    harness.spotlight.bind(boundRoot, "modal");
+
+    cancel.focus();
+    assert.equal(press("Tab"), true);
+    assert.equal(activeElement?.id, "spotlight-input-current");
+    assert.equal(press("Tab", true), true);
+    assert.equal(activeElement?.id, "spotlight-cancel-current");
+  }, document);
 });
 
 test("Add package dismissal uses its focus callback for Cancel, Escape and backdrop", () => {
@@ -526,6 +673,51 @@ test("package source errors are escaped, coexist with local results and replace 
   }
 });
 
+test("incomplete Type coverage qualifies empty and nonempty results", () => {
+  const notice = "1 assembly could not be fully evaluated.";
+  const empty = createHarness({
+    scope: "types",
+    query: "Missing",
+    typeSearchNotice: () => notice,
+  });
+  assert.match(empty.spotlight.modalHtml(), /No confirmed matches/);
+  assert.match(empty.spotlight.modalHtml(), /1 assembly could not be fully evaluated/);
+  assert.doesNotMatch(empty.spotlight.modalHtml(), /Nothing matches/);
+
+  const populated = createHarness({
+    scope: "types",
+    query: "JsonSerializer",
+    typeSearchNotice: () => notice,
+    searchResults: () => [{
+      kind: "managed-type",
+      identity: "candidate",
+      action: "action",
+      reason: null,
+      name: "JsonSerializer",
+      namespace: "System.Text.Json",
+      library: "System.Text.Json",
+      source: "System.Text.Json@10.0.0",
+      typeKind: "class",
+      ranges: [],
+    }],
+  });
+  const html = populated.spotlight.modalHtml();
+  assert.match(html, /data-sl-managed-type="[^"]*candidate[^"]*"/);
+  assert.match(html, /1 assembly could not be fully evaluated/);
+});
+
+test("pending Types-only search does not report a complete miss", () => {
+  const harness = createHarness({
+    scope: "types",
+    query: "JsonSerializer",
+    typeSearchLoading: () => true,
+  });
+
+  const html = harness.spotlight.modalHtml();
+  assert.match(html, /Searching/);
+  assert.doesNotMatch(html, /Nothing matches|No confirmed matches/);
+});
+
 test("Spotlight selection clamps without wrapping and scope cycling wraps", () => {
   assert.equal(nextSpotlightSelection(0, -1, 4), null);
   assert.equal(nextSpotlightSelection(2, 1, 4), 3);
@@ -588,6 +780,87 @@ test("Spotlight renders Package Activity as a routed package action", () => {
   assert.match(html, /Package Activity/);
   assert.match(html, /Review product package changes over time/);
   assert.match(html, /data-sl-package-activity="1"/);
+});
+
+test("Spotlight renders installed resources in one Capabilities group", () => {
+  const capability = {
+    similarity: 1,
+    matchedTerm: "literal",
+    matchSource: "CanonicalKey" as const,
+    isSegment: true,
+    resourceIdentity: {
+      kind: "QueryFacet" as const,
+      identity: "package-query.term.library-literal",
+      parentIdentity: "package-query/query-space/v1",
+    },
+    resourceKind: "QueryFacet" as const,
+    resourceName: "library literal",
+    canonicalKeys: ["library-literal"],
+    resourcePath: "package-query/query/facets/library-literal",
+    owningRoutes: [{
+      identity: "package-query/route/default",
+      name: "Package Query",
+      resourcePath: "package-query/routes/default",
+    }],
+    productionBindings: [{
+      identity: "dotnet-inspect.web/package-query",
+      name: "dotnet-inspect Browser",
+      consumerKind: "Browser" as const,
+      gesture: "Package Query workspace search",
+      resourcePath: "package-query/bindings/browser",
+    }],
+  };
+  const { spotlight } = createHarness({
+    query: "literal",
+    searchResults: () => [{
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [[8, 15]],
+    }],
+  });
+
+  const html = spotlight.modalHtml();
+
+  assert.match(html, /Capabilities/);
+  assert.match(html, /Library literal/);
+  assert.match(html, /Query facet · Package Query · library-literal/);
+  assert.match(
+    html,
+    /data-sl-capability="package-query\/query\/facets\/library-literal"/,
+  );
+  assert.equal(
+    spotlightResultIdentity({
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [],
+    }),
+    '["capability","package-query/query/facets/library-literal"]',
+  );
+  assert.equal(
+    spotlightCapabilityDraftValue({
+      kind: "capability",
+      query: "https://",
+      capability: {
+        ...capability,
+        matchedTerm: "https://",
+        matchSource: "ExampleValue",
+        isSegment: false,
+      },
+      ranges: [],
+    }),
+    "https://",
+  );
+  assert.equal(
+    spotlightCapabilityDraftValue({
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [],
+    }),
+    "",
+  );
 });
 
 test("Spotlight keeps the selected result when async rows are inserted before it", () => {
@@ -770,7 +1043,10 @@ test("newer document focus blocks delayed command focus restoration", async () =
   assert.notEqual(commandIndex, -1);
   spotlight.modalHtml();
   const row = {
-    dataset: { slIndex: String(commandIndex) },
+    dataset: {
+      slIndex: String(commandIndex),
+      slResultIdentity: spotlightResultIdentity(results[commandIndex]!),
+    },
     addEventListener: (_name: string, listener: () => void) => {
       click = listener;
     },
@@ -788,7 +1064,7 @@ test("newer document focus blocks delayed command focus restoration", async () =
     querySelector: (selector: string) =>
       selector === "#spotlight-input" ? input : null,
     querySelectorAll: (selector: string) =>
-      selector === "[data-sl-index]" ? [row] : [],
+      selector === "[data-sl-result-identity]" ? [row] : [],
   };
 
   withStubbedFocusTarget(() =>

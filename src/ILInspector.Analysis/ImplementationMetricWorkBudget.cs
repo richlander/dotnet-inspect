@@ -52,6 +52,7 @@ internal sealed class ImplementationMetricWorkBudget
 {
     readonly object _gate = new();
     readonly ImplementationMetricWorkLimits _limits;
+    readonly bool _chargeAttribution;
     int _attributionProbeBodies;
     long _attributionProbeIlBytes;
     int _metricBodies;
@@ -62,20 +63,27 @@ internal sealed class ImplementationMetricWorkBudget
     int? _metricExhaustedMethodToken;
 
     ImplementationMetricWorkBudget(
-        ImplementationMetricWorkLimits limits)
+        ImplementationMetricWorkLimits limits,
+        bool chargeAttribution)
     {
         _limits = limits;
+        _chargeAttribution = chargeAttribution;
     }
 
     internal static ImplementationMetricWorkBudget? Create(
-        ImplementationMetricAnalysisPlan? plan) =>
+        ImplementationMetricAnalysisPlan? plan,
+        bool chargeAttribution = true) =>
         plan is null || plan.Limits.IsLegacyUnbounded
             ? null
-            : new(plan.Limits);
+            : new(
+                plan.Limits,
+                chargeAttribution);
 
     internal void ReserveAttributionProbeBody(
         int methodToken)
     {
+        if (!_chargeAttribution)
+            return;
         lock (_gate)
         {
             ThrowIfAttributionExhausted(methodToken);
@@ -99,6 +107,8 @@ internal sealed class ImplementationMetricWorkBudget
     {
         ArgumentOutOfRangeException.ThrowIfNegative(
             encodedIlBytes);
+        if (!_chargeAttribution)
+            return;
         lock (_gate)
         {
             ThrowIfAttributionExhausted(methodToken);
@@ -136,6 +146,7 @@ internal sealed class ImplementationMetricWorkBudget
                     methodToken;
                 ThrowIfMetricExhausted(methodToken);
             }
+
             if (encodedIlBytes
                 > _limits.MaximumEncodedIlBytes
                     - _metricIlBytes)
@@ -150,6 +161,13 @@ internal sealed class ImplementationMetricWorkBudget
             _metricBodies++;
             _metricIlBytes += encodedIlBytes;
         }
+    }
+
+    internal void ThrowIfMetricWorkExhausted(
+        int methodToken)
+    {
+        lock (_gate)
+            ThrowIfMetricExhausted(methodToken);
     }
 
     internal ImplementationMetricWorkBudgetSnapshot Snapshot()

@@ -67,8 +67,8 @@ Library selection:
    reconstructing binding;
 3. projects the declaration immediately after the selected forwarder as either
    another forwarded-Type occurrence or the terminal defining Type; and
-4. returns one detached Browser-local Platform Library/Type effect, or settles
-   with typed non-success and no navigation effect.
+4. returns one detached Browser-local immediate destination descriptor for the
+   Navigation Presentation owner, or settles with typed non-success.
 
 The operation never chooses a Library or Type from rendered text, target
 assembly simple name alone, catalog position, path, Metadata token alone, or
@@ -91,10 +91,10 @@ view, and composition of Metadata's structured forwarding resolver. This owner
 deliberately invokes that operation rather than introducing a Browser
 forwarder walker or binding policy.
 
-The returned effect remains Browser-local because the current Platform target
-has no shared Inspection Subject Navigation identity. The divergence is
-limited to host composition; forwarding and binding remain host-neutral
-Metadata and PlatformHouse behavior.
+The returned destination descriptor remains Browser-local because the current
+Platform target has no shared Inspection Subject Navigation identity. The
+divergence is limited to host composition; forwarding and binding remain
+host-neutral Metadata and PlatformHouse behavior.
 
 No directly analogous external implementation combines ECMA-335 forwarding,
 an exact Platform source plan, Browser/Wasm execution, and opaque current-view
@@ -114,9 +114,7 @@ Forwarder admission retains:
 
 - the exact Browser Platform target, view, source-plan generation, and current
   operation generation;
-- the selected Platform Library realization receipt and exact implementation
-  candidate;
-- the Library's assembly identity and Metadata occurrence;
+- the selected Library's exact assembly identity and MVID;
 - the structured `MetadataTypeDefinitionName`;
 - the ordered `ExportedType` tokens and exact target
   `AssemblyReferenceIdentity` issued by Metadata; and
@@ -163,10 +161,12 @@ explain the current declaration and the resolved route without skipping the
 intermediate `System.Xml.ReaderWriter` subject. Activating that subject uses
 its newly issued action; it does not replay or trim the prior action.
 
-PlatformHouse's still-live realization supplies the immediate destination's
-Library surface and exact forwarded or defining Type selection before the
-operation releases acquisition and Metadata authority. The effect does not
-ask the Browser to reopen a Library by name.
+PlatformHouse's resource-free resolution result supplies the exact immediate
+destination descriptor after the operation releases acquisition and Metadata
+authority. The Navigation Presentation owner later realizes the destination
+Library document from the captured exact target, source plan, assembly
+evidence, and occurrence; it does not reopen a Library by display text or
+simple name alone.
 
 ## Action lifetime and execution
 
@@ -176,13 +176,13 @@ version change, Library replacement, result replacement, or host close retires
 the action.
 
 Execution validates captured authority before invoking PlatformHouse and again
-before returning an installable effect. Supersession or close may let internal
-work settle and clean up, but the stale result cannot be installed.
+before returning a destination descriptor. Supersession or close may let
+internal work settle and clean up, but the stale result cannot be installed.
 
 The closed execution outcomes are:
 
-- **Settled** -- detached route evidence and one immediate Platform
-  Library/Type effect;
+- **Settled** -- detached route evidence and one exact immediate Platform
+  Library/Type destination descriptor;
 - **Unavailable** -- the target, Library, declaration, source contribution, or
   exact next occurrence is unavailable;
 - **Stale** -- target, source plan, Library, surface, or operation authority
@@ -205,16 +205,16 @@ an empty route.
 ## Presentation boundary
 
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
-owns the normal Type inventory row, Metadata-only forwarded-Type subject,
+owns the normal Type inventory row, Overview-only forwarded-Type subject,
 forwarding explanation, action label, accessibility, focus, and interaction.
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) owns
 current-authority validation, effect installation, history, synchronization,
 and destination-lifetime focus.
 
 This owner emits only typed action state, detached route evidence, and a
-Browser-local Platform Library/Type effect. It does not define HTML, lens
-membership, route wording, row order, icons, or whether resolved hops are
-initially expanded.
+Browser-local immediate destination descriptor. It does not realize the
+destination Library document or define HTML, lens membership, route wording,
+row order, icons, or whether resolved hops are initially expanded.
 
 ## Pathological cases
 
@@ -274,17 +274,73 @@ route display fields. They do not replace the managed owner gates.
 | [PlatformHouse](platform-house-reference-processing.md) | Exact target, source plan, implementation Library realization, binding policy, finite work, and unchanged Type-resolution settlement |
 | [Structured type-forwarding resolution](type-forwarding-resolution.md) | Structured Type identity, declaration probing, exact forwarding hops, terminal definition or typed non-success |
 | Browser Platform Library projection | Exact selected Library surface, declaration inventory, and operation generation |
-| This owner | Forwarder admission, opaque action, current-authority validation, detached route projection, and immediate destination effect |
-| [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Forwarded-Type inventory row, Metadata-only lens, explanation, and action interaction |
+| This owner | Forwarder admission, opaque action, current-authority validation, detached route projection, and immediate destination descriptor |
+| [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Forwarded-Type inventory row, Overview-only lens, explanation, and action interaction |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | Effect installation, canonical location, history, synchronization, and focus |
 
 The delivery tracked by #8288 is:
 
 1. lock and implement this route owner in #8289;
-2. adopt forwarder rows, Metadata-only subjects, generated transport, and the
-   production Browser interaction in #8290; and
-3. record the user-visible Browser capability and its PR on the current release
+2. complete #8290's separately approved backend slice: package-backed
+   resolution, exact immediate-destination realization, and generated
+   facade/ordinary Worker transport;
+3. adopt forwarder rows, Overview-only subjects, and the production Browser
+   interaction in #8290; and
+4. record the user-visible Browser capability and its PR on the current release
    tracker before merge.
+
+The backend slice does not by itself advertise the website experience as
+supported. Presentation still owns installing the returned destination,
+retiring the active view when navigating elsewhere, and reopening a returning
+Library view to obtain fresh actions.
+
+The package-backed callback consumes the captured source plan and the
+workspace owner's representative runtime identifier. Destination realization
+uses the exact assembly identity from the route, then verifies the reopened
+Library's identity, MVID, and configured source before returning it. The
+existing workspace coordinate uses the legacy cache-producer spelling, so
+that comparison uses the selected configured authority's cache spelling;
+it does not equate that spelling with Package Source's modern producer key.
+
+`PlatformForwarders_ProductionSourceOpensEachXmlLibraryAndRenewsActions`
+exercises the complete, unmodified runtime package, both immediate
+destinations, the ordinary final definition, cancellation, stale actions, and
+return-to-view renewal. It is classified Slow and owned by the focused
+pre-merge Release gate:
+
+```sh
+dotnet run --project tests/DotnetInspect.Web.Tests -c Release -- \
+  --filter-method '*PlatformForwarders_*'
+```
+
+`PlatformForwarders_SourceFailurePreservesContribution` is PR-fast.
+`PlatformForwarders_OpenFailureReturnsTypedNonSuccess` is PR-fast and covers
+unavailable acquisition and cancellation through the opening operation and its
+wire result. Opening and activation both report typed non-success rather than
+an action when preparation fails. Forwarder inspection uses the shared
+`AssemblyContextLibraryInspection` lifecycle; cleanup diagnostics accompany
+the primary failure, and cleanup failure prevents successful publication.
+`ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` includes
+`OpenPlatformForwarderView`, `ActivatePlatformForwarder`, and
+`ClosePlatformForwarderView` in the closed Package export inventory.
+`engine-worker-ordinary.test.ts` owns opaque-action and non-success transport.
+`eng/generate-inspect-web-engine-facade.sh` generates the canonical Package
+facade from the managed exports, compares recipe and direct generation, and
+type-checks the authored consumers. No hand-maintained declaration replaces
+that contract.
+
+The published Browser/Wasm gate in `package-adoption.spec.ts`,
+`opens each real XML forwarding occurrence through the production Worker`,
+invokes all three operations through the generated facade and ordinary Worker.
+It uses the immutable runtime package over the network, asserts both immediate
+destinations and the terminal definition's members, and covers stale actions,
+old-view close, and returning-view renewal. It belongs to the existing bounded
+network-backed PR gate; presentation and focus remain the next slice's gates.
+
+```sh
+eng/test-inspect-web-package-adoption-gate.sh \
+  --grep 'opens each real XML forwarding occurrence'
+```
 
 The adopter retires the current success-shaped empty Type inventory for
 supported forwarding Platform Libraries. It does not replace facade Library

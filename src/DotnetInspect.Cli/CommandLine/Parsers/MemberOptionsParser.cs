@@ -641,6 +641,7 @@ public static class MemberOptionsParser
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             JsonOutput = outputFormat == OutputFormat.Json,
+            EnvelopeOutput = parseResult.GetValue(opts.Envelope),
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = outputFormat is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl,
             Tsv = outputFormat == OutputFormat.Tsv,
@@ -729,8 +730,7 @@ public static class MemberOptionsParser
 
         options = options with
         {
-            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
-                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+            TipLevel = opts.ParseTipLevel(parseResult)
         };
 
         ResolvedMemberInspectionPlan plan =

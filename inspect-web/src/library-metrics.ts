@@ -1,4 +1,13 @@
 import type { BrowserLibraryMetrics } from "./facades/inspect-web-analysis.d.ts";
+import type {
+  TypeLeveragePresentation,
+  TypeLeverageShardPresentation,
+} from "./type-leverage.ts";
+import { typeLeveragePole } from "./type-leverage.ts";
+import {
+  renderItemAchievementRail,
+  type ItemAchievement,
+} from "./item-achievements.ts";
 
 const TREEMAP_WIDTH = 900;
 const TREEMAP_HEIGHT = 360;
@@ -6,6 +15,7 @@ const TREEMAP_LIMIT = 72;
 const RELATIONSHIP_WIDTH = 900;
 const RELATIONSHIP_HEIGHT = 480;
 const RELATIONSHIP_LABEL_SPACE = 190;
+const SALIENCE_ORDER_LIMIT = 8;
 const RECIPROCAL_BEND_SEPARATION = 16;
 const RELATIONSHIP_COLORS = [
   "#b9aaee", "#7ed8dc", "#9cc8f1", "#e5b567", "#d98a70",
@@ -23,11 +33,17 @@ export interface LibraryMetricsOptions {
   loading: boolean;
   error: string;
   data: BrowserLibraryMetrics | null;
+  salienceLoading: boolean;
+  salienceError: string;
+  salience: TypeLeveragePresentation | null;
+  selectedSalienceNamespace: string | null;
   escapeHtml: (value: unknown) => string;
 }
 
 export interface LibraryMetricsInteractionActions {
   activateType: (typeKey: string) => void;
+  selectSalienceNamespace: (exactNamespace: string) => void;
+  retrySalience: () => void;
 }
 
 function shortTypeName(typeId: string): string {
@@ -48,6 +64,104 @@ function formatCount(
   plural = `${singular}s`,
 ): string {
   return `${formatNumber(value)} ${value === 1 ? singular : plural}`;
+}
+
+function namespaceDisplay(exactNamespace: string): string {
+  return exactNamespace || "(global namespace)";
+}
+
+function renderSalienceOrder(
+  title: string,
+  rows: TypeLeverageShardPresentation["seaLevelOrder"],
+  degree: "signatureIncomingDegree" | "signatureOutgoingDegree",
+  escapeHtml: (value: unknown) => string,
+): string {
+  const visible = rows.slice(0, SALIENCE_ORDER_LIMIT);
+  const items = visible.map(row => {
+    const pole = typeLeveragePole(row.pole);
+    const poleText = pole === "sea-level"
+      ? "sea level"
+      : pole === "mountain-peak" ? "mountain peak" : "";
+    const achievements: readonly ItemAchievement[] = pole
+      ? [{ kind: pole, description: `${poleText} Type` }]
+      : [];
+    return `<button type="button" class="metrics-salience-type${pole ? ` ${pole}` : ""}" data-metrics-salience-type-key="${escapeHtml(row.typeDefinitionId)}">
+      ${renderItemAchievementRail(achievements, escapeHtml)}
+      <span class="metrics-salience-type-name">${escapeHtml(shortTypeName(row.typeDisplay))}</span>
+      <small>${formatNumber(row[degree])} ${degree === "signatureIncomingDegree" ? "incoming" : "outgoing"} peers · ${escapeHtml(row.role)}${poleText ? ` · ${poleText}` : ""}</small>
+    </button>`;
+  }).join("");
+  const disclosure = rows.length > visible.length
+    ? `Top ${visible.length.toLocaleString()} of ${rows.length.toLocaleString()} owner-issued rows`
+    : `${rows.length.toLocaleString()} owner-issued rows`;
+  return `<section class="metrics-salience-order">
+    <h3>${escapeHtml(title)}</h3>
+    <div class="metrics-salience-types">${items}</div>
+    <p>${escapeHtml(disclosure)}</p>
+  </section>`;
+}
+
+function renderStructuralSalience(
+  options: Pick<
+    LibraryMetricsOptions,
+    | "salienceLoading"
+    | "salienceError"
+    | "salience"
+    | "selectedSalienceNamespace"
+    | "escapeHtml"
+  >,
+): string {
+  const {
+    salienceLoading, salienceError, salience,
+    selectedSalienceNamespace, escapeHtml,
+  } = options;
+  if (salienceError) {
+    return `<section class="document-section metrics-salience-section metadata-warning">
+      <strong>Structural salience failed</strong>
+      <p>${escapeHtml(salienceError)}</p>
+      <button type="button" class="tiny-button" data-metrics-salience-retry>Retry</button>
+    </section>`;
+  }
+  if (!salience) {
+    return `<section class="document-section metrics-salience-section">
+      <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>The complete signature-surface document is loading independently from implementation metrics.</p></div>
+      ${salienceLoading ? `<span class="loader"></span>` : ""}
+    </section>`;
+  }
+
+  const defaultNamespace = salience.namespaceOrder.find(row =>
+    row.topLeverage)?.namespace
+    ?? salience.namespaceOrder[0]?.namespace
+    ?? null;
+  const exactNamespace = selectedSalienceNamespace !== null
+    && salience.shardsByNamespace.has(selectedSalienceNamespace)
+    ? selectedSalienceNamespace
+    : defaultNamespace;
+  const shard = exactNamespace === null
+    ? null
+    : salience.shardsByNamespace.get(exactNamespace) ?? null;
+  const namespaceOptions = salience.namespaceOrder.map(row =>
+    `<option value="${escapeHtml(row.namespace)}"${row.namespace === exactNamespace ? " selected" : ""}>${escapeHtml(namespaceDisplay(row.namespace))} · ${formatCount(row.externalIncomingSourceTypeCount, "external source Type")}${row.topLeverage ? " · top leverage" : ""}</option>`)
+    .join("");
+  const optionsHtml = exactNamespace === null
+    ? `<option value="__choose_namespace__" selected disabled>Choose a namespace</option>${namespaceOptions}`
+    : namespaceOptions;
+  const qualification = salience.disposition.toLowerCase() === "complete"
+    ? ""
+    : `<div class="metadata-warning"><strong>Structural salience is qualified</strong><p>${escapeHtml(salience.disposition)} · ${formatNumber(salience.coverage.examined)} of ${formatNumber(salience.coverage.considered)} signature sites examined.</p>${salience.diagnostics.length ? `<ul>${salience.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}<button type="button" class="tiny-button" data-metrics-salience-retry>Retry</button></div>`;
+  const orders = shard
+    ? `<div class="metrics-salience-orders">
+        ${renderSalienceOrder("Incoming peers", shard.seaLevelOrder, "signatureIncomingDegree", escapeHtml)}
+        ${renderSalienceOrder("Outgoing peers", shard.mountainPeakOrder, "signatureOutgoingDegree", escapeHtml)}
+      </div>`
+    : `<p class="metrics-salience-loading">Choose an exact namespace to load its Type orders.</p>`;
+  return `<section class="document-section metrics-salience-section">
+    <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>Namespace leverage identifies important areas. The two Type orders preserve raw direction; baseline and peak cues show the single owner-issued pole.</p></div>
+    <label class="metrics-salience-namespace"><span>Namespace</span><select data-metrics-salience-namespace>${optionsHtml}</select></label>
+    ${qualification}
+    ${orders}
+    <p class="metrics-visual-caption">${formatCount(salience.namespaceOrder.length, "exact namespace")} analyzed · ${escapeHtml(salience.methodologyVersion)} · ${escapeHtml(salience.evidenceMode)}</p>
+  </section>`;
 }
 
 interface TreemapItem {
@@ -122,6 +236,7 @@ function renderTreemap(
   escapeHtml: (value: unknown) => string,
 ): string {
   const source = [...(data.typeSummaries ?? [])]
+    .filter(item => item.bodyCount > 0)
     .sort((left, right) => right.instructionCount - left.instructionCount);
   if (!source.length) {
     return `<section class="document-section empty-document"><h2>No type-level implementation evidence</h2><p>The library report did not issue type summaries for this population.</p></section>`;
@@ -303,6 +418,22 @@ export function bindLibraryMetricsInteractions(
       activate();
     });
   }
+
+  const namespaceSelect = root.querySelector<HTMLSelectElement>(
+    "[data-metrics-salience-namespace]",
+  );
+  namespaceSelect?.addEventListener("change", () =>
+    actions.selectSalienceNamespace(namespaceSelect.value));
+  root.querySelector<HTMLElement>(
+    "[data-metrics-salience-retry]",
+  )?.addEventListener("click", actions.retrySalience);
+  for (const button of root.querySelectorAll<HTMLElement>(
+    "[data-metrics-salience-type-key]",
+  )) {
+    const typeKey = button.dataset.metricsSalienceTypeKey;
+    if (typeKey)
+      button.addEventListener("click", () => actions.activateType(typeKey));
+  }
 }
 
 export function renderLibraryMetricsSurface(
@@ -312,6 +443,7 @@ export function renderLibraryMetricsSurface(
     libraryName, assemblyIdentity, assetPath, coordinate,
     requireLibrary, pickerHtml, fresh, loading, error, data, escapeHtml,
   } = options;
+  const salienceContent = renderStructuralSalience(options);
   let status: string;
   let content: string;
   if (requireLibrary) {
@@ -319,18 +451,18 @@ export function renderLibraryMetricsSurface(
     content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Pick a library to measure</h2><p>Choose a .NET platform library above to summarize compiled implementation metrics.</p></section>`;
   } else if (loading && fresh) {
     status = "Measuring library\u2026";
-    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Measuring library&hellip;</h2><p>Computing Research-owned structural distributions across this library's method bodies.</p></section>`;
+    content = `${salienceContent}<section class="document-section source-progress"><span class="loader"></span><h2>Measuring library&hellip;</h2><p>Computing Research-owned structural distributions across this library's method bodies.</p></section>`;
   } else if (fresh && error) {
     status = "Metrics failed";
-    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Metrics failed</h2><p>${escapeHtml(error)}</p></section>`;
+    content = `${salienceContent}<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Metrics failed</h2><p>${escapeHtml(error)}</p></section>`;
   } else {
     const resolved = fresh ? data : null;
     if (!resolved) {
       status = "Loading\u2026";
-      content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
+      content = `${salienceContent}<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
     } else if (resolved.outcome !== "available") {
       status = resolved.outcome === "failed" ? "Metrics failed" : "Metrics unavailable";
-      content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>${escapeHtml(status)}</h2><p>${escapeHtml(resolved.failure || "The Research document could not be produced.")}</p></section>`;
+      content = `${salienceContent}<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>${escapeHtml(status)}</h2><p>${escapeHtml(resolved.failure || "The Research document could not be produced.")}</p></section>`;
     } else {
       const population = resolved.population;
       status = `${(population?.completeProfileCount ?? 0).toLocaleString()} complete bodies`;
@@ -355,6 +487,7 @@ export function renderLibraryMetricsSurface(
         }</section>`
         : "";
       content = `${incomplete}
+        ${salienceContent}
         ${renderTreemap(resolved, escapeHtml)}
         ${renderRelationshipCrossing(resolved, escapeHtml)}
         <section class="document-section">

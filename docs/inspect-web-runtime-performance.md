@@ -184,10 +184,12 @@ path, so a rejected run cannot leave a stale trend point.
 
 ## Controlled nightly cohort
 
-The scheduled
+The
 [runtime-site deployment workflow](../.github/workflows/deploy-inspect-web-runtime-sites.yml)
-runs daily at 00:47 UTC and requires its exact `main` source commit to have a
-successful `ci-required` check. It calls the reusable and manually dispatchable
+runs automatically after each completed nightly release candidate. It
+validates that exact candidate run and attempt, accepts either green evidence
+or completed qualification concerns, and passes the candidate SHA and identity
+to the reusable and manually dispatchable
 [controlled-cohort workflow](../.github/workflows/inspect-web-runtime-cohort-nightly.yml),
 which builds these variants from that source commit:
 

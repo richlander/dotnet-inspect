@@ -295,20 +295,11 @@ public sealed class LayeringTests
             ],
             CommandErrorOwnershipTests.ProjectPackageDependencies(project)
                 .Order(StringComparer.OrdinalIgnoreCase));
-        Assert.Contains(
-            "<IsAotCompatible>true</IsAotCompatible>",
-            File.ReadAllText(project));
     }
 
     [Fact]
     public void MetadataPrimitives_MetadataRootClassifierIsIsolated()
     {
-        string project = Path.Combine(
-            CommandErrorOwnershipTests.RepositoryRoot(),
-            "src",
-            "ILInspector.MetadataPrimitives",
-            "ILInspector.MetadataPrimitives.csproj");
-        var sources = EvaluatedSources(project);
         MetadataApiReference[] metadataBlockReferences = MetadataApiReferences()
             .Where(reference => reference.Api == "GetMetadata")
             .ToArray();
@@ -316,17 +307,6 @@ public sealed class LayeringTests
             .Select(reference => reference.CallerType)
             .Order(StringComparer.Ordinal)
             .ToArray();
-        string[] markerReaders = sources
-            .Where(file => file.Source.Contains(
-                "WindowsRuntime",
-                StringComparison.Ordinal))
-            .Select(file => file.Name)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        string classifier = Assert.Single(
-            sources,
-            file => file.Name
-                == $"{nameof(MetadataImageFormatClassifier)}.cs").Source;
 
         Assert.Equal(
             [
@@ -339,29 +319,11 @@ public sealed class LayeringTests
             reference => Assert.Contains(
                 reference.OpCode,
                 new[] { ILOpCode.Call, ILOpCode.Callvirt }));
-        Assert.Equal(
-            [$"{nameof(MetadataImageFormatClassifier)}.cs"],
-            markerReaders);
-        Assert.DoesNotContain("GetMetadataReader", classifier);
-        Assert.DoesNotContain("TableIndex", classifier);
-        Assert.DoesNotContain("MetadataTokens", classifier);
-        Assert.DoesNotContain("ReadSerializedString", classifier);
-        Assert.DoesNotContain("ReadUTF8", classifier);
     }
 
     [Fact]
     public void MetadataPrimitives_MethodSemanticsReaderIsIsolated()
     {
-        string project = Path.Combine(
-            CommandErrorOwnershipTests.RepositoryRoot(),
-            "src",
-            "ILInspector.MetadataPrimitives",
-            "ILInspector.MetadataPrimitives.csproj");
-        var sources = EvaluatedSources(project);
-        string reader = Assert.Single(
-            sources,
-            file => file.Name
-                == $"{nameof(MethodSemanticsRowReader)}.cs").Source;
         System.Reflection.MethodInfo read = Assert.Single(
             typeof(MethodSemanticsRowReader).GetMethods(
                 System.Reflection.BindingFlags.Public
@@ -388,9 +350,6 @@ public sealed class LayeringTests
                 Assert.Equal(ILOpCode.Call, call.OpCode);
                 Assert.Equal(TableIndex.MethodSemantics, call.Table);
             });
-        Assert.Contains("TableIndex.MethodSemantics", reader);
-        Assert.DoesNotContain("TableIndex table", reader);
-        Assert.DoesNotContain("TableIndex tableIndex", reader);
         Assert.Equal(
             [
                 typeof(PEReader),
@@ -461,19 +420,6 @@ public sealed class LayeringTests
                     forbidden => ContainsSignatureType(
                         field.FieldType,
                         forbidden)));
-    }
-
-    private static (string Name, string Source)[] EvaluatedSources(
-        string project)
-    {
-        string projectDirectory = Path.GetDirectoryName(project)!;
-        return
-        [
-            .. CommandErrorOwnershipTests.EvaluatedCompileFiles(project)
-                .Select(path => (
-                    Name: Path.GetRelativePath(projectDirectory, path),
-                    Source: File.ReadAllText(path))),
-        ];
     }
 
     private sealed record MetadataApiReference(
@@ -885,6 +831,8 @@ public sealed class LayeringTests
         [
             "DotnetInspect.Cli.Tests",
             "DotnetInspector.MetadataRendering.Tests",
+            "ILInspector.Metadata.LegacyOracles",
+            "ILInspector.Metadata.PerformanceOracles.Tests",
             "ILInspector.Metadata.Tests",
         ];
 

@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\Inspector.Graph\Inspector.Graph.csproj" />
   </ItemGroup>
 
 </Project>

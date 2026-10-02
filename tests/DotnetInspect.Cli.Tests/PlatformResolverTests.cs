@@ -1267,9 +1267,12 @@ public class PlatformResolverTests
         Assert.Equal(expectedVersion, request.Version);
     }
 
-    [Fact]
-    public void PackRequestFor_UnknownFramework_RequestsNothing()
+    [Theory]
+    [InlineData("platform")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    public void PackRequestFor_UnknownFramework_RequestsNothing(string frameworkSpec)
     {
-        Assert.Null(PlatformPackService.PackRequestFor("platform"));
+        Assert.Null(PlatformPackService.PackRequestFor(frameworkSpec));
     }
 }

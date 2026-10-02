@@ -8,8 +8,6 @@ internal sealed record LibraryBodyAnalysisResult(
     SafetyAnalysisResult Safety,
     AllocationAnalysisResult Allocations,
     OptimizationAnalysisResult Optimizations,
-    OwnershipFlowAnalysisResult OwnershipFlow,
-    ResourceLifecycleAnalysisResult Resources,
     ImmutableArray<AnalysisDiagnostic> Diagnostics)
 {
     internal ResourceOccurrenceLibraryAnalysisResult? ResourceOccurrences
@@ -24,6 +22,10 @@ internal sealed record LibraryBodyAnalysisResult(
     internal ImplementationMetricWorkBudgetSnapshot?
         ImplementationMetricWork
     { get; init; }
+
+    internal ImplementationMetricStageParticipationSnapshot?
+        ImplementationMetricParticipation
+    { get; init; }
 }
 
 internal sealed record MethodBodyAnalysisResult(
@@ -36,6 +38,10 @@ internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<FieldLoadFact> FieldLoads,
     ImmutableArray<MethodReturnFlow> ReturnFlows,
     IReadOnlyDictionary<int, BodySignals> BodySignals,
+    ImmutableArray<MethodImplementationMetricEvidence>
+        ImplementationMetrics,
+    ImmutableArray<AnalysisDiagnostic>
+        ImplementationMetricDiagnostics,
     ImmutableArray<MethodBodyImplementationMetrics> ImplementationProfiles,
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
@@ -63,12 +69,6 @@ internal sealed record OptimizationAnalysisResult(
     IReadOnlySet<int> SuppressedMethodTokens,
     IReadOnlySet<int> ScopeExcludedMethodTokens,
     IReadOnlySet<string> ExceptionTypeNames);
-
-internal sealed record ResourceLifecycleAnalysisResult(
-    LeakTriageResult? LeakTriage);
-
-internal sealed record OwnershipFlowAnalysisResult(
-    ImmutableArray<ArrayPoolOwnershipMethodEvidence> Methods);
 
 internal sealed record ResourceOccurrenceLibraryAnalysisResult(
     ImmutableArray<ResourceOccurrenceAnalysisResult> Methods,

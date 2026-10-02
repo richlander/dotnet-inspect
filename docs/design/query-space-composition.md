@@ -10,8 +10,8 @@ the target contract agreed before the held Depends and Library Query changes in
 [#7945](https://github.com/richlander/dotnet-inspect/pull/7945), and
 [#7872](https://github.com/richlander/dotnet-inspect/pull/7872) continue.
 
-The current implementation has several prerequisites and one executable row
-composition slice:
+The current implementation has several prerequisites, one executable row
+composition slice, and one structural Exists adoption:
 
 - `QuerySpace` carries portable intent, row-query resolution, semantic row
   selection, Query Operation registration, and the immutable
@@ -29,6 +29,16 @@ composition slice:
   projection, and terminal Count; and
 - [Source delegation](source-delegation.md) defines exact substitution of
   source work through completion evidence.
+
+Unsafe-evidence presence is the first Exists adopter. Its QuerySpace request
+names the method-definition row set and the Exists terminal, then lowers that
+closing to the Producer Planning `Exists` terminal before any assembly image is
+read. The production `UnsafeEvidencePresenceQuery` executes that resolved work
+description through Assembly Analysis Operation's exact session access and
+preserves both the Method-source receipt and producer receipt. This adoption
+adds no generic section-row Exists executor; [Open and closed
+queries](open-and-closed-queries.md) owns the terminal's meaning, and the
+unsafe-evidence operation owns its predicate and result.
 
 Those owners remain authoritative for their own semantics. This design owns
 only their reusable composition into one discoverable query space.
@@ -49,10 +59,12 @@ exercises that path over application-owned types.
 
 The source-aware one-association path additionally carries one opaque
 owner-issued disposition/completion-evidence pair plus independent
-Rows-usability and Count-sufficiency decisions for every participating set.
-Rows execute residual shaping only for usable sets and preserve source-only
-companions. Count returns every source outcome and enters no residual cohort
-when any set is insufficient; complete empty input remains exact zero.
+Rows-usability, Count-sufficiency, and optional accepted exact-cardinality
+facts for every participating set. Rows execute residual shaping only for
+usable sets and preserve source-only companions. Count consumes accepted exact
+cardinalities without Rows, executes residual shaping only for sufficient row
+handoffs, and returns every source outcome without entering a residual cohort
+when any set is insufficient. Exact zero remains a first-class result.
 
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
@@ -60,9 +72,9 @@ vocabulary supplies a default Top ranking. A future richer capability may
 represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
-operation-scope capabilities. Multiple row-intent associations, source
-delegation and accepted upstream Count, projection stages, continuation
-binding, the full structural-plan meaning record, and the remaining gates in
+operation-scope capabilities. Multiple row-intent associations, request-set
+collapse, source delegation planning, projection stages, continuation binding,
+the full structural-plan meaning record, and the remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
 
@@ -77,6 +89,12 @@ implementation slices land and run in Release.
 > descriptor, structural request lowering, owner-issued plans, host lowering,
 > source-delegation input, and optional generated consumer API.
 
+For requests known together, this owner also forms one immutable request set
+over owner-identified resources and may collapse compatible requests into
+shared source plans. Collapse changes physical work only: every request retains
+the result, outcome, and evidence that its independent reference execution
+would publish.
+
 This owner defines:
 
 - the parts that form one query space;
@@ -87,9 +105,14 @@ This owner defines:
 - the closed query-language boundary shared by hosts;
 - the requirement that resolved plans preserve inspectable structural meaning
   beside executable machinery;
-- preservation of the owner-issued Rows and exact Count terminal branch;
+- preservation of owner-issued Rows, exact Count, and Exists terminal
+  branches;
 - the distinction among semantic selection, work bounds, source continuation,
   delivery demand, and rendering windows;
+- immutable request-set associations, whole-set validation, optional
+  source-plan grouping, and per-request result association;
+- the rule that every request is satisfied either by an accepted source-native
+  answer or by its residual over an accepted covering read;
 - preservation of an adjacent source owner's continuation without interpreting
   or manufacturing it;
 - the host-neutral capability descriptor; and
@@ -101,7 +124,9 @@ This owner does not define:
 - any Package, Library, Type, Member, Dependency, Graph, or Find semantics;
 - subject or source authority, acquisition, pagination, retry, caching, or
   completion-evidence construction;
-- row predicate, order, Head, Tail, Window, Top, projection, or Count
+- timed batching, cross-operation collection windows, retention, or cost
+  estimation;
+- row predicate, order, Head, Tail, Window, Top, projection, Count, or Exists
   semantics;
 - portable payload bytes or compatibility policy;
 - CLI grammar, Browser interaction, Markout rendering, LINQ use, or `jq`
@@ -192,6 +217,9 @@ systems:
 | OData query options | Filtering, ordering, selection, and Count are distinct operations, with explicit text operations such as starts-with and contains. | HTTP syntax and provider pushdown do not define product semantics. |
 | Substrait and relational planners | Stable logical operations remain separate from physical execution. | Query Space is a small product algebra rather than a general relational plan. |
 | NLinq | Source-specific static execution and fold lowering avoid opaque runtime type tests. | Runtime-authored queries remain structural data rather than nested generic pipeline types. |
+| [Multiple-query optimization](https://doi.org/10.1145/42221.42222) | Queries known together may share common source work when sharing reduces total cost. | The first planner is deterministic and may decline sharing; it does not introduce a general cost optimizer. |
+| [Haxl](https://github.com/facebook/Haxl/blob/master/readme.md) | Independent declared requests to one data source can batch without putting fetch coordination in each consumer. | Query Space accepts an explicit request set and does not add concurrent fetches or memoization. |
+| [DataLoader](https://github.com/graphql/dataloader/blob/main/README.md) | A bounded batch retains one result position per input key, and batching remains distinguishable from request-scoped caching. | Association identity is typed and owner-issued; no event-loop window or cache enters this contract. |
 
 The design is intentionally derivative by layer. No precedent is authoritative
 for dotnet-inspect's work authorization, evidence, completion, or source
@@ -207,7 +235,7 @@ One query space is an immutable effective binding containing:
 | Operation scope | One Query Operation definition, operation-only query-vocabulary identity, subject role, result grain, and operation profile. |
 | Row-query scopes | One or more stable scope identities, each pairing one row query vocabulary with the compatible declared row-set identities and shaping capabilities to which an instance of that intent may apply. |
 | Request shape | One operation intent plus optional section-owned projection intent, zero or more ordered row-intent associations, a non-empty participating row-set selection, and one terminal requirement. |
-| Terminal space | The supported terminal requirements, initially Rows and exact Count, preserving each participating row-set identity. |
+| Terminal space | The supported terminal requirements, including Rows, exact Count, and owner-issued Exists, preserving each participating row-set identity. |
 | Effects | The capability, acquisition, work, and completion consequences reachable through the effective bindings. |
 | Continuation acceptance | Whether this result composition can preserve an adjacent source contract's continuation; the selected source offer supplies any effective continuation capability. |
 | Result-contract references | Optional owner-issued mapping from a terminal/result shape to the output contract it produces; schema, Content Kind, and serialization remain with the output owner. |
@@ -270,6 +298,205 @@ and Head, Tail, Window, or Top execute exactly once through a row-intent
 association after its row predicates. A row intent's execution-bound collection
 is likewise required to be empty and rejected before resolution; source or
 candidate work authorization exists only in the operation intent.
+
+## Request sets and source-plan collapse
+
+A **request set** is a non-empty immutable collection of complete resolved
+query-space requests that one operation knows before source acquisition. It is
+the only collapse window in this contract. A request discovered while another
+request is executing belongs to a later request set and cannot retroactively
+join the current plan.
+
+Each request-set association carries:
+
+- one caller-issued association identity, unique within the set;
+- one owner-issued resource identity and source binding;
+- one complete resolved closed query, including its open-query and terminal
+  identities;
+- its result-contract reference when one exists; and
+- the owner-issued residual and completion requirements needed by any accepted
+  source candidate.
+
+The association identity routes one result back to one caller. It remains
+distinct from query identity because two consumers may ask the same closed
+query and both require an outcome. The resource identity proves that requests
+refer to the same source-owned population; display text, paths, labels, object
+reference equality, declaration order, and equal-looking query operands do
+not.
+
+Construction validates the complete set before acquisition. A duplicate
+association identity, absent resource identity, unresolved request, source
+binding inconsistent with its association's resource identity, or
+result-contract mismatch rejects the set as a whole with typed reasons and
+starts no work. Different valid source bindings remain in the same request set
+and form separate groups. Request order is retained only for deterministic
+result publication. It neither supplies identity nor chooses planning priority.
+
+### Two satisfaction paths
+
+Every valid request is satisfied in exactly one of two ways:
+
+1. **Source-native answer.** The source plan publishes the request's exact
+   terminal result with completion evidence accepted by that request's owner.
+2. **Residual over a covering read.** The source plan publishes a row handoff
+   whose owner-issued resource, population, order, projection, and completion
+   evidence cover the request. The request's retained residual produces its
+   terminal result.
+
+A covering read may serve one request or several. The singleton case is the
+ordinary reference path, not a separate architecture. Sharing is optional:
+when one request's wider population, projection, or depth would make sharing
+more expensive or would change an observation, the planner may keep requests
+in separate groups.
+
+Query Space never manufactures a covering read by unioning source-specific
+parameters. It groups requests only through one source binding's explicit
+offer and owner-issued resource identity. When that offer delegates work, the
+[Source Delegation](source-delegation.md) contract owns candidate acceptance,
+safe-prefix and residual partitioning, completion evidence, and the no-fallback
+commitment after acceptance. A local source retains its own execution and
+completion contract.
+
+Closings of the same open query use the dominance and derivation rules from
+[Open and closed queries](open-and-closed-queries.md). Different open queries
+may share one source traversal when the source offer covers each request, but
+their predicates, projections, terminals, residuals, and outcomes remain
+independent. A result is never derived from another request merely because the
+two requests shared physical work.
+
+### Plan and result association
+
+The resolved request-set plan partitions every association into exactly one
+execution group. A group records its resource identity, source plan, and
+ordered member associations. A singleton unshared group is valid. Missing,
+repeated, or multiply assigned associations make plan construction fail before
+execution.
+
+The detached result set contains exactly one typed entry for every association,
+in request-set order. Each entry carries:
+
+- its association and resource identities;
+- its terminal result or typed non-success;
+- its own completion and source evidence; and
+- how it was satisfied: source-native answer or residual over a named covering
+  read.
+
+Shared physical work is recorded once at the execution-group level. Per-request
+participation and settlement remain visible without multiplying that work as
+though every request ran its own scan. The routing and charging rules belong to
+[Open and closed queries](open-and-closed-queries.md); Producer Planning
+retains its separate per-producer `WorkReceipt`.
+
+An already settled request retains its reference result when later shared work
+fails for another request. A source failure affects every unsettled request
+whose accepted covering read required the failed work, with the same
+source-owned cause and each request's own typed outcome. A residual failure
+affects only that request and its declared dependents. No failure becomes an
+empty Rows result, zero Count, false Exists, omitted association, planner
+decline, or silent retry.
+
+### Preserve terminal-specialized plans
+
+A source plan is specialized for the question's terminal. Exists can stop at
+the first match without projecting rows. Count returns only a number: a
+source-native or cardinality-only plan may avoid row values, while a residual
+Count may still read or snapshot the rows its own predicates and semantic
+stages require. Rows executes cell projection and publishes the resulting
+rows. A request set does not erase those differences. Producer Planning lowers
+them as distinct closed-query descriptions and kernels; another source may
+answer a terminal natively.
+
+A singleton execution group uses the same terminal-specialized source plan as
+the request would use alone. It does not turn Exists or Count into Rows merely
+because Rows could produce their answers. That does not make every Count
+row-free: Count retains the input snapshot when its own residual requires row
+values, but it does not execute Rows' cell projection or publish a row result.
+When several requests share work, the accepted source plan may fuse their
+terminals, but each settled terminal stops receiving work and being charged at
+the point its independent execution would have stopped.
+
+Request-set planning consumes these resolved, owner-issued source plans. It
+does not open the subject or rebuild an adjacent owner's internal plan merely
+because that plan enters a request set. A source owner may retain and reuse its
+resource-free plan for an invariant terminal request.
+
+A complete request-set plan is reusable only for the same complete request
+set: the association and resource identities and every owner-resolved request
+meaning must match. A changed or runtime-authored set is planned anew. Reuse
+never transfers subject authority, completion, or a result, and it is not
+result caching, timed batching, retention, or memoization.
+
+### Model boundary
+
+Request-set construction, validation, partitioning, and result association are
+deterministic and introduce no live state machine. Their implementation uses
+ordinary Release gates. Shared per-unit routing, settlement, stopping, and work
+charging are the stateful interaction owned by
+[Open and closed queries](open-and-closed-queries.md);
+[#8985](https://github.com/richlander/dotnet-inspect/pull/8985) supplies that
+owner's dedicated routing-settlement model. Accepted source execution remains
+governed by Source Delegation. This design does not copy either adjacent
+owner's transitions into a second model.
+
+### Production adoption and retirement
+
+[#8574](https://github.com/richlander/dotnet-inspect/issues/8574) is the
+end-to-end request-collapse tracker, and
+[#8965](https://github.com/richlander/dotnet-inspect/issues/8965) owns the
+Library Body Analysis retirement sequence. The first observable paths each
+contain three focused slices:
+
+1. lock this request-set and collapse contract;
+2. implement the host-neutral reference planner and let the Method source
+   consume one request-set plan without changing producer semantics; and
+3. adopt that path in one CLI library operation and one Browser/Wasm Analysis
+   operation, in separate owner-focused PRs.
+
+The CLI adopter combines unsafe-evidence presence with one still-live body
+producer, moves that producer's focused result and real command consumer, and
+shrinks the temporary legacy remainder. The Browser/Wasm adopter composes the
+same host-neutral request-set result into its existing performance Analysis
+operation rather than adding a TypeScript planner. A fourth focused adoption
+uses a non-Analysis row source, proving that the substrate is not a body-
+analysis multiplexer.
+
+The subsequent producer-by-producer drain and final hub deletion remain with
+issue #8965. No adopter is complete when it wraps
+`LibraryBodyAnalysisBuilder.Build`, builds every legacy result and filters
+afterward, or adds an Analysis-owned request union beside Query Space.
+Rendering does not change: the CLI continues through its existing Markout
+lowering and the Browser through its existing typed projection.
+
+The reference planner and first production adopters record exact base/head
+NativeAOT evidence for each supported terminal. The evidence compares a direct
+terminal-specialized source plan with the singleton request-set path, first and
+repeated use of an invariant plan, and independent with collapsed execution.
+It reports fixed setup, allocation, source units visited, projection, and row
+materialization. Exists and Count report the Rows-terminal projection and row
+result work they avoided, while preserving any input rows or snapshot their own
+semantic stages require. A source-native or cardinality-only Count claiming no
+row access must prove that every remaining stage can execute without row
+values. Fewer execution groups or source traversals alone is not a performance
+result.
+
+### Request-set pathological cases
+
+The implementation must demonstrate:
+
+- two consumers ask the same closed query under distinct association
+  identities; one execution may serve both, but the result set retains two
+  correctly associated entries;
+- two equal-looking paths carry different owner-issued resource identities and
+  never share a source plan;
+- an Exists request settles at method 2 while a Rows request sharing the source
+  fails at method 5; Exists remains true with its original settlement evidence,
+  Rows fails visibly, and Exists is charged only through method 2;
+- one source-native Count and one row-handoff request share a resource without
+  Count being recomputed from partial rows;
+- a wider projection makes sharing ineligible or more expensive, so the
+  planner emits two groups and both results remain reference-equivalent; and
+- an accepted shared read becomes incomplete; every unsettled covered request
+  retains the source outcome, while no request silently reruns independently.
 
 ## Facet definitions and bindings
 
@@ -502,7 +729,19 @@ Kind, or schema generation.
 
 Rows and exact Count are peer terminal requirements over each participating
 row set's selected sequence after membership projection, predicates, effective
-order, and semantic selection.
+order, and semantic selection. Exists is the Boolean closing defined by
+[Open and closed queries](open-and-closed-queries.md): it settles when the
+first selected unit satisfies its owner-issued predicate and otherwise
+requires source exhaustion.
+
+Query Space carries and validates Exists as structural request meaning. An
+operation that advertises it must lower the terminal to executable owner work
+before source acquisition and preserve the corresponding result, outcome, and
+receipt. Exists neither implies row projection nor manufactures completion
+evidence, and it may stop early only when the lowered work records that the
+closing settled. The unsafe-evidence presence operation is the first such
+lowering; generic section-row execution continues to support Rows and Count
+only.
 
 **Rows** then applies any validated cell projection and returns the selected
 typed rows plus their row-set identity, source, and completion outcomes. The
@@ -824,6 +1063,17 @@ Implementation proceeds as focused owner adoptions:
    supported package publication.
 13. Evaluate source generation after the first three explicit query-space
    adopters establish repeated boilerplate.
+14. Lock #8574's immutable request-set, resource-association, collapse, and
+   per-request result contract in this owner.
+15. Implement the host-neutral reference request-set planner and let the Method
+   source consume one request-set plan without changing Producer Planning.
+16. Move one mixed CLI library operation through the plan, shrinking the
+   temporary Library Body Analysis remainder and recording exact terminal
+   evidence.
+17. Move one Browser/Wasm Analysis operation through the same host-neutral
+   result without adding a TypeScript planner.
+18. Adopt one non-Analysis row source to prove that request collapse remains a
+   general Query Space capability.
 
 Each step names one adopting owner and retains every other owner's contract.
 
@@ -840,6 +1090,15 @@ slices:
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate canonical term keys across the query space; each portable intent resolves inside one operation or row query vocabulary; same-named owner-local families and predicates remain isolated across scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
 | `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. `CountCapturesCardinalityWhileRowsCaptureValues` verifies the terminal-specific snapshot boundary and caller-mutation isolation for the Graph Libraries adopter. |
+| `QuerySpacePreservesExistsClosing` | The unsafe-evidence descriptor advertises only Exists, its owner-issued request retains the method-definition row set and result contract, and request resolution lowers that closing to the Producer Planning Exists terminal before image acquisition. The production borrowed-context gate verifies successful early-stop execution publishes the corresponding producer receipt without prefetched image access; the incomplete-before-evidence gate verifies a failed execution preserves its typed producer outcome and receipt while pre-execution failures remain distinct. |
+| `RequestSetRejectsInvalidAssociationsWithoutWork` | Duplicate association identities, absent resource identities, unresolved requests, source bindings inconsistent with their resource associations, and result-contract mismatches reject the complete set before acquisition. |
+| `CollapsePreservesIndependentReferenceResults` | Source-native, shared-read, singleton, and deliberately unshared plans publish the same per-request values, outcomes, failure units, completion, and evidence as independent reference executions. |
+| `RequestSetPreservesTerminalSpecializedPlans` | A singleton Exists, Count, or Rows request uses the same terminal-specialized source plan, result, stopping point, and evidence as direct execution. Exists performs no row projection. Count does not execute cell projection or publish a row result, but it retains the complete input snapshot when its own residual requires row values; a cardinality-only Count is accepted only when every remaining stage needs no row values. A fused plan stops routing and charging a terminal when its independent execution settles. |
+| `RequestSetPreservesOwnerPlanLifetime` | Planning reads no subject and consumes the resolved owner-issued source plan without rebuilding it. A complete request-set plan is reused only for the same complete request set; changed association, resource, or owner-resolved request meaning forms a new plan. |
+| `SettledRequestSurvivesLaterSharedFailure` | An Exists request settled before a later Rows failure retains its result and settlement evidence; the failed request remains visibly failed and no settled request is charged for later units. |
+| `CoveringReadRequiresOwnerIdentityAndAcceptedCompletion` | Equal display paths with different owner-issued resource identities never group, and no handoff or native answer satisfies a request without its exact accepted completion requirement. |
+| `RequestSetPublishesEveryAssociationExactlyOnce` | Duplicate semantic queries may share work, but the detached result set retains one typed entry per caller-issued association in request-set order, with no missing or multiply assigned entry. |
+| `SharedWorkReceiptDoesNotDoubleCharge` | Group-level physical work is recorded once while each request retains its own participation, satisfaction path, source evidence, terminal completion, and settled boundary. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
 | `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |
@@ -854,6 +1113,12 @@ slices:
 This design does not claim:
 
 - that every query is source-delegable;
+- that every compatible request must share a source plan;
+- that display text, a path, or query equality establishes resource identity;
+- that request sets collect work across operations, time, threads, or event-loop
+  turns;
+- that collapse supplies caching, retention, memoization, concurrency, or a
+  general cost optimizer;
 - that every source exposes a continuation;
 - that continuation implies stable random access;
 - that exact Count implies row seekability;

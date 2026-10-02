@@ -211,11 +211,28 @@ static partial class FidelityCheck
         IReadOnlyList<string> assemblies,
         int cap,
         string? typeFilter = null)
+        => SelectReturnToSenderTargetPlan(
+            assemblies,
+            cap,
+            typeFilter).Targets;
+
+    internal static ReturnToSenderTargetSelection SelectReturnToSenderTargetPlan(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        string? typeFilter = null,
+        CSharpLanguageProfile? languageProfile = null)
     {
         if (cap <= 0)
-            return [];
+            return new([], [], 0, 0, 0);
 
         var selected = new List<CompileBackTarget>(Math.Min(cap, 4096));
+        var exclusions = new List<ReturnToSenderTargetExclusion>();
+        int scannedBodyCount = 0;
+        int declarationCandidateCount = 0;
+        int eligibleCount = 0;
+        CSharpLanguageProfile profile =
+            languageProfile
+            ?? new(CSharpLanguageVersion.Preview);
         using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
@@ -226,50 +243,93 @@ static partial class FidelityCheck
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             RegisterSourceContext(source, metadata);
             var reader = source.Reader;
-            var targetApiIndex = CreateTargetApiIndex(source.Pe);
+            // Preserve generated MethodSemantics until this selector applies
+            // its own generated-method policy.
+            TargetApiEvidence targetApiEvidence =
+                CreateTargetApiEvidence(
+                    source.Pe,
+                    includeCompilerGenerated: true);
+            using var declarations =
+                new ReturnToSenderDeclarationSession(assemblyPath);
+            var decisions =
+                new Dictionary<int, ReturnToSenderCandidateDecision>();
             foreach (var candidate in IrImporter.GetStableSampleCandidates(
                          source,
                          remaining,
-                         candidate => IsStandaloneReturnToSenderCandidate(
-                                 reader,
-                                 candidate,
-                                 typeFilter,
-                                 targetApiIndex)
-                             && MetadataMemberSignatureShape.Create(
-                                 reader,
-                                 candidate.MethodHandle).Shape is not null,
-                         candidate => "generic-arity:"
-                             + reader.GetMethodDefinition(candidate.MethodHandle)
-                                 .GetGenericParameters().Count.ToString(
-                                     CultureInfo.InvariantCulture)))
+                         candidate =>
+                         {
+                             scannedBodyCount++;
+                             ReturnToSenderCandidateDecision? decision =
+                                 DecideStandaloneReturnToSenderCandidate(
+                                     assemblyPath,
+                                     reader,
+                                     candidate,
+                                     typeFilter,
+                                     targetApiEvidence,
+                                     declarations,
+                                     profile,
+                                     out bool declarationCandidate);
+                             if (declarationCandidate)
+                                 declarationCandidateCount++;
+                             if (decision is null)
+                                 return false;
+
+                             int token = System.Reflection.Metadata.Ecma335
+                                 .MetadataTokens.GetToken(
+                                     candidate.MethodHandle);
+                             decisions.Add(token, decision);
+                             if (decision.Exclusion is { } exclusion)
+                             {
+                                 exclusions.Add(exclusion);
+                                 return false;
+                             }
+
+                             eligibleCount++;
+                             return true;
+                         },
+                         candidate =>
+                         {
+                             int token = System.Reflection.Metadata.Ecma335
+                                 .MetadataTokens.GetToken(
+                                     candidate.MethodHandle);
+                             return decisions[token].StableIdentitySuffix;
+                         }))
             {
-                var signatureShape = MetadataMemberSignatureShape.Create(
-                    reader,
-                    candidate.MethodHandle);
-                if (signatureShape.Shape is not { } shape)
-                {
-                    throw new InvalidOperationException(
-                        "A selected standalone RTS target lost its canonical signature.");
-                }
-                selected.Add(new CompileBackTarget(
-                    assemblyPath,
-                    candidate.TypeName,
-                    candidate.MethodName,
-                    candidate.Overload,
-                    MemberSignatureShapeCodec.Encode(shape),
-                    MetadataMethodAddress.Create(reader, candidate.MethodHandle)));
+                int token = System.Reflection.Metadata.Ecma335.MetadataTokens
+                    .GetToken(candidate.MethodHandle);
+                selected.Add(decisions[token].Target
+                    ?? throw new InvalidOperationException(
+                        "A selected standalone RTS target lost its declaration decision."));
             }
         }
 
-        return selected;
+        return new(
+            selected.ToArray(),
+            exclusions
+                .OrderBy(exclusion => exclusion.AssemblyPath, StringComparer.Ordinal)
+                .ThenBy(exclusion => exclusion.Type, StringComparer.Ordinal)
+                .ThenBy(exclusion => exclusion.Method, StringComparer.Ordinal)
+                .ThenBy(exclusion => exclusion.Signature, StringComparer.Ordinal)
+                .ThenBy(exclusion => exclusion.Reason)
+                .ThenBy(exclusion => exclusion.Overload)
+                .ToArray(),
+            scannedBodyCount,
+            declarationCandidateCount,
+            eligibleCount);
     }
 
-    static bool IsStandaloneReturnToSenderCandidate(
+    static ReturnToSenderCandidateDecision?
+        DecideStandaloneReturnToSenderCandidate(
+        string assemblyPath,
         MetadataReader reader,
         IrImporter.StableSampleCandidate candidate,
         string? typeFilter,
-        IReadOnlyDictionary<int, (ApiType Type, ApiMember Member)> targetApiIndex)
+        TargetApiEvidence targetApiEvidence,
+        ReturnToSenderDeclarationSession declarations,
+        CSharpLanguageProfile languageProfile,
+        out bool declarationCandidate)
     {
+        declarationCandidate = false;
         var typeDef = reader.GetTypeDefinition(candidate.TypeDefHandle);
         if (!typeDef.GetDeclaringType().IsNil
             || ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct)
@@ -277,17 +337,307 @@ static partial class FidelityCheck
                 && !candidate.TypeName.Contains(typeFilter, StringComparison.Ordinal))
             || IsGeneratedType(reader, typeDef, candidate.TypeName))
         {
-            return false;
+            return null;
         }
 
         var method = reader.GetMethodDefinition(candidate.MethodHandle);
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
             candidate.MethodHandle);
-        return !IsGeneratedMethod(reader, method, candidate.MethodName)
-            && targetApiIndex.TryGetValue(token, out var entry)
-            && CSharpMemberArtifactEligibility.IsRepresentable(
-                entry.Type,
-                entry.Member);
+        bool mappedAccessor =
+            targetApiEvidence.AccessorTokens.Contains(token);
+        bool hasApiEntry =
+            targetApiEvidence.Index.TryGetValue(token, out var entry);
+        bool requiresMethodSemanticsDecision = mappedAccessor
+            || (hasApiEntry
+                && entry.Member.MethodSemantics is not
+                    ApiMethodSemanticsKind.None);
+        MetadataMethodAddress address =
+            MetadataMethodAddress.Create(reader, candidate.MethodHandle);
+        CSharpAccessorDeclarationPost? accessorPost = null;
+        if (requiresMethodSemanticsDecision
+            || (method.Attributes & MethodAttributes.SpecialName) != 0)
+        {
+            accessorPost = declarations.CaptureAccessor(
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    candidate.TypeDefHandle),
+                address);
+        }
+        bool hasAccessorAssociation =
+            accessorPost?.Association is not null
+                and not MetadataAccessorAssociationResult.Absent;
+        if (!requiresMethodSemanticsDecision
+            && !hasAccessorAssociation
+            && IsGeneratedMethod(
+                reader,
+                method,
+                candidate.MethodName,
+                allowEmbeddedAngleBrackets: true))
+            return null;
+
+        declarationCandidate = true;
+        string stableIdentitySuffix = "generic-arity:"
+            + method.GetGenericParameters().Count.ToString(
+                CultureInfo.InvariantCulture);
+        MemberSignatureShapeResult signatureShape =
+            MetadataMemberSignatureShape.Create(
+                reader,
+                candidate.MethodHandle);
+        string? signature = signatureShape.Shape is { } shape
+            ? MemberSignatureShapeCodec.Encode(shape)
+            : null;
+
+        ReturnToSenderTargetExclusion Exclude(
+            ReturnToSenderTargetExclusionReason reason,
+            ReturnToSenderDeclarationProducer? producer = null,
+            CSharpDeclarationRepresentabilityResult? exactOutcome = null,
+            CSharpAccessorDeclarationRepresentabilityResult?
+                accessorOutcome = null)
+            => new(
+                assemblyPath,
+                candidate.TypeName,
+                candidate.MethodName,
+                candidate.Overload,
+                signature,
+                address,
+                reason,
+                producer,
+                exactOutcome,
+                accessorOutcome);
+
+        ReturnToSenderDeclarationSelection declaration;
+        CSharpDeclarationRepresentabilityResult? exactResult = null;
+        CSharpAccessorDeclarationRepresentabilityResult?
+            accessorResult = null;
+        if (requiresMethodSemanticsDecision || hasAccessorAssociation)
+        {
+            accessorPost ??= declarations.CaptureAccessor(
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    candidate.TypeDefHandle),
+                address);
+            accessorResult =
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    accessorPost,
+                    languageProfile);
+            switch (accessorResult)
+            {
+                case CSharpAccessorDeclarationRepresentabilityResult
+                    .Representable represented:
+                    declaration =
+                        new ReturnToSenderDeclarationSelection.ExactAccessor(
+                            represented.Request);
+                    break;
+                case CSharpAccessorDeclarationRepresentabilityResult
+                    .Unrepresentable:
+                    return new(
+                        null,
+                        Exclude(
+                            ReturnToSenderTargetExclusionReason
+                                .ExactAccessorDeclarationUnrepresentable,
+                            ReturnToSenderDeclarationProducer
+                                .ExactAccessorDeclaration,
+                            accessorOutcome: accessorResult),
+                        stableIdentitySuffix);
+                case CSharpAccessorDeclarationRepresentabilityResult
+                    .Unavailable:
+                    return new(
+                        null,
+                        Exclude(
+                            ReturnToSenderTargetExclusionReason
+                                .ExactAccessorDeclarationUnavailable,
+                            ReturnToSenderDeclarationProducer
+                                .ExactAccessorDeclaration,
+                            accessorOutcome: accessorResult),
+                        stableIdentitySuffix);
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown C# accessor declaration representability "
+                        + "result.");
+            }
+        }
+        else
+        {
+            CSharpMethodDeclarationPost? exactPost = null;
+            bool inspectExactDeclaration =
+                !hasApiEntry
+                || entry.Member.Kind is
+                    "explicit-interface-implementation" or "operator";
+            bool requiresExactDeclaration =
+                hasApiEntry
+                && entry.Member.Kind == "explicit-interface-implementation";
+            if (inspectExactDeclaration)
+            {
+                exactPost = declarations.CaptureMethod(
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        candidate.TypeDefHandle),
+                    address);
+                requiresExactDeclaration |=
+                    exactPost.Implementations is not
+                        MetadataMethodImplementationResult.Absent;
+            }
+
+            if (requiresExactDeclaration)
+            {
+                exactPost ??= declarations.CaptureMethod(
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        candidate.TypeDefHandle),
+                    address);
+                exactResult = CSharpDeclarationRepresentability.Decide(
+                    exactPost,
+                    languageProfile);
+                switch (exactResult)
+                {
+                    case CSharpDeclarationRepresentabilityResult.Representable
+                        represented:
+                        declaration =
+                            new ReturnToSenderDeclarationSelection.ExactMethod(
+                                represented.Request);
+                        break;
+                    case CSharpDeclarationRepresentabilityResult
+                        .Unrepresentable:
+                        return new(
+                            null,
+                            Exclude(
+                                ReturnToSenderTargetExclusionReason
+                                    .ExactDeclarationUnrepresentable,
+                                ReturnToSenderDeclarationProducer
+                                    .ExactMethodDeclaration,
+                                exactResult),
+                            stableIdentitySuffix);
+                    case CSharpDeclarationRepresentabilityResult.Unavailable:
+                        return new(
+                            null,
+                            Exclude(
+                                ReturnToSenderTargetExclusionReason
+                                    .ExactDeclarationUnavailable,
+                                ReturnToSenderDeclarationProducer
+                                    .ExactMethodDeclaration,
+                                exactResult),
+                            stableIdentitySuffix);
+                    default:
+                        throw new InvalidOperationException(
+                            "Unknown C# declaration representability result.");
+                }
+            }
+            else
+            {
+                if (!hasApiEntry)
+                {
+                    return new(
+                        null,
+                        Exclude(
+                            ReturnToSenderTargetExclusionReason
+                                .ProductMemberUnavailable,
+                            ReturnToSenderDeclarationProducer
+                                .OrdinaryTypeArtifact,
+                            exactResult),
+                        stableIdentitySuffix);
+                }
+
+                if (!CSharpMemberArtifactEligibility.IsRepresentable(
+                        entry.Type,
+                        entry.Member))
+                {
+                    return new(
+                        null,
+                        Exclude(
+                            ReturnToSenderTargetExclusionReason
+                                .OrdinaryDeclarationUnrepresentable,
+                            ReturnToSenderDeclarationProducer
+                                .OrdinaryTypeArtifact),
+                        stableIdentitySuffix);
+                }
+
+                declaration =
+                    new ReturnToSenderDeclarationSelection.OrdinaryMethod();
+            }
+        }
+
+        if (signature is null)
+        {
+            return new(
+                null,
+                Exclude(
+                    ReturnToSenderTargetExclusionReason
+                        .CanonicalSignatureUnavailable,
+                    declaration switch
+                    {
+                        ReturnToSenderDeclarationSelection.ExactMethod =>
+                            ReturnToSenderDeclarationProducer
+                                .ExactMethodDeclaration,
+                        ReturnToSenderDeclarationSelection.ExactAccessor =>
+                            ReturnToSenderDeclarationProducer
+                                .ExactAccessorDeclaration,
+                        _ => ReturnToSenderDeclarationProducer
+                            .OrdinaryTypeArtifact,
+                    },
+                    exactResult,
+                    accessorOutcome: accessorResult),
+                stableIdentitySuffix);
+        }
+
+        return new(
+            new CompileBackTarget(
+                assemblyPath,
+                candidate.TypeName,
+                candidate.MethodName,
+                candidate.Overload,
+                signature,
+                address,
+                declaration),
+            null,
+            stableIdentitySuffix);
+    }
+
+    sealed class ReturnToSenderDeclarationSession : IDisposable
+    {
+        readonly string _assemblyPath;
+        AssemblyInspectionSession? _assembly;
+        MetadataOperationContext? _operation;
+        MetadataDeclarationSession? _declarations;
+
+        internal ReturnToSenderDeclarationSession(string assemblyPath)
+            => _assemblyPath = assemblyPath;
+
+        internal CSharpMethodDeclarationPost CaptureMethod(
+            MetadataTypeDefinitionAddress type,
+            MetadataMethodAddress method)
+        {
+            _assembly ??= AssemblyInspectionSession.Open(_assemblyPath);
+            _operation ??= new(
+                MetadataOperationPolicy.Unbounded);
+            _declarations ??=
+                _assembly.CreateDeclarationSession(_operation);
+            return CSharpMethodDeclarationPost.Capture(
+                _declarations,
+                type,
+                method);
+        }
+
+        internal CSharpAccessorDeclarationPost CaptureAccessor(
+            MetadataTypeDefinitionAddress type,
+            MetadataMethodAddress method)
+        {
+            _assembly ??= AssemblyInspectionSession.Open(_assemblyPath);
+            _operation ??= new(
+                MetadataOperationPolicy.Unbounded);
+            _declarations ??=
+                _assembly.CreateDeclarationSession(_operation);
+            return CSharpAccessorDeclarationPost.Capture(
+                _declarations,
+                type,
+                method);
+        }
+
+        public void Dispose()
+        {
+            _declarations?.Dispose();
+            _operation?.Dispose();
+            _assembly?.Dispose();
+        }
     }
 
     public static async Task<int> RunMethodDelta(
@@ -483,7 +833,69 @@ static partial class FidelityCheck
         string Method,
         int Overload,
         string Signature,
-        MetadataMethodAddress? Address = null);
+        MetadataMethodAddress? Address = null,
+        ReturnToSenderDeclarationSelection? Declaration = null);
+
+    internal abstract record ReturnToSenderDeclarationSelection
+    {
+        private ReturnToSenderDeclarationSelection()
+        {
+        }
+
+        internal sealed record OrdinaryMethod
+            : ReturnToSenderDeclarationSelection;
+
+        internal sealed record ExactMethod(
+            CSharpAcceptedDeclarationRequest Request)
+            : ReturnToSenderDeclarationSelection;
+
+        internal sealed record ExactAccessor(
+            CSharpAcceptedAccessorDeclarationRequest Request)
+            : ReturnToSenderDeclarationSelection;
+    }
+
+    internal enum ReturnToSenderDeclarationProducer
+    {
+        OrdinaryTypeArtifact,
+        ExactMethodDeclaration,
+        ExactAccessorDeclaration,
+    }
+
+    internal enum ReturnToSenderTargetExclusionReason
+    {
+        ProductMemberUnavailable,
+        OrdinaryDeclarationUnrepresentable,
+        ExactDeclarationUnrepresentable,
+        ExactDeclarationUnavailable,
+        ExactAccessorDeclarationUnrepresentable,
+        ExactAccessorDeclarationUnavailable,
+        CanonicalSignatureUnavailable,
+    }
+
+    internal sealed record ReturnToSenderTargetExclusion(
+        string AssemblyPath,
+        string Type,
+        string Method,
+        int Overload,
+        string? Signature,
+        MetadataMethodAddress Address,
+        ReturnToSenderTargetExclusionReason Reason,
+        ReturnToSenderDeclarationProducer? Producer = null,
+        CSharpDeclarationRepresentabilityResult? ExactOutcome = null,
+        CSharpAccessorDeclarationRepresentabilityResult? AccessorOutcome =
+            null);
+
+    internal sealed record ReturnToSenderTargetSelection(
+        IReadOnlyList<CompileBackTarget> Targets,
+        IReadOnlyList<ReturnToSenderTargetExclusion> Exclusions,
+        int ScannedBodyCount,
+        int DeclarationCandidateCount,
+        int EligibleCount);
+
+    sealed record ReturnToSenderCandidateDecision(
+        CompileBackTarget? Target,
+        ReturnToSenderTargetExclusion? Exclusion,
+        string StableIdentitySuffix);
 
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
@@ -1574,9 +1986,16 @@ static partial class FidelityCheck
            || AttributeReader.HasAttribute(reader, typeDef.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute")
            || BaseTypeName(reader, typeDef.BaseType) == "System.Text.Json.Serialization.JsonSerializerContext";
 
-    static bool IsGeneratedMethod(MetadataReader reader, MethodDefinition method, string name)
+    static bool IsGeneratedMethod(
+        MetadataReader reader,
+        MethodDefinition method,
+        string name,
+        bool allowEmbeddedAngleBrackets = false)
     {
-        if (name.Contains('<')
+        bool generatedName = allowEmbeddedAngleBrackets
+            ? name.StartsWith('<')
+            : name.Contains('<');
+        if (generatedName
             || name.StartsWith("__", StringComparison.Ordinal)
             || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute"))
             return true;
@@ -1843,11 +2262,66 @@ static partial class FidelityCheck
         string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
         List<CompileBackResult> results, FidelityPhaseTimings? timings)
     {
+        // Field initializers are identical across a type's constructors (C# declares
+        // them once at the field), so any ctor entry's lifted inits serve the group.
+        var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
+        if (fieldInits.Count > 0
+            && entries.Count > 1
+            && HasTargetedPropertyInitializer(reader, typeHandle, entries, fieldInits))
+        {
+            // One C# declaration cannot both carry a lifted initializer for a
+            // constructor target and preserve the immutable whole-property
+            // artifact for an accessor target. Keep constructor contexts isolated
+            // and retain one grouped compile for all non-constructor targets.
+            var partitioned = new Dictionary<(string Method, int Overload, string Signature), CompileBackResult>();
+            foreach (var entry in entries.Where(entry => entry.Name is ".ctor" or ".cctor"))
+            {
+                var constructorResults = new List<CompileBackResult>();
+                if (!TryCompileGroupCore(
+                    reader, pe, references, parseOptions, compileOptions,
+                    fullType, typeHandle, [entry], constructorResults, timings))
+                    return false;
+                foreach (var result in constructorResults)
+                    partitioned[(result.Method, result.Overload, result.Signature)] = result;
+            }
+
+            var nonConstructors = entries
+                .Where(entry => entry.Name is not (".ctor" or ".cctor"))
+                .ToArray();
+            if (nonConstructors.Length > 0)
+            {
+                var nonConstructorResults = new List<CompileBackResult>();
+                if (!TryCompileGroupCore(
+                    reader, pe, references, parseOptions, compileOptions,
+                    fullType, typeHandle, nonConstructors, nonConstructorResults, timings))
+                    return false;
+                foreach (var result in nonConstructorResults)
+                    partitioned[(result.Method, result.Overload, result.Signature)] = result;
+            }
+
+            foreach (var entry in entries)
+            {
+                if (!partitioned.TryGetValue((entry.Name, entry.Overload, entry.Signature), out var result))
+                    return false;
+                results.Add(result);
+            }
+            return true;
+        }
+
+        return TryCompileGroupCore(
+            reader, pe, references, parseOptions, compileOptions,
+            fullType, typeHandle, entries, results, timings);
+    }
+
+    static bool TryCompileGroupCore(
+        MetadataReader reader, PEReader pe, ReferenceSet references,
+        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
+        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
+        List<CompileBackResult> results, FidelityPhaseTimings? timings)
+    {
         var targets = new Dictionary<MethodDefinitionHandle, TargetBody>();
         foreach (var e in entries)
             targets[e.Handle] = e.Target;
-        // Field initializers are identical across a type's constructors (C# declares
-        // them once at the field), so any ctor entry's lifted inits serve the group.
         var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
 
         BuiltUnit built;
@@ -1879,6 +2353,30 @@ static partial class FidelityCheck
             return false;   // a method that compiled but cannot be found — fall to isolation
         results.AddRange(disassembled);
         return true;
+    }
+
+    static bool HasTargetedPropertyInitializer(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        IReadOnlyList<Entry> entries,
+        IReadOnlyList<(string Field, string Value)> fieldInits)
+    {
+        var targetHandles = entries.Select(entry => entry.Handle).ToHashSet();
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            string name = reader.GetString(property.Name);
+            if (!fieldInits.Any(init =>
+                init.Field == name || init.Field == AutoPropertyBackingFieldName(name)))
+                continue;
+
+            var accessors = property.GetAccessors();
+            if ((!accessors.Getter.IsNil && targetHandles.Contains(accessors.Getter))
+                || (!accessors.Setter.IsNil && targetHandles.Contains(accessors.Setter)))
+                return true;
+        }
+        return false;
     }
 
     static List<CompileBackResult>? DisassembleAndClassifyGroup(

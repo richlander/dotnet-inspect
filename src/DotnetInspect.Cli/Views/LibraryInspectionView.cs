@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.Commands;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Inspectors;
@@ -15,17 +16,37 @@ using Markout;
 
 namespace DotnetInspect.Cli.Views;
 
-[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 7, FieldLayout = FieldLayout.Inline)]
+[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 6, FieldLayout = FieldLayout.Inline)]
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
+    private readonly LibraryDocumentInspection? _documentInspection;
     private readonly bool _topFieldsOnly;
+    private LibraryScalarFields? _scalars;
+
+    // One projection feeds Library Info, the -v:q summary, and the Library
+    // summary field, so they cannot disagree (docs/design/library-info-composition.md).
+    private LibraryScalarFields? Scalars =>
+        _scalars ??= LibraryScalarFields.From(
+            _data,
+            _documentInspection);
     private readonly Dictionary<LibraryIntegrationDescriptor, List<(string Kind, string Name, string Shape)>> _integrationSignals = [];
 
-    public LibraryInspectionView(LibraryInspection data, bool topFieldsOnly = false)
+    public LibraryInspectionView(
+        LibraryInspection data,
+        bool topFieldsOnly = false)
+        : this(data, topFieldsOnly, null)
+    {
+    }
+
+    internal LibraryInspectionView(
+        LibraryInspection data,
+        bool topFieldsOnly,
+        LibraryDocumentInspection? documentInspection)
     {
         _data = data;
         _topFieldsOnly = topFieldsOnly;
+        _documentInspection = documentInspection;
     }
 
     [MarkoutIgnore]
@@ -35,48 +56,47 @@ public class LibraryInspectionView
     [MarkoutPropertyName("File")]
     public string FileName => LibraryViewText.Contain(_data.FileName);
 
-    // ===== Top fields (first 7 auto-fields, rendered inline for -v:q compact summary) =====
+    // ===== Top fields (first 6 auto-fields, rendered inline for -v:q compact summary) =====
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
-    public string? Name => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.AssemblyName) : null;
+    public string? Name => _topFieldsOnly ? LibraryViewText.Contain(Scalars?.Name) : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
-    public string? Version => _topFieldsOnly ? LibraryViewText.Contain(LibraryInspectionDisplay.ResolveVersion(_data)) : null;
+    public string? Version => _topFieldsOnly ? LibraryViewText.Contain(Scalars?.Version) : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("TFM")]
     [MarkoutSkipNull]
-    public string? TargetFramework => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.TargetFramework) : null;
+    public string? TargetFramework => _topFieldsOnly ? LibraryViewText.Contain(Scalars?.TargetFramework) : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Arch")]
     [MarkoutSkipNull]
-    public string? Architecture => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.Architecture) : null;
+    public string? Architecture => _topFieldsOnly ? LibraryViewText.Contain(Scalars?.Architecture) : null;
 
     [MarkoutPropertyName("Size")]
     [MarkoutSkipNull]
-    public string? FileSize => _topFieldsOnly ? (_data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null) : null;
+    public string? FileSize => _topFieldsOnly ? Scalars?.FileSize : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
     public string? Source => _topFieldsOnly ? LibraryViewText.Contain(_data.Source) : null;
 
-    [MarkoutSkipNull]
-    public string? Modified => _topFieldsOnly ? _data.LastModified?.ToString("yyyy-MM-dd") : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Library")]
-    public string? AssemblySummary => _data.AssemblyInfo switch
+    public string? AssemblySummary => Scalars switch
     {
         null => null,
-        var info => LibraryViewText.Contain(string.Join(", ", new[]
+        { DocumentFailure: { } failure } => LibraryViewText.Contain(failure),
+        var fields => LibraryViewText.Contain(string.Join(", ", new[]
         {
-            info.Architecture,
-            info.TargetFramework,
-            info.CompilationType,
-            info.IsSigned ? "Signed" : null
+            fields.Architecture,
+            fields.TargetFramework,
+            fields.Compilation,
+            fields.Signed ? "Signed" : null
         }.Where(s => !string.IsNullOrEmpty(s))))
     };
 
@@ -128,20 +148,14 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
-    public bool HasAsyncMethods => _data.AsyncMethodCount > 0;
+    public bool HasAsyncMethods => _data.AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false };
 
+    /// <summary>The async rows as the query returned them, in display order.</summary>
     [MarkoutSection(Name = "Async Methods", ShowWhenProperty = nameof(HasAsyncMethods))]
     public List<AsyncMethodRow>? AsyncMethodsSection =>
-        _data.AsyncMethods?
-            .OrderBy(m => m.DeclaringType, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.MethodName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new AsyncMethodRow(
-                m.MethodName,
-                MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType),
-                m.Kind,
-                m.Signature))
-            .ToList();
+        _data.AsyncMethodDisplayRows.IsDefault
+            ? null
+            : [.. _data.AsyncMethodDisplayRows.Select(AsyncMethodRow.Create)];
 
     [MarkoutIgnore]
     public bool HasCustomAttributes => _data.AssemblyAttributeInspection.HasFindings();
@@ -186,36 +200,38 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutSection(Name = "Library Info")]
-    public LibraryInfoSection? AssemblyInfoSection => _data.AssemblyInfo is not { } info ? null : new LibraryInfoSection
+    public LibraryInfoSection? AssemblyInfoSection => _data.AssemblyInfo is not { } info || Scalars is not { } fields ? null : new LibraryInfoSection
     {
-        Architecture = info.Architecture,
-        AssemblyVersion = info.AssemblyVersion,
+        Architecture = fields.Architecture,
+        AssemblyVersion = fields.AssemblyVersion,
         AsyncMethods = _data.AsyncMethodCount,
-        Company = info.Company,
-        Compilation = info.CompilationType,
-        Copyright = info.Copyright,
+        ClassifiedMethods = _data.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer),
+        Company = fields.Company,
+        Compilation = fields.Compilation,
+        Copyright = fields.Copyright,
         CustomAttributes = _data.AssemblyAttributeInspection.FindingCount(),
         Deterministic = _data.IsDeterministic,
         ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
         Facade = _data.IsFacadeAssembly,
-        FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
-        InformationalVersion = info.InformationalVersion,
+        Enabled = fields.Enabled,
+        FileSize = fields.FileSize,
+        InformationalVersion = fields.InformationalVersion,
         Integrations = CountIntegrations(_data),
+        LibraryDocument = fields.DocumentFailure,
         Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
-        Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
-        Name = info.AssemblyName,
-        Product = info.Product,
-        PublicKeyToken = info.PublicKeyToken,
-        Reproducible = _data.HasReproducibleFlag,
+        Name = fields.Name,
+        Product = fields.Product,
+        PublicKeyToken = fields.PublicKeyToken,
+        Reproducible = fields.Reproducible,
         Resources = _data.ResourceInspection.FindingCount(),
-        Signed = info.IsSigned ? "Yes" : null,
+        Signed = fields.Signed ? "Yes" : null,
         Source = _data.Source,
         Switches = CountSwitches(_data),
-        TargetFramework = info.TargetFramework,
+        TargetFramework = fields.TargetFramework,
         TypeForwarders = _data.TypeForwarderInspection.FindingCount(),
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
         UnionTypes = _data.UnionTypeInspection.FindingCount(),
-        Version = LibraryInspectionDisplay.ResolveVersion(_data),
+        Version = fields.Version,
         EcosystemDependencies = EcosystemDependenciesDisplay,
         EcosystemDependencyStatus = EcosystemDependencyStatus,
     };
@@ -376,21 +392,14 @@ public class LibraryInspectionView
     }
 
     [MarkoutIgnore]
-    public bool HasPInvokeMethods => _data.PInvokeMethodCount > 0;
+    public bool HasPInvokeMethods => _data.PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false };
 
+    /// <summary>The P/Invoke rows as the query returned them, in display order.</summary>
     [MarkoutSection(Name = "P/Invoke Methods", ShowWhenProperty = nameof(HasPInvokeMethods))]
     public List<PInvokeMethodRow>? PInvokeMethodsSection =>
-        _data.PInvokeMethods?
-            .OrderBy(m => m.DeclaringType, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.MethodName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.ModuleName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new PInvokeMethodRow(
-                m.MethodName,
-                MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType),
-                m.ModuleName ?? "",
-                m.Signature))
-            .ToList();
+        _data.PInvokeMethodDisplayRows.IsDefault
+            ? null
+            : [.. _data.PInvokeMethodDisplayRows.Select(PInvokeMethodRow.Create)];
 
     [MarkoutIgnore]
     public bool HasResources => _data.ResourceInspection.HasFindings();
@@ -603,6 +612,8 @@ public class LibraryInspectionView
                 context.Frequency,
                 context.Escape,
                 context.EscapeKind,
+                context.LifetimeUses,
+                context.LifetimeLimitations,
                 context.EstimatedSizeBytes,
                 context.SizeTier,
                 context.InLoop,
@@ -788,7 +799,7 @@ public class LibraryInspectionView
 
     public bool HasTopLeverage =>
         _data.TopLeverageQueryResult is TopLeverageResult.Available
-            { Methods.IsEmpty: false };
+        { Methods.IsEmpty: false };
 
     // Rows arrive pre-ranked from Analysis; preserve that order (most leveraged first).
     [MarkoutSection(Name = "Top Leverage", ShowWhenProperty = nameof(HasTopLeverage))]
@@ -837,7 +848,7 @@ public class LibraryInspectionView
     public bool HasImplementationProfiles =>
         _data.ImplementationProfilesQueryResult
             is ImplementationProfilesResult.Available
-            { Profiles.IsEmpty: false };
+        { Profiles.IsEmpty: false };
 
     public bool HasLibraryMetrics =>
         _data.LibraryMetricsQueryResult
@@ -877,6 +888,21 @@ public class LibraryInspectionView
     [MarkoutIgnoreColumnWhen(
         nameof(LibraryMetricNotesEmpty),
         nameof(LibraryMetricRow.Notes))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricPositionEmpty),
+        nameof(LibraryMetricRow.Position))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricTypeEmpty),
+        nameof(LibraryMetricRow.Type))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricTypeKeyEmpty),
+        nameof(LibraryMetricRow.TypeKey))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricDegreeEmpty),
+        nameof(LibraryMetricRow.Degree))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricRoleEmpty),
+        nameof(LibraryMetricRow.Role))]
     public List<LibraryMetricRow>? LibraryMetricsSection
     {
         get
@@ -908,6 +934,83 @@ public class LibraryInspectionView
                 default:
                     return null;
             }
+        }
+    }
+
+    public bool HasNameFamilies =>
+        _data.NameFamilyQueryResult
+            is LibraryNameFamilyQueryResult.Available
+        { FamilyRows.IsEmpty: false };
+
+    [MarkoutSection(
+        Name = SectionNames.NameFamilies,
+        ShowWhenProperty = nameof(HasNameFamilies))]
+    public List<NameFamilyRow>? NameFamiliesSection
+    {
+        get
+        {
+            if (_data.NameFamilyQueryResult
+                is not LibraryNameFamilyQueryResult.Available available)
+            {
+                return null;
+            }
+
+            Dictionary<
+                MetadataTypeDefinitionAddress,
+                LibraryNameFamilyTypeRow> types =
+                    available.Document.Types.ToDictionary(
+                        static row => row.Type);
+            return
+            [
+                .. available.FamilyRows.Select(family =>
+                {
+                    string familyName =
+                        family.Identity.Kind
+                            == LibraryNameFamilyKind.OneWordSuffix
+                        ? family.Identity.Words[0]
+                        : family.Identity.Words[0]
+                            + family.Identity.Separator
+                            + family.Identity.Words[1];
+                    string[] examples =
+                    [
+                        .. family.Types
+                            .Take(5)
+                            .Select(address =>
+                            {
+                                MetadataTypeDefinitionName name =
+                                    types[address].Name;
+                                string nested = string.Join(
+                                    ".",
+                                    name.Segments);
+                                return name.Namespace.Length == 0
+                                    ? nested
+                                    : $"{name.Namespace}.{nested}";
+                            }),
+                    ];
+                    string exampleText = string.Join(
+                        ", ",
+                        examples.Select(MarkoutInline.Code));
+                    if (family.Types.Length > examples.Length)
+                    {
+                        exampleText +=
+                            $" (+{family.Types.Length - examples.Length:N0})";
+                    }
+
+                    return new NameFamilyRow(
+                        MarkoutInline.Code(familyName),
+                        family.Identity.Kind
+                            == LibraryNameFamilyKind.OneWordSuffix
+                            ? "one word"
+                            : "two word",
+                        family.TypeCount,
+                        family.PublicTypeCount,
+                        family.DistinctNamespaceCount,
+                        exampleText,
+                        LibraryNameFamilyQuery.PopulationToken(
+                            available.Population.Kind),
+                        available.Document.Provenance.State.ToString());
+                }),
+            ];
         }
     }
 
@@ -1084,6 +1187,9 @@ public class LibraryInspectionView
                 asyncDisposition.AbsentCount.ToString(),
                 null));
 
+        if (document.StructuralSalience is { } structuralSalience)
+            AddStructuralSalienceRows(rows, structuralSalience);
+
         rows.AddRange(
             document.Diagnostics.Select(static diagnostic => new LibraryMetricRow(
                 "Diagnostic",
@@ -1101,6 +1207,240 @@ public class LibraryInspectionView
                 diagnostic.Message)));
 
         return rows;
+    }
+
+    private static void AddStructuralSalienceRows(
+        List<LibraryMetricRow> rows,
+        LibraryStructuralSalienceDocument salience)
+    {
+        rows.Add(
+            new(
+                "Namespace Leverage",
+                "Qualification",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"index {salience.NamespaceIndex.Disposition}; "
+                    + $"signature "
+                    + $"{salience.NamespaceIndex.SignatureUse.Disposition}; "
+                    + $"sites "
+                    + $"{salience.NamespaceIndex.SignatureUse.Coverage.Examined}/"
+                    + $"{salience.NamespaceIndex.SignatureUse.Coverage.Considered}; "
+                    + $"occurrences "
+                    + $"{salience.NamespaceIndex.SignatureUse.OccurrenceCount}; "
+                    + $"diagnostics "
+                    + salience.NamespaceIndex.SignatureUse.Diagnostics.Length));
+        rows.AddRange(
+            salience.NamespaceIndex.SignatureUse.Diagnostics.Select(diagnostic =>
+                new LibraryMetricRow(
+                    "Namespace Leverage Diagnostic",
+                    "Signature use",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    FormatSignatureUseDiagnostic(diagnostic))));
+        for (var index = 0;
+            index < salience.NamespaceIndex.Rows.Length;
+            index++)
+        {
+            LibraryStructuralNamespaceLeverageRow row =
+                salience.NamespaceIndex.Rows[index];
+            rows.Add(
+                new(
+                    "Namespace Leverage",
+                    "External incoming source Types",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Position: index + 1,
+                    Namespace: row.Namespace,
+                    Score: row.ExternalIncomingSourceTypeCount,
+                    Designation:
+                        row.TopLeverage ? "Top leverage" : null));
+        }
+
+        foreach (LibraryStructuralTypeLeverageShard shard
+            in salience.TypeLeverageShards)
+        {
+            AddTypeLeverageQualificationRows(rows, shard);
+            IReadOnlyDictionary<
+                MetadataTypeDefinitionAddress,
+                LibraryStructuralTypeLeverageRow> byType =
+                    shard.Rows.ToDictionary(static row => row.Type);
+            AddTypeLeverageOrder(
+                rows,
+                shard,
+                "Sea-Level Types",
+                "Signature incoming",
+                shard.SeaLevel.Types,
+                byType,
+                static row => row.SignatureIncomingDegree,
+                static row =>
+                    row.Pole == LibraryStructuralTypePole.SeaLevel
+                        ? "Sea level"
+                        : null);
+            AddTypeLeverageOrder(
+                rows,
+                shard,
+                "Mountain-Peak Types",
+                "Signature outgoing",
+                shard.MountainPeak.Types,
+                byType,
+                static row => row.SignatureOutgoingDegree,
+                static row =>
+                    row.Pole == LibraryStructuralTypePole.MountainPeak
+                        ? "Mountain peak"
+                        : null);
+        }
+    }
+
+    private static void AddTypeLeverageQualificationRows(
+        List<LibraryMetricRow> rows,
+        LibraryStructuralTypeLeverageShard shard)
+    {
+        LibraryStructuralSignatureUseQualification signature =
+            shard.SignatureUse;
+        rows.Add(
+            new(
+                "Type-Leverage Shard",
+                "Qualification",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"sea-level {shard.SeaLevel.Disposition}; "
+                    + $"mountain-peak {shard.MountainPeak.Disposition}; "
+                    + $"roles {shard.RoleDisposition}; "
+                    + $"signature {signature.Disposition}",
+                Namespace: shard.Namespace));
+        rows.Add(
+            new(
+                "Type-Leverage Shard",
+                "Signature-use coverage",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"sites {signature.Coverage.Examined}/"
+                    + $"{signature.Coverage.Considered}; "
+                    + $"unavailable {signature.Coverage.Unavailable}; "
+                    + $"limited {signature.Coverage.Limited}; "
+                    + $"occurrences {signature.OccurrenceCount}",
+                Namespace: shard.Namespace));
+
+        rows.AddRange(
+            signature.Diagnostics.Select(diagnostic =>
+                new LibraryMetricRow(
+                    "Type-Leverage Shard Diagnostic",
+                    "Signature use",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    FormatSignatureUseDiagnostic(diagnostic),
+                    Namespace: shard.Namespace)));
+    }
+
+    private static string FormatSignatureUseDiagnostic(
+        MetadataLibrarySignatureUseDiagnostic diagnostic)
+    {
+        string token = diagnostic.MetadataToken is { } metadataToken
+            ? $" [0x{metadataToken:X8}]"
+            : "";
+        var qualification = new List<string>();
+        if (diagnostic.BudgetDimension is { } budgetDimension)
+            qualification.Add($"budget {budgetDimension}");
+        if (diagnostic.BudgetLimit is { } budgetLimit)
+            qualification.Add($"limit {budgetLimit}");
+        if (diagnostic.AttemptedCharge is { } attemptedCharge)
+            qualification.Add($"attempted {attemptedCharge}");
+        string suffix = qualification.Count == 0
+            ? ""
+            : $"; {string.Join("; ", qualification)}";
+        return $"{diagnostic.Kind}{token}: {diagnostic.Detail}{suffix}";
+    }
+
+    private static void AddTypeLeverageOrder(
+        List<LibraryMetricRow> rows,
+        LibraryStructuralTypeLeverageShard shard,
+        string category,
+        string measure,
+        IReadOnlyList<MetadataTypeDefinitionAddress> order,
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionAddress,
+            LibraryStructuralTypeLeverageRow> byType,
+        Func<LibraryStructuralTypeLeverageRow, int> degree,
+        Func<LibraryStructuralTypeLeverageRow, string?> designation)
+    {
+        for (int index = 0; index < order.Count; index++)
+        {
+            MetadataTypeDefinitionAddress address = order[index];
+            LibraryStructuralTypeLeverageRow leverageRow = byType[address];
+            rows.Add(
+                new(
+                    category,
+                    measure,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Position: index + 1,
+                    Type: leverageRow.Name.ToMetadataFullName(),
+                    TypeKey:
+                        $"{address.ModuleVersionId:N}:"
+                            + $"0x{address.Definition.Value:X8}",
+                    Degree: degree(leverageRow),
+                    Role: leverageRow.Role,
+                    Namespace: shard.Namespace,
+                    Designation: designation(leverageRow)));
+        }
     }
 
     private static string FormatMetric(LibraryStructuralMetric metric) =>
@@ -1205,6 +1545,26 @@ public class LibraryInspectionView
     public static bool LibraryMetricNotesEmpty(
         List<LibraryMetricRow>? rows)
         => rows is null || rows.All(row => row.Notes is null);
+
+    public static bool LibraryMetricPositionEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Position is null);
+
+    public static bool LibraryMetricTypeEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Type is null);
+
+    public static bool LibraryMetricTypeKeyEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.TypeKey is null);
+
+    public static bool LibraryMetricDegreeEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Degree is null);
+
+    public static bool LibraryMetricRoleEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Role is null);
 
     // Kind-scoped performance sections. The optimization-opportunity scan is holistic; each
     // section renders the subset whose shape maps to it (see PerformanceKinds) with a tight,
@@ -1558,59 +1918,89 @@ public record ClassifiedMethodRow(
     public string Signature => SignatureText.ToString();
 }
 
+/// <summary>
+/// A P/Invoke Methods row. The classified row's identity text is already
+/// field-safe (<see cref="InertString"/> from the method-row gate), so the row
+/// only lays it out and never encodes it again.
+/// Gate: LibraryFindingConsumerTests.ClassifiedRows_AreInertOnceAtTheGate.
+/// </summary>
 [MarkoutSerializable]
 public record PInvokeMethodRow(
-    string Name,
-    string DeclaringType,
-    string Module,
-    string Signature)
+    InertString NameText,
+    InertString DeclaringTypeText,
+    InertString ModuleText,
+    InertString SignatureText)
 {
-    /// <summary>
-    /// Crosses exact classified-method evidence into field-safe presentation text.
-    /// Gate: LibraryFindingConsumerTests.ClassifiedMethodsQueryProjection_PreservesIdentityUntilInertViewBoundary.
-    /// </summary>
-    public string Name { get; init; } =
-        new InertString(TextPolicy.Field, Name).ToString();
+    public static PInvokeMethodRow Create(ILInspector.Analysis.Classification.ClassifiedMethodRow row) =>
+        new(
+            row.MethodName,
+            FormatDeclaringType(row.DeclaringType),
+            row.ModuleName ?? InertString.Empty,
+            row.Signature);
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString NameText { get; init; } = NameText;
+
+    public string Name => NameText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString DeclaringTypeText { get; init; } = DeclaringTypeText;
 
     [MarkoutPropertyName("Declaring Type")]
-    public string DeclaringType { get; init; } =
-        MarkoutInline.Code(
-            new InertString(TextPolicy.Field, DeclaringType).ToString());
+    public string DeclaringType => MarkoutInline.Code(DeclaringTypeText.ToString());
 
-    /// <inheritdoc cref="Name"/>
-    public string Module { get; init; } =
-        new InertString(TextPolicy.Field, Module).ToString();
+    [MarkoutIgnore, JsonIgnore]
+    public InertString ModuleText { get; init; } = ModuleText;
 
-    /// <inheritdoc cref="Name"/>
-    public string Signature { get; init; } =
-        MarkoutInline.Code(
-            new InertString(TextPolicy.Field, Signature).ToString());
+    public string Module => ModuleText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SignatureText { get; init; } = SignatureText;
+
+    public string Signature => MarkoutInline.Code(SignatureText.ToString());
+
+    /// <summary>Spells generic arity as type parameters, keeping the text field-safe.</summary>
+    internal static InertString FormatDeclaringType(InertString declaringType) =>
+        InertString.FromEncoded(
+            TextPolicy.Field,
+            MetadataTypeNameFormatter.FormatGenericTypeName(declaringType.ToString()));
 }
 
+/// <inheritdoc cref="PInvokeMethodRow"/>
 [MarkoutSerializable]
 public record AsyncMethodRow(
-    string Name,
-    string DeclaringType,
+    InertString NameText,
+    InertString DeclaringTypeText,
     string Kind,
-    string Signature)
+    InertString SignatureText)
 {
-    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
-    public string Name { get; init; } =
-        new InertString(TextPolicy.Field, Name).ToString();
+    public static AsyncMethodRow Create(ILInspector.Analysis.Classification.ClassifiedMethodRow row) =>
+        new(
+            row.MethodName,
+            PInvokeMethodRow.FormatDeclaringType(row.DeclaringType),
+            row.Classification == MethodClassification.RuntimeAsync
+                ? AsyncMethodSummary.RuntimeKind
+                : AsyncMethodSummary.StateMachineKind,
+            row.Signature);
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString NameText { get; init; } = NameText;
+
+    public string Name => NameText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString DeclaringTypeText { get; init; } = DeclaringTypeText;
 
     [MarkoutPropertyName("Declaring Type")]
-    public string DeclaringType { get; init; } =
-        MarkoutInline.Code(
-            new InertString(TextPolicy.Field, DeclaringType).ToString());
+    public string DeclaringType => MarkoutInline.Code(DeclaringTypeText.ToString());
 
-    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
-    public string Kind { get; init; } =
-        new InertString(TextPolicy.Field, Kind).ToString();
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
 
-    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
-    public string Signature { get; init; } =
-        MarkoutInline.Code(
-            new InertString(TextPolicy.Field, Signature).ToString());
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SignatureText { get; init; } = SignatureText;
+
+    public string Signature => MarkoutInline.Code(SignatureText.ToString());
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
@@ -1811,6 +2201,8 @@ public record ILOffsetAllocationContextRow(
     string? Frequency,
     string? Escape,
     string? EscapeKind,
+    string? LifetimeUses,
+    string? LifetimeLimitations,
     int? EstSize,
     string? SizeTier,
     string? InLoop,
@@ -1847,6 +2239,16 @@ public record ILOffsetAllocationContextRow(
     [MarkoutPropertyName("Escape Kind")]
     [MarkoutSkipNull]
     public string? EscapeKind { get; init; } = LibraryViewText.Contain(EscapeKind);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Lifetime Uses")]
+    [MarkoutSkipNull]
+    public string? LifetimeUses { get; init; } = LibraryViewText.Contain(LifetimeUses);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Lifetime Limitations")]
+    [MarkoutSkipNull]
+    public string? LifetimeLimitations { get; init; } = LibraryViewText.Contain(LifetimeLimitations);
 
     [MarkoutPropertyName("Est Size")]
     public int? EstSize { get; init; } = EstSize;
@@ -2175,7 +2577,15 @@ public record LibraryMetricRow(
     InertString? MaximumBodiesText,
     string? Present,
     string? Absent,
-    string? Notes)
+    string? Notes,
+    int? Position = null,
+    string? Type = null,
+    string? TypeKey = null,
+    int? Degree = null,
+    LibraryStructuralTypeRole? Role = null,
+    string? Namespace = null,
+    int? Score = null,
+    string? Designation = null)
 {
     /// <inheritdoc cref="LibraryViewText"/>
     public string Category { get; init; } = LibraryViewText.Contain(Category);
@@ -2230,6 +2640,32 @@ public record LibraryMetricRow(
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
     public string? Notes { get; init; } = LibraryViewText.Contain(Notes);
+
+    [MarkoutSkipNull]
+    public int? Position { get; init; } = Position;
+
+    [MarkoutSkipNull]
+    public string? Type { get; init; } = LibraryViewText.Contain(Type);
+
+    [MarkoutSkipNull]
+    public string? TypeKey { get; init; } = LibraryViewText.Contain(TypeKey);
+
+    [MarkoutSkipNull]
+    public int? Degree { get; init; } = Degree;
+
+    [MarkoutSkipNull]
+    public LibraryStructuralTypeRole? Role { get; init; } = Role;
+
+    [MarkoutSkipNull]
+    public string? Namespace { get; init; } =
+        LibraryViewText.Contain(Namespace);
+
+    [MarkoutSkipNull]
+    public int? Score { get; init; } = Score;
+
+    [MarkoutSkipNull]
+    public string? Designation { get; init; } =
+        LibraryViewText.Contain(Designation);
 }
 
 /// <summary>
@@ -2597,7 +3033,11 @@ public class LibraryInfoSection
     public string? Architecture { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? AssemblyVersion { get => field; init => field = LibraryViewText.Contain(value); }
-    public int AsyncMethods { get; init; }
+    /// <summary>The async analyzer's Count; absent when it failed, and <see cref="ClassifiedMethods"/> says why.</summary>
+    public int? AsyncMethods { get; init; }
+    /// <summary>Why the async count is unavailable, or null when the analyzer answered.</summary>
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? ClassifiedMethods { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Company { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
@@ -2611,6 +3051,8 @@ public class LibraryInfoSection
     public string? EcosystemDependencies { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? EcosystemDependencyStatus { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <summary>Enabled enablement labels (<c>docs/design/library-info-composition.md</c>).</summary>
+    public string? Enabled { get => field; init => field = LibraryViewText.Contain(value); }
     public int ExtensionMethods { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool? Facade { get; init; }
@@ -2619,18 +3061,21 @@ public class LibraryInfoSection
     /// <inheritdoc cref="LibraryViewText"/>
     public string? InformationalVersion { get => field; init => field = LibraryViewText.Contain(value); }
     public int Integrations { get; init; }
+    /// <summary>
+    /// Set only when the Library document could not be read for a managed
+    /// assembly; document-sourced rows are then omitted.
+    /// </summary>
+    public string? LibraryDocument { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Methods { get => field; init => field = LibraryViewText.Contain(value); }
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string? Modified { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Name { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Product { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? PublicKeyToken { get => field; init => field = LibraryViewText.Contain(value); }
-    [MarkoutBoolFormat("Yes", "No")]
-    public bool Reproducible { get; init; }
+    /// <summary><c>Yes</c>, <c>No</c>, or <c>unavailable</c>.</summary>
+    public string? Reproducible { get => field; init => field = LibraryViewText.Contain(value); }
     public int Resources { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Signed { get => field; init => field = LibraryViewText.Contain(value); }

@@ -312,7 +312,7 @@ export function bindTypeSourceFacade(
   authority: SharedEngineOperationAuthority,
 ): Pick<
   EngineClient["source"],
-  "cancelTypeSourceQuery" | "queryTypeSource"
+  "cancelTypeSourceQuery" | "queryTypeSource" | "queryPlatformTypeSource"
 > & { readonly dispose: () => void } {
   interface ActiveTypeSource {
     readonly handle: OperationHandle<
@@ -329,8 +329,74 @@ export function bindTypeSourceFacade(
   }
 
   const active = new Map<string, ActiveTypeSource>();
+  async function query(
+    operationId: string,
+    request: TypeSourceLoadRequest,
+  ): Promise<BrowserTypeSourceResult> {
+    if (active.has(operationId))
+      throw new Error(`Type Source operation '${operationId}' is already active.`);
+    const session = authority.page.createSession<
+      TypeSourceLoadRequest,
+      BrowserTypeCodeView,
+      EngineWorkerTypeSourceFailure,
+      never,
+      WorkerRuntimePreparationError
+    >({
+      feature: { publish: () => undefined },
+      diagnostic: { report: reportDiagnostic },
+    });
+    const started = authority.startWithId(
+      operationId,
+      () => session.start(request, adapter),
+    );
+    if (started.kind === "rejected") {
+      session.dispose();
+      throw new Error(
+        `Type Source could not start: ${startFailureReason(started.reason)}.`);
+    }
+    active.set(operationId, { handle: started.handle, session });
+    try {
+      const outcome = await started.handle.outcome;
+      await started.handle.quiesced;
+      if (outcome.kind === "succeeded") {
+        return {
+          version: 1,
+          kind: "Succeeded",
+          value: outcome.value,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: null,
+        };
+      }
+      if (outcome.kind === "failed") {
+        return {
+          version: 1,
+          kind: "Failed",
+          value: null,
+          failureKind: outcome.error.failureKind,
+          error: outcome.error.error,
+          diagnostic: outcome.error.diagnostic,
+          reason: null,
+        };
+      }
+      return {
+        version: 1,
+        kind: "Canceled",
+        value: null,
+        failureKind: null,
+        error: null,
+        diagnostic: null,
+        reason: outcome.reason,
+      };
+    } finally {
+      active.delete(operationId);
+      session.dispose();
+    }
+  }
+
   return {
-    async queryTypeSource(
+    queryTypeSource(
       operationId,
       packageId,
       version,
@@ -339,77 +405,51 @@ export function bindTypeSourceFacade(
       type,
       taste,
       view,
-    ): Promise<BrowserTypeSourceResult> {
-      if (active.has(operationId))
-        throw new Error(`Type Source operation '${operationId}' is already active.`);
+    ) {
       const selectedView = typeSourceView(view);
       if (selectedView === null)
         throw new Error(`Unknown Type Source view '${view}'.`);
-      const session = authority.page.createSession<
-        TypeSourceLoadRequest,
-        BrowserTypeCodeView,
-        EngineWorkerTypeSourceFailure,
-        never,
-        WorkerRuntimePreparationError
-      >({
-        feature: { publish: () => undefined },
-        diagnostic: { report: reportDiagnostic },
+      return query(operationId, {
+        kind: "package",
+        packageId,
+        version,
+        framework,
+        assembly,
+        type,
+        taste,
+        view: selectedView,
+        signature: `${packageId}/${version}/${framework}/${assembly}/${type}/${view}`,
+        isVisible: () => true,
       });
-      const started = authority.startWithId(operationId, () => session.start({
-          packageId,
-          version,
-          framework,
-          assembly,
-          type,
-          taste,
-          view: selectedView,
-          signature: `${packageId}/${version}/${framework}/${assembly}/${type}/${view}`,
-          isVisible: () => true,
-        }, adapter));
-      if (started.kind === "rejected") {
-        session.dispose();
-        throw new Error(
-          `Type Source could not start: ${startFailureReason(started.reason)}.`);
-      }
-      active.set(operationId, { handle: started.handle, session });
-      try {
-        const outcome = await started.handle.outcome;
-        await started.handle.quiesced;
-        if (outcome.kind === "succeeded") {
-          return {
-            version: 1,
-            kind: "Succeeded",
-            value: outcome.value,
-            failureKind: null,
-            error: null,
-            diagnostic: null,
-            reason: null,
-          };
-        }
-        if (outcome.kind === "failed") {
-          return {
-            version: 1,
-            kind: "Failed",
-            value: null,
-            failureKind: outcome.error.failureKind,
-            error: outcome.error.error,
-            diagnostic: outcome.error.diagnostic,
-            reason: null,
-          };
-        }
-        return {
-          version: 1,
-          kind: "Canceled",
-          value: null,
-          failureKind: null,
-          error: null,
-          diagnostic: null,
-          reason: outcome.reason,
-        };
-      } finally {
-        active.delete(operationId);
-        session.dispose();
-      }
+    },
+    queryPlatformTypeSource(
+      operationId,
+      framework,
+      version,
+      assembly,
+      pack,
+      type,
+      taste,
+      view,
+      contextId,
+    ) {
+      const selectedView = typeSourceView(view);
+      if (selectedView === null)
+        throw new Error(`Unknown Type Source view '${view}'.`);
+      return query(operationId, {
+        kind: "platform",
+        version,
+        framework,
+        assembly,
+        pack,
+        contextId,
+        type,
+        taste,
+        view: selectedView,
+        signature:
+          `${version}/${framework}/${assembly}/${pack}/${contextId ?? ""}/${type}/${view}`,
+        isVisible: () => true,
+      });
     },
     cancelTypeSourceQuery(operationId, reason) {
       active.get(operationId)?.handle.cancel(operationCancelReason(reason));
@@ -985,6 +1025,7 @@ export function createProductionEngineWorkerClient(
       ...ordinary.catalog,
       ...startup.catalog,
     },
+    activity: ordinary.activity,
   };
   return {
     host,

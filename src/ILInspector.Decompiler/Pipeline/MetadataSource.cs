@@ -138,6 +138,51 @@ public sealed class MetadataSource : IDisposable
     public ApiSurface ExtractApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(Pe, includeAll, typesOnly);
 
+    internal ApiSurface ExtractResolutionAwareApiSurface(
+        bool includeAll = false,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+    {
+        AssemblyImageSnapshotResult snapshotResult =
+            AssemblyImageSnapshot.FromRetainedContent(
+                _assembly,
+                Pe.GetEntireImage().GetContent());
+        AssemblyImageSnapshot snapshot = snapshotResult switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                ready.Snapshot,
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw new InvalidDataException(
+                    "The already-open assembly image could not be retained "
+                    + $"({rejected.Failure.Kind}): "
+                    + rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly snapshot result."),
+        };
+
+        using var catalog = new TypeResolutionCatalog();
+        catalog.RegisterRetainedSnapshot(_assembly, snapshot);
+        ResolutionAwareApiSurfaceOutcome outcome =
+            catalog.ExtractApiSurface(
+                _assembly,
+                _bindingPolicy,
+                includeAll,
+                typesOnly,
+                includeCompilerGenerated);
+        return outcome switch
+        {
+            ResolutionAwareApiSurfaceOutcome.Read read =>
+                read.Surface,
+            ResolutionAwareApiSurfaceOutcome.Rejected rejected =>
+                throw new InvalidDataException(
+                    "Resolution-aware API extraction failed "
+                    + $"({rejected.Failure.Kind}): "
+                    + rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown resolution-aware API extraction outcome."),
+        };
+    }
+
     /// <summary>
     /// Classifies the async shape of the given MethodDef metadata token (runtime or
     /// state-machine async), or <see langword="null"/> when the token is not a MethodDef or

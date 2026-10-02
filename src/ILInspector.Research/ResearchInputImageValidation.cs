@@ -9,7 +9,7 @@ internal static class ResearchInputImageValidation
 {
     internal static ResearchTargetInputValidationEvidence Capture(
         MetadataReader reader,
-        ImplementationComparisonInputOccurrence occurrence)
+        ResearchTargetEvidence occurrence)
     {
         bool isAssembly = reader.IsAssembly;
         AssemblyReferenceIdentity? identity = isAssembly
@@ -29,9 +29,9 @@ internal static class ResearchInputImageValidation
 
     internal static ResearchTargetDiagnosticKind? Validate(
         ResearchTargetInputValidationEvidence evidence,
-        ImplementationComparisonInputOccurrence occurrence)
+        ResearchTargetEvidence occurrence)
     {
-        LibraryBodyModuleIdentity analysis = occurrence.BodyIndex.ModuleIdentity;
+        LibraryBodyModuleIdentity analysis = occurrence.MethodPopulation.ModuleIdentity;
         if (!evidence.IsAssembly)
             return ResearchTargetDiagnosticKind.StandaloneModule;
         if (analysis.AssemblyIdentity is null)

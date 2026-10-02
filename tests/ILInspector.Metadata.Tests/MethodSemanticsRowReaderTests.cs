@@ -703,7 +703,7 @@ public sealed class MethodSemanticsRowReaderTests
         Assert.Equal(rowNumber, result.RowNumber);
     }
 
-    static void PatchMethodRow(
+    internal static void PatchMethodRow(
         byte[] image,
         uint methodRow,
         int rowIndex = 0)
@@ -718,7 +718,7 @@ public sealed class MethodSemanticsRowReaderTests
             methodRow);
     }
 
-    static void PatchAssociation(
+    internal static void PatchAssociation(
         byte[] image,
         uint encodedAssociation,
         int rowIndex = 0)
@@ -817,12 +817,13 @@ public sealed class MethodSemanticsRowReaderTests
     static PEReader Open(byte[] image)
         => new(ImmutableArray.Create(image));
 
-    static byte[] BuildImage(
+    internal static byte[] BuildImage(
         int methodCount = 0,
         int propertyCount = 0,
         int eventCount = 0,
         IReadOnlyList<RawSemanticsRow>? rows = null,
-        string metadataVersion = "v4.0.30319")
+        string metadataVersion = "v4.0.30319",
+        int? secondTypeMethodStart = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -852,25 +853,99 @@ public sealed class MethodSemanticsRowReaderTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        if (secondTypeMethodStart is int otherMethodStart)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("Other"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(otherMethodStart));
+        }
 
-        var methodSignature = new BlobBuilder();
-        new BlobEncoder(methodSignature)
-            .MethodSignature(isInstanceMethod: true)
-            .Parameters(
-                0,
-                returnType => returnType.Void(),
-                _ => { });
-        BlobHandle methodSignatureHandle =
-            metadata.GetOrAddBlob(methodSignature);
+        AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle eventType = metadata.AddTypeReference(
+            coreLibrary,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("EventHandler"));
         for (int i = 0; i < methodCount; i++)
         {
+            RawSemanticsRow semantic = rows?
+                .FirstOrDefault(row => row.MethodRow == i + 1)
+                ?? default;
+            var methodSignature = new BlobBuilder();
+            MethodSignatureEncoder encoder =
+                new BlobEncoder(methodSignature)
+                    .MethodSignature(isInstanceMethod: true);
+            switch (semantic)
+            {
+                case
+                {
+                    AssociationKind:
+                        MethodSemanticsAssociationKind.Property,
+                    RawSemantics:
+                        (ushort)MethodSemanticsAttributes.Getter,
+                }:
+                    encoder.Parameters(
+                        0,
+                        returnType =>
+                            returnType.Type().Int32(),
+                        _ => { });
+                    break;
+                case
+                {
+                    AssociationKind:
+                        MethodSemanticsAssociationKind.Property,
+                    RawSemantics:
+                        (ushort)MethodSemanticsAttributes.Setter,
+                }:
+                    encoder.Parameters(
+                        1,
+                        returnType => returnType.Void(),
+                        parameters =>
+                            parameters.AddParameter()
+                                .Type()
+                                .Int32());
+                    break;
+                case
+                {
+                    AssociationKind:
+                        MethodSemanticsAssociationKind.Event,
+                    RawSemantics:
+                        (ushort)MethodSemanticsAttributes.Adder
+                            or (ushort)MethodSemanticsAttributes.Remover,
+                }:
+                    encoder.Parameters(
+                        1,
+                        returnType => returnType.Void(),
+                        parameters =>
+                            parameters.AddParameter()
+                                .Type()
+                                .Type(
+                                    eventType,
+                                    isValueType: false));
+                    break;
+                default:
+                    encoder.Parameters(
+                        0,
+                        returnType => returnType.Void(),
+                        _ => { });
+                    break;
+            }
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
                     | MethodAttributes.Abstract
                     | MethodAttributes.Virtual,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString($"M{i + 1}"),
-                methodSignatureHandle,
+                metadata.GetOrAddBlob(methodSignature),
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
         }
@@ -897,17 +972,6 @@ public sealed class MethodSemanticsRowReaderTests
         if (!firstProperty.IsNil)
             metadata.AddPropertyMap(owner, firstProperty);
 
-        AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
-            metadata.GetOrAddString("mscorlib"),
-            new Version(4, 0, 0, 0),
-            default,
-            default,
-            default,
-            default);
-        TypeReferenceHandle eventType = metadata.AddTypeReference(
-            coreLibrary,
-            metadata.GetOrAddString("System"),
-            metadata.GetOrAddString("EventHandler"));
         EventDefinitionHandle firstEvent = default;
         for (int i = 0; i < eventCount; i++)
         {
@@ -953,7 +1017,7 @@ public sealed class MethodSemanticsRowReaderTests
         return image.ToArray();
     }
 
-    readonly record struct RawSemanticsRow(
+    internal readonly record struct RawSemanticsRow(
         int MethodRow,
         MethodSemanticsAssociationKind AssociationKind,
         int AssociationRow,

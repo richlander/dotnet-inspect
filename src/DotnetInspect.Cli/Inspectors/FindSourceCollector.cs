@@ -7,6 +7,13 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Inspectors;
 
+internal enum FindSearchCompletion
+{
+    Exhausted,
+    ResultLimitReached,
+    Incomplete,
+}
+
 internal sealed record FindSearchResult<T>(
     List<T> Rows,
     bool HasFailures,
@@ -14,8 +21,22 @@ internal sealed record FindSearchResult<T>(
 {
     public bool SourceSelectionIncomplete { get; init; }
 
-    public IReadOnlyList<TypeDeclarationLocatorSectionResult> LocatorSections
-    { get; init; } = [];
+    public FindSearchCompletion Completion { get; init; } =
+        FindSearchCompletion.Exhausted;
+
+    public IReadOnlyList<
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult>>
+        LocatorInspections
+    {
+        get;
+        init;
+    } = [];
+
+    public IReadOnlyList<TypeDeclarationLocatorSectionResult> LocatorSections =>
+        [
+            .. LocatorInspections.Select(
+                static inspection => inspection.Content),
+        ];
 }
 
 /// <summary>
@@ -28,10 +49,12 @@ internal static class FindSourceCollector
         FindOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return options.Ecosystems is null
-            ? EcosystemPackCatalog.CreateWorkspacePlan()
-            : EcosystemPackCatalog.CreateWorkspacePlan(
-                options.Ecosystems);
+        return options.UsesImplicitPlatform
+            ? EcosystemPackCatalog.CreatePlatformWorkspacePlan()
+            : options.Ecosystems is not null
+                ? EcosystemPackCatalog.CreateWorkspacePlan(
+                    options.Ecosystems)
+                : WorkspacePlan.Empty;
     }
 
     /// <summary>
@@ -73,57 +96,47 @@ internal static class FindSourceCollector
         };
     }
 
-    public static async Task StreamSourcesAsync(
-        FindOptions options,
-        Func<bool> reachedLimit,
-        Func<AssemblySetRequest, Task> process)
+    internal static IReadOnlyList<AssemblySetRequest>
+        BuildOrderedSourceRequests(FindOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        var requests = new List<AssemblySetRequest>();
         foreach (string package in options.Packages)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [package], assemblies: [], platformAssemblies: [],
                 platformFrameworks: [], projects: [], directories: []));
         }
-
         foreach (string assembly in options.Assemblies)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [assembly], platformAssemblies: [],
                 platformFrameworks: [], projects: [], directories: []));
         }
-
         foreach (string platformAssembly in options.PlatformAssemblies)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [], platformAssemblies: [platformAssembly],
                 platformFrameworks: [], projects: [], directories: []));
         }
-
         foreach (string framework in options.PlatformFrameworks)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [], platformAssemblies: [],
                 platformFrameworks: [framework], projects: [], directories: []));
         }
-
         foreach (string project in options.Projects)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [], platformAssemblies: [],
                 platformFrameworks: [], projects: [project], directories: []));
         }
-
         foreach (string directory in options.BinPaths)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [], platformAssemblies: [],
                 platformFrameworks: [], projects: [], directories: [directory]));
         }
+        return requests;
     }
 }

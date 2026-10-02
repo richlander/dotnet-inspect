@@ -56,6 +56,22 @@ public partial class LibraryCommand
                     + "assembly within the package.");
             return 1;
         }
+        if (RequestsLibraryMetricsTransport(options)
+            && selection is PackageLibraryTarget.Aggregate)
+        {
+            CommandError.Write(
+                "Complete Library Metrics JSON requires one exact Library. "
+                    + "Name the Library or use --namesake-library.");
+            return 1;
+        }
+        if (IsExactNameFamilySelection(options)
+            && selection is PackageLibraryTarget.Aggregate)
+        {
+            CommandError.Write(
+                "Name Families requires one exact Library. Name the Library "
+                    + "or use --namesake-library.");
+            return 1;
+        }
 
         InspectionOptions packageOptions =
             CreatePackageOptions(
@@ -112,6 +128,9 @@ public partial class LibraryCommand
                 PackageLibraryTarget.Exact exact => exact.Library,
                 _ => null,
             },
+            LibraryAddressRequest = options.AddressRequest,
+            LibraryAddressRowSelection =
+                options.AddressRowSelection,
             Tfm = options.Tfm,
             IncludePrerelease = options.IncludePrerelease,
             ShowDependencies = options.IncludeDependencies,
@@ -121,6 +140,8 @@ public partial class LibraryCommand
             IntegrationQuery = options.IntegrationQuery,
             MetadataRoot = options.MetadataRoot,
             JsonOutput = options.JsonOutput,
+            EnvelopeOutput = options.EnvelopeOutput,
+            CompactJson = options.CompactJson,
             Format = options.Format,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,
@@ -144,6 +165,7 @@ public partial class LibraryCommand
             Paths = options.Paths,
             JsonArray = options.JsonArray,
             Rows = options.CloneCandidateRowSelection is null
+                && options.NameFamilyRowSelection is null
                 ? options.Rows
                 : null,
             CloneCandidateRowSelection =
@@ -151,6 +173,8 @@ public partial class LibraryCommand
             ReferenceRowSelection = options.ReferenceRowSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,
+            NameFamilyPopulation = options.NameFamilyPopulation,
+            NameFamilyRowSelection = options.NameFamilyRowSelection,
             PerformanceTriage = options.PerformanceTriage,
             BodyKindQuery = options.BodyKindQuery,
             CloneCandidateQuery = options.CloneCandidateQuery,
@@ -162,6 +186,8 @@ public partial class LibraryCommand
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet =
+                options.FormatFlagExplicitlySet,
             NoHeader = options.NoHeader,
             OutputPath = options.OutputPath,
         };

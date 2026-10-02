@@ -44,6 +44,8 @@ async function renderSpotlightFooter(
       schedulePackageFetch: () => {},
       resetPackageSearch: () => {},
       packageSearchLoading: () => false,
+      scheduleCapabilitySearch: () => {},
+      resetCapabilitySearch: () => {},
       packageCount: () => 1,
       render: () => {},
     });
@@ -87,7 +89,14 @@ test("the top shell row separates product navigation from inspection subjects", 
   await expect(page.locator("[data-product-destination='home']"))
     .toBeFocused();
   await expect(page.locator("[data-product-destination]"))
-    .toHaveText(["Home", "Query", "Workspace", "Activity"]);
+    .toHaveText([
+      "Home",
+      "Query",
+      "Workspace",
+      "Ecosystems",
+      "Activity",
+      "Demos",
+    ]);
   await expect(page.locator("[data-product-action='open-library']"))
     .toHaveText("Open Library…");
   await expect(page.locator(".product-navigation-menu [role='separator']"))
@@ -205,6 +214,20 @@ test("product navigation preserves its focused action across maintenance replace
     .toHaveAttribute("data-product-destination", "activity");
 });
 
+test("product navigation preserves closed-trigger focus across maintenance replacement", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+  const button = page.locator("[data-product-navigation-button]");
+  await button.focus();
+  await expect(button).toBeFocused();
+
+  await page.evaluate(() => window.rerenderProductNavigationProbe());
+
+  await expect(button).toBeFocused();
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+});
+
 test("the data bar occupies its fixed row when the notice stack is empty", async ({
   page,
 }) => {
@@ -219,7 +242,7 @@ test("the data bar occupies its fixed row when the notice stack is empty", async
   await expect(page.locator(".notice-stack")).toBeHidden();
   await expect(page.locator(".data-bar")).toContainText(
     "dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · "
-      + "Package source: NuGet.org · CLI tool · Agent skill · Demos · Diagnostics · Credits");
+      + "Package source: NuGet.org · CLI tool · Agent skill · Demos · Ecosystems · Diagnostics · Credits");
   await expect(page.locator(
     ".data-bar button, .data-bar [aria-expanded], "
       + ".data-bar [data-status-bar-toggle]",
@@ -2350,7 +2373,14 @@ test("query header keeps product navigation collapsed and preserves navigation f
 
   await expect(page.locator(".product-navigation-menu")).toBeHidden();
   await expect(page.locator("[data-product-destination]"))
-    .toHaveText(["Home", "Query", "Workspace", "Activity"]);
+    .toHaveText([
+      "Home",
+      "Query",
+      "Workspace",
+      "Ecosystems",
+      "Activity",
+      "Demos",
+    ]);
   await expect(page.locator("#package-query-back")).toBeVisible();
   await page.locator("#package-query-product").focus();
   const productResult = await page.evaluate(async () => {

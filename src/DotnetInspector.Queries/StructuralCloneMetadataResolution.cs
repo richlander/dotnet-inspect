@@ -80,11 +80,10 @@ readonly struct StructuralCloneValidatedImage
 /// Shared exact TypeDef and member selection over one validated image.
 /// </summary>
 /// <remarks>
-/// Both the single-pair retrieval query and the Workspace clone search bind
-/// owner-issued exact identities to the same retained content, so the bounded
-/// resolution and image-validation rules live here once instead of being
-/// duplicated per query. Callers map the neutral outcomes onto their own
-/// typed failure vocabularies.
+/// Workspace clone search binds owner-issued exact identities to retained
+/// content, so bounded resolution and image validation live here once rather
+/// than being duplicated across seed and candidate paths. Callers map the
+/// neutral outcomes onto their own typed failure vocabularies.
 /// </remarks>
 static class StructuralCloneMetadataResolution
 {
