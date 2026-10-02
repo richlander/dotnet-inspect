@@ -12,6 +12,7 @@ import {
   memberMatchesTrait,
   memberGroupMatches,
   memberNavTargetIndex,
+  memberOverloadSourceIndex,
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
@@ -207,6 +208,7 @@ test("member filters compose locally after managed accessibility selection", () 
   const staticGroup = staticGroups[0];
   assert.ok(staticGroup);
   assert.equal(staticGroup.overloads.length, 1);
+  assert.equal(staticGroup.sourceOverloadCount, 2);
   assert.match(staticGroup.overloads[0]?.signature ?? "", /static/);
 
   const instanceGroups = filterMemberGroups(groups, {
@@ -219,7 +221,26 @@ test("member filters compose locally after managed accessibility selection", () 
   const instanceGroup = instanceGroups[0];
   assert.ok(instanceGroup);
   assert.equal(instanceGroup.overloads.length, 1);
+  assert.equal(instanceGroup.sourceOverloadCount, 2);
   assert.doesNotMatch(instanceGroup.overloads[0]?.signature ?? "", /static/);
+});
+
+test("filtered member overloads retain their exact source index", () => {
+  const source = [{
+    key: "property:Item",
+    overloads: [
+      { stableSelector: "Item~0" },
+      { stableSelector: "Item~1" },
+      { stableSelector: "Item~2" },
+    ],
+  }];
+  const filtered = {
+    key: source[0]!.key,
+    overloads: [{ stableSelector: "Item~2" }],
+    sourceOverloadCount: 3,
+  };
+
+  assert.equal(memberOverloadSourceIndex(source, filtered, 0), 2);
 });
 
 test("member traits use the complete selector vocabulary", () => {

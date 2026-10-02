@@ -1139,6 +1139,21 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     entries,
     /for \(const group of visibleMemberGroups\(type\)\)[\s\S]*?const graphGroup = selectedGraphMemberGroup\(type\);[\s\S]*?entries\.push\(\{ kind: "member", group: graphGroup }\)/);
+  const cursor =
+    appSource.match(/function memberNavCursor\([\s\S]*?\n}\n\nfunction selectMemberNavEntry/)?.[0]
+    ?? "";
+  assert.match(
+    cursor,
+    /state\.selectedOverloadIndex\s*=== memberNavOverloadSourceIndex\(entry\.group, entry\.index\)/);
+  assert.match(
+    cursor,
+    /entry\.group\.sourceOverloadCount \?\? entry\.group\.overloads\.length/);
+  const selection =
+    appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
+    ?? "";
+  assert.match(
+    selection,
+    /const sourceIndex =\s*memberNavOverloadSourceIndex\(entry\.group, entry\.index\)[\s\S]*openOverload\(sourceIndex\)/);
 
   const pane =
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
@@ -1373,7 +1388,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /function memberDocumentOrdinalForOverload\([\s\S]*return overload\?\.baselineOrdinal[\s\S]*row => row\.metadataToken === metadataToken\)\?\.baselineOrdinal/);
   assert.match(
     appSource,
-    /function selectMemberNavEntry\([\s\S]*memberDocumentOrdinalForOverload\(entry\.group, entry\.index\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(entry\.group\)[\s\S]*openOverload\(entry\.index\)/);
+    /function selectMemberNavEntry\([\s\S]*memberNavOverloadSourceIndex\(entry\.group, entry\.index\)[\s\S]*memberDocumentOrdinalForOverload\(entry\.group, entry\.index\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(entry\.group\)[\s\S]*openOverload\(sourceIndex\)/);
   assert.match(
     appSource,
     /function drillIn\(\)[\s\S]*memberDocumentOrdinalForOverload\(member, 0\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(member\)[\s\S]*openOverload\(0\)/);

@@ -227,7 +227,7 @@ test("Top Leverage preserves source families and restorable intent", () => {
   const visible = sourceText(functionDeclaration("visibleMemberGroups"));
   assert.match(
     visible,
-    /const sourceGroups = selectedMemberGroups\(type\)[\s\S]*sourceOverloadCount: sourceGroups\.find\(source =>\s*source\.key === group\.key\)\?\.overloads\.length/);
+    /const sourceGroups = selectedMemberGroups\(type\)[\s\S]*const filtered = filterMemberGroups\(sourceGroups, memberFilterState\(\)\)[\s\S]*return filtered\.flatMap\(group =>/);
 
   const capture = sourceText(functionDeclaration("captureView"));
   assert.match(

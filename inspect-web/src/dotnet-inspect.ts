@@ -92,6 +92,7 @@ import {
   invalidateSourceDestinationWork,
   MEMBER_TRAITS,
   memberNavTargetIndex,
+  memberOverloadSourceIndex,
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
@@ -6510,9 +6511,6 @@ function visibleMemberGroups(type: AppTypeSurface) {
       : [{
           ...group,
           overloads,
-          sourceOverloadCount: sourceGroups.find(source =>
-            source.key === group.key)?.overloads.length
-              ?? group.overloads.length,
         }];
   });
 }
@@ -7674,19 +7672,11 @@ function memberNavOverloadSourceIndex(
   },
   index: number,
 ) {
-  const overload = group.overloads[index];
-  const sourceGroup = selectedType()
-    ? selectedMemberGroups(selectedType()!)
-      .find(candidate => candidate.key === group.key)
-    : null;
-  if (!overload || !sourceGroup || sourceGroup === group) return index;
-  const sourceIndex = sourceGroup.overloads.findIndex(candidate =>
-    candidate.stableSelector === overload.stableSelector);
-  if (sourceIndex < 0) {
-    throw new Error(
-      `Filtered member '${group.key}' has no exact source overload.`);
-  }
-  return sourceIndex;
+  const type = selectedType();
+  return memberOverloadSourceIndex(
+    type ? selectedMemberGroups(type) : [],
+    group,
+    index);
 }
 
 function memberNavOverloadHeat(
@@ -8053,9 +8043,12 @@ function memberNavEntries(type: AppTypeSurface): MemberNavEntry[] {
 function memberNavCursor(entries: readonly MemberNavEntry[]) {
   return entries.findIndex(entry => {
     if (entry.kind === "overload") {
-      return entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
+      return entry.group.key === state.selectedMemberKey
+        && state.selectedOverloadIndex
+          === memberNavOverloadSourceIndex(entry.group, entry.index);
     }
-    const isMulti = entry.group.overloads.length > 1;
+    const isMulti =
+      (entry.group.sourceOverloadCount ?? entry.group.overloads.length) > 1;
     return entry.group.key === state.selectedMemberKey && (isMulti ? state.selectedOverloadIndex == null : true);
   });
 }
@@ -8080,13 +8073,15 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
     }
   } else {
     if (entry.group.key !== state.selectedMemberKey) state.selectedMemberKey = entry.group.key;
+    const sourceIndex =
+      memberNavOverloadSourceIndex(entry.group, entry.index);
     const baselineOrdinal =
       memberDocumentOrdinalForOverload(entry.group, entry.index);
     if (baselineOrdinal !== null) {
       openMemberDocument(baselineOrdinal);
     } else if (!ordinaryMethodGroup(entry.group)
         || completeMemberGroupUsesLegacyOverloadRoute(entry.group)) {
-      openOverload(entry.index);
+      openOverload(sourceIndex);
     }
   }
   scheduleMemberFocusAfterRender(preservedFocus, replacementAuthority);
