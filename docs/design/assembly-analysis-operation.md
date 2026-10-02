@@ -19,8 +19,10 @@ reference executor while owning source planning, binding, and receipt
 translation. The eight gates under
 [Required evidence](#required-evidence) verify the operation boundary in
 Release; the Method source's gates are listed in its owning design.
-Multi-request collapse, other source kinds, cancellation, and legacy-remainder
-composition remain **unverified**.
+The request-set operation now binds one immutable QuerySpace plan and publishes
+every Method request in request order, plus physical group work recorded once.
+Other source kinds, cancellation, residual request satisfaction, and legacy-
+remainder composition remain **unverified**.
 
 ## Authority and exact claim
 
@@ -131,9 +133,12 @@ its own QuerySpace request. QuerySpace either keeps them separate or returns
 one collapsed source plan plus consumer residuals under
 [#8574](https://github.com/richlander/dotnet-inspect/issues/8574).
 
-The first reference Method request accepts exactly one planned producer. That
-restriction keeps its terminal and work receipt exact while request collapse
-is excluded from the slice; it is not a source-wide limit.
+The direct reference Method request accepts exactly one planned producer. A
+request-set operation instead retains each complete QuerySpace association and
+lets Method Query Source place compatible all-definition requests into
+terminal-specialized lanes within one physical execution group. It never asks
+Producer Planning to merge distinct closings or derives one terminal result
+from another.
 
 An operation may compose Type, Member, and Method source requests. The service
 name is therefore assembly-wide rather than method-specific. Each source owner

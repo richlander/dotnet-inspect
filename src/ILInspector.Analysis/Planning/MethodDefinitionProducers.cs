@@ -560,19 +560,36 @@ public readonly ref struct MethodDefinitionCompletionView
 internal struct MethodDefinitionUnit(
     MetadataReader reader,
     PEReader peReader,
-    LibraryMethodAnalysisRunner? lookup,
-    MethodRowGate gate,
-    MethodDefinitionSourceCoverageBuilder sourceCoverage)
+    MethodDefinitionSourceCoverageBuilder physicalSourceCoverage)
 {
     readonly MetadataReader _reader = reader;
     readonly PEReader _peReader = peReader;
-    readonly LibraryMethodAnalysisRunner? _lookup = lookup;
-    readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage =
-        sourceCoverage;
+    readonly MethodDefinitionSourceCoverageBuilder _physicalSourceCoverage =
+        physicalSourceCoverage;
+    MethodDefinitionSourceCoverageBuilder? _requestSourceCoverage;
+    LibraryMethodAnalysisRunner? _lookup;
+    MethodRowGate? _gate;
+    bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
 
+    public MethodDefinitionUnit(
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        MethodDefinitionSourceCoverageBuilder sourceCoverage)
+        : this(reader, peReader, sourceCoverage)
+    {
+        _lookup = lookup;
+        _gate = gate;
+        _requestSourceCoverage = sourceCoverage;
+        _positionsRequestOnMove = true;
+    }
+
     /// <summary>The source's method-row gate, positioned on this unit.</summary>
-    public readonly MethodRowGate Gate = gate;
+    public readonly MethodRowGate Gate =>
+        _gate ?? throw new InvalidOperationException(
+            "No Method-source request is positioned on this unit.");
 
     /// <summary>The unit's position in this pass's traversal, from 0.</summary>
     public int Ordinal { get; private set; } = -1;
@@ -590,12 +607,31 @@ internal struct MethodDefinitionUnit(
         _lookup ?? throw new InvalidOperationException(
             "The module lookup was not built because no planned producer declared it.");
 
+    public void SelectRequest(
+        MethodRowGate gate,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodDefinitionSourceCoverageBuilder sourceCoverage,
+        int ordinal)
+    {
+        ArgumentNullException.ThrowIfNull(gate);
+        ArgumentNullException.ThrowIfNull(sourceCoverage);
+        _gate = gate;
+        _lookup = lookup;
+        _requestSourceCoverage = sourceCoverage;
+        Ordinal = ordinal;
+        gate.MoveTo(
+            TypeHandle,
+            TypeDefinition,
+            MethodHandle,
+            MethodDefinition);
+    }
+
     public void MoveTo(
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition,
         MethodDefinitionHandle methodHandle)
     {
-        _sourceCoverage.RecordDefinitionExamined(methodHandle);
+        _physicalSourceCoverage.RecordDefinitionExamined(methodHandle);
         MoveToPreviouslyRead(
             typeHandle,
             typeDefinition,
@@ -618,20 +654,28 @@ internal struct MethodDefinitionUnit(
         MethodHandle = methodHandle;
         MethodDefinition = methodDefinition;
         _body = null;
-        Ordinal++;
-        Gate.MoveTo(typeHandle, typeDefinition, methodHandle, MethodDefinition);
-        _sourceCoverage.RecordMethodSelected(methodHandle);
+        _physicalSourceCoverage.RecordMethodSelected(methodHandle);
+        if (_positionsRequestOnMove)
+        {
+            Ordinal++;
+            Gate.MoveTo(
+                typeHandle,
+                typeDefinition,
+                methodHandle,
+                methodDefinition);
+        }
     }
 
     public MethodBodyBlock GetBody()
     {
+        _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
         if (_body is not null)
             return _body;
 
         MethodBodyBlock body = _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
         _body = body;
-        _sourceCoverage.RecordBodyAcquired(MethodHandle);
+        _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
         return body;
     }
 
