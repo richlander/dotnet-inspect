@@ -76,5 +76,34 @@ case for correctness, not for timing claims.
 
 ## Results
 
-Recorded per candidate head in the pull request and summarized here once the
-Linux NativeAOT measurement is accepted.
+Exact agreement first: 15 answers compared across Old, LINQ ×3, NLinq ×3, and
+NLinq fused on the five assets, 0 mismatches, and the Old column equals the
+production `library -S "Library Info"` rows for every real asset.
+
+Local osx-arm64 NativeAOT at head `9fc4fce87` (six rotated rounds, 2 s budget
+per cell; a development signal, not the accepted Linux measurement):
+
+| Asset | Old | LINQ ×3 | NLinq ×3 | NLinq fused |
+| --- | ---: | ---: | ---: | ---: |
+| System.Text.Json | 502.3 µs | 364.3 µs | 282.1 µs | 262.1 µs |
+| System.Private.CoreLib | 9,249.5 µs | 6,252.4 µs | 5,582.2 µs | 5,564.9 µs |
+| System.Linq | 2,321.0 µs | 366.5 µs | 337.0 µs | 330.9 µs |
+| System.Net.Http | 143.6 µs | 186.8 µs | 123.8 µs | 107.6 µs |
+| OptInNet11 fixture | 19.9 µs | 10.5 µs | 8.5 µs | 8.4 µs |
+
+Geometric-mean ratios to NLinq ×3: Old 2.23× (1.16–6.89), LINQ ×3 1.24×,
+NLinq fused 0.95× (0.87–1.00). Allocation per answer is equal for NLinq ×3
+and NLinq fused on every asset; Old allocates 1.3× to 3.9× more.
+
+Two readings follow, pending the Linux measurement:
+
+- **Fusion is not the win.** Reading each TypeDef and MethodDef once instead
+  of up to twice saves 0 to 13 percent, 5 percent on the geometric mean. The
+  lanes' cost is their per-row predicate work, chiefly the Async lane's
+  attribute walk and the Extension lane's signature decode, not the traversal.
+  Under the decision rule this is not "clearly ahead", so a request set over
+  these lanes cannot earn more than this ceiling.
+- **Rows-then-count is the loss.** Old's gap to NLinq ×3 is the Extension
+  Methods and Union Types rows being materialized with signatures and anchors
+  and then counted: 6.9× and 4.4 MB on `System.Linq`. Adopting those rows as
+  Count terminals (slice 2) captures that win without request sets.
