@@ -2184,9 +2184,22 @@ kbd {
 .member-diff-source-provenance { color: var(--muted); font: 10px/1.45 var(--mono); }
 .member-diff-source-provenance a { color: var(--blue); }
 .member-diff-source-text { margin: 8px 0 0; padding: 8px; overflow-x: auto; background: var(--code-bg); }
-.member-diff-source-summary { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px 12px; padding: 8px 10px; border: 1px solid var(--line); border-bottom: 0; color: var(--muted); font: 10px var(--mono); }
+.source-diff-viewer { min-width: 0; container: source-diff-viewer / inline-size; }
+.source-diff-viewer-summary { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px 12px; padding: 8px 10px; border: 1px solid var(--line); border-bottom: 0; color: var(--muted); font: 10px var(--mono); }
+.source-diff-viewer-controls { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 10px; border: 1px solid var(--line); border-bottom: 0; background: var(--panel); font: 10px var(--mono); }
+.source-diff-viewer-controls button { padding: 3px 7px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--panel-raised); color: var(--text); cursor: pointer; }
+.source-diff-viewer-controls button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.source-diff-viewer-controls button:disabled { cursor: default; opacity: .55; }
+.source-diff-viewer-modes { display: flex; align-items: center; gap: 5px; margin: 0; padding: 0; border: 0; }
+.source-diff-viewer-modes legend { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.source-diff-viewer-navigation,
+.source-diff-viewer-copy { display: flex; align-items: center; gap: 5px; }
+.source-diff-viewer-copy { margin-left: auto; }
+.source-diff-viewer-defects { padding: 8px 10px; border: 1px solid var(--red); border-bottom: 0; color: var(--red); font: 10px/1.5 var(--mono); }
+.source-diff-viewer-defects ul { margin: 4px 0 0; padding-left: 18px; }
+.source-diff-viewer-responsive-note { display: none; margin: 0; padding: 6px 10px; border: 1px solid var(--line); border-bottom: 0; color: var(--muted); font: 10px/1.4 var(--mono); }
 .member-diff-source-diff { min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--line); background: var(--code-bg); font: 12px/1.55 var(--mono); }
-.member-diff-source-line { display: grid; min-width: max-content; grid-template-columns: 44px 44px 18px minmax(0, 1fr) auto; }
+.member-diff-source-line { display: grid; min-width: max-content; grid-template-columns: 44px 44px 18px minmax(0, 1fr) auto auto; }
 .member-diff-source-line-context { background: transparent; }
 .member-diff-source-line-removal { background: color-mix(in srgb, var(--red) 9%, transparent); }
 .member-diff-source-line-addition { background: color-mix(in srgb, var(--green) 9%, transparent); }
@@ -2199,9 +2212,23 @@ kbd {
 .member-diff-source-marker { padding-left: 6px; color: var(--muted); user-select: none; }
 .member-diff-source-line code { padding: 0 10px 0 2px; white-space: pre; }
 .member-diff-source-line mark { border-radius: 2px; background: color-mix(in srgb, var(--yellow) 30%, transparent); color: inherit; }
-.member-diff-source-terminators { color: var(--muted); font: 10px var(--mono); }
-.member-diff-source-evidence { color: var(--muted); font: 11px/1.5 var(--mono); }
-.member-diff-source-evidence summary { cursor: pointer; color: var(--text); }
+.source-diff-viewer-relations { user-select: none; }
+.source-diff-viewer-terminator { align-self: center; margin-right: 8px; padding: 0 4px; color: var(--yellow); font: 9px var(--mono); white-space: nowrap; user-select: none; }
+.source-diff-viewer-terminator-shared { grid-column: 5; justify-self: end; }
+.source-diff-viewer-split { display: none; }
+.source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-unified { display: none; }
+.source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-split { display: block; }
+.source-diff-viewer-split-row { display: grid; min-width: max-content; grid-template-columns: minmax(340px, 1fr) minmax(340px, 1fr); border-bottom: 1px solid var(--line); }
+.source-diff-viewer-split-row:last-child { border-bottom: 0; }
+.source-diff-viewer-split-row.source-diff-viewer-row-change { background: color-mix(in srgb, var(--yellow) 4%, transparent); }
+.source-diff-viewer-split-source { display: grid; min-width: 0; grid-template-columns: 44px minmax(280px, 1fr) auto auto; border-right: 1px solid var(--line); }
+.source-diff-viewer-split-source code { padding: 0 10px; white-space: pre; }
+.source-diff-viewer-split-source mark { border-radius: 2px; background: color-mix(in srgb, var(--yellow) 30%, transparent); color: inherit; }
+.source-diff-viewer-split-empty { min-width: 340px; border-right: 1px solid var(--line); background: color-mix(in srgb, var(--muted) 4%, transparent); }
+.source-diff-viewer-row-change .source-diff-viewer-split-source:first-child { background: color-mix(in srgb, var(--red) 9%, transparent); }
+.source-diff-viewer-row-change .source-diff-viewer-split-source:nth-child(2) { background: color-mix(in srgb, var(--green) 9%, transparent); }
+.source-diff-viewer-compact .source-diff-viewer-split,
+.source-diff-viewer-compact .source-diff-viewer-responsive-note { display: none; }
 .member-diff-inline-source {
   margin: 6px 18px 0;
   padding: 12px 0 8px;
@@ -2236,6 +2263,12 @@ kbd {
   .member-diff-explorer-panes { display: block; }
   .member-diff-explorer-pane { min-height: auto; padding: 14px 10px; border-right: 0; border-bottom: 1px solid var(--line); }
   .member-diff-source-endpoints { grid-template-columns: minmax(0, 1fr); }
+}
+@container source-diff-viewer (max-width: 720px) {
+  .source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-unified { display: block; }
+  .source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-split { display: none; }
+  .source-diff-viewer[data-mode="side-by-side"]:not(.source-diff-viewer-compact) .source-diff-viewer-responsive-note { display: block; }
+  .source-diff-viewer-copy { width: 100%; margin-left: 0; }
 }
 
 @container package-dependencies (max-width: 580px) {

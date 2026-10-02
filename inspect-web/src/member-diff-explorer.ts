@@ -19,6 +19,11 @@ import type {
 } from "./operation-authority.ts";
 import { safeExternalHref } from "./package-changes-view.ts";
 import { trapModalTab } from "./shell-controls.ts";
+import {
+  bindSourceDiffViewer,
+  renderSourceDiffViewer,
+  type SourceDiffViewerMode,
+} from "./source-diff-viewer.ts";
 import type {
   BrowserSourceComparison,
   BrowserSourceComparisonEndpoint,
@@ -26,8 +31,6 @@ import type {
   BrowserSourceComparisonRequest,
   BrowserSourceComparisonResult,
   BrowserSourceDiff,
-  BrowserSourceDiffChange,
-  BrowserSourceDiffSpan,
 } from "./source-diff-transport.ts";
 
 export type MemberDiffExplorerSourceState =
@@ -81,6 +84,7 @@ export interface MemberDiffExplorerDependencies {
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
   ) => void;
+  readonly writeClipboardText?: (value: string) => Promise<void>;
   readonly renderPage: () => void;
 }
 
@@ -253,228 +257,13 @@ function endpointStatus(
   </section>`;
 }
 
-function changedSpans(
-  change: BrowserSourceDiffChange | null,
-  side: "before" | "after",
-  line: number,
-): readonly BrowserSourceDiffSpan[] {
-  if (change === null) return [];
-  return change.innerMappings
-    .map(mapping => mapping[side])
-    .filter(span => span.line === line)
-    .sort((left, right) => left.start - right.start);
-}
-
-function highlightedLine(
-  text: string,
-  spans: readonly BrowserSourceDiffSpan[],
-  escapeHtml: (value: unknown) => string,
-): string {
-  if (spans.length === 0) return escapeHtml(text);
-  const parts: string[] = [];
-  let cursor = 0;
-  for (const span of spans) {
-    if (span.start < cursor || span.start + span.count > text.length) continue;
-    parts.push(escapeHtml(text.slice(cursor, span.start)));
-    parts.push(`<mark>${escapeHtml(
-      text.slice(span.start, span.start + span.count),
-    )}</mark>`);
-    cursor = span.start + span.count;
-  }
-  parts.push(escapeHtml(text.slice(cursor)));
-  return parts.join("");
-}
-
-type BrowserSourceDiffRelation = BrowserSourceDiff["relations"][number];
-
-interface SourceRelationLookup {
-  readonly before: ReadonlyMap<number, readonly BrowserSourceDiffRelation[]>;
-  readonly after: ReadonlyMap<number, readonly BrowserSourceDiffRelation[]>;
-}
-
-function sourceRelationLookup(diff: BrowserSourceDiff): SourceRelationLookup {
-  const before = new Map<number, BrowserSourceDiffRelation[]>();
-  const after = new Map<number, BrowserSourceDiffRelation[]>();
-  const add = (
-    index: Map<number, BrowserSourceDiffRelation[]>,
-    coordinate: number,
-    relation: BrowserSourceDiffRelation,
-  ): void => {
-    const relations = index.get(coordinate);
-    if (relations === undefined) index.set(coordinate, [relation]);
-    else relations.push(relation);
-  };
-  for (const relation of diff.relations) {
-    for (const coordinate of relation.beforeCoordinates)
-      add(before, coordinate, relation);
-    for (const coordinate of relation.afterCoordinates)
-      add(after, coordinate, relation);
-  }
-  return { before, after };
-}
-
-function relationDecorations(
-  beforeIndex: number | null,
-  afterIndex: number | null,
-  lookup: SourceRelationLookup,
-  escapeHtml: (value: unknown) => string,
-): string {
-  const relations = new Set<BrowserSourceDiffRelation>();
-  if (beforeIndex !== null) {
-    for (const relation of lookup.before.get(beforeIndex) ?? [])
-      relations.add(relation);
-  }
-  if (afterIndex !== null) {
-    for (const relation of lookup.after.get(afterIndex) ?? [])
-      relations.add(relation);
-  }
-  const labels = [...relations].flatMap(relation => {
-    const facts = [relation.content, relation.placement]
-      .filter(fact => fact !== null);
-    if (facts.length === 0) return [];
-    return [`<span class="member-diff-source-relation-label" data-relation-kind="${escapeHtml(relation.kind)}" data-relation-content="${escapeHtml(relation.content ?? "")}" data-relation-placement="${escapeHtml(relation.placement ?? "")}">${facts.map(escapeHtml).join(" · ")}</span>`];
-  });
-  return labels.length === 0
-    ? ""
-    : `<span class="member-diff-source-relations" aria-label="Relation facts">${labels.join("")}</span>`;
-}
-
-function diffLine(
-  kind: "context" | "removal" | "addition",
-  beforeIndex: number | null,
-  afterIndex: number | null,
-  diff: BrowserSourceDiff,
-  change: BrowserSourceDiffChange | null,
-  relations: SourceRelationLookup,
-  escapeHtml: (value: unknown) => string,
-): string {
-  const side = kind === "addition" ? "after" : "before";
-  const index = side === "before" ? beforeIndex : afterIndex;
-  if (index === null)
-    throw new Error("A Source diff row has no line on its rendered side.");
-  const sequence = diff[side];
-  const text = sequence.lines[index] ?? "";
-  const marker = kind === "context" ? " " : kind === "removal" ? "−" : "+";
-  return `<div class="member-diff-source-line member-diff-source-line-${kind}" data-row-kind="${kind}" data-before-line="${beforeIndex ?? ""}" data-after-line="${afterIndex ?? ""}">
-    <span class="member-diff-source-number">${beforeIndex === null ? "" : beforeIndex + 1}</span>
-    <span class="member-diff-source-number">${afterIndex === null ? "" : afterIndex + 1}</span>
-    <span class="member-diff-source-marker" aria-hidden="true">${marker}</span>
-    <code>${highlightedLine(
-      text,
-      changedSpans(change, side, index),
-      escapeHtml,
-    )}</code>
-    ${relationDecorations(
-      beforeIndex,
-      afterIndex,
-      relations,
-      escapeHtml,
-    )}
-  </div>`;
-}
-
-function annotationTarget(
-  annotation: BrowserSourceDiffChange["annotations"][number],
-): string {
-  if (annotation.targetKind === "Change") return "Change";
-  if (annotation.targetKind === "Line") {
-    return `${annotation.side ?? "Both"} line ${annotation.line ?? 0}`;
-  }
-  const span = annotation.span;
-  return span === null
-    ? `${annotation.side ?? "Both"} span`
-    : `${annotation.side ?? "Both"} line ${span.line}, ${span.start}:${span.count}`;
-}
-
-function mappedChangeEvidence(
-  diff: BrowserSourceDiff,
-  escapeHtml: (value: unknown) => string,
-): string {
-  if (diff.changes.length === 0) return "";
-  return `<details class="member-diff-source-evidence">
-    <summary>Mapped change evidence</summary>
-    <ol>${diff.changes.map((change, index) => {
-      const annotations = change.annotations.length === 0
-        ? ""
-        : `<ul>${change.annotations.map(annotation =>
-          `<li><strong>${escapeHtml(annotation.severity)}</strong> · ${escapeHtml(annotation.text)} · ${escapeHtml(annotationTarget(annotation))}</li>`).join("")}</ul>`;
-      return `<li>
-        Change ${index + 1}: Before ${change.before.start}:${change.before.count} → After ${change.after.start}:${change.after.count};
-        ${change.innerMappings.length.toLocaleString()} inner mappings.
-        ${annotations}
-      </li>`;
-    }).join("")}</ol>
-  </details>`;
-}
-
 export function renderMemberSourceDiff(
   diff: BrowserSourceDiff,
   escapeHtml: (value: unknown) => string,
   compact = false,
+  mode: SourceDiffViewerMode = "unified",
 ): string {
-  const rows: string[] = [];
-  const relations = sourceRelationLookup(diff);
-  let beforeCursor = 0;
-  let afterCursor = 0;
-  const contextRows = (beforeEnd: number, afterEnd: number): void => {
-    while (beforeCursor < beforeEnd && afterCursor < afterEnd) {
-      rows.push(diffLine(
-        "context",
-        beforeCursor++,
-        afterCursor++,
-        diff,
-        null,
-        relations,
-        escapeHtml,
-      ));
-    }
-  };
-  for (const change of diff.changes) {
-    contextRows(change.before.start, change.after.start);
-    const beforeEnd = change.before.start + change.before.count;
-    while (beforeCursor < beforeEnd) {
-      rows.push(diffLine(
-        "removal",
-        beforeCursor++,
-        null,
-        diff,
-        change,
-        relations,
-        escapeHtml,
-      ));
-    }
-    const afterEnd = change.after.start + change.after.count;
-    while (afterCursor < afterEnd) {
-      rows.push(diffLine(
-        "addition",
-        null,
-        afterCursor++,
-        diff,
-        change,
-        relations,
-        escapeHtml,
-      ));
-    }
-  }
-  contextRows(diff.before.lines.length, diff.after.lines.length);
-  const statistics = diff.statistics;
-  const summary = compact
-    ? ""
-    : `<div class="member-diff-source-summary" aria-label="Source diff statistics">
-    <span>${statistics.added.toLocaleString()} added</span>
-    <span>${statistics.removed.toLocaleString()} removed</span>
-    <span>${statistics.changedBefore.toLocaleString()} Before changed</span>
-    <span>${statistics.changedAfter.toLocaleString()} After changed</span>
-    <span>${statistics.movedBefore.toLocaleString()} Before moved</span>
-    <span>${statistics.movedAfter.toLocaleString()} After moved</span>
-  </div>`;
-  const supportingEvidence = compact
-    ? ""
-    : `<p class="member-diff-source-terminators">Final line terminators: Before ${escapeHtml(diff.before.finalLineTerminator)}; After ${escapeHtml(diff.after.finalLineTerminator)}.</p>
-  ${mappedChangeEvidence(diff, escapeHtml)}`;
-  return `${summary}
-  <div class="member-diff-source-diff" role="table" aria-label="Unified authored Source diff">${rows.join("")}</div>
-  ${supportingEvidence}`;
+  return renderSourceDiffViewer(diff, escapeHtml, { compact, mode });
 }
 
 export function renderInlineMemberSourceDiff(
@@ -586,6 +375,7 @@ function renderComparedSource(
   context: LibraryApiDiffMemberExploreContext,
   escapeHtml: (value: unknown) => string,
   compact = false,
+  mode: SourceDiffViewerMode = "unified",
 ): string {
   const exact = value.isExact
     ? '<span class="member-diff-source-exact">Authored Source is identical</span>'
@@ -602,7 +392,12 @@ function renderComparedSource(
   if (value.status === "Compared" && value.diff !== null) {
     return compact
       ? `${exact}${renderMemberSourceDiff(value.diff, escapeHtml, true)}`
-      : `${exact}${endpoints}${renderMemberSourceDiff(value.diff, escapeHtml)}`;
+      : `${exact}${endpoints}${renderMemberSourceDiff(
+          value.diff,
+          escapeHtml,
+          false,
+          mode,
+        )}`;
   }
   if (value.status === "Failed") {
     const failure = `<p class="member-diff-source-failure">${escapeHtml(
@@ -621,6 +416,7 @@ function renderSourcePane(
   context: LibraryApiDiffMemberExploreContext,
   escapeHtml: (value: unknown) => string,
   compact = false,
+  mode: SourceDiffViewerMode = "unified",
 ): string {
   const endpointContext = (stateText: string): string => {
     return compact
@@ -638,7 +434,13 @@ function renderSourcePane(
     case "ready": {
       const result = state.result;
       if (result.kind === "Succeeded" && result.value !== null) {
-        return renderComparedSource(result.value, context, escapeHtml, compact);
+        return renderComparedSource(
+          result.value,
+          context,
+          escapeHtml,
+          compact,
+          mode,
+        );
       }
       if (result.kind === "TooComplex" && result.capacity !== null) {
         const failure = `<p class="member-diff-source-failure">Authored Source exceeds the ${escapeHtml(result.capacity.dimension)} capacity: ${result.capacity.actual.toLocaleString()} observed, ${result.capacity.limit.toLocaleString()} allowed.</p>${retryButton()}`;
@@ -667,6 +469,7 @@ export function renderMemberDiffExplorer(
   context: LibraryApiDiffMemberExploreContext,
   source: MemberDiffExplorerSourceState,
   escapeHtml: (value: unknown) => string,
+  mode: SourceDiffViewerMode = "unified",
 ): string {
   const before = context.destination.target.member;
   const after = context.destination.current.member;
@@ -697,7 +500,7 @@ export function renderMemberDiffExplorer(
       </section>
       <section class="member-diff-explorer-pane member-diff-explorer-source" tabindex="0" data-member-diff-pane="source" aria-labelledby="member-diff-source">
         <h2 id="member-diff-source">Authored Source</h2>
-        ${renderSourcePane(source, context, escapeHtml)}
+        ${renderSourcePane(source, context, escapeHtml, false, mode)}
       </section>
     </main>
   </div>`;
@@ -707,6 +510,16 @@ function isRetainable(result: BrowserSourceComparisonResult): boolean {
   return result.kind === "Succeeded"
     && result.value !== null
     && result.value.status !== "Failed";
+}
+
+function readySourceDiff(
+  source: MemberDiffExplorerSourceState,
+): BrowserSourceDiff | null {
+  return source.status === "ready"
+      && source.result.kind === "Succeeded"
+      && source.result.value?.status === "Compared"
+    ? source.result.value.diff
+    : null;
 }
 
 function retriesOnActivation(source: MemberDiffExplorerSourceState): boolean {
@@ -728,6 +541,7 @@ export function createMemberDiffExplorer(
   let pendingFallbackFocus = false;
   let source: MemberDiffExplorerSourceState = { status: "idle" };
   let retained: RetainedSource | null = null;
+  let sourceDiffMode: SourceDiffViewerMode = "unified";
   const inputs = new Map<OperationId, MemberDiffExplorerOperationInput>();
 
   const render = (): void => {
@@ -736,6 +550,7 @@ export function createMemberDiffExplorer(
       "#member-diff-explorer-title",
       "[data-member-diff-close]",
       "[data-member-diff-source-retry]",
+      "[data-source-diff-viewer]",
       '[data-member-diff-pane="changes"]',
       '[data-member-diff-pane="declaration"]',
       '[data-member-diff-pane="source"]',
@@ -746,11 +561,25 @@ export function createMemberDiffExplorer(
       context,
       source,
       dependencies.escapeHtml,
+      sourceDiffMode,
     );
     dialog.querySelector<HTMLElement>("[data-member-diff-close]")
       ?.addEventListener("click", () => close(true, "user"));
     dialog.querySelector<HTMLElement>("[data-member-diff-source-retry]")
       ?.addEventListener("click", startSource);
+    const diff = readySourceDiff(source);
+    if (diff !== null) {
+      bindSourceDiffViewer(dialog, diff, {
+        mode: sourceDiffMode,
+        onModeChanged: mode => {
+          sourceDiffMode = mode;
+        },
+        writeClipboardText: dependencies.writeClipboardText
+          ?? (() => Promise.reject(
+            new Error("Clipboard access is unavailable."),
+          )),
+      });
+    }
     if (focusSelector !== undefined) {
       const focusTarget = dialog.querySelector<HTMLElement>(focusSelector)
         ?? dialog.querySelector<HTMLElement>(

@@ -320,19 +320,17 @@ test("Member Diff Explore renders all three evidence panes from typed evidence",
   assert.match(html, /1 Before changed/);
   assert.match(html, /<mark>int<\/mark>/);
   assert.match(html, /<mark>long<\/mark>/);
-  assert.match(html, /Parameter type changed\./);
-  assert.match(html, /Final line terminators: Before Present; After Absent/);
+  assert.match(html, /No newline at end/);
+  assert.match(html, /Copy Before/);
+  assert.match(html, /Side by side/);
 });
 
 test("unified Source rendering walks mapped changes in positional order", () => {
-  const html = renderMemberSourceDiff(sourceDiff(), String);
+  const html = renderMemberSourceDiff(sourceDiff(), String, true);
 
   assert.match(html, /data-row-kind="removal" data-before-line="0"/);
   assert.match(html, /data-row-kind="addition" data-before-line="" data-after-line="0"/);
   assert.match(html, /data-row-kind="context" data-before-line="1" data-after-line="1"/);
-  assert.match(html, /Mapped change evidence/);
-  assert.match(html, /Before 0:1 → After 0:1/);
-  assert.match(html, /Warning/);
   assert.equal(
     (html.match(/data-relation-content="Changed" data-relation-placement="Stable"/g) ?? []).length,
     2,
@@ -372,7 +370,7 @@ test("a middle insertion renders once between its surrounding context", () => {
       annotations: [],
     }],
   };
-  const html = renderMemberSourceDiff(diff, String);
+  const html = renderMemberSourceDiff(diff, String, true);
   const first = html.indexOf(
     'data-row-kind="context" data-before-line="0" data-after-line="0"',
   );
@@ -383,9 +381,9 @@ test("a middle insertion renders once between its surrounding context", () => {
     'data-row-kind="context" data-before-line="1" data-after-line="2"',
   );
   assert.ok(first >= 0 && first < insertion && insertion < last);
-  assert.equal((html.match(/<code>a<\/code>/g) ?? []).length, 1);
-  assert.equal((html.match(/<code>b<\/code>/g) ?? []).length, 1);
-  assert.equal((html.match(/<code>c<\/code>/g) ?? []).length, 1);
+  assert.equal((html.match(/<code role="cell">a<\/code>/g) ?? []).length, 1);
+  assert.equal((html.match(/<code role="cell">b<\/code>/g) ?? []).length, 1);
+  assert.equal((html.match(/<code role="cell">c<\/code>/g) ?? []).length, 1);
   assert.doesNotMatch(html, /member-diff-source-relations/);
 });
 
@@ -435,7 +433,11 @@ test("decoded N:M correspondence cannot override mapped presentation order", () 
     throw new Error("Expected a decoded Source diff.");
   }
 
-  const html = renderMemberSourceDiff(decoded.value.value.diff, String);
+  const html = renderMemberSourceDiff(
+    decoded.value.value.diff,
+    String,
+    true,
+  );
   assert.equal((html.match(/data-row-kind="removal"/g) ?? []).length, 2);
   assert.equal((html.match(/data-row-kind="addition"/g) ?? []).length, 1);
   assert.equal(
@@ -446,8 +448,83 @@ test("decoded N:M correspondence cannot override mapped presentation order", () 
     (html.match(/>Unchanged · Moved<\/span>/g) ?? []).length,
     3,
   );
-  assert.match(html, /2 Before moved/);
-  assert.match(html, /1 After moved/);
+});
+
+test("side-by-side Source rendering top-aligns asymmetric changed blocks", () => {
+  const diff: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["old 1", "old 2"],
+      finalLineTerminator: "Absent",
+    },
+    after: {
+      label: "After",
+      lines: ["new 1", "new 2", "new 3"],
+      finalLineTerminator: "Absent",
+    },
+    relations: [],
+    statistics: {
+      added: 3,
+      removed: 2,
+      changedBefore: 2,
+      changedAfter: 3,
+      movedBefore: 0,
+      movedAfter: 0,
+    },
+    changes: [{
+      before: { start: 0, count: 2 },
+      after: { start: 0, count: 3 },
+      innerMappings: [],
+      annotations: [],
+    }],
+  };
+
+  const html = renderMemberSourceDiff(
+    diff,
+    String,
+    false,
+    "side-by-side",
+  );
+  assert.match(html, /data-mode="side-by-side"/);
+  assert.equal(
+    (html.match(/class="source-diff-viewer-split-row source-diff-viewer-row-change"/g) ?? []).length,
+    3,
+  );
+  assert.equal(
+    (html.match(/class="source-diff-viewer-split-empty"/g) ?? []).length,
+    1,
+  );
+  assert.equal(
+    (html.match(/class="source-diff-viewer-terminator"/g) ?? []).length,
+    4,
+  );
+});
+
+test("invalid intraline mappings preserve rows and report the defect", () => {
+  const diff = sourceDiff();
+  const invalid: BrowserSourceDiff = {
+    ...diff,
+    changes: [{
+      ...diff.changes[0]!,
+      innerMappings: [
+        {
+          before: { line: 0, start: 16, count: 3 },
+          after: { line: 0, start: 16, count: 4 },
+        },
+        {
+          before: { line: 0, start: 17, count: 2 },
+          after: { line: 0, start: 18, count: 1 },
+        },
+      ],
+    }],
+  };
+
+  const html = renderMemberSourceDiff(invalid, String);
+  assert.match(html, /Some intraline highlights could not be shown/);
+  assert.match(html, /invalid before intraline mappings on line 1/);
+  assert.doesNotMatch(html, /<mark>int<\/mark>/);
+  assert.match(html, /public void Run\(int value\)/);
 });
 
 test("inline Member Diff keeps source work explicit", () => {
@@ -549,11 +626,11 @@ test("inline Member Diff renders only the authored Source document", () => {
     String,
   );
 
-  const diff = html.indexOf('class="member-diff-source-diff"');
+  const diff = html.indexOf("member-diff-source-diff");
   assert.ok(diff >= 0);
   assert.doesNotMatch(
     html,
-    /Authored Source changed|Source evidence|member-diff-source-endpoints|Source diff statistics|Final line terminators|Mapped change evidence/,
+    /Authored Source changed|Source evidence|member-diff-source-endpoints|Source diff statistics|Final line terminators|No newline at end|Mapped change evidence/,
   );
 });
 
