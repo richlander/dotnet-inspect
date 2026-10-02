@@ -177,3 +177,20 @@ QuerySpace execution itself can preserve source-native terminal cost once
 acquisition and planning have settled. The full-request boundary separately
 discloses request and route-resolution cost rather than attributing that work
 to borrowing or the producer.
+
+The **prepared discovery** variant moves immutable setup facts out of terminal
+execution:
+
+- binding authentication and MethodDef-range formation;
+- accepted Count and Rows QuerySpace plans;
+- Sections subject and authenticated binding projection;
+- the non-projectable Share; and
+- complete Count and Rows receipts for this unfiltered immutable population.
+
+After the accepted plan selects its terminal, the scoped borrow performs only
+NLinq discovery compute: Count closes the prepared method range, while Rows
+folds it into one exact-sized token buffer. The borrow returns that detached
+answer before Sections constructs the final outcome and envelope. No Metadata
+outcome is constructed solely to be reprojected. This separation makes
+analysis the discovery computation rather than acquisition, admission,
+authentication, planning, or host handoff.
