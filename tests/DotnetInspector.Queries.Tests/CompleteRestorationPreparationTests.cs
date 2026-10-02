@@ -129,8 +129,7 @@ public sealed class CompleteRestorationPreparationTests
         WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
             [EcosystemPackIds.Aspire]);
         WorkspaceRegistration.Ecosystem registration =
-            Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                Assert.Single(plan.Registrations));
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
         var request =
             new CompleteRestorationRequestBasis
                 .RegistrationOnlyEcosystemInput(
@@ -162,8 +161,7 @@ public sealed class CompleteRestorationPreparationTests
         WorkspacePlan aspire = EcosystemPackCatalog.CreateWorkspacePlan(
             [EcosystemPackIds.Aspire]);
         WorkspaceRegistration.Ecosystem registration =
-            Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                Assert.Single(aspire.Registrations));
+            EcosystemRegistration(aspire, EcosystemPackIds.Aspire);
         var contextPlan = new WorkspacePlan(
             aspire.Registrations,
             [new WorkspaceContextInput()]);
@@ -211,7 +209,7 @@ public sealed class CompleteRestorationPreparationTests
                         .RegistrationOnlyEcosystemInput(
                             plan,
                             WorkspaceEcosystemRegistrationId.Create(
-                                "ecosystem.microsoft-extensions"),
+                                "ecosystem.maui"),
                             new ViewFacetId("ecosystem.overview")),
                     authority,
                     TestContext.Current.CancellationToken));
@@ -220,8 +218,7 @@ public sealed class CompleteRestorationPreparationTests
                 missing.Failure);
 
         WorkspaceRegistration.Ecosystem registration =
-            Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                Assert.Single(plan.Registrations));
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
         Assert.Throws<ArgumentException>(
             () => new WorkspacePlan([registration, registration]));
         var wrongFacet = Assert.IsType<
@@ -245,8 +242,7 @@ public sealed class CompleteRestorationPreparationTests
         WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
             [EcosystemPackIds.Aspire]);
         WorkspaceRegistration.Ecosystem registration =
-            Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                Assert.Single(plan.Registrations));
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
         var request =
             new CompleteRestorationRequestBasis
                 .RegistrationOnlyEcosystemInput(
@@ -889,6 +885,20 @@ public sealed class CompleteRestorationPreparationTests
 
     private static DefinitionMemberCoordinate.PackageCoordinate Package() =>
         new("System.Text.Json", "10.0.0", "net10.0");
+
+    private static WorkspaceRegistration.Ecosystem EcosystemRegistration(
+        WorkspacePlan plan,
+        EcosystemPackId id)
+    {
+        WorkspaceEcosystemRegistrationDeclaration declaration =
+            Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Known>(
+                EcosystemPackCatalog.SelectWorkspaceRegistration(id))
+                .Declaration;
+        return plan.Registrations
+            .OfType<WorkspaceRegistration.Ecosystem>()
+            .Single(registration =>
+                ReferenceEquals(registration.Declaration, declaration));
+    }
 
     private sealed class TestIntentAuthority :
         ICompleteRestorationIntentAuthority

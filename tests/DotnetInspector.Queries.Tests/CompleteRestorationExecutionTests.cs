@@ -75,8 +75,7 @@ public sealed partial class CompleteRestorationExecutionTests
         WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
             [EcosystemPackIds.Aspire]);
         WorkspaceRegistration.Ecosystem registration =
-            Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                Assert.Single(plan.Registrations));
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
         Assert.NotNull(registration.Declaration.IntegrationScanner);
         var request =
             new CompleteRestorationRequestBasis
@@ -196,7 +195,10 @@ public sealed partial class CompleteRestorationExecutionTests
                 activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot
                     .ActiveSubject);
         Assert.Equal("ecosystem.aspire", subject.Id.Value);
-        Assert.Equal(2, plan.Registrations.Length);
+        Assert.Contains(
+            plan.Registrations.OfType<WorkspaceRegistration.Ecosystem>(),
+            registration => registration.Declaration.Id.Value
+                == "ecosystem.microsoft-extensions");
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
     }
 
@@ -206,8 +208,7 @@ public sealed partial class CompleteRestorationExecutionTests
         WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
             [EcosystemPackIds.Aspire]);
         WorkspaceRegistration.Ecosystem registration =
-            Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                Assert.Single(plan.Registrations));
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
         var authority = new TestIntentAuthority();
         var preparation =
             Assert.IsType<CompleteRestorationPreparationResult.Ready>(
@@ -241,8 +242,7 @@ public sealed partial class CompleteRestorationExecutionTests
         WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
             [EcosystemPackIds.Aspire]);
         WorkspaceRegistration.Ecosystem registration =
-            Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                Assert.Single(plan.Registrations));
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
         var authority = new TestIntentAuthority();
         var preparation =
             Assert.IsType<CompleteRestorationPreparationResult.Ready>(
@@ -303,8 +303,7 @@ public sealed partial class CompleteRestorationExecutionTests
         WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
             [EcosystemPackIds.Aspire]);
         WorkspaceRegistration.Ecosystem registration =
-            Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                Assert.Single(plan.Registrations));
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
         var authority = new TestIntentAuthority();
         var preparation =
             Assert.IsType<CompleteRestorationPreparationResult.Ready>(
@@ -336,7 +335,17 @@ public sealed partial class CompleteRestorationExecutionTests
                 WorkspaceRegistrationOperationResult replaced =
                     host.Workspace.ReplaceRegistrations(
                         current,
-                        [new WorkspaceRegistration.Ecosystem(replacement)]);
+                        [
+                            .. current.Registrations.Select(item =>
+                                item is WorkspaceRegistration.Ecosystem ecosystem
+                                    && ReferenceEquals(
+                                        ecosystem.Declaration,
+                                        original)
+                                    ? (WorkspaceRegistration)new
+                                        WorkspaceRegistration.Ecosystem(
+                                            replacement)
+                                    : item),
+                        ]);
                 Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
                     replaced);
             },
@@ -1517,6 +1526,20 @@ public sealed partial class CompleteRestorationExecutionTests
 
     private static DefinitionMemberCoordinate.PackageCoordinate Package() =>
         new("System.Text.Json", "9.0.4", "net9.0");
+
+    private static WorkspaceRegistration.Ecosystem EcosystemRegistration(
+        WorkspacePlan plan,
+        EcosystemPackId id)
+    {
+        WorkspaceEcosystemRegistrationDeclaration declaration =
+            Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Known>(
+                EcosystemPackCatalog.SelectWorkspaceRegistration(id))
+                .Declaration;
+        return plan.Registrations
+            .OfType<WorkspaceRegistration.Ecosystem>()
+            .Single(registration =>
+                ReferenceEquals(registration.Declaration, declaration));
+    }
 
     private static async Task<PackageFixture> SystemTextJsonPackageAsync()
     {
