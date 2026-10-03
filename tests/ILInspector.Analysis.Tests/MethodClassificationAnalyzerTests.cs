@@ -610,14 +610,15 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Fact]
-    public void ExtensionAnalyzer_CountsAReceiverNestedBeyondTheLegacySignatureGuard()
+    public void ExtensionAnalyzer_CountsSignaturesBeyondTheLegacySignatureGuard()
     {
         // Roslyn compiles `void M(this int[][]...[] value)` with 513 array
-        // levels, and likewise a shallow receiver with a deep second
-        // parameter. Legacy decodes every candidate's signature through the
-        // signature guard, whose depth bound is 512, and drops both methods;
-        // the analyzer decodes nothing and counts them. Both are extension
-        // methods, so the analyzer's answer is the faithful one.
+        // levels, a shallow receiver with a deep second parameter, and a
+        // shallow method with 33,000 `int[]` parameters. Legacy decodes every
+        // candidate's signature through the signature guard, whose bounds are
+        // 512 levels and 65,536 type nodes, and drops all three; the analyzer
+        // decodes nothing and counts them. All three are extension methods,
+        // so the analyzer's answer is the faithful one.
         GateFixtureImage builder = new();
         MemberReferenceHandle extension = builder.AttributeConstructor(builder.TypeRef(
             "System.Runtime.CompilerServices", "ExtensionAttribute"));
@@ -646,12 +647,18 @@ public sealed class MethodClassificationAnalyzerTests
                         element.Int32();
                     }),
                 PublicStatic,
+                attributeConstructors: extension)
+            .Method(
+                "Wide",
+                GateFixtureImage.VoidSignature(
+                    [.. Enumerable.Repeat<Action<SignatureTypeEncoder>>(static t => t.SZArray().Int32(), 33_000)]),
+                PublicStatic,
                 attributeConstructors: extension);
         ImmutableArray<byte> image = builder.Build();
 
         MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
 
-        Assert.Equal(2, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+        Assert.Equal(3, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
         Assert.Equal(0, LegacyExtensionMethodCount(image));
     }
 

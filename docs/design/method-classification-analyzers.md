@@ -96,11 +96,15 @@ types and are not this analyzer's rows. The legacy scan also decodes each
 candidate's signature through the signature guard and skips a method with no
 parameters or a signature the guard rejects. Roslyn never emits a
 parameterless `[Extension]` method, and a Roslyn signature exceeds the guard
-only when a parameter or return type nests more than 512 array or pointer
-levels, where the method is an extension method and the guard's rejection is
-containment, not fidelity. Under the [fidelity policy](#fidelity-policy) the analyzer omits
-the decode: on Roslyn-produced assemblies its Count equals the legacy count
-plus any such over-bound method legacy drops (gated by a 513-level fixture in
+only at its two bounds: a parameter or return type nested more than 512
+array or pointer levels, or a signature with more than 65,536 type nodes
+(`MetadataSafetyPolicy.MaxSignatureTypeNodes`; tens of thousands of
+parameters). In both the method is an extension method and the guard's
+rejection is containment, not fidelity. Under the
+[fidelity policy](#fidelity-policy) the analyzer omits the decode: on
+Roslyn-produced assemblies its Count equals the legacy count plus any such
+over-bound method legacy drops (gated by a 513-level receiver, a 513-level
+second parameter, and a 33,000-parameter method in
 `MethodClassificationAnalyzerTests`), and it is wrong but contained
 elsewhere. Its rows are not merged into the classified-method Finding.
 
