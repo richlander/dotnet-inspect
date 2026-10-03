@@ -9,6 +9,9 @@ the first semantic producer used by the production Package Query delivery in
 [#6030](https://github.com/richlander/dotnet-inspect/issues/6030), under the
 overall tracker
 [#5766](https://github.com/richlander/dotnet-inspect/issues/5766).
+[#9157](https://github.com/richlander/dotnet-inspect/issues/9157) owns the
+Finding projection required before generic Diff registration under
+[#8828](https://github.com/richlander/dotnet-inspect/issues/8828).
 
 The implementation belongs to `ILInspector.Analysis`. Metadata owns image
 admission and bounded access to method rows, copied IL bodies, and decoded user
@@ -213,12 +216,67 @@ cryptographic module identity.
 
 `LiteralText` is constructed from the exact decoded literal with
 `InertString(TextPolicy.Field, literal)`. `LiteralCharacterCount` records the
-unmodified UTF-16 length. The raw string is used only while matching and
-containment are performed and is not retained in the public result.
+unmodified UTF-16 length. The raw string is retained only behind Analysis'
+internal non-renderable `StringLiteralUseIdentity` currency, which exposes no
+text and can only produce the presentation-safe exact Finding key. The public
+result exposes only the contained `LiteralText`.
 
 The result graph contains no reader, handle, session, stream, byte buffer,
 lease, delegate, package coordinate, or package-selection state. It may outlive
 the callback-scoped assembly session.
+
+## Finding projection and comparison
+
+Analysis projects a completed pattern result through:
+
+```csharp
+public static class StringLiteralUseFindings
+{
+    public static FindingDescriptor Descriptor { get; }
+
+    public static FindingInspection<StringLiteralUseOccurrence> Inspect(
+        StringLiteralUsePatternResult result,
+        FindingSubject subject);
+
+    public static FindingComparison<StringLiteralUseOccurrence> Compare(
+        StringLiteralUsePatternResult oldResult,
+        StringLiteralUsePatternResult newResult,
+        FindingSubject subject);
+}
+```
+
+`Descriptor.Id` is `analysis.string-literal-use`.
+
+`Match` becomes one ordered Finding per retained physical occurrence.
+`NoMatch` becomes a completed empty inspection. `Rejected` and
+`WorkLimitExceeded` become failed inspections carrying the Analysis-owned
+reason, site or limit, and receipt context; neither can become an empty
+completed census.
+
+Each Finding payload is the complete resource-free occurrence. Its ordinal is
+the occurrence's producer order. Its detail is the contained complete literal
+display. Multiple operand positions inside one decoded literal therefore
+remain one Finding, while repeated physical `ldstr` instructions remain
+separate ordered Findings.
+
+Exact correspondence is the complete decoded literal's exact UTF-16 code-unit
+sequence. Analysis encodes that sequence as versioned fixed-width hexadecimal
+ASCII for `FindingKey.IdentityKey`. The key does not use the contained display
+text and therefore distinguishes embedded NUL, unpaired surrogates,
+normalization-distinct text, and ordinal case while carrying no raw
+artifact-authored control characters. MVID, MethodDef token, IL offset, and
+user-string token remain evidence and never establish cross-version
+correspondence.
+
+The safe key string is constructed only when the Finding projection is
+requested. Existing Package Query occurrence consumption retains the bounded
+internal identity currency but does not allocate or render Finding keys.
+
+Comparison uses the Finding matcher's exact threshold. Equal complete literals
+are `Present` even when physical coordinates differ after rebuilding. A
+changed literal is one `Removed` plus one `Added`; this owner defines no fuzzy
+string-edit correspondence. Repeated equal literals are aligned by their
+producer order without value-based deduplication.
 
 ## Bounds and charging
 
@@ -253,6 +311,8 @@ The live working set is finite as a function of the admitted bounds:
 - switch-target storage bounded by the admitted body bytes;
 - at most one newly decoded raw string within the remaining decoded-character
   budget;
+- retained internal literal identity text bounded by the charged decoded
+  character total;
 - retained occurrence records bounded by `MaximumOccurrences`; and
 - retained inert literal text bounded by six encoded characters per charged
   UTF-16 code unit under the current `TextPolicy.Field` spelling set.
@@ -340,7 +400,15 @@ The focused Release suite
 - token-free producer invocation and bounded completion;
 - contained artifact-authored display text;
 - resource-free evidence that remains usable after session disposal; and
-- operand and budget validation.
+- operand and budget validation;
+- one Finding per physical occurrence, including equal-key repeated uses;
+- one Finding for a literal containing the operand more than once;
+- exact raw UTF-16 identity independent of contained display spelling and
+  physical coordinates;
+- completed empty inspection for `NoMatch`;
+- failed inspections for rejected and work-limited scans; and
+- exact comparison across rebuilt coordinates, with changed literals remaining
+  one removal plus one addition.
 
 The bounded Instructions decode extension has its own focused tests for exact
 limit completion, pre-decode limit exhaustion, and unchanged malformed-IL
@@ -361,5 +429,7 @@ proportional evidence for this boundary.
 - No producer-local cancellation contract or polling.
 - No package, evaluator, archive, Workspace, renderer, worker, CLI, or Browser
   behavior.
+- No generic Diff registration, query predicate, or host transport in the
+  Finding-projection slice.
 - No package-wide conclusion from one selected implementation assembly.
 - No claim that the optional prefilter work in #5795 is complete.
