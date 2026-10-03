@@ -15,15 +15,16 @@ Proposed focused design for
 
 The operation has two explicit stages:
 
-1. evaluate one exact source under the question, retaining strong matches,
-   complete-population Type candidates, exact declaration associations, and
-   source coverage; and
+1. evaluate one exact source under the question, retaining every independently
+   truthful Type or Member match, exact declaration associations, and source
+   coverage; and
 2. reduce one ordered population of those source evaluations into one semantic
    block.
 
 The split lets a scheduler evaluate one source once and reuse its immutable
 question-specific facts in several Ecosystem populations. Population reduction
-still sees the complete ordered candidate set needed for Type tier settlement.
+preserves the established per-candidate classifications and source order while
+settling population-wide completion.
 
 This owner defines normalized Find questions, source-evaluation facts, semantic
 Type and Member matches, population reduction, ordering, limits, and completion.
@@ -71,7 +72,6 @@ platform observations.
 | --- | --- |
 | [Find type-search service](find-search-service.md) | Existing Type Exact, Direct, Glob, Namespace, Prefix, Substring, Partial, and no-match meaning; CLI source and presentation concerns remain there until migrated |
 | [Find member-name search service](find-member-search-service.md) | Existing Member Direct/Glob grammar, pattern multiplicity, declaring-Type filtering, and discovery-not-selection meaning |
-| [Type Find population selection](type-find-population-selection.md) | First-nonempty Prefix, Substring, or Partial selection over one complete ordered Type population while retaining exact associations |
 | [Type, member, and API representation](type-member-api-representation.md) | `MetadataTypeDefinitionName`, `MemberAnchor`, and the rule that identity is not recovered from display strings |
 | Reverse Type-Declaration Locator | Exact source-backed Type coordinates, declaration observations, visibility facts, and population coverage |
 | `AssemblyContextTypeInventoryQuery` and `AssemblyContextMemberMatchesQuery` | Existing host-neutral execution, participant order, rejection, failure, and metadata-inspection evidence; their current string projections are not sufficient declaration identity |
@@ -103,6 +103,15 @@ strings, and `MemberSearchResult` omits `MemberAnchor`. Adoption must add or
 extend owner-issued query facts so the evaluator receives structured names,
 anchors, and exact source associations directly. It must not parse
 `FullName`, `Signature`, `Library`, or `Source` to manufacture them.
+
+[Type Find population selection](type-find-population-selection.md) is a
+separate optional suggestion contract and is deliberately not consumed here.
+It chooses one first-nonempty broadened tier and collapses equal full names to
+the first caller association. Plural Find instead preserves every
+per-candidate classification in discovery order and keeps equal-name package
+and platform observations distinct. Adopting first-nonempty selection would be
+a separately approved behavior change, not an implementation detail of this
+migration.
 
 ## Normalized questions
 
@@ -183,9 +192,8 @@ Every variant retains:
   them; and
 - participant realization and evaluation coverage.
 
-`Available` additionally retains Type strong matches and complete-population
-candidates, or Member matches, plus exact declaration associations and
-metadata inspection failures.
+`Available` additionally retains Type or Member matches, exact declaration
+associations, metadata inspection failures, and source-local match completion.
 
 The source owner supplies identity and coverage. The evaluator never derives a
 package, platform family, Library, assembly, or acquisition origin from display
@@ -193,18 +201,20 @@ text. Two source requests that differ in authority, selected version, target
 framework, runtime identifier, platform generation, or selected asset remain
 different sources even when their labels match.
 
-A Type source evaluation retains enough facts for later population reduction:
+A Type source evaluation retains:
 
-- Exact, Direct, Glob, and Namespace matches that are true independently of
-  neighboring sources;
-- ordered broadenable candidates carrying
-  `MetadataTypeDefinitionName`, declaration kind, source coordinate, and exact
-  declaration observation; and
-- whether the candidate population and visibility evidence are complete.
+- every Exact, Direct, Glob, Namespace, Prefix, Substring, or Partial match in
+  established declaration discovery order;
+- each match's `MetadataTypeDefinitionName`, declaration kind, source
+  coordinate, exact declaration observation, and similarity where applicable;
+  and
+- whether declaration evaluation and visibility evidence are complete or
+  stopped at the match limit.
 
-It does not choose Prefix, Substring, or Partial for one source in isolation.
-Those tiers are relative to the complete population being reduced. It does not
-emit a source-local NotFound row.
+Each candidate receives the strongest classification established by the
+existing plural Find classifier. A neighboring Exact match does not suppress a
+truthful Prefix match before or after it. Source evaluation does not emit a
+source-local NotFound row.
 
 A Member source evaluation retains Direct or Glob matches with the exact source
 coordinate, declaring `MetadataTypeDefinitionName`, and producer-issued
@@ -259,17 +269,15 @@ operation.
 
 For each Type pattern in input order:
 
-1. Exact, Direct, Glob, or Namespace matches settle under their existing
-   grammar and order.
-2. An explicit glob or namespace request does not enter broadened selection.
-3. When an ordinary pattern has no strong matches and the population is
-   complete, `TypeFindPopulationSelector` chooses the first nonempty Prefix,
-   Substring, or Partial tier over the complete ordered candidate population.
-4. When no tier matches and population coverage is complete, the pattern
+1. Source-local matches concatenate in source, assembly, and declaration
+   discovery order without sorting by match class.
+2. Exact, Direct, Glob, Namespace, Prefix, Substring, and Partial rows remain
+   independently truthful; one class does not suppress another.
+3. When no candidate matches and population coverage is complete, the pattern
    settles as `NoMatch`.
-5. When required population coverage is partial or failed, absence remains
-   inconclusive; the block retains the source evidence and does not publish a
-   false `NoMatch`.
+4. When required population coverage is partial, limited, or failed, absence
+   remains inconclusive; the block retains the source evidence and does not
+   publish a false `NoMatch`.
 
 Member reduction concatenates source-local matches in pattern, source, assembly,
 declaration, and member order. A complete zero-match population settles the
@@ -293,9 +301,8 @@ pattern.
 The optional maximum counts matches across patterns in input order. Once it is
 reached, later patterns settle as `NotEvaluated`, match completion is
 `MatchLimitReached`, and source failures already observed remain visible. The
-limit is applied only after a tier has been selected and ordered. It cannot
-truncate a candidate census needed to establish Prefix, Substring, Partial, or
-NoMatch.
+limit follows established source and declaration discovery order. Reaching it
+cannot establish `NoMatch` for the remaining population or patterns.
 
 ## Identity and order
 
@@ -319,14 +326,12 @@ their display names happen to agree.
 Rows order by:
 
 1. pattern ordinal;
-2. the owning grammar or selected Type tier;
-3. source order;
-4. assembly and declaration inventory order; and
-5. producer member order where applicable.
+2. source order;
+3. assembly and declaration inventory order; and
+4. producer member order where applicable.
 
-Prefix, Substring, and Partial retain the order defined by
-`TypeFindPopulationSelector`. Arrival time, task completion, display label, and
-Ecosystem name are never ranking inputs.
+Match classification is row evidence, not a sort key. Arrival time, task
+completion, display label, and Ecosystem name are never ranking inputs.
 
 ## Completion and failure
 
@@ -409,13 +414,14 @@ The implementation must add Release gates for:
 
 - rejection of empty or invalid Type and Member questions;
 - Type Exact, Direct, Glob, Namespace, Prefix, Substring, Partial, and complete
-  NoMatch settlement over real Platform declarations;
+  NoMatch settlement over real Platform declarations in discovery order;
+- `JsonSerializer` preserving the observed `Prefix, Exact, Prefix` sequence;
 - explicit-generic `IList<T>` discovery from the Runtime with its exact source
   and declaration association;
-- first-association retention for equal Type names within one population;
+- distinct equal-name `JsonSerializer` Prefix observations from a package and
+  the Runtime;
 - Member Direct, Glob, `this[]`, declaring-Type filtering, overload
   multiplicity, and `MemberAnchor` retention;
-- distinct package and Runtime `JsonSerializer` observations;
 - partial and failed source coverage withholding `NoMatch`;
 - match limits that do not truncate a population-relative Type decision;
 - one immutable source evaluation participating in two population reductions
