@@ -596,9 +596,10 @@ public partial class SectionPipelineTests
                     ClassificationClosing.Count)).IdentityBudgetArmed);
         var source =
             Assert.Single(available.Result.SourceGroups);
-        // Async Rows plus async, pointer, and P/Invoke Count retain four
+        // Async Rows plus async, extension, pointer, and P/Invoke Count retain
+        // five
         // independent association lanes in one physical source group.
-        Assert.Equal(4, source.LaneReceipts.Length);
+        Assert.Equal(5, source.LaneReceipts.Length);
         Assert.Equal(1, context.SharedQueryCount);
     }
 

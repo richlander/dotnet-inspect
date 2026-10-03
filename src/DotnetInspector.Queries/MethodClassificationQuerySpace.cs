@@ -94,6 +94,9 @@ internal static class MethodClassificationQuerySpace
     const string CompilerAsyncMethodsRowSet =
         "compiler-async-methods";
 
+    const string ExtensionMethodsRowSet =
+        "extension-methods";
+
     const string ClassifiedMethodsRowScopeIdentity =
         "method-classification/classified-methods/v1";
 
@@ -107,6 +110,7 @@ internal static class MethodClassificationQuerySpace
         PointerSignatureMethodsRowSet,
         RuntimeAsyncMethodsRowSet,
         CompilerAsyncMethodsRowSet,
+        ExtensionMethodsRowSet,
     ];
 
     const string RowsResultContract =
@@ -225,6 +229,8 @@ internal static class MethodClassificationQuerySpace
                 RuntimeAsyncMethodsRowSet,
             MethodClassificationAnalyzer.CompilerAsync =>
                 CompilerAsyncMethodsRowSet,
+            MethodClassificationAnalyzer.Extension =>
+                ExtensionMethodsRowSet,
             _ => throw new ArgumentOutOfRangeException(nameof(analyzer)),
         };
 }

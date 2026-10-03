@@ -293,6 +293,40 @@ public sealed class MethodClassificationQueryTests
     }
 
     [Fact]
+    public void SessionRequestSet_ExtensionCountMatchesDirectReference()
+    {
+        string path = typeof(Enumerable).Assembly.Location;
+        ClassificationQuestion count = new(
+            MethodClassificationAnalyzer.Extension,
+            ClassificationClosing.Count);
+
+        MethodClassificationResult direct;
+        using (var peReader = new PEReader(File.OpenRead(path)))
+        {
+            direct = MethodClassificationQuery.Execute(
+                peReader,
+                [count]);
+        }
+
+        using var session = AssemblyInspectionSession.Open(path);
+        MethodClassificationResult result =
+            MethodClassificationQuery.Execute(session, [count]);
+
+        ClassificationAnswer.Count directCount =
+            Assert.IsType<ClassificationAnswer.Count>(
+                direct.AnswerTo(count));
+        Assert.True(directCount.Value > 0);
+        Assert.Equal(directCount, result.AnswerTo(count));
+        Assert.False(
+            result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Count))
+            .IdentityBudgetArmed);
+        Assert.Single(
+            Assert.Single(result.SourceGroups).LaneReceipts);
+    }
+
+    [Fact]
     public void PreparedRequestSet_ReusesPlanningAcrossSessionExecutions()
     {
         string path = FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
