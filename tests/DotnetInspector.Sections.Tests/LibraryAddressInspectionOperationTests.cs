@@ -8,6 +8,8 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -388,6 +390,197 @@ public sealed class LibraryAddressInspectionOperationTests
         Assert.IsType<LibraryAddressPopulationRow.Resolved>(
             Assert.Single(result.Rows));
         Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task RoslynPopulationRowsCountAndExistsAgree()
+    {
+        byte[] implementation =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        (int methodToken, int ilOffset) =
+            FirstMethodAddress(implementation);
+        LibraryAddressPopulationRecord[] records =
+        [
+            new LibraryAddressPopulationRecord.Coordinate(
+                1,
+                $"0x{methodToken:X8}+0x{ilOffset:X}",
+                "first",
+                methodToken,
+                ilOffset),
+            new LibraryAddressPopulationRecord.Coordinate(
+                2,
+                $"0x{methodToken:X8}+0x{ilOffset:X}",
+                "second",
+                methodToken,
+                ilOffset),
+            new LibraryAddressPopulationRecord.Coordinate(
+                3,
+                $"0x{methodToken:X8}+0x{ilOffset:X}",
+                "third",
+                methodToken,
+                ilOffset),
+        ];
+        RowSelectionIntent<string> selection =
+            RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Head(2)]);
+
+        LibraryAddressPopulationResult rows =
+            await ExecutePopulationTerminalAsync(
+                implementation,
+                records,
+                selection,
+                QuerySpaceTerminalRequirement.Rows);
+        LibraryAddressPopulationResult count =
+            await ExecutePopulationTerminalAsync(
+                implementation,
+                records,
+                selection,
+                QuerySpaceTerminalRequirement.Count);
+        LibraryAddressPopulationResult exists =
+            await ExecutePopulationTerminalAsync(
+                implementation,
+                records,
+                selection,
+                QuerySpaceTerminalRequirement.Exists);
+
+        Assert.Equal(QuerySpaceTerminalRequirement.Rows, rows.Terminal);
+        Assert.Equal(2, rows.Rows.Length);
+        Assert.All(
+            rows.Rows,
+            static row =>
+                Assert.IsType<LibraryAddressPopulationRow.Resolved>(row));
+        Assert.Equal(2, count.Count);
+        Assert.Empty(count.Rows);
+        Assert.True(exists.Exists);
+        Assert.Empty(exists.Rows);
+        Assert.True(rows.IsComplete);
+        Assert.True(count.IsComplete);
+        Assert.True(exists.IsComplete);
+    }
+
+    [Fact]
+    public async Task ScalarPopulationTerminalsContainArbitraryAssemblyBytes()
+    {
+        byte[] arbitraryAssembly = [0, 1, 2, 3];
+        LibraryAddressPopulationRecord[] records =
+        [
+            new LibraryAddressPopulationRecord.Coordinate(
+                1,
+                "0x06000001+0x0",
+                label: null,
+                0x06000001,
+                0),
+        ];
+
+        LibraryAddressPopulationResult count =
+            await ExecutePopulationTerminalAsync(
+                arbitraryAssembly,
+                records,
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Count,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+        LibraryAddressPopulationResult exists =
+            await ExecutePopulationTerminalAsync(
+                arbitraryAssembly,
+                records,
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Exists,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+
+        Assert.Equal(1, count.Count);
+        Assert.True(exists.Exists);
+
+        await using LibraryInspectionTestLibrary rowsLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                arbitraryAssembly,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+        InspectionEnvelope<LibraryAddressInspectionOutcome> rows =
+            Execute(
+                rowsLibrary,
+                Population(
+                    records,
+                    RowSelectionIntent<string>.Empty,
+                    QuerySpaceTerminalRequirement.Rows));
+        Assert.Equal(
+            LibraryAddressInspectionFailure.MalformedMetadata,
+            Assert.IsType<LibraryAddressInspectionOutcome.Failed>(
+                    rows.Content)
+                .Reason);
+    }
+
+    [Fact]
+    public async Task ScalarPopulationRetainsMalformedInputDiagnostics()
+    {
+        byte[] implementation =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation));
+        var intent = Population(
+            [
+                new LibraryAddressPopulationRecord.Coordinate(
+                    1,
+                    "0x06000001+0x0",
+                    label: null,
+                    0x06000001,
+                    0),
+                new LibraryAddressPopulationRecord.Malformed(
+                    2,
+                    "broken",
+                    "Invalid coordinate."),
+            ],
+            RowSelectionIntent<string>.Empty,
+            QuerySpaceTerminalRequirement.Count);
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(library, intent);
+
+        LibraryAddressPopulationResult result =
+            Assert.IsType<LibraryAddressInspectionOutcome.Partial>(
+                    envelope.Content)
+                .Document
+                .Result;
+        Assert.Equal(2, result.Count);
+        Assert.Empty(result.Rows);
+        Assert.False(result.IsComplete);
+        Assert.Single(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task PopulationCountRejectsUnavailableWindow()
+    {
+        byte[] implementation =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation));
+        var intent = Population(
+            [
+                new LibraryAddressPopulationRecord.Coordinate(
+                    1,
+                    "0x06000001+0x0",
+                    label: null,
+                    0x06000001,
+                    0),
+            ],
+            RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Window(2, 2)]),
+            QuerySpaceTerminalRequirement.Count);
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(library, intent);
+
+        Assert.Equal(
+            LibraryAddressInspectionRejection.PopulationQueryRejected,
+            Assert.IsType<LibraryAddressInspectionOutcome.Rejected>(
+                    envelope.Content)
+                .Reason);
+        Assert.Contains(
+            "requires row 2, but only 1 rows are available",
+            Assert.Single(envelope.Diagnostics).Summary.ToString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -857,6 +1050,43 @@ public sealed class LibraryAddressInspectionOperationTests
             new(library.Reference, intent),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
+
+    private static LibraryAddressIntent.Population Population(
+        IEnumerable<LibraryAddressPopulationRecord> records,
+        RowSelectionIntent<string> selection,
+        QuerySpaceTerminalRequirement terminal) =>
+        new(
+            records,
+            ILOffsetProjectionCapabilities.InstructionContext,
+            query:
+                LibraryAddressPopulationQuery.CreateRequest(
+                    selection,
+                    terminal));
+
+    private static async Task<LibraryAddressPopulationResult>
+        ExecutePopulationTerminalAsync(
+            byte[] implementation,
+            IEnumerable<LibraryAddressPopulationRecord> records,
+            RowSelectionIntent<string> selection,
+            QuerySpaceTerminalRequirement terminal,
+            ManagedMetadataIdentity.Assembly? identity = null)
+    {
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                identity
+                    ?? LibraryInspectionTestLibrary.Identity(
+                        implementation));
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(
+                library,
+                Population(records, selection, terminal));
+        return Assert.IsType<LibraryAddressDocument.Population>(
+                Assert.IsType<LibraryAddressInspectionOutcome.Completed>(
+                        envelope.Content)
+                    .Document)
+            .Result;
+    }
 
     private static (int MethodToken, int ILOffset)
         FirstMethodAddress(byte[] assembly)

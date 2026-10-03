@@ -10,6 +10,8 @@ using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using NuGetFetch;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -197,10 +199,42 @@ public partial class LibraryCommand
                     capabilities,
                     options.PreferRenderedUrls,
                     allowNonBoundaryContextAbsence:
-                        options.Discover is not null),
+                        options.Discover is not null,
+                    query:
+                        CreateAddressPopulationQuery(options)),
             _ => throw new InvalidOperationException(
                 "Package-backed Library Address execution requires an admitted intent."),
         };
+    }
+
+    private static QuerySpaceRequest CreateAddressPopulationQuery(
+        LibraryOptions options)
+    {
+        RowSelectionIntent<string> rows =
+            options.Discover is not null
+                ? RowSelectionIntent<string>.Empty
+                : options.AddressRowSelection
+                    ?? RowSelectionIntent<string>.Empty;
+        QuerySpaceTerminalRequirement terminal =
+            options.Discover is not null || !options.Count
+                ? QuerySpaceTerminalRequirement.Rows
+                : IsSingleHeadOne(rows)
+                    ? QuerySpaceTerminalRequirement.Exists
+                    : QuerySpaceTerminalRequirement.Count;
+        return LibraryAddressPopulationQuery.CreateRequest(
+            rows,
+            terminal);
+    }
+
+    private static bool IsSingleHeadOne(
+        RowSelectionIntent<string> rows)
+    {
+        if (rows.Operations.Count != 1)
+            return false;
+        RowSelectionIntentOperation<string> operation =
+            rows.Operations[0];
+        return operation.Kind is RowSelectionStageKind.Head
+            && operation.Count == 1;
     }
 
     private static async Task<PackageLibraryRealizationResult?>
@@ -408,6 +442,39 @@ public partial class LibraryCommand
         if (document
             is LibraryAddressDocument.Population population)
         {
+            if (population.Result.Terminal
+                is QuerySpaceTerminalRequirement.Count
+                    or QuerySpaceTerminalRequirement.Exists)
+            {
+                int count =
+                    population.Result.Terminal
+                        is QuerySpaceTerminalRequirement.Count
+                        ? population.Result.Count!.Value
+                        : population.Result.Exists!.Value
+                            ? 1
+                            : 0;
+                if (!LensProjection.TryProject(
+                        options with { Rows = null },
+                        "library address --file",
+                        count,
+                        out int projectionExitCode,
+                        [
+                            "Coordinate",
+                            "Label",
+                            "Member",
+                            "IL Offset",
+                            "Meaning",
+                            "Evidence",
+                        ]))
+                {
+                    throw new InvalidOperationException(
+                        "A scalar Library Address population requires a count projection.");
+                }
+                return hasErrors || !population.Result.IsComplete
+                    ? Math.Max(1, projectionExitCode)
+                    : projectionExitCode;
+            }
+
             if (discoveryInspection)
             {
                 if (hasErrors || !population.Result.IsComplete)
@@ -548,24 +615,10 @@ public partial class LibraryCommand
             rows.Any(static row => row.Meaning == "error")
                 ? 1
                 : 0;
-        if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
-                options.AddressRowSelection,
-                options.Rows,
-                rows,
-                "IL coordinate",
-                failure =>
-                    $"IL coordinate row selection stage "
-                    + $"{failure.Failure.StageNumber} requires row "
-                    + $"{failure.Failure.RequiredPosition}, but only "
-                    + $"{failure.Failure.AvailableCount} rows are available.",
-                out IReadOnlyList<ILCoordinateBatchRow> visibleRows))
-        {
-            return 1;
-        }
         if (LensProjection.TryProject(
                 options,
                 "library address --file",
-                visibleRows.Count,
+                rows.Count,
                 out int projectionExitCode,
                 [
                     "Coordinate",
@@ -588,7 +641,7 @@ public partial class LibraryCommand
         }
 
         WriteILCoordinateBatchRows(
-            [.. visibleRows],
+            rows,
             options with { Rows = null });
         return rowExitCode;
     }

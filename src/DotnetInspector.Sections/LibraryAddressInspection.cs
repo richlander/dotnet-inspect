@@ -5,6 +5,8 @@ using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using InertText;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections;
 
@@ -108,7 +110,8 @@ public abstract record LibraryAddressIntent
             IEnumerable<LibraryAddressPopulationRecord> records,
             ILOffsetProjectionCapabilities capabilities,
             bool browsableUrls = false,
-            bool allowNonBoundaryContextAbsence = false)
+            bool allowNonBoundaryContextAbsence = false,
+            QuerySpaceRequest? query = null)
         {
             ArgumentNullException.ThrowIfNull(records);
             LibraryAddressInspectionContract.ValidateCapabilities(
@@ -137,10 +140,18 @@ public abstract record LibraryAddressIntent
             }
 
             Records = snapshot;
+            HasMalformedRecords =
+                snapshot.Any(
+                    static record =>
+                        record is LibraryAddressPopulationRecord.Malformed);
             Capabilities = capabilities;
             BrowsableUrls = browsableUrls;
             AllowNonBoundaryContextAbsence =
                 allowNonBoundaryContextAbsence;
+            Query = query
+                ?? LibraryAddressPopulationQuery.CreateRequest(
+                    RowSelectionIntent<string>.Empty,
+                    QuerySpaceTerminalRequirement.Rows);
         }
 
         public ImmutableArray<LibraryAddressPopulationRecord> Records
@@ -151,6 +162,8 @@ public abstract record LibraryAddressIntent
         public ILOffsetProjectionCapabilities Capabilities { get; }
         public bool BrowsableUrls { get; }
         public bool AllowNonBoundaryContextAbsence { get; }
+        public QuerySpaceRequest Query { get; }
+        public bool HasMalformedRecords { get; }
     }
 }
 
@@ -348,7 +361,62 @@ public sealed record LibraryAddressPopulationResult
 {
     [JsonConstructor]
     public LibraryAddressPopulationResult(
-        ImmutableArray<LibraryAddressPopulationRow> rows)
+        QuerySpaceTerminalRequirement terminal,
+        ImmutableArray<LibraryAddressPopulationRow> rows,
+        int? count,
+        bool? exists,
+        bool isComplete)
+    {
+        if (!Enum.IsDefined(terminal))
+            throw new ArgumentOutOfRangeException(nameof(terminal));
+        if (rows.IsDefault)
+            throw new ArgumentException("Rows must be initialized.", nameof(rows));
+        if (count is < 0)
+            throw new ArgumentOutOfRangeException(nameof(count));
+        bool valid =
+            terminal switch
+            {
+                QuerySpaceTerminalRequirement.Rows =>
+                    !rows.IsEmpty
+                    && count is null
+                    && exists is null,
+                QuerySpaceTerminalRequirement.Count =>
+                    rows.IsEmpty
+                    && count is not null
+                    && exists is null,
+                QuerySpaceTerminalRequirement.Exists =>
+                    rows.IsEmpty
+                    && count is null
+                    && exists is not null,
+                _ => false,
+            };
+        if (!valid)
+        {
+            throw new ArgumentException(
+                "The Library Address population payload does not match its terminal.",
+                nameof(terminal));
+        }
+
+        Terminal = terminal;
+        Rows = rows;
+        Count = count;
+        Exists = exists;
+        IsComplete = isComplete;
+    }
+
+    public QuerySpaceTerminalRequirement Terminal { get; }
+
+    public ImmutableArray<LibraryAddressPopulationRow> Rows { get; }
+
+    public int? Count { get; }
+
+    public bool? Exists { get; }
+
+    public bool IsComplete { get; }
+
+    public static LibraryAddressPopulationResult ForRows(
+        ImmutableArray<LibraryAddressPopulationRow> rows,
+        bool isComplete)
     {
         if (rows.IsDefaultOrEmpty)
         {
@@ -357,14 +425,36 @@ public sealed record LibraryAddressPopulationResult
                 nameof(rows));
         }
 
-        Rows = rows;
+        return new(
+            QuerySpaceTerminalRequirement.Rows,
+            rows,
+            count: null,
+            exists: null,
+            isComplete);
     }
 
-    public ImmutableArray<LibraryAddressPopulationRow> Rows { get; }
+    public static LibraryAddressPopulationResult ForCount(
+        int count,
+        bool isComplete)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        return new(
+            QuerySpaceTerminalRequirement.Count,
+            [],
+            count,
+            exists: null,
+            isComplete);
+    }
 
-    public bool IsComplete =>
-        Rows.All(static row =>
-            row is LibraryAddressPopulationRow.Resolved);
+    public static LibraryAddressPopulationResult ForExists(
+        bool exists,
+        bool isComplete) =>
+        new(
+            QuerySpaceTerminalRequirement.Exists,
+            [],
+            count: null,
+            exists,
+            isComplete);
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -456,6 +546,7 @@ public enum LibraryAddressInspectionRejection
     AssemblyIdentityMismatch,
     PortablePdbCompanionAmbiguous,
     PortablePdbCorrespondenceMismatch,
+    PopulationQueryRejected,
 }
 
 public enum LibraryAddressInspectionBound

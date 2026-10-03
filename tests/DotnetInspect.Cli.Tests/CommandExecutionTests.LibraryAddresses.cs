@@ -1295,6 +1295,41 @@ public partial class CommandExecutionTests
                 output);
             Assert.DoesNotContain("first-coordinate", output);
             Assert.Contains("second-coordinate", output);
+
+            var count = await RunAppAsync(
+                "library",
+                "address",
+                "--file",
+                coordinatePath,
+                "--package",
+                packagePath,
+                "--library",
+                relativeLibraryPath,
+                "--count",
+                "--tips",
+                "q");
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal("2", count.Output.Trim());
+
+            var exists = await RunAppAsync(
+                "library",
+                "address",
+                "--file",
+                coordinatePath,
+                "--package",
+                packagePath,
+                "--library",
+                relativeLibraryPath,
+                "-n",
+                "1",
+                "--head",
+                "--count",
+                "--tips",
+                "q");
+            Assert.Equal(0, exists.Exit);
+            Assert.Empty(exists.Error);
+            Assert.Equal("1", exists.Output.Trim());
         }
         finally
         {
@@ -1753,6 +1788,44 @@ public partial class CommandExecutionTests
             Assert.Contains("Member", output);
             Assert.DoesNotContain("Context: Instruction", output);
             Assert.DoesNotContain("## IL Coordinates", output);
+
+            var (localCountExit, localCountOutput, localCountError) =
+                await RunAppAsync(
+                    "library",
+                    "address",
+                    "--file",
+                    coordinatePath,
+                    "--library",
+                    TestAssemblyPath,
+                    "-D",
+                    "Context: Member",
+                    "--effective",
+                    "--count",
+                    "--tips",
+                    "q");
+            var (packageCountExit, packageCountOutput, packageCountError) =
+                await RunAppAsync(
+                    "library",
+                    "address",
+                    "--file",
+                    coordinatePath,
+                    "--package",
+                    packagePath,
+                    "--library",
+                    "lib/net11.0/Coordinate.Package.dll",
+                    "-D",
+                    "Context: Member",
+                    "--effective",
+                    "--count",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, localCountExit);
+            Assert.Empty(localCountError);
+            Assert.Equal(0, packageCountExit);
+            Assert.Empty(packageCountError);
+            Assert.Equal(localCountOutput, packageCountOutput);
+            Assert.NotEqual("1", packageCountOutput.Trim());
         }
         finally
         {
