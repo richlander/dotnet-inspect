@@ -68,7 +68,6 @@ export const memberSectionDefinitions = [
   ["call-graph", "Call graph"],
   ["facts", "Facts"],
   ["source", "Source"],
-  ["annotated", "Annotated source"],
   ["compare", "Compare"],
 ] as const;
 
@@ -157,7 +156,8 @@ export function accessibilityFilterIncludingType(
   type: { accessibilityId?: string } | null | undefined,
 ): Set<string> {
   const next = new Set(filter ?? []);
-  if (type?.accessibilityId) next.add(type.accessibilityId);
+  if (type?.accessibilityId && !next.has(type.accessibilityId))
+    return new Set([type.accessibilityId]);
   return next;
 }
 
@@ -1628,8 +1628,7 @@ export function sourceReloadKind(
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && (state.memberSection === "annotated"
-      || state.memberSection === "facts")
+    && state.memberSection === "facts"
     && memberSourceHasConcreteOverload) {
     return "annotated";
   }
@@ -1658,7 +1657,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "annotated", "compare"]);
+  new Set<MemberSection>(["facts", "compare"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,

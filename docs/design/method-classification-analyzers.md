@@ -83,6 +83,30 @@ This owner does not define:
 | Runtime async | `Other` | the runtime-async implementation flag, `0x2000` | `Flags`, and `IdentityText` for rows |
 | Compiler async | `Other` | no runtime-async flag, and a custom attribute whose type is `System.Runtime.CompilerServices.AsyncStateMachineAttribute` or `AsyncIteratorStateMachineAttribute`, matched in place | `Flags`, `AttributeTypeMatch`, and `IdentityText` for rows |
 | Pointer signature | `Other` | a pointer in the return or a parameter type | `SignatureShape`, and `IdentityText` for rows |
+| Extension | `Extension`, from the extension scope | none: the class is the test | `Flags`, `AttributeTypeMatch`, `HiddenAttribute`, and `IdentityText` for rows |
+
+The extension analyzer uses its own gate classifier, the **extension scope**,
+not the classification scope. Its type scope is a static (sealed abstract)
+type carrying `[Extension]` and not hidden; its one class, `Extension`, is a
+public static method carrying `[Extension]` and not hidden. That is the
+method half of `ExtensionMethodScanner.FindAllExtensions(includeAll: false)`,
+which the Library Info Extension Methods row counts; extension properties
+from C# 14 extension blocks are a different population over nested marker
+types and are not this analyzer's rows. The legacy scan also decodes each
+candidate's signature through the signature guard and skips a method with no
+parameters or a signature the guard rejects. Roslyn never emits a
+parameterless `[Extension]` method, and a Roslyn signature exceeds the guard
+only at its two bounds: a parameter or return type nested more than 512
+array or pointer levels, or a signature with more than 65,536 type nodes
+(`MetadataSafetyPolicy.MaxSignatureTypeNodes`; tens of thousands of
+parameters). In both the method is an extension method and the guard's
+rejection is containment, not fidelity. Under the
+[fidelity policy](#fidelity-policy) the analyzer omits the decode: on
+Roslyn-produced assemblies its Count equals the legacy count plus any such
+over-bound method legacy drops (gated by a 513-level receiver, a 513-level
+second parameter, and a 33,000-parameter method in
+`MethodClassificationAnalyzerTests`), and it is wrong but contained
+elsewhere. Its rows are not merged into the classified-method Finding.
 
 For classification, the gate applies the legacy scope. It then classifies each
 in-scope row as `PInvoke`, by the `PinvokeImpl` flag, or `Other`. Rows outside
@@ -145,6 +169,23 @@ Each Tier 1 test must equal the legacy test on every input:
   defined in the image or referenced, nested, or reached through a
   `TypeSpecification` parent. Compiler async therefore equals legacy's
   attribute test wherever legacy's test completes.
+- **Extension scope** reads the type's `Sealed` and `Abstract` flags and the
+  method's `Public` and `Static` flags, matches `[Extension]` on the type and
+  on the method through the same in-place attribute type match and memo as
+  compiler async, and applies the legacy hidden test (`EditorBrowsable(Never)`,
+  or an `Obsolete` that is not Roslyn's compiler-compatibility marker) as
+  Metadata's `AttributeReader.HasHiddenAttribute` defines it, with the three
+  attribute types (`EditorBrowsable`, `Obsolete`, `CompilerFeatureRequired`)
+  matched through the same per-constructor memo and the values read in
+  place: one `int32` for the browsable state, and the fixed-argument string
+  compared byte for byte against the two compiler-compatibility messages and
+  feature names, within legacy's sixteen-byte length slack. No name or value
+  is materialized, and the row's `[CompilerFeatureRequired]` features are
+  read once however many compatibility markers it carries, so the test stays
+  inside the Tier 1 work bound; it is declared as its own `HiddenAttribute` field,
+  and the scope reads it only for types and rows that passed the cheaper
+  in-place tests. Hardening the legacy scan's own path is
+  [#8780](https://github.com/richlander/dotnet-inspect/issues/8780).
 - **Pointer signature** in legacy walks the signature with a detector that
   charges the shared scan work budget. Every composite and `TypeSpec` visit is
   charged, because a wide `GENERICINST` repeated across methods is the known
@@ -252,8 +293,8 @@ Below the budget, the analyzers handle recoverable failures as follows:
 The queries live in host-neutral `DotnetInspector.Queries`, beside
 `UnsafeEvidencePresenceQuery`:
 
-- **One query per analyzer:** P/Invoke, runtime async, compiler async, and
-  pointer signature. Each is parameterized by its closing (Rows, Head(N),
+- **One query per analyzer:** P/Invoke, runtime async, compiler async,
+  pointer signature, and extension. Each is parameterized by its closing (Rows, Head(N),
   Count, or Exists) and returns a typed result for that closing, or the typed
   critical failure.
 - **Async is one producer,** not a composition of the two. Its test is the
@@ -312,7 +353,8 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   them. Rows are requested only by the Finding and the row
   sections. The merged rows, in legacy order, and the Finding inspection built
   from them come only when the Finding is requested. Signals and LibraryInfo
-  counts get Count closings, matching what each shows today:
+  counts get Count closings, matching what each shows today; LibraryInfo asks
+  the async and extension Counts and no longer demands the extension row scan:
   `AuditSignalBuilder` shows counts for pointer and P/Invoke. Count closings
   declare no `IdentityText`, so they spend no identity budget. The Async Kind
   signal is not a consumer. It reads

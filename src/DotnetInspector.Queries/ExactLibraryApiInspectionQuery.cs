@@ -103,6 +103,7 @@ public sealed record ExactLibraryApiInventory(
     int PublicMethodCount,
     int PublicPropertyCount,
     ImmutableArray<ApiFacetDescriptor> TypeKinds,
+    ImmutableArray<ApiFacetDescriptor> TypeTraits,
     ImmutableArray<ApiNamespaceDescriptor> Namespaces);
 
 public sealed record ExactLibraryApiInspectionResult(
@@ -424,6 +425,7 @@ public static class ExactLibraryApiInspectionQuery
                     surface.PublicMethodCount,
                     surface.PublicPropertyCount,
                     [.. inventory.KindFacets],
+                    [.. inventory.TraitFacets],
                     [.. ApiInventoryQuery.Namespaces(surface)]),
                 null,
                 failures,

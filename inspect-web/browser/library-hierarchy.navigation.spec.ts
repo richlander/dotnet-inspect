@@ -21,6 +21,210 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+test("Type filters expose counted Namespace, Accessibility, Kind, and Trait selectors", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    namespace: "Hidden",
+    kind: "interface",
+    kindFacetId: "api.type-kind.interface",
+    traitFacetIds: [],
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal interface Example.Neighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal],
+    typeKinds: [
+      {
+        id: "api.type-kind.class",
+        singularLabel: "class",
+        pluralLabel: "classes",
+        weight: 100,
+        count: 1,
+        isDefault: true,
+      },
+      {
+        id: "api.type-kind.interface",
+        singularLabel: "interface",
+        pluralLabel: "interfaces",
+        weight: 300,
+        count: 1,
+        isDefault: true,
+      },
+    ],
+    typeTraits: surface.typeTraits.map(trait => ({
+      ...trait,
+      count: trait.id === "api.type-trait.object" ? 1 : 0,
+    })),
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator(".type-filter-selects .member-filter-select > span"))
+    .toHaveText(["Namespace", "Accessibility", "Kind", "Trait"]);
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Example · 1",
+    ]);
+  await expect(page.locator("[data-type-access-filter] option"))
+    .toHaveText([
+      "all · 2",
+      "public · 1",
+      "internal · 1",
+    ]);
+  await expect(page.locator("[data-type-kind-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "class · 1",
+      "interface · 0",
+    ]);
+  await expect(page.locator("[data-type-trait-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "abstract · 0",
+      "static · 0",
+      "object · 1",
+    ]);
+
+  await page.locator("#namespace-jump").selectOption("Example");
+  await page.locator("[data-type-access-filter]")
+    .selectOption("internal");
+  await expect(page.locator("#namespace-jump")).toHaveValue("");
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Hidden · 1",
+    ]);
+  await expect(page.locator("[data-type-kind-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "class · 0",
+      "interface · 1",
+    ]);
+  await expect(page.locator("[data-type-trait-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "abstract · 0",
+      "static · 0",
+      "object · 0",
+    ]);
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("Neighbor");
+
+  await page.locator("[data-type-trait-filter]")
+    .selectOption("api.type-trait.abstract");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+  await page.locator("[data-type-trait-filter]")
+    .selectOption("api.type-trait.object");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+});
+
+test("non-public Type deep links select the exact accessibility bucket", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Example.Neighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal],
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+  await page.locator("[data-type-access-filter]").selectOption("internal");
+  await page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  ).click();
+  const internalTypeUrl = page.url();
+
+  await page.goto(root);
+  await page.goto(internalTypeUrl);
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator("[data-type-access-filter]"))
+    .toHaveValue("internal");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  )).toBeVisible();
+  await expect(page.locator(
+    `#type-list [data-type="${publicType.id}"]`,
+  )).toHaveCount(0);
+});
+
+test("internal-only Library navigation selects one exact accessibility bucket", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    namespace: "Hidden",
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Hidden.Neighbor",
+  };
+  const privateType = {
+    ...surface.types[1]!,
+    id: `${surface.types[1]!.id}:private`,
+    definitionId: "Hidden.PrivateNeighbor",
+    queryId: "Hidden.PrivateNeighbor",
+    metadataId: "Hidden.PrivateNeighbor",
+    name: "PrivateNeighbor",
+    displayName: "Hidden.PrivateNeighbor",
+    namespace: "Hidden",
+    accessibility: "private",
+    accessibilityId: "private",
+    signature: "private class Hidden.PrivateNeighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal, privateType],
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+      { id: "private", label: "Private", order: 5, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator("[data-type-access-filter]"))
+    .toHaveValue("internal");
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Hidden · 1",
+    ]);
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  )).toBeVisible();
+  await expect(page.locator(
+    `#type-list [data-type="${privateType.id}"]`,
+  )).toHaveCount(0);
+});
+
 test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));
@@ -1003,7 +1207,9 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const trait = page.locator("[data-member-trait-filter]");
   await expect(kind).toBeVisible();
   await expect(page.locator("[data-member-spelling]")).toBeVisible();
-  await expect(page.locator(".member-filter-select > span"))
+  await expect(page.locator(
+    "[data-member-filter-disclosure] .member-filter-select > span",
+  ))
     .toHaveText(["Kind", "Accessibility", "Trait", "Spelling"]);
   await expect(kind.locator('option[value="all"]')).toHaveText("all kinds · 2");
   await expect(kind.locator('option[value="method"]')).toHaveText("method · 2");

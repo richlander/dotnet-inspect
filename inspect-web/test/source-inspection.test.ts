@@ -164,25 +164,19 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /const sourcePageKind =[\s\S]*activeScope === "type" && state\.lens === "source"[\s\S]*activeScope === "member"[\s\S]*state\.memberSection === "source"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
   assert.match(
     appSource,
-    /onExploreSource: \(\) => \{[\s\S]*scope\(\) === "type" && state\.lens === "source"[\s\S]*openTypeExplorerRoute\(\)[\s\S]*openSettings\("source"\)/);
+    /onExploreSource: \(\) => \{[\s\S]*scope\(\) === "type" && state\.lens === "source"[\s\S]*openTypeExplorerRoute\(\)[\s\S]*scope\(\) === "member"[\s\S]*state\.memberSection === "source"[\s\S]*exploreSelectedMemberAnnotatedSource\(\)/);
   assert.match(
     appSource,
-    /state\.settingsReturn === "source"[\s\S]*"#settings-decompiler-title"/);
-  assert.match(
-    appSource,
-    /state\.settingsReturn === "source"[\s\S]*\["#explore-source", "#application-menu-button"\]/);
-  assert.match(
-    appSource,
-    /contextualActionsHtml: !loadingPackageContent && \(memberDiffExploreTarget \|\| annotatedPageContext \|\| sourcePageKind[\s\S]*class="working-surface-actions"/);
+    /contextualActionsHtml: !loadingPackageContent && \(memberDiffExploreTarget \|\| sourcePageKind[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(
     appSource,
     /class="legacy-application-actions"/);
   assert.match(
     appSource,
-    /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}\$\{sourceWorkingSurface \? " source-working-surface" : ""\}/);
+    /detail-scroll\$\{sourceWorkingSurface \? " source-working-surface" : ""\}/);
   assert.match(
     appSource,
     /case "source":\s*return renderTypeSourceHtml\(item\);/);
@@ -307,6 +301,7 @@ test("member source publishes only for the current member selection", async () =
       queryMemberSource: async request => {
         assert.equal(request.member, "Build");
         assert.equal(request.taste, "[\"expression-bodied-members\"]");
+        assert.equal(request.view, "source");
         return query.promise;
       },
       renderPreservingMemberFocus: fallback => {
@@ -327,6 +322,7 @@ test("member source publishes only for the current member selection", async () =
     selectorKey: "method",
     metadataToken: 42,
     taste: "[\"expression-bodied-members\"]",
+    view: "source",
     isCurrent: () => current,
   });
   assert.deepEqual(
@@ -366,6 +362,7 @@ test("current member source failures remain visible and restore focus", async ()
     selectorKey: "method",
     metadataToken: 42,
     taste: "[]",
+    view: "source",
     isCurrent: () => true,
   });
 
@@ -400,6 +397,7 @@ test("empty member source failure remains settled", async () => {
     selectorKey: "method",
     metadataToken: 42,
     taste: "[]",
+    view: "source",
     isCurrent: () => true,
   });
 
@@ -449,6 +447,7 @@ test("member source caches one authored catalog without another query", async ()
     selectorKey: "method",
     metadataToken: 42,
     taste: "[]",
+    view: "source" as const,
     isCurrent: () => true,
   };
 
@@ -678,6 +677,7 @@ test("legacy member source takeover cancels the authoritative type operation fir
     selectorKey: "method",
     metadataToken: 42,
     taste: "[]",
+    view: "source",
     isCurrent: () => true,
   });
 

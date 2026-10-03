@@ -32,6 +32,12 @@ public enum MethodClassificationAnalyzer
 
     /// <summary>The compiler-async analyzer: a compiler async state-machine attribute, without the runtime flag.</summary>
     CompilerAsync,
+
+    /// <summary>
+    /// Public static extension methods on static extension types, neither
+    /// hidden: the method half of the Library Info Extension Methods row.
+    /// </summary>
+    Extension,
 }
 
 /// <summary>What a consumer asks of one analyzer.</summary>
@@ -455,6 +461,7 @@ public static class MethodClassificationQuery
             MethodClassificationAnalyzer.PointerSignature => PointerSignatureAnalyzer.Instance,
             MethodClassificationAnalyzer.RuntimeAsync => RuntimeAsyncAnalyzer.Instance,
             MethodClassificationAnalyzer.CompilerAsync => CompilerAsyncAnalyzer.Instance,
+            MethodClassificationAnalyzer.Extension => ExtensionMethodAnalyzer.Instance,
             _ => throw new ArgumentOutOfRangeException(nameof(analyzer)),
         };
 

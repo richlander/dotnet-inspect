@@ -2128,28 +2128,6 @@ test("subject-only layout reserves the empty inspector context label", async ({
     "Filtered member list");
 });
 
-test("Annotated Source keeps its complete action group under shell pressure", async ({
-  page,
-}) => {
-  for (const width of [1120, 1050, 800, 600, 400]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto("/browser/workspace-titlebar.html?member=1&annotated=1");
-
-    const actions = await box(page, ".working-surface-actions");
-    const copy = await box(page, "#copy-annotated");
-    const explore = await box(page, "#explore-annotated");
-    await expect(page.locator("#copy-annotated")).toBeVisible();
-    await expect(page.locator("#explore-annotated")).toBeVisible();
-    expect(copy.x).toBeGreaterThanOrEqual(actions.x - 1);
-    expect(explore.x).toBeGreaterThanOrEqual(actions.x - 1);
-    expect(explore.x + explore.width)
-      .toBeLessThanOrEqual(actions.x + actions.width);
-    expect(await page.evaluate(() =>
-      document.documentElement.scrollWidth
-      - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
-  }
-});
-
 test("Source fills the detail area below working-surface actions and above provenance", async ({
   page,
 }) => {
@@ -2160,6 +2138,9 @@ test("Source fills the detail area below working-surface actions and above prove
     await expect(page.locator("#copy-source")).toBeVisible();
     await expect(page.locator(".shell-action-link")).toHaveText("Open");
     await expect(page.locator("#explore-source")).toHaveText("Explore");
+    await expect(
+      page.getByRole("group", { name: "Source origin" }),
+    ).toBeVisible();
     await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
     await expect(
       page.getByRole("group", { name: "Source actions" }),
@@ -2210,9 +2191,9 @@ test("Source fills the detail area below working-surface actions and above prove
   await page.setViewportSize({ width: 1120, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
   await page.locator("#explore-source").click();
-  await expect(page.locator("#settings-backdrop")).toBeVisible();
-  await expect(page.locator("#settings-decompiler-title")).toBeFocused();
-  await page.locator("#settings-close").click();
+  await expect(page.locator("#annotated-source-backdrop")).toBeVisible();
+  await expect(page.locator("#annotated-modal-title")).toBeFocused();
+  await page.locator("#annotated-modal-close").click();
   await expect(page.locator("#explore-source")).toBeFocused();
 
   for (const width of [1920, 1440, 1120, 600, 400]) {
@@ -2265,7 +2246,7 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
     "Target framework net10.0. Change target framework for System.Text.Json");
   await expect(page.locator(".targetbar .subject-path")).toBeVisible();
   await expect(page.locator(".titlebar .scope-switch")).toBeVisible();
-  await expect(page.locator(".titlebar .lens")).toHaveCount(5);
+  await expect(page.locator(".titlebar .lens")).toHaveCount(4);
   await expect(page.locator(".subject-path-segment.current")).toHaveCSS(
     "color",
     "rgb(185, 170, 238)");

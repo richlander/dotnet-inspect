@@ -356,7 +356,7 @@ public class SlotResidualCensusTests
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_UnifiesReferenceCoalesceAtObjectTarget()
+    public void StackSlotUnifierTelemetry_DoesNotOwnReferenceCoalesceAtObjectTarget()
     {
         var obj = TypeRef.CoreLib("System", "Object");
         var str = TypeRef.CoreLib("System", "String");
@@ -385,10 +385,9 @@ public class SlotResidualCensusTests
         var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
         var output = CSharpPrinter.Print(function).Output;
 
-        Assert.Equal(0, telemetry.UnunifiedSplitSlots);
-        Assert.DoesNotContain("S_0_1", output);
-        Assert.Contains("object S_0 = V_0 ?? fallback;", output);
-        Assert.Contains("Use(S_0);", output);
+        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        Assert.Contains("string S_0 = V_0 ?? fallback;", output);
+        Assert.Contains("Use(S_0_1);", output);
     }
 
     [Fact]
@@ -494,7 +493,7 @@ public class SlotResidualCensusTests
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_UnifiesNullableValueCoalesceAtValueTarget()
+    public void StackSlotUnifierTelemetry_DoesNotOwnNullableValueCoalesceAtValueTarget()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");
         var nullableInt32 = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Nullable`1"), [int32]);
@@ -523,8 +522,7 @@ public class SlotResidualCensusTests
         var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
         var output = CSharpPrinter.Print(function).Output;
 
-        Assert.Equal(0, telemetry.UnunifiedSplitSlots);
-        Assert.DoesNotContain("S_0_1", output);
+        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
         Assert.Contains("int S_0 = left ?? 0;", output);
         Assert.Contains("Use(S_0);", output);
     }

@@ -77,20 +77,24 @@ public class StringSlotMaterializationTests
     }
 
     [Fact]
-    public void ObjectTypedNullProducerStaysDeferred()
+    public void NullLiteralAssignsToStringStorage()
     {
         var function = Function(StringType,
             new StoreStackSlot(0, new Constant(null, Object)),
             new Return(new LoadStackSlot(0, StringType)));
 
         var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
-        Assert.Equal(SlotMaterializationVeto.OutsideCoercionDomain
-            | SlotMaterializationVeto.UnrenderableStoreType, decision.Vetoes);
-        AssertRetained(function);
+        Assert.True(decision.WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(StringType, Assert.Single(function.Locals));
+        Assert.Contains("string S_0 = null;", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Fact]
-    public void EveryStringProducerMustAlreadyHaveTheTestifiedType()
+    public void StringAndNullLiteralProducersMaterializeTogether()
     {
         var function = Function(StringType,
             new StoreStackSlot(0, new Constant("text", StringType)),
@@ -100,10 +104,46 @@ public class StringSlotMaterializationTests
             new StoreStackSlot(0, new Constant(null, Object)),
             new Return(new LoadStackSlot(0, StringType)));
 
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(StringType, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void ExplicitObjectConversionRemainsDeferred()
+    {
+        var function = Function(StringType,
+            new StoreStackSlot(0, new Coerce(Object, new Constant(null, Object))),
+            new Return(new LoadStackSlot(0, StringType)));
+
         Assert.Equal(SlotMaterializationVeto.OutsideCoercionDomain
             | SlotMaterializationVeto.UnrenderableStoreType,
             Assert.Single(SlotMaterializationPass.Analyze(function)).Vetoes);
         AssertRetained(function);
+    }
+
+    [Fact]
+    public void NullLiteralUnlocksCompleteStringCopyComponent()
+    {
+        var function = Function(StringType,
+            new StoreStackSlot(0, new Constant(null, Object)),
+            new StoreStackSlot(1, new LoadStackSlot(0, StringType)),
+            new Return(new LoadStackSlot(1, StringType)));
+
+        Assert.All(SlotMaterializationPass.Analyze(function),
+            decision => Assert.True(decision.WillMaterialize));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal([StringType, StringType], function.Locals);
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Fact]
@@ -202,6 +242,15 @@ public class StringSlotMaterializationTests
         using var source = MetadataSource.Open(typeof(StringSlotMaterializationSamples).Assembly.Location);
         AssertMaterializes(source, typeof(StringSlotMaterializationSamples).FullName!,
             nameof(StringSlotMaterializationSamples.ReadAndObserve), StringType, "string");
+    }
+
+    [Fact]
+    public void RealRoslynNullLiteralWebMaterializes()
+    {
+        using var source = MetadataSource.Open(
+            typeof(Microsoft.CodeAnalysis.CSharp.CSharpCompilation).Assembly.Location);
+        AssertMaterializes(source, "Microsoft.CodeAnalysis.CSharp.Binder",
+            "GetOperatorMethodName", StringType, "string");
     }
 
     [Fact]

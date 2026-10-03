@@ -983,6 +983,26 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   border-color: var(--accent);
   color: var(--text);
 }
+.source-origin-selector {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.working-surface-actions .source-origin-selector button {
+  min-height: 26px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--dim);
+}
+.working-surface-actions .source-origin-selector button:last-child {
+  border-right: 0;
+}
+.working-surface-actions .source-origin-selector button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 .source-part-picker {
   display: inline-flex;
   align-items: center;
@@ -1419,14 +1439,10 @@ kbd {
 .detail-actions { display: flex; flex: none; gap: 5px; }
 .detail-actions button:first-child { padding: 0 8px; }
 .detail-scroll { overflow: auto; padding: clamp(24px, 4vw, 52px) clamp(26px, 5vw, 72px) 70px; }
-.detail-scroll.annotated-working-surface,
 .detail-scroll.source-working-surface {
   min-height: 0;
   overflow: hidden;
   padding: 0;
-}
-.detail-scroll.annotated-working-surface {
-  display: block;
 }
 .detail-scroll.api-working-surface,
 .detail-scroll.metadata-working-surface,
@@ -3168,21 +3184,33 @@ kbd {
 }
 
 @media (max-width: 600px) {
-  .workbench:has(.targetbar .working-surface-actions #type-source-view) {
+  .workbench:has(.targetbar .working-surface-actions :is(
+    #type-source-view,
+    .source-origin-selector
+  )) {
     grid-template-rows: 42px 82px auto minmax(0, 1fr) 30px;
   }
-  .targetbar:has(.working-surface-actions #type-source-view) {
+  .targetbar:has(.working-surface-actions :is(
+    #type-source-view,
+    .source-origin-selector
+  )) {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 41px 40px;
     gap: 0;
   }
-  .targetbar:has(.working-surface-actions #type-source-view)
+  .targetbar:has(.working-surface-actions :is(
+    #type-source-view,
+    .source-origin-selector
+  ))
   .inspected-target {
     width: 100%;
     height: 41px;
   }
-  .targetbar:has(.working-surface-actions #type-source-view)
+  .targetbar:has(.working-surface-actions :is(
+    #type-source-view,
+    .source-origin-selector
+  ))
   .working-surface-actions {
     width: 100%;
     height: 40px;

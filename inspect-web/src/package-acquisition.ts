@@ -7,6 +7,7 @@ import {
 } from "./data.ts";
 import type {
   BrowserAccessibilityDescriptor as AccessibilityDescriptorFromPackageFacade,
+  BrowserApiFacetDescriptor as ApiFacetDescriptorFromPackageFacade,
   BrowserAssemblySurface as AssemblySurfaceFromPackageFacade,
   BrowserExceptionSurface as ExceptionSurfaceFromPackageFacade,
   BrowserMemberBodySelector as MemberBodySelectorFromPackageFacade,
@@ -24,6 +25,7 @@ import type {
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserAccessibilityDescriptor as AccessibilityDescriptorFromCatalogFacade,
+  BrowserApiFacetDescriptor as ApiFacetDescriptorFromCatalogFacade,
   BrowserAssemblySurface as AssemblySurfaceFromCatalogFacade,
   BrowserExceptionSurface as ExceptionSurfaceFromCatalogFacade,
   BrowserMemberBodySelector as MemberBodySelectorFromCatalogFacade,
@@ -43,6 +45,7 @@ import type {
 } from "./facades/inspect-web-metadata.d.ts";
 import type {
   BrowserLibraryAccessibilityDescriptor as AccessibilityDescriptorFromLibraryFacade,
+  BrowserLibraryApiFacetDescriptor as ApiFacetDescriptorFromLibraryFacade,
   BrowserLibraryAssemblySurface as AssemblySurfaceFromLibraryFacade,
   BrowserLibraryExceptionSurface as ExceptionSurfaceFromLibraryFacade,
   BrowserLibraryMemberBodySelector as MemberBodySelectorFromLibraryFacade,
@@ -64,6 +67,11 @@ export type InspectedAccessibilityDescriptor =
   | AccessibilityDescriptorFromPackageFacade
   | AccessibilityDescriptorFromCatalogFacade
   | AccessibilityDescriptorFromLibraryFacade;
+
+export type InspectedApiFacetDescriptor =
+  | ApiFacetDescriptorFromPackageFacade
+  | ApiFacetDescriptorFromCatalogFacade
+  | ApiFacetDescriptorFromLibraryFacade;
 
 export type InspectedAssemblySurface =
   | AssemblySurfaceFromPackageFacade
@@ -161,6 +169,8 @@ export interface AppPackage {
   producerLabel: string;
   assemblies: InspectedAssemblySurface[];
   types: AppTypeSurface[];
+  typeKinds: InspectedApiFacetDescriptor[];
+  typeTraits: InspectedApiFacetDescriptor[];
   accessibility: InspectedAccessibilityDescriptor[];
   totalTypes: number | null;
   totalMembers: number | null;
@@ -414,6 +424,29 @@ function packageAssemblies(
   });
 }
 
+function mergeTypeFacetDescriptors(
+  existing: readonly InspectedApiFacetDescriptor[],
+  incoming: readonly InspectedApiFacetDescriptor[],
+  types: readonly AppTypeSurface[],
+  matches: (
+    type: AppTypeSurface,
+    descriptor: InspectedApiFacetDescriptor,
+  ) => boolean,
+  retainZero: boolean,
+): InspectedApiFacetDescriptor[] {
+  const descriptors = new Map<string, InspectedApiFacetDescriptor>();
+  for (const descriptor of [...existing, ...incoming]) {
+    descriptors.set(descriptor.id, descriptor);
+  }
+  return [...descriptors.values()]
+    .map(descriptor => ({
+      ...descriptor,
+      count: types.filter(type => matches(type, descriptor)).length,
+    }))
+    .filter(descriptor => retainZero || descriptor.count > 0)
+    .sort((left, right) => left.weight - right.weight);
+}
+
 function surfaceInspectionErrors(result: InspectedPackageSurface): string[] {
   return result.inspectionErrors?.length
     ? [...result.inspectionErrors]
@@ -593,6 +626,8 @@ export function createNuGetPackageModel(
     producerLabel: "NuGet.org",
     assemblies,
     types: packageTypes(result),
+    typeKinds: [...(result.typeKinds ?? [])],
+    typeTraits: [...(result.typeTraits ?? [])],
     accessibility: [...(result.accessibility ?? [])],
     totalTypes: provisionalTotalTypes,
     totalMembers: result.totalMembers,
@@ -693,6 +728,8 @@ export function createUploadedLibraryModel(
     producerLabel: "Browser upload",
     assemblies: [...surface.assemblies],
     types,
+    typeKinds: [...surface.typeKinds],
+    typeTraits: [...surface.typeTraits],
     accessibility: [...surface.accessibility],
     totalTypes: types.length,
     totalMembers: surface.totalMembers,
@@ -751,6 +788,8 @@ function createRuntimePackageModelForAssembly(
     producerLabel: "Platform",
     assemblies: [...(result.assemblies ?? [])],
     types,
+    typeKinds: [...(result.typeKinds ?? [])],
+    typeTraits: [...(result.typeTraits ?? [])],
     accessibility: [...(result.accessibility ?? [])],
     totalTypes: types.length,
     totalMembers: result.totalMembers,
@@ -852,6 +891,19 @@ export function mergeRuntimePackageSurface(
     seenAssemblies.add(key);
     existing.assemblies.push(assembly);
   }
+
+  existing.typeKinds = mergeTypeFacetDescriptors(
+    existing.typeKinds,
+    result.typeKinds ?? [],
+    existing.types,
+    (type, descriptor) => type.kindFacetId === descriptor.id,
+    false);
+  existing.typeTraits = mergeTypeFacetDescriptors(
+    existing.typeTraits,
+    result.typeTraits ?? [],
+    existing.types,
+    (type, descriptor) => type.traitFacetIds.includes(descriptor.id),
+    true);
 
   // Preserve authoritative surface aggregates for a wholly new result. A partial or
   // repeated merge must instead count only rows accepted above.

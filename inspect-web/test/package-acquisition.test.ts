@@ -33,6 +33,10 @@ import type {
 import type {
   BrowserUploadedLibraryResult,
 } from "../src/facades/inspect-web-library.d.ts";
+import {
+  normalizeTypeAccessibilityFilter,
+  shouldRestoreTypeAccessibilitySelection,
+} from "../src/type-panel.ts";
 
 function assembly(
   id: string,
@@ -65,6 +69,8 @@ function typeSurface(
     displayName: id,
     namespace: id.split(".").slice(0, -1).join("."),
     kind: "class",
+    kindFacetId: "api.type-kind.class",
+    traitFacetIds: ["api.type-trait.object"],
     accessibility: "public",
     accessibilityId: "public",
     assembly: assemblyName,
@@ -189,6 +195,36 @@ function packageSurface(
     compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
     assemblies: [primary],
     types: [typeSurface("Example.Widget")],
+    typeKinds: [{
+      id: "api.type-kind.class",
+      singularLabel: "class",
+      pluralLabel: "classes",
+      weight: 100,
+      count: 1,
+      isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract",
+      singularLabel: "abstract",
+      pluralLabel: "abstract",
+      weight: 100,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.static",
+      singularLabel: "static",
+      pluralLabel: "static",
+      weight: 200,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.object",
+      singularLabel: "object",
+      pluralLabel: "objects",
+      weight: 300,
+      count: 1,
+      isDefault: false,
+    }],
     accessibility: [{
       id: "public",
       label: "Public",
@@ -319,6 +355,36 @@ test("uploaded Library model stays detached from Package acquisition state", () 
     surface: {
       assemblies: [descriptor],
       types: [uploadedType],
+      typeKinds: [{
+        id: "api.type-kind.class",
+        singularLabel: "class",
+        pluralLabel: "classes",
+        weight: 100,
+        count: 1,
+        isDefault: true,
+      }],
+      typeTraits: [{
+        id: "api.type-trait.abstract",
+        singularLabel: "abstract",
+        pluralLabel: "abstract",
+        weight: 100,
+        count: 0,
+        isDefault: false,
+      }, {
+        id: "api.type-trait.static",
+        singularLabel: "static",
+        pluralLabel: "static",
+        weight: 200,
+        count: 0,
+        isDefault: false,
+      }, {
+        id: "api.type-trait.object",
+        singularLabel: "object",
+        pluralLabel: "objects",
+        weight: 300,
+        count: 1,
+        isDefault: false,
+      }],
       accessibility: [{
         id: "public",
         label: "Public",
@@ -1393,11 +1459,120 @@ test("repeating a partial surface merge does not inflate resident evidence", () 
   assert.deepEqual(
     resident.types.map(type => type.id),
     ["System.Object", "System.Text.Json.JsonDocument"]);
+  assert.deepEqual(
+    resident.typeKinds.map(facet => [facet.id, facet.count]),
+    [["api.type-kind.class", 2]]);
+  assert.deepEqual(
+    resident.typeTraits.map(facet => [facet.id, facet.count]),
+    [
+      ["api.type-trait.abstract", 0],
+      ["api.type-trait.static", 0],
+      ["api.type-trait.object", 2],
+    ]);
   assert.equal(resident.totalMembers, 4);
   assert.equal(resident.accessibility[0]?.count, 2);
   assert.equal(
     resident.inspectionError,
     residentSurface.inspectionError);
+});
+
+test("runtime vocabulary growth expands a prior all-Accessibility selection", () => {
+  const initial = runtimeSurface(
+    "corelib",
+    "System.Private.CoreLib",
+    "System.Object");
+  const internalType = {
+    ...typeSurface("Hidden.InternalType", "System.Private.CoreLib"),
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Hidden.InternalType",
+  };
+  const residentSurface = {
+    ...initial,
+    types: [...initial.types, internalType],
+    accessibility: [
+      ...initial.accessibility,
+      {
+        id: "internal",
+        label: "Internal",
+        order: 2,
+        isDefault: false,
+        count: 1,
+      },
+    ],
+  };
+  const resident = createRuntimePackageModel(residentSurface);
+  const selectedAll = new Set(["public", "internal"]);
+  const next = runtimeSurface(
+    "json",
+    "System.Text.Json",
+    "Hidden.PrivateType");
+  const privateType = next.types[0];
+  assert.ok(privateType);
+  const incoming = {
+    ...next,
+    types: [{
+      ...privateType,
+      accessibility: "private",
+      accessibilityId: "private",
+      signature: "private class Hidden.PrivateType",
+    }],
+    accessibility: [{
+      id: "private",
+      label: "Private",
+      order: 3,
+      isDefault: false,
+      count: 1,
+    }],
+  };
+
+  mergeRuntimePackageSurface(resident, incoming);
+  const normalized = normalizeTypeAccessibilityFilter(
+    selectedAll,
+    resident.accessibility.map(descriptor => descriptor.id),
+    "all",
+  );
+
+  assert.deepEqual(
+    [...normalized],
+    ["public", "internal", "private"]);
+  assert.deepEqual(
+    [...normalizeTypeAccessibilityFilter(
+      new Set(["public"]),
+      resident.accessibility.map(descriptor => descriptor.id),
+      "exact",
+    )],
+    ["public"]);
+  assert.deepEqual(
+    [...normalizeTypeAccessibilityFilter(
+      new Set(["unresolved"]),
+      resident.accessibility.map(descriptor => descriptor.id),
+      "exact",
+    )],
+    ["unresolved"]);
+  assert.deepEqual(
+    [...normalizeTypeAccessibilityFilter(
+      new Set(["public"]),
+      ["public", "internal"],
+      "all",
+    )],
+    ["public", "internal"]);
+  assert.deepEqual(
+    [...normalizeTypeAccessibilityFilter(
+      new Set(["public"]),
+      ["public", "internal"],
+      "exact",
+    )],
+    ["public"]);
+  assert.equal(
+    shouldRestoreTypeAccessibilitySelection("all", 4, 4),
+    true);
+  assert.equal(
+    shouldRestoreTypeAccessibilitySelection("all", 4, 5),
+    false);
+  assert.equal(
+    shouldRestoreTypeAccessibilitySelection("exact", 4, 4),
+    false);
 });
 
 // Round 6 review split the two reviewers. GPT-5.6 Sol found that the resident-merge path

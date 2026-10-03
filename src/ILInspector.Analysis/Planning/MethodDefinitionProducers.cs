@@ -50,6 +50,16 @@ public enum MethodDefinitionLayers
     /// full type name, memoized per attribute constructor and per type handle.
     /// </summary>
     AttributeTypeMatch = 128,
+
+    /// <summary>
+    /// Tier 1: the legacy hidden test on the method or its declaring type:
+    /// <c>EditorBrowsable(Never)</c>, or an <c>Obsolete</c> that is not
+    /// Roslyn's compiler-compatibility marker, as
+    /// <c>AttributeReader.HasHiddenAttribute</c> defines it, with the
+    /// attribute types matched through the <see cref="AttributeTypeMatch"/>
+    /// memo and the values read in place.
+    /// </summary>
+    HiddenAttribute = 256,
 }
 
 /// <summary>
@@ -422,6 +432,16 @@ public readonly ref struct MethodDefinitionView
         ArgumentNullException.ThrowIfNull(target);
         Require(MethodDefinitionLayers.AttributeTypeMatch);
         return _unit.Gate.HasAttributeOfType(target);
+    }
+
+    /// <summary>Tier 1: the legacy hidden test on the method's own attributes.</summary>
+    public bool IsHidden
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.HiddenAttribute);
+            return _unit.Gate.IsHidden();
+        }
     }
 
     /// <summary>Tier 2: the row's identity text, through the gate's identity budget.</summary>

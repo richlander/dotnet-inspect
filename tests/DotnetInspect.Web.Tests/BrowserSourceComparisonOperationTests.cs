@@ -104,6 +104,36 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         }
     }
 
+    [Fact]
+    public async Task MemberSourceExport_ExplicitDecompilerHasNoAuthoredParts()
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        MemberSelection selection =
+            await pair.Selection("FieldGetter", "Count");
+
+        string json = await SourceExports.QueryMemberSource(
+            selection.PackageId,
+            BeforeVersion,
+            selection.Framework,
+            selection.Assembly,
+            selection.TypeIdentity,
+            selection.MemberName,
+            selection.SelectorKey,
+            selection.MetadataToken,
+            "[]",
+            "decompiler-source");
+
+        BrowserMemberSource source =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserSourceJsonContext.Default.BrowserMemberSource)
+            ?? throw new InvalidOperationException(
+                "The member source export returned no payload.");
+        Assert.Equal("decompiled", source.Source.Provider);
+        Assert.Empty(source.Parts);
+        Assert.Contains("public int Count", source.Source.Text);
+    }
+
     [Theory]
     [InlineData("authored")]
     [InlineData("missing")]

@@ -116,6 +116,16 @@ internal static class BrowserPackageWireProjection
                                 facet.IsDefault)),
                     ],
                     [
+                        .. result.Inventory.TypeTraits.Select(facet =>
+                            new BrowserExactLibraryApiFacet(
+                                facet.Id,
+                                facet.SingularLabel,
+                                facet.PluralLabel,
+                                facet.Weight,
+                                facet.Count,
+                                facet.IsDefault)),
+                    ],
+                    [
                         .. result.Inventory.Namespaces.Select(@namespace =>
                             new BrowserExactLibraryApiNamespace(
                                 @namespace.Name,
@@ -231,6 +241,8 @@ internal static class BrowserPackageWireProjection
             Project(surface.CompileLibrary),
             [.. surface.Assemblies.Select(Project)],
             [.. surface.Types.Select(Project)],
+            [.. surface.TypeKinds.Select(Project)],
+            [.. surface.TypeTraits.Select(Project)],
             [.. surface.Accessibility.Select(Project)],
             surface.TotalMembers,
             Project(surface.Documents),
@@ -455,6 +467,16 @@ internal static class BrowserPackageWireProjection
             accessibility.IsDefault,
             accessibility.Count);
 
+    internal static BrowserApiFacetDescriptor Project(
+        BrowserApiFacetInfo facet) =>
+        new(
+            facet.Id,
+            facet.SingularLabel,
+            facet.PluralLabel,
+            facet.Weight,
+            facet.Count,
+            facet.IsDefault);
+
     internal static BrowserTypeSurface Project(BrowserTypeSurfaceInfo type) =>
         new(
             type.Id,
@@ -465,6 +487,8 @@ internal static class BrowserPackageWireProjection
             type.DisplayName,
             type.Namespace,
             type.Kind,
+            type.KindFacetId,
+            type.TraitFacetIds,
             type.Accessibility,
             type.AccessibilityId,
             type.Assembly,

@@ -2039,39 +2039,19 @@ internal static class LibraryMetadataService
         switch (result)
         {
             case ResourceTriageResult.Available available:
-                inspection.ResourceLifecycleInspection =
-                    available.Inspection;
-                var drillByToken = getDrillMap();
-                inspection.ResourceTriageDrillMap = drillByToken;
-                ImmutableArray<Analysis.ResourceTriageAssessment> assessments =
-                [
-                    .. available.Assessments
-                        .Where(assessment =>
-                            assessment.Actionability
-                                == Analysis.ResourceTriageActionability
-                                    .UntrustedActionable)
-                        .OrderBy(
-                            assessment => FormatMethod(
-                                assessment.Source.Payload.Method),
-                            StringComparer.Ordinal)
-                        .ThenBy(
-                            assessment =>
-                                assessment.Source.Payload.AcquireOffset)
-                        .ThenBy(
-                            assessment =>
-                                assessment.Boundaries.Length > 0
-                                    ? assessment.Boundaries[0]
-                                        .Evidence.ILOffset
-                                    : -1),
-                ];
-                inspection.ResourceTriageAssessments = assessments;
-                var rows = assessments
-                    .Select(assessment =>
-                        ProjectResourceTriageAssessment(
-                            assessment,
-                            drillByToken))
-                    .ToList();
-                inspection.ResourceTriage = rows;
+                ApplyResourceTriageEvidence(
+                    inspection,
+                    available.Inspection,
+                    available.Assessments,
+                    getDrillMap());
+                break;
+
+            case ResourceTriageResult.Incomplete incomplete:
+                ApplyResourceTriageEvidence(
+                    inspection,
+                    incomplete.Inspection,
+                    incomplete.Assessments,
+                    getDrillMap());
                 break;
 
             case ResourceTriageResult.NoMetadata:
@@ -2088,6 +2068,47 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     $"Unknown resource triage result '{result.GetType().Name}'.");
         }
+    }
+
+    static void ApplyResourceTriageEvidence(
+        LibraryInspection inspection,
+        FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete
+            lifecycleInspection,
+        ImmutableArray<Analysis.ResourceTriageAssessment> availableAssessments,
+        IReadOnlyDictionary<
+            int,
+            (string? Stable, string Visibility, string Selector)> drillByToken)
+    {
+        inspection.ResourceLifecycleInspection = lifecycleInspection;
+        inspection.ResourceTriageDrillMap = drillByToken;
+        ImmutableArray<Analysis.ResourceTriageAssessment> assessments =
+        [
+            .. availableAssessments
+                .Where(assessment =>
+                    assessment.Actionability
+                        == Analysis.ResourceTriageActionability
+                            .UntrustedActionable)
+                .OrderBy(
+                    assessment => FormatMethod(
+                        assessment.Source.Payload.Method),
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    assessment =>
+                        assessment.Source.Payload.AcquireOffset)
+                .ThenBy(
+                    assessment =>
+                        assessment.Boundaries.Length > 0
+                            ? assessment.Boundaries[0]
+                                .Evidence.ILOffset
+                            : -1),
+        ];
+        inspection.ResourceTriageAssessments = assessments;
+        inspection.ResourceTriage = assessments
+            .Select(assessment =>
+                ProjectResourceTriageAssessment(
+                    assessment,
+                    drillByToken))
+            .ToList();
     }
 
     internal static ResourceTriageSummary ProjectResourceTriageAssessment(
@@ -2948,6 +2969,9 @@ internal static class LibraryMetadataService
                         break;
                     case MethodClassificationAnalyzer.PointerSignature:
                         inspection.UnsafeMethodCount = count.Value;
+                        break;
+                    case MethodClassificationAnalyzer.Extension:
+                        inspection.ExtensionMethodCount = count.Value;
                         break;
                     default:
                         throw new InvalidOperationException(

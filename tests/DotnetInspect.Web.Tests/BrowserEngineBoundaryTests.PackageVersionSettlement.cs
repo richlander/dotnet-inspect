@@ -576,6 +576,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     Message: null),
                 Assemblies: [],
                 Types: [],
+                TypeKinds: [],
+                TypeTraits: [],
                 Accessibility: [],
                 TotalMembers: 0,
                 Documents: [],

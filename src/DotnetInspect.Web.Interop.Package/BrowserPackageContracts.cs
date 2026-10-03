@@ -58,6 +58,8 @@ public sealed record BrowserPackageSurface(
     BrowserCompileLibraryAvailability CompileLibrary,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
+    BrowserApiFacetDescriptor[] TypeKinds,
+    BrowserApiFacetDescriptor[] TypeTraits,
     BrowserAccessibilityDescriptor[] Accessibility,
     int TotalMembers,
     BrowserPackageDocument[] Documents,
@@ -196,6 +198,14 @@ public sealed record BrowserAccessibilityDescriptor(
     bool IsDefault,
     int Count);
 
+public sealed record BrowserApiFacetDescriptor(
+    string Id,
+    string SingularLabel,
+    string PluralLabel,
+    int Weight,
+    int Count,
+    bool IsDefault);
+
 public sealed record BrowserAssemblySurface(
     string Id,
     string Name,
@@ -225,6 +235,8 @@ public sealed record BrowserTypeSurface(
     string DisplayName,
     string Namespace,
     string Kind,
+    string KindFacetId,
+    string[] TraitFacetIds,
     string Accessibility,
     string AccessibilityId,
     string Assembly,
@@ -934,6 +946,7 @@ public sealed record BrowserExactLibraryApiInventory(
     int PublicMethodCount,
     int PublicPropertyCount,
     BrowserExactLibraryApiFacet[] TypeKinds,
+    BrowserExactLibraryApiFacet[] TypeTraits,
     BrowserExactLibraryApiNamespace[] Namespaces);
 
 public sealed record BrowserExactLibraryApiProjectionTruncation(
