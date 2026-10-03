@@ -2011,6 +2011,41 @@ public sealed partial class ArtifactSetSessionTests
         Assert.Equal(content, ReadAll(read));
     }
 
+    [Fact]
+    public async Task ArtifactSetSession_SeekableStreamPositionedPastItsEndPublishesEmptyContent()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+                MaxArtifactBytes = 16,
+                MaxRetainedBytes = 16,
+            });
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("past-end"),
+                    _ => new MemoryStream([1, 2, 3], writable: false) { Position = 4 });
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        using ArtifactQueryLease lease =
+            session.IssueLease(session.CreateQueryAuthorization());
+        using Stream read = session.OpenRead(
+            Assert.Single(session.GetCatalog(lease)).Identity,
+            lease);
+        Assert.Empty(ReadAll(read));
+    }
+
     /// <summary>A seekable stream that reports a length other than its content's.</summary>
     private sealed class StatedLengthStream(byte[] content, long statedLength) :
         MemoryStream(content, writable: false)
