@@ -283,11 +283,16 @@ internal static class LibraryMetadataService
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
-            var appContextSwitches =
-                AppContextSwitchProjectionProducer.ProduceInventory(
-                    pdbContext.MethodBodies);
-            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Length;
-            inspection.HasSwitches = inspection.SwitchCount > 0;
+            // The Switches row is an overview count, so it reads only the
+            // switches the metadata declares (docs/design/progressive-disclosure.md#overview-cost).
+            // AppContext call sites need every IL body; the Switches section's
+            // query reads them on request, and plain discovery reads them here
+            // only to decide whether that section has data.
+            inspection.SwitchCount = presenceFlags.SwitchCount;
+            inspection.HasSwitches = presenceFlags.SwitchCount > 0
+                || (discoveryOnly
+                    && AppContextSwitchProjectionProducer.ProduceInventory(
+                        pdbContext.MethodBodies).Length > 0);
 
             if (integrationsEntry is not null)
             {
