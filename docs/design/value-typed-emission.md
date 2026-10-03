@@ -637,6 +637,41 @@ materialized IR node," checkable the same way. This is why instance 2 rides on
 instance 1: they share the type-propagation spine, so instance 2 is *mostly the
 deletion* of print-time typing once propagation exists — not a second engine.
 
+### Mutually exclusive switch-section ranges
+
+A raised `Switch` supplies one bounded live-range proof before storage
+materialization: its `SwitchSection` bodies are mutually exclusive. A reused
+stack slot may therefore receive a fresh identity for one section when every
+reference to that slot belongs to a section of the same switch, every referenced
+section contains exactly one top-level store followed by one or more top-level
+loads in its direct body block, and at least two section ranges have different
+types. A candidate declines when its store reads the same slot, a load precedes
+the store, nested control flow or an unraised control transfer appears in the
+range, a reference exists outside the switch, or all section ranges already
+agree. The rewrite renumbers one complete section range at a time; it does not
+move evaluation, infer a join type, or add a control-flow edge.
+
+The pass remains before PDB lexical-scope retention. Reapplying it after
+`PdbLocalScopePass` is not sound under the block-local proof: a retained lexical
+`Block` may contain labels and gotos and is not evidence of straight-line
+execution. The fixed 14-assembly corpus demonstrates that boundary: an
+experimental late rerun changed
+`Microsoft.CodeAnalysis.CSharp.LocalRewriter.MakeConversionNodeCore` without
+reducing the 140 residual splits and left a shared post-branch read separated
+from one reaching definition. The product pass instead admits only the
+switch-issued mutual-exclusion proof above.
+
+The motivating real package is dotnet-inspect.any 0.14.0.
+`CSharpPrinter.DeconstructionTargetText` reuses one stack position for
+independent property-target and field-target values in separate switch
+sections; `ApiCommand.TryGetBareApiPayload` reuses another across independent
+payload sections. `PublishedSwitchSectionRangesSplitBeforeMaterialization`
+pins both package assets and gates their decided materialization, while
+synthetic positive and decline cases gate downstream joins, read-before-write,
+nested control flow, and same-typed sections. On the fixed corpus the proof
+reduces residual printer split slots from 140 to 138 with zero collection
+failures and no introduced residual identity.
+
 ## Instance 3 — definite assignment (noted, deferred)
 
 The writer also decides which locals need `= default` to satisfy C# definite

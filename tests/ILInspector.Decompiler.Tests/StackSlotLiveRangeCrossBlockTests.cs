@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -816,6 +817,159 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void MutuallyExclusiveSwitchSectionRanges_Split()
+    {
+        var integerStore = Store(1);
+        var integerLoad = Load(Int32);
+        var stringStore = Store("x");
+        var stringLoad = Load(String);
+        var function = Run(BlockOf(
+            0,
+            new Switch(
+                new LoadArgument(0, "kind", Int32),
+                [
+                    Section(0, integerStore, integerLoad),
+                    Section(null, stringStore, stringLoad),
+                ]),
+            new Return(null)));
+
+        var rewrittenStore = Assert.Single(
+            function.Descendants.OfType<StoreStackSlot>(),
+            store => store.Slot != Slot);
+        var rewrittenLoad = Assert.Single(
+            function.Descendants.OfType<LoadStackSlot>(),
+            load => load.Slot != Slot);
+        Assert.Equal(rewrittenStore.Slot, rewrittenLoad.Slot);
+        Assert.Contains(rewrittenStore.Value.ResultType, new[] { Int32, String });
+        Assert.Equal(
+            rewrittenStore.Value.ResultType,
+            rewrittenLoad.Type);
+    }
+
+    [Fact]
+    public void SwitchSectionRangeWithDownstreamLoad_StaysUnsplit()
+    {
+        var downstreamLoad = Load(Object);
+        var function = Run(BlockOf(
+            0,
+            new Switch(
+                new LoadArgument(0, "kind", Int32),
+                [
+                    Section(0, Store(1), Load(Int32)),
+                    Section(null, Store("x"), Load(String)),
+                ]),
+            downstreamLoad,
+            new Return(null)));
+
+        Assert.False(Split(function));
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(downstreamLoad.Expression).Slot);
+    }
+
+    [Fact]
+    public void SwitchSectionReadBeforeWrite_StaysUnsplit()
+    {
+        Assert.False(Split(Run(BlockOf(
+            0,
+            new Switch(
+                new LoadArgument(0, "kind", Int32),
+                [
+                    Section(0, Load(Int32), Store(1)),
+                    Section(null, Store("x"), Load(String)),
+                ]),
+            new Return(null)))));
+    }
+
+    [Fact]
+    public void SameTypedSwitchSectionRanges_StayUnsplit()
+    {
+        Assert.False(Split(Run(BlockOf(
+            0,
+            new Switch(
+                new LoadArgument(0, "kind", Int32),
+                [
+                    Section(0, Store(1), Load(Int32)),
+                    Section(null, Store(2), Load(Int32)),
+                ]),
+            new Return(null)))));
+    }
+
+    [Fact]
+    public void NestedSwitchSectionRange_StaysUnsplit()
+    {
+        var nested = BlockOf(100, Store(1), Load(Int32));
+        Assert.False(Split(Run(BlockOf(
+            0,
+            new Switch(
+                new LoadArgument(0, "kind", Int32),
+                [
+                    Section(
+                        0,
+                        new IfStatement(new LoadArgument(1, "take", Boolean), nested, null)),
+                    Section(null, Store("x"), Load(String)),
+                ]),
+            new Return(null)))));
+    }
+
+    [Theory]
+    [InlineData(
+        "ILInspector.Decompiler.dll",
+        "E9FC3688D55F3B53A2FB8B476CA444CFD2D4FFAEDFE6C380EF8C4071152F652E",
+        "ILInspector.Decompiler.Pipeline.CSharpPrinter",
+        "DeconstructionTargetText",
+        "IrExpression",
+        "LoadArgument")]
+    [InlineData(
+        "dotnet-inspect.dll",
+        "BA25A787B75C15DB094A703F1AB3A00399FCA60B1E77F1FC2E9AE7D934EAE717",
+        "DotnetInspector.Commands.ApiCommand",
+        "TryGetBareApiPayload",
+        "string",
+        "IEnumerable<string>")]
+    public void PublishedSwitchSectionRangesSplitBeforeMaterialization(
+        string assembly,
+        string expectedHash,
+        string type,
+        string method,
+        string firstType,
+        string secondType)
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "SwitchSection",
+            assembly);
+        Assert.Equal(
+            expectedHash,
+            System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = ReferenceSlotMaterializationTestHelpers.RaiseToMaterialization(
+            source,
+            type,
+            method);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.DoesNotContain(
+            decisions,
+            decision => decision.Vetoes.HasFlag(
+                SlotMaterializationVeto.ConflictingTypeTestimony));
+        Assert.Contains(
+            decisions,
+            decision => decision.WillMaterialize
+                && decision.Type?.ToDisplayString() == firstType);
+        Assert.Contains(
+            decisions,
+            decision => decision.WillMaterialize
+                && decision.Type?.ToDisplayString() == secondType);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
     public void LocalFunctionRoot_DoesNotExposeNestedLoadsToCrossBlockRewrite()
     {
         var localLoad = Load(Object);
@@ -991,5 +1145,15 @@ public class StackSlotLiveRangeCrossBlockTests
         foreach (var statement in statements)
             block.Add(statement);
         return block;
+    }
+
+    static SwitchSection Section(int? label, params IrNode[] statements)
+    {
+        var body = new BlockContainer();
+        body.Add(BlockOf(label ?? 100, [.. statements, new Break()]));
+        return new SwitchSection(
+            label is { } value ? [new Constant(value, Int32)] : [],
+            isDefault: label is null,
+            body);
     }
 }

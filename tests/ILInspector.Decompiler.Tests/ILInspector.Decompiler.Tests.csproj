@@ -70,6 +70,13 @@
     <None Include="$(NuGetPackageRoot)system.commandline/3.0.0-preview.5.26302.115/lib/net10.0/System.CommandLine.dll"
           Link="RealAssets/NestedLambda/System.CommandLine.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <PackageDownload Include="dotnet-inspect.any" Version="[0.14.0]" />
+    <None Include="$(NuGetPackageRoot)dotnet-inspect.any/0.14.0/tools/net10.0/any/ILInspector.Decompiler.dll"
+          Link="RealAssets/SwitchSection/ILInspector.Decompiler.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)dotnet-inspect.any/0.14.0/tools/net10.0/any/dotnet-inspect.dll"
+          Link="RealAssets/SwitchSection/dotnet-inspect.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

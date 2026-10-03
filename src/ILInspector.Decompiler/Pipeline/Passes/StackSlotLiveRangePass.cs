@@ -19,9 +19,121 @@ public sealed class StackSlotLiveRangePass : IIrPass
     {
         bool hasStructuredEh = function.Descendants.Any(node => node is TryCatch or TryFinally or CatchClause);
         while (SplitOnce(function, context.Stepper, hasStructuredEh)
+            || SplitSwitchSectionOnce(function, context.Stepper)
             || SplitCrossBlockOnce(function, context.Stepper, hasStructuredEh))
         {
         }
+    }
+
+    static bool SplitSwitchSectionOnce(IrFunction function, Stepper stepper)
+    {
+        var scopeNodes = CoercionSinks.ScopeNodes(function.Body).ToList();
+        foreach (var @switch in scopeNodes.OfType<Switch>())
+        {
+            foreach (var referencesBySlot in scopeNodes
+                .Where(node => node is StoreStackSlot or LoadStackSlot)
+                .GroupBy(node => node is StoreStackSlot store ? store.Slot : ((LoadStackSlot)node).Slot))
+            {
+                int slot = referencesBySlot.Key;
+                var references = referencesBySlot.ToList();
+                var sections = references
+                    .Select(reference => ContainingSection(reference, @switch))
+                    .ToList();
+                if (sections.Any(section => section is null)
+                    || sections.Select(section => section!).Distinct().Count() < 2)
+                {
+                    continue;
+                }
+
+                var ranges = new List<(
+                    StoreStackSlot Store,
+                    List<LoadStackSlot> Loads,
+                    TypeRef ValueType,
+                    TypeRef RangeType)>();
+                bool allSectionsAreStraightLine = true;
+                foreach (var section in sections.Select(section => section!).Distinct())
+                {
+                    var sectionReferences = references
+                        .Where(reference => ReferenceEquals(
+                            ContainingSection(reference, @switch),
+                            section))
+                        .ToList();
+                    var stores = sectionReferences.OfType<StoreStackSlot>().ToList();
+                    var loads = sectionReferences.OfType<LoadStackSlot>().ToList();
+                    if (stores.Count != 1
+                        || loads.Count == 0
+                        || stores[0].Value.ResultType is not { } valueType
+                        || stores[0].Value.Descendants.Prepend(stores[0].Value)
+                            .OfType<LoadStackSlot>()
+                            .Any(load => load.Slot == slot))
+                    {
+                        allSectionsAreStraightLine = false;
+                        break;
+                    }
+
+                    var store = stores[0];
+                    if (store.Parent is not Block block
+                        || !ReferenceEquals(block.Parent, section.Body)
+                        || sectionReferences.Any(reference =>
+                            !ReferenceEquals(EnclosingBlock(reference), block))
+                        || loads.Any(load => EnclosingStatement(load)?.ChildIndex <= store.ChildIndex)
+                        || block.Children
+                            .Skip(store.ChildIndex)
+                            .Take(loads.Max(load => EnclosingStatement(load)!.ChildIndex) - store.ChildIndex + 1)
+                            .SelectMany(statement => ScopeDescendants(statement).Prepend(statement))
+                            .Any(node => node is Block or BlockContainer || IsControlTransfer(node)))
+                    {
+                        allSectionsAreStraightLine = false;
+                        break;
+                    }
+
+                    ranges.Add((store, loads, valueType, RangeType(function, store.Value, loads)!));
+                }
+                var rangesByType = ranges
+                    .GroupBy(range => range.RangeType)
+                    .OrderBy(group => group.Count())
+                    .ToList();
+                if (!allSectionsAreStraightLine || rangesByType.Count < 2)
+                {
+                    continue;
+                }
+
+                var candidates = rangesByType[0].ToList();
+                int newSlot = FreshStackSlot(function);
+                stepper.StepOver(
+                    $"split stack slot {slot} switch-section ranges to S_{newSlot}",
+                    candidates[0].Store);
+                foreach (var candidate in candidates)
+                {
+                    foreach (var load in candidate.Loads)
+                        load.ReplaceWith(new LoadStackSlot(newSlot, load.Type ?? candidate.ValueType));
+
+                    var value = (IrExpression)candidate.Store.DetachChildren()[0];
+                    var replacement = new StoreStackSlot(newSlot, value);
+                    replacement.InheritSourceOffset(candidate.Store);
+                    candidate.Store.ReplaceWith(replacement);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static SwitchSection? ContainingSection(IrNode node, Switch @switch)
+    {
+        SwitchSection? section = null;
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            if (current is SwitchSection candidate)
+                section = candidate;
+            if (ReferenceEquals(current, @switch))
+                return section is not null && ReferenceEquals(section.Parent, @switch)
+                    ? section
+                    : null;
+            if (current is Lambda or LocalFunctionStatement)
+                return null;
+        }
+        return null;
     }
 
     static bool SplitOnce(IrFunction function, Stepper stepper, bool hasStructuredEh)
