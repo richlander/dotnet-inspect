@@ -502,13 +502,15 @@ group-owned release, including disposal of the catalog scope.
 single-policy-evaluation, shared-storage, duplicate-artifact, and
 incomplete-evidence contracts.
 
-The shared physical graph retains one canonical edge population. Directional
-caller and callee traversal uses ordered ranges over that population rather
-than independently owned edge payloads. A reverse range may retain derived
-cardinality such as distinct incoming callers when that value is defined by
-the same physical edge population. The representation may change construction
-and lookup cost, but never edge identity, physical occurrence order, graph
-diagnostics, traversal bounds, or generation lifetime.
+The shared physical graph retains one canonical edge population. Reverse
+caller traversal uses ordered ranges over that population rather than
+independently owned per-target edge payloads, and each range retains the
+distinct incoming-caller cardinality defined by those same physical edges.
+Forward callee traversal remains the control representation for this first
+validation slice; a later adopter can justify broadening the range shape after
+the reverse path has production evidence. The representation may change
+construction and lookup cost, but never edge identity, physical occurrence
+order, graph diagnostics, traversal bounds, or generation lifetime.
 
 `CatalogCallGraphScorecard` is the performance host for representation changes.
 It measures graph construction, caller batches, callee batches, and complete
