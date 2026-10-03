@@ -84,6 +84,7 @@ public partial class LibraryBodyIndexTests
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
             index.Safety.MemorySafetyRules);
         Assert.Equal(MemorySafetyRulesState.Legacy, rules.State);
+        Assert.NotEqual(0, index.Safety.UnsafeModes.Implicit);
         Assert.Equal(0, index.Safety.UnsafeModes.Explicit);
         Assert.Equal(0, index.Safety.UnsafeModes.Unavailable);
         Assert.Same(index.Receipt, index.Safety.Receipt);

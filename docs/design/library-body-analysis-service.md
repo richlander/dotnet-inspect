@@ -964,8 +964,10 @@ rules model and the whole-declaration caller-unsafe-mode breakdown on
 `LibrarySafetyAnalysisResult`, beside its existing unsafe evidence and
 occurrences. These summaries reuse producer-owned values; publication neither
 reinterprets the rules model nor introduces another census. `WasRequested`
-continues to describe unsafe body-evidence participation, while the normalized
-module and declaration summaries remain available from the Analysis execution.
+describes unsafe body-evidence and caller-mode-census participation. The
+normalized module rules remain available independently; reading
+`UnsafeModes` without that participation fails explicitly rather than
+presenting an unrequested census as complete zero counts.
 
 The temporary `ILInspector.Analysis.App` unsafe reporter consumes the focused
 safety, leverage, and call-graph results and invokes the existing
