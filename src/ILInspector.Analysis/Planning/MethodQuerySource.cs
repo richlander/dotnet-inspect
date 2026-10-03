@@ -647,6 +647,9 @@ public enum MethodDefinitionSourceCompletion
     /// <summary>A producer failure prevented the source request from settling.</summary>
     ProducerFailed,
 
+    /// <summary>Required Method-source data was malformed or unavailable.</summary>
+    SourceIncomplete,
+
     /// <summary>A critical producer work bound aborted the source request.</summary>
     Aborted,
 }
@@ -718,6 +721,12 @@ public sealed record MethodDefinitionSourceCoverage(
     MethodDefinitionHandleCoverage MethodsSelected,
     MethodDefinitionHandleCoverage BodiesAcquired);
 
+/// <summary>Where and why required Method-source acquisition was incomplete.</summary>
+public sealed record MethodDefinitionSourceFailure(
+    int UnitToken,
+    string Unit,
+    string Message);
+
 /// <summary>Detached evidence of the Method-source work actually performed.</summary>
 public sealed record MethodDefinitionSourceReceipt(
     MethodDefinitionSourceRequestIdentity Request,
@@ -726,6 +735,7 @@ public sealed record MethodDefinitionSourceReceipt(
     ProducerTerminal Terminal,
     MethodDefinitionLayers DeclaredLayers,
     MethodDefinitionSourceCompletion Completion,
+    MethodDefinitionSourceFailure? SourceFailure,
     MethodDefinitionSourceCoverage Coverage,
     int ModuleLookups)
 {
@@ -929,6 +939,8 @@ internal static class MethodQuerySource
         WorkReceipt workReceipt = interim.Receipt;
         ProducerParticipation participation =
             workReceipt.For(request.Producer);
+        MethodDefinitionSourceFailure? sourceFailure =
+            interim.SourceFailureOf(request.Producer);
 
         int moduleLookups = 0;
         foreach (ProducerLayerParticipation layer in participation.Layers)
@@ -942,19 +954,8 @@ internal static class MethodQuerySource
             }
         }
 
-        MethodDefinitionSourceCompletion completion = result.Outcome switch
-        {
-            ProducerOutcome.Complete =>
-                MethodDefinitionSourceCompletion.Exhausted,
-            ProducerOutcome.Stopped =>
-                MethodDefinitionSourceCompletion.Satisfied,
-            ProducerOutcome.Failed or ProducerOutcome.PrerequisiteFailed =>
-                MethodDefinitionSourceCompletion.ProducerFailed,
-            ProducerOutcome.Aborted =>
-                MethodDefinitionSourceCompletion.Aborted,
-            _ => throw new ProducerContractException(
-                $"Unknown producer outcome '{result.Outcome}'."),
-        };
+        MethodDefinitionSourceCompletion completion =
+            CompletionOf(result.Outcome, sourceFailure);
         var receipt = new MethodDefinitionSourceReceipt(
             request.Identity,
             subject,
@@ -962,6 +963,7 @@ internal static class MethodQuerySource
             request.Terminal,
             request.DeclaredLayers,
             completion,
+            sourceFailure,
             interim.SourceCoverage,
             moduleLookups);
         return new(receipt, workReceipt, result);
@@ -1043,6 +1045,9 @@ internal static class MethodQuerySource
                     ProducerParticipation participation =
                         execution.Receipt.For(
                             request.FocusedProducer);
+                    MethodDefinitionSourceFailure? sourceFailure =
+                        execution.SourceFailureOf(
+                            request.FocusedProducer);
                     int moduleLookups = 0;
                     foreach (ProducerLayerParticipation layer
                         in participation.Layers)
@@ -1058,22 +1063,9 @@ internal static class MethodQuerySource
                     }
 
                     MethodDefinitionSourceCompletion completion =
-                        participation.Outcome switch
-                        {
-                            ProducerOutcome.Complete =>
-                                MethodDefinitionSourceCompletion.Exhausted,
-                            ProducerOutcome.Stopped =>
-                                MethodDefinitionSourceCompletion.Satisfied,
-                            ProducerOutcome.Failed
-                                or ProducerOutcome.PrerequisiteFailed =>
-                                    MethodDefinitionSourceCompletion
-                                        .ProducerFailed,
-                            ProducerOutcome.Aborted =>
-                                MethodDefinitionSourceCompletion.Aborted,
-                            _ => throw new ProducerContractException(
-                                $"Unknown producer outcome "
-                                + $"'{participation.Outcome}'."),
-                        };
+                        CompletionOf(
+                            participation.Outcome,
+                            sourceFailure);
                     var sourceReceipt =
                         new MethodDefinitionSourceReceipt(
                             request.Identity,
@@ -1082,6 +1074,7 @@ internal static class MethodQuerySource
                             request.Terminal,
                             request.DeclaredLayers,
                             completion,
+                            sourceFailure,
                             execution.SourceCoverage,
                             moduleLookups);
                     byAssociation.Add(
@@ -1119,6 +1112,28 @@ internal static class MethodQuerySource
             plan,
             ordered.MoveToImmutable(),
             groupReceipts.MoveToImmutable());
+    }
+
+    static MethodDefinitionSourceCompletion CompletionOf(
+        ProducerOutcome outcome,
+        MethodDefinitionSourceFailure? sourceFailure)
+    {
+        if (sourceFailure is not null)
+            return MethodDefinitionSourceCompletion.SourceIncomplete;
+
+        return outcome switch
+        {
+            ProducerOutcome.Complete =>
+                MethodDefinitionSourceCompletion.Exhausted,
+            ProducerOutcome.Stopped =>
+                MethodDefinitionSourceCompletion.Satisfied,
+            ProducerOutcome.Failed or ProducerOutcome.PrerequisiteFailed =>
+                MethodDefinitionSourceCompletion.ProducerFailed,
+            ProducerOutcome.Aborted =>
+                MethodDefinitionSourceCompletion.Aborted,
+            _ => throw new ProducerContractException(
+                $"Unknown producer outcome '{outcome}'."),
+        };
     }
 }
 

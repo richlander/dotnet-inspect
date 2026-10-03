@@ -514,12 +514,7 @@ public sealed class MethodDefinitionExecution
             if (!state.IsActive)
                 continue;
 
-            state.Outcome = ProducerOutcome.Failed;
-            state.Failure = new ProducerFailure(
-                unit,
-                label,
-                ProducerFailure.Describe(error));
-            state.IsActive = false;
+            FailSource(state, unit, label, error);
         }
     }
 
@@ -535,13 +530,22 @@ public sealed class MethodDefinitionExecution
                 continue;
             }
 
-            state.Outcome = ProducerOutcome.Failed;
-            state.Failure = new ProducerFailure(
-                unit,
-                "(method source)",
-                ProducerFailure.Describe(error));
-            state.IsActive = false;
+            FailSource(state, unit, "(method source)", error);
         }
+    }
+
+    internal static void FailSource(
+        ProducerState state,
+        int unit,
+        string label,
+        Exception error)
+    {
+        string message = ProducerFailure.Describe(error);
+        state.Outcome = ProducerOutcome.Failed;
+        state.Failure = new ProducerFailure(unit, label, message);
+        state.SourceFailure =
+            new MethodDefinitionSourceFailure(unit, label, message);
+        state.IsActive = false;
     }
 
     /// <summary>
@@ -572,10 +576,25 @@ public sealed class MethodDefinitionExecution
         {
             state.Outcome = ProducerOutcome.Aborted;
             state.Failure = null;
+            state.SourceFailure = null;
             state.FailedPrerequisite = null;
             state.ClearResult();
             state.IsActive = false;
         }
+    }
+
+    internal MethodDefinitionSourceFailure? SourceFailureOf(
+        ProducerDeclaration producer)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
+        if (!_description.TryGetIndex(producer, out int index))
+        {
+            throw new ProducerContractException(
+                $"Producer '{producer.Identity}' is not in this work "
+                + "description.");
+        }
+
+        return _states[index].SourceFailure;
     }
 
     /// <summary>
@@ -1186,6 +1205,7 @@ public sealed class MethodDefinitionExecution
             {
                 state.Outcome = ProducerOutcome.PrerequisiteFailed;
                 state.FailedPrerequisite = target.Producer.Identity;
+                state.SourceFailure = target.SourceFailure;
                 state.IsActive = false;
                 return;
             }
@@ -1223,6 +1243,7 @@ public sealed class MethodDefinitionExecution
                     {
                         state.Outcome = ProducerOutcome.PrerequisiteFailed;
                         state.FailedPrerequisite = target.Producer.Identity;
+                        state.SourceFailure = target.SourceFailure;
                         state.ClearResult();
                         state.IsActive = false;
                         changed = true;
@@ -1408,6 +1429,8 @@ public sealed class MethodDefinitionExecution
         public ProducerOutcome? Outcome { get; set; }
 
         public ProducerFailure? Failure { get; set; }
+
+        public MethodDefinitionSourceFailure? SourceFailure { get; set; }
 
         public string? FailedPrerequisite { get; set; }
 

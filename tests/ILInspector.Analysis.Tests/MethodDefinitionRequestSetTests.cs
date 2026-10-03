@@ -230,6 +230,10 @@ public sealed class MethodDefinitionRequestSetTests
             ResultOf<int>(execution, association).Outcome);
         MethodDefinitionSourceRequestResult result =
             execution.ResultOf(association);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            result.SourceReceipt.Completion);
+        Assert.Null(result.SourceReceipt.SourceFailure);
         Assert.Equal(0, result.SourceReceipt.BodiesAcquired);
         Assert.Equal(
             0,
@@ -270,6 +274,16 @@ public sealed class MethodDefinitionRequestSetTests
         Assert.Equal(
             ProducerOutcome.Failed,
             ResultOf<int>(execution, unsafeEvidence).Outcome);
+        MethodDefinitionSourceReceipt unsafeReceipt =
+            execution.ResultOf(unsafeEvidence).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            unsafeReceipt.Completion);
+        Assert.Equal(
+            "(method source)",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    unsafeReceipt.SourceFailure)
+                .Unit);
         ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
             pinvokeResult =
                 ResultOf<
@@ -280,6 +294,11 @@ public sealed class MethodDefinitionRequestSetTests
             ProducerOutcome.Complete,
             pinvokeResult.Outcome);
         Assert.Empty(pinvokeResult.Value!.Rows);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            execution.ResultOf(pinvoke).SourceReceipt.Completion);
+        Assert.Null(
+            execution.ResultOf(pinvoke).SourceReceipt.SourceFailure);
         Assert.Equal(
             0,
             execution.ResultOf(pinvoke)
@@ -370,9 +389,14 @@ public sealed class MethodDefinitionRequestSetTests
             execution.ResultOf(unsafeEvidence)
                 .SourceReceipt.Completion);
         Assert.Equal(
-            MethodDefinitionSourceCompletion.ProducerFailed,
-            execution.ResultOf(pinvoke)
-                .SourceReceipt.Completion);
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.ResultOf(pinvoke).SourceReceipt.Completion);
+        Assert.Equal(
+            "(method source)",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    execution.ResultOf(pinvoke)
+                        .SourceReceipt.SourceFailure)
+                .Unit);
     }
 
     [Fact]
@@ -409,9 +433,17 @@ public sealed class MethodDefinitionRequestSetTests
             execution.ResultOf(completed)
                 .SourceReceipt.Completion);
         Assert.Equal(
-            MethodDefinitionSourceCompletion.ProducerFailed,
-            execution.ResultOf(failed)
-                .SourceReceipt.Completion);
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.ResultOf(failed).SourceReceipt.Completion);
+        MethodDefinitionSourceFailure sourceFailure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.ResultOf(failed)
+                    .SourceReceipt.SourceFailure);
+        Assert.Equal("(method source)", sourceFailure.Unit);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            sourceFailure.Message,
+            StringComparison.Ordinal);
         Assert.Equal(
             1,
             execution.ResultOf(completed)

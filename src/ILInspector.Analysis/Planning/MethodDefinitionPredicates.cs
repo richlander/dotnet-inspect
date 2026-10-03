@@ -217,7 +217,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
             when (LibraryMethodAnalysisRunner
                 .IsRecoverableMethodFailure(ex))
         {
-            Fail(
+            MethodDefinitionExecution.FailSource(
                 state,
                 MetadataTokens.GetToken(sourceType),
                 sourceUnit,
@@ -558,7 +558,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
             when (LibraryMethodAnalysisRunner
                 .IsRecoverableMethodFailure(ex))
         {
-            QueryFail(
+            MethodDefinitionExecution.FailSource(
                 state,
                 MetadataTokens.GetToken(sourceType),
                 sourceUnit,
