@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspect.Cli.Views;
 using System.Globalization;
 using System.Text.Json;
@@ -640,6 +641,26 @@ public static class OutputFormatter
                 [input],
                 options,
                 pipeline);
+            return;
+        }
+
+        if (options.Format == OutputFormat.Mermaid
+            && options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(
+                SectionNames.DependencyStructure))
+        {
+            LibraryDependencyStructureQueryResult.Available available =
+                inspection.DependencyStructureQueryResult
+                    as LibraryDependencyStructureQueryResult.Available
+                ?? throw new InvalidOperationException(
+                    "The Library dependency structure was not acquired.");
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output =>
+                    LibraryDependencyStructureOutputAdapter.WriteMermaid(
+                        available,
+                        output));
             return;
         }
 

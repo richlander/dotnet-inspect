@@ -545,6 +545,22 @@ public class LibraryInspection
         }
     }
 
+    private LibraryDependencyStructureQueryResult?
+        _dependencyStructureQueryResult;
+
+    /// <summary>Typed dependency-structure inspection result.</summary>
+    [JsonIgnore]
+    public LibraryDependencyStructureQueryResult?
+        DependencyStructureQueryResult
+    {
+        get => _dependencyStructureQueryResult;
+        set
+        {
+            _dependencyStructureQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     /// <summary>
     /// Safe, local optimization opportunities inferred from IL/body evidence. Internal backing
     /// for the kind-scoped performance sections and the nested <see cref="Performance"/> JSON
@@ -1067,6 +1083,24 @@ public class LibraryInspection
                         SectionNames.NameFamilies,
                         LibraryNameFamilyQuery.Definition.Name,
                         nameFamilyFailure.Error.Message));
+                }
+                if (DependencyStructureQueryResult
+                    is LibraryDependencyStructureQueryResult.Failed
+                        dependencyStructureFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.DependencyStructure,
+                        LibraryDependencyStructureQuery.Definition.Name,
+                        dependencyStructureFailure.Error.Message));
+                }
+                if (DependencyStructureQueryResult
+                    is LibraryDependencyStructureQueryResult.SelectionFailed
+                        dependencyStructureSelectionFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.DependencyStructure,
+                        LibraryDependencyStructureQuery.Definition.Name,
+                        dependencyStructureSelectionFailure.Detail));
                 }
                 if (OptimizationOpportunitiesQueryResult
                     is OptimizationOpportunitiesResult.Failed optimizationFailure)

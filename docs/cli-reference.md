@@ -309,6 +309,7 @@ stderr rather than mixed into structured output.
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Library vocabulary | `library -S "Name Families"` | Ranked one- and two-word Type-name suffix families, exact supporting Type evidence, and optional source-provenance populations. |
+| Library dependency structure | `library -S "Dependency Structure"` | Internal namespace dependency graph with relationship counts, topological levels, and cycle membership. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
@@ -1403,6 +1404,39 @@ summaries carry exact metadata keys separately from display labels, and every
 relationship endpoint names a retained summary, so a Copilot App can render an
 SVG without recovering identity from display text. Library Metrics Share is
 currently `nonProjectable`.
+
+Exact `library ... -S "Dependency Structure"` reports internal namespace
+dependencies derived from whole-library method evidence. Namespace edges are
+the section's QuerySpace rows. Nodes show Type count and topological level;
+cycle members are emphasized and carry their exact cycle index. Isolated
+namespaces remain visible in an unwindowed graph:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Dependency Structure"
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Dependency Structure" --mermaid
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Dependency Structure" -n 10 --head
+```
+
+`-n`, `--head`, `--tail`, and `--rows` select namespace edges before graph
+rendering; a selected graph retains only edge endpoints. `--count` executes the
+namespace-edge QuerySpace Count terminal. The section is explicit-only and is
+not added by verbosity or category selection. Markdown and tabular formats
+lower the Markout graph as an edge table; `--mermaid` lowers the same graph as
+a diagram.
+
+Exact `-S "Dependency Structure" --json` emits the complete Research document:
+Analysis and population receipts, Type and namespace nodes, internal and
+external edges, cycles, explanations, completeness, and diagnostics.
+`--envelope` emits the same Content plus a currently `nonProjectable` Share.
+Complete JSON requires one exact Library and one target framework, and rejects
+row, field, column, Count, discovery, print, shape, and competing presentation
+projections rather than truncating Content.
 
 Exact `library ... -S "Name Families"` reports the most prevalent one- and
 two-word Type-name suffix families in one Library. The default `all`

@@ -74,6 +74,9 @@ public sealed class InspectionQueryContext : IDisposable
     public RowSelectionIntent<string>? NameFamilyRowSelection
     { get; init; }
 
+    public RowSelectionIntent<string>? DependencyStructureRowSelection
+    { get; init; }
+
     private MethodBodyInspectionSession? _bodySession;
     private MethodClassificationBindingResult? _methodClassification;
     private IReadOnlyList<ClassificationQuestion>? _methodClassificationQuestions;
