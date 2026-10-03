@@ -272,10 +272,8 @@ sealed class Asset
             .Append(scope.StorageNodeCount)
             .Append(";edges=")
             .Append(scope.StorageEdgeCount)
-            .Append(";members=")
-            .Append(census.Population.Length)
-            .Append(";occurrences=")
-            .Append(census.Occurrences.Length);
+            .Append(';');
+        AppendCensus(text, census);
         foreach (int token in CallerRoots)
             AppendTree(text, 'R', token, scope.BuildCallerTree(
                 _analysis.CallGraph,
@@ -404,16 +402,283 @@ sealed class Asset
         text.Append('[')
             .Append(node.Member.ToQualifiedDisplayString())
             .Append(';')
+            .Append(node.Kind)
+            .Append(';')
             .Append(node.Status)
             .Append(';')
             .Append(node.Perf?.Fanout ?? 0)
             .Append(';')
             .Append(node.Perf?.Fanin ?? 0)
             .Append(';')
+            .Append(node.Perf?.MaxDepth ?? 0)
+            .Append(';')
+            .Append(node.Perf?.InLoop ?? false)
+            .Append(';')
+            .Append(node.HasUnresolvedDispatch)
+            .Append(';')
             .Append(node.Children.Length)
             .Append(']');
+        AppendAssembly(text, node.DefinitionAssemblyIdentity);
+        AppendAssembly(text, node.ResolutionAssemblyIdentity);
+        AppendEvidence(text, node.GraphEvidence);
+        AppendStorage(text, node.ParentEdgeCallerDefinition);
+        AppendDiagnostic(text, node.Diagnostic);
+        text.Append("{sites=")
+            .Append(node.ParentEdgeCallSites.Length)
+            .Append('}');
+        for (int index = 0;
+            index < node.ParentEdgeCallSites.Length;
+            index++)
+        {
+            AppendCall(text, node.ParentEdgeCallSites[index]);
+            AppendEvidence(
+                text,
+                index < node.ParentEdgeCallSiteEvidence.Length
+                    ? node.ParentEdgeCallSiteEvidence[index]
+                    : null);
+        }
         foreach (CallTreeNode child in node.Children)
             AppendNode(text, child);
+    }
+
+    static void AppendCensus(
+        StringBuilder text,
+        CatalogCallCensus census)
+    {
+        CatalogCallCensusReceipt receipt = census.Receipt;
+        text.Append("receipt=")
+            .Append(receipt.ParticipantCount).Append(',')
+            .Append(receipt.MemberCount).Append(',')
+            .Append(receipt.OccurrenceCount).Append(',')
+            .Append(receipt.UnresolvedOccurrenceCount).Append(',')
+            .Append(receipt.VersionSkewedBindingCount)
+            .Append(";complete=")
+            .Append(census.IsComplete);
+
+        text.Append(";population=")
+            .Append(census.Population.Length);
+        foreach (CatalogCallGraphParticipant participant
+            in census.Population)
+        {
+            AppendAssembly(text, participant.Assembly.Identity);
+        }
+
+        text.Append(";members=")
+            .Append(census.Members.Length);
+        foreach (CatalogCallCensusMember member in census.Members)
+        {
+            text.Append("|M");
+            AppendMethodKey(text, member.OrderingKey);
+            text.Append(member.HasBody);
+            AppendEvidence(text, member.Evidence);
+            AppendDiagnostic(text, member.Diagnostic);
+        }
+
+        text.Append(";occurrences=")
+            .Append(census.Occurrences.Length);
+        foreach (CatalogCallCensusOccurrence occurrence
+            in census.Occurrences)
+        {
+            text.Append("|O");
+            AppendMethodKey(text, occurrence.SourceOrderingKey);
+            AppendMethodKey(text, occurrence.TargetOrderingKey);
+            AppendOccurrenceKey(text, occurrence.OrderingKey);
+            AppendCall(text, occurrence.Call);
+            AppendEvidence(text, occurrence.CallSiteEvidence);
+        }
+
+        text.Append(";unresolved=")
+            .Append(census.UnresolvedOccurrences.Length);
+        foreach (CatalogCallCensusUnresolvedOccurrence occurrence
+            in census.UnresolvedOccurrences)
+        {
+            text.Append("|U");
+            AppendMethodKey(text, occurrence.SourceOrderingKey);
+            AppendOccurrenceKey(text, occurrence.OrderingKey);
+            AppendCall(text, occurrence.Call);
+            AppendEvidence(text, occurrence.CallSiteEvidence);
+        }
+
+        text.Append(";version-skew=")
+            .Append(census.VersionSkewedBindings.Length);
+        foreach (CatalogCallCensusVersionSkewEvidence evidence
+            in census.VersionSkewedBindings)
+        {
+            text.Append("|V");
+            AppendEvidence(text, evidence.CallSite);
+            AppendAssembly(text, evidence.Requested);
+            AppendAssembly(text, evidence.Selected);
+            text.Append(evidence.AdmittedAlternatives.Length);
+            foreach (AssemblyReferenceIdentity alternative
+                in evidence.AdmittedAlternatives)
+            {
+                AppendAssembly(text, alternative);
+            }
+        }
+
+        AppendDiagnostics(text, census.Diagnostics);
+        text.Append(";incomplete-nodes=")
+            .Append(census.IncompleteNodes.Length);
+        foreach (GraphNodeEvidence evidence in census.IncompleteNodes)
+        {
+            AppendEvidence(text, evidence);
+        }
+        text.Append(";incomplete-edges=")
+            .Append(census.IncompleteEdges.Length);
+        foreach (GraphEdgeEvidence edge in census.IncompleteEdges)
+        {
+            text.Append("|E");
+            AppendEvidence(text, edge.Caller);
+            AppendEvidence(text, edge.Callee);
+            text.Append(edge.Kind)
+                .Append(',')
+                .Append(edge.InLoop);
+        }
+    }
+
+    static void AppendDiagnostics(
+        StringBuilder text,
+        CatalogCallCensusDiagnostics diagnostics)
+    {
+        text.Append(";diagnostics=")
+            .Append(diagnostics.Graph.IncompleteNodeCount)
+            .Append(',')
+            .Append(diagnostics.Graph.IncompleteEdgeCount)
+            .Append(',')
+            .Append(diagnostics.Graph.BindingIdentityConflictCount)
+            .Append(',')
+            .Append(diagnostics.UnresolvedOccurrenceCount)
+            .Append(',')
+            .Append(diagnostics.VersionSkewedBindingCount);
+    }
+
+    static void AppendCall(StringBuilder text, DirectCall call)
+    {
+        text.Append("|C")
+            .Append(call.Caller.ModuleVersionId)
+            .Append(',')
+            .Append(call.Caller.MetadataToken)
+            .Append(',')
+            .Append(call.EvidenceMethod.ModuleVersionId)
+            .Append(',')
+            .Append(call.EvidenceMethod.MetadataToken)
+            .Append(',')
+            .Append(call.ILOffset)
+            .Append(',')
+            .Append(call.OperandToken)
+            .Append(',')
+            .Append(call.CalleeDefinitionToken)
+            .Append(',')
+            .Append(call.Kind)
+            .Append(',')
+            .Append(call.InLoop)
+            .Append(',');
+        AppendString(text, call.Opcode);
+        AppendString(text, call.Callee.ToQualifiedDisplayString());
+    }
+
+    static void AppendEvidence(
+        StringBuilder text,
+        GraphNodeEvidence? evidence)
+    {
+        if (evidence is null)
+        {
+            text.Append("|N");
+            return;
+        }
+
+        text.Append("|G").Append(evidence.Kind);
+        AppendStorage(text, evidence.Storage);
+        AppendStorage(text, evidence.DefinitionStorage);
+    }
+
+    static void AppendStorage(
+        StringBuilder text,
+        GraphNodeStorageKey? storage)
+    {
+        if (storage is null)
+        {
+            text.Append("|S-");
+            return;
+        }
+
+        text.Append("|S")
+            .Append(storage.ModuleVersionId)
+            .Append(',')
+            .Append(storage.Kind)
+            .Append(',')
+            .Append(storage.MethodToken)
+            .Append(',')
+            .Append(storage.ILOffset)
+            .Append(',')
+            .Append(storage.OperandToken);
+    }
+
+    static void AppendMethodKey(
+        StringBuilder text,
+        CatalogCallCensusMethodOrderingKey key)
+    {
+        text.Append("|K");
+        AppendAssembly(text, key.Assembly);
+        text.Append(key.ModuleVersionId)
+            .Append(',')
+            .Append(key.MetadataToken);
+    }
+
+    static void AppendOccurrenceKey(
+        StringBuilder text,
+        CatalogCallCensusOccurrenceOrderingKey key)
+    {
+        text.Append("|Q");
+        AppendMethodKey(text, key.EvidenceMethod);
+        text.Append(key.ILOffset)
+            .Append(',')
+            .Append(key.OperandToken)
+            .Append(',')
+            .Append(key.Kind);
+    }
+
+    static void AppendAssembly(
+        StringBuilder text,
+        AssemblyReferenceIdentity? assembly)
+    {
+        if (assembly is null)
+        {
+            text.Append("|A-");
+            return;
+        }
+
+        text.Append("|A");
+        AppendString(text, assembly.Name);
+        AppendString(text, assembly.Version?.ToString());
+        AppendString(text, assembly.Culture);
+        AppendString(text, assembly.PublicKeyToken);
+    }
+
+    static void AppendDiagnostic(
+        StringBuilder text,
+        AnalysisDiagnostic? diagnostic)
+    {
+        if (diagnostic is null)
+        {
+            text.Append("|D-");
+            return;
+        }
+
+        text.Append("|D")
+            .Append(diagnostic.MethodToken)
+            .Append(',')
+            .Append(diagnostic.SourceMethodToken);
+        AppendString(text, diagnostic.Method);
+        AppendString(text, diagnostic.Message);
+    }
+
+    static void AppendString(StringBuilder text, string? value)
+    {
+        text.Append(value?.Length ?? -1)
+            .Append(':')
+            .Append(value)
+            .Append(';');
     }
 
 }
