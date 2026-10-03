@@ -292,7 +292,7 @@ public sealed class ExtensionAttachmentNameBoundaryTests
         Assert.Equal([expectedName], definition.Segments);
     }
 
-    static byte[] BuildImage()
+    internal static byte[] BuildImage()
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -370,7 +370,7 @@ public sealed class ExtensionAttachmentNameBoundaryTests
             metadata.GetOrAddString("Box"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
-            methodList: MetadataTokens.MethodDefinitionHandle(1));
+            methodList: MetadataTokens.MethodDefinitionHandle(2));
 
         TypeDefinitionHandle box = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Interface,
@@ -378,12 +378,31 @@ public sealed class ExtensionAttachmentNameBoundaryTests
             metadata.GetOrAddString("Box`1"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
-            methodList: MetadataTokens.MethodDefinitionHandle(1));
+            methodList: MetadataTokens.MethodDefinitionHandle(2));
         metadata.AddGenericParameter(
             box,
             GenericParameterAttributes.None,
             metadata.GetOrAddString("T0"),
             index: 0);
+
+        var declaredSignature = new BlobBuilder();
+        new BlobEncoder(declaredSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Extend"),
+            metadata.GetOrAddBlob(declaredSignature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
 
         MethodDefinitionHandle extend = AddExtensionMethod(
             metadata,

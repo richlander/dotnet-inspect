@@ -6,6 +6,8 @@ public sealed class MetadataTypeMemberGroupPopulationTests
 {
     static readonly string PackageJsonPath =
         Pinned("packages", "System.Text.Json.10.0.0.dll");
+    static readonly string RuntimeJsonPath =
+        typeof(System.Text.Json.JsonSerializer).Assembly.Location;
     static readonly ApiSurfaceExtractionBounds Unbounded =
         new(
             int.MaxValue,
@@ -22,22 +24,29 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             Request(
                 Name("System.Text.Json", "JsonSerializer"),
                 includeHidden: true,
+                accessibility: MetadataMethodAccessibilityFilter.Public,
                 count: true,
                 rows: new(int.MaxValue),
                 includeComposition: true,
-                includeSelectorCounts: true));
+                includeSelectorCounts: true),
+            RuntimeJsonPath);
 
-        Assert.Equal(10, population.Count);
+        Assert.Equal(11, population.Count);
         MetadataTypeMemberGroupRows rows = Required(population.Rows);
-        Assert.Equal(10, rows.Items.Length);
+        Assert.Equal(11, rows.Items.Length);
         Assert.Null(rows.NextOrdinal);
         Assert.False(rows.ContinuationOutOfRange);
         Assert.Null(rows.IncompleteRetainedTextCharacters);
         Assert.Equal(
-            104,
-            rows.Items.Sum(row => Assert.IsType<int>(row.ExactMemberCount)));
+            107,
+            rows.Items
+                .Where(row =>
+                    row.Category
+                        is MetadataTypeMemberGroupCategory.Method)
+                .Sum(row =>
+                    Assert.IsType<int>(row.ExactMemberCount)));
         Assert.Equal(
-            9,
+            10,
             rows.Items.Count(row =>
                 row.Category is MetadataTypeMemberGroupCategory.Method));
         Assert.Single(
@@ -45,9 +54,13 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             row => row.Category
                 is MetadataTypeMemberGroupCategory.Property);
         Assert.Equal(
-            104,
+            108,
             Required(population.SelectorCounts).Traits.All);
-        Assert.Equal(104, Required(population.Composition).Public);
+        MetadataTypeMemberComposition composition =
+            Required(population.Composition);
+        Assert.Equal(
+            108,
+            composition.Public);
     }
 
     [Fact]
@@ -56,9 +69,10 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         MetadataTypeMemberGroupPopulation population = Inspect(
             Request(
                 Name("System.Text.Json", "JsonSerializer"),
-                count: true));
+                count: true),
+            RuntimeJsonPath);
 
-        Assert.Equal(10, population.Count);
+        Assert.Equal(11, population.Count);
         Assert.Null(population.Rows);
         Assert.Null(population.Composition);
         Assert.Null(population.SelectorCounts);
@@ -70,32 +84,38 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         MetadataTypeDefinitionName type =
             Name("System.Text.Json", "JsonSerializer");
         MetadataTypeMemberGroupRows all = Required(
-            Inspect(Request(type, rows: new(int.MaxValue))).Rows);
+            Inspect(
+                Request(type, rows: new(int.MaxValue)),
+                RuntimeJsonPath).Rows);
         MetadataTypeMemberGroupRows first = Required(
             Inspect(Request(
                 type,
                 rows: new(
                     maximumRows: 3,
-                    includeExactMemberCount: false))).Rows);
+                    includeExactMemberCount: false)),
+                RuntimeJsonPath).Rows);
         MetadataTypeMemberGroupRows second = Required(
             Inspect(Request(
                 type,
                 rows: new(
                     maximumRows: 3,
                     startOrdinal: Assert.IsType<int>(first.NextOrdinal),
-                    includeExactMemberCount: false))).Rows);
+                    includeExactMemberCount: false)),
+                RuntimeJsonPath).Rows);
         MetadataTypeMemberGroupRows outOfRange = Required(
             Inspect(Request(
                 type,
                 rows: new(
                     maximumRows: 3,
-                    startOrdinal: all.Items.Length))).Rows);
+                    startOrdinal: all.Items.Length)),
+                RuntimeJsonPath).Rows);
         MetadataTypeMemberGroupRows remaining = Required(
             Inspect(Request(
                 type,
                 rows: new(
                     maximumRows: int.MaxValue,
-                    startOrdinal: 1))).Rows);
+                    startOrdinal: 1)),
+                RuntimeJsonPath).Rows);
 
         Assert.Equal(
             all.Items.Take(3).Select(WithoutExactCount),
@@ -174,32 +194,37 @@ public sealed class MetadataTypeMemberGroupPopulationTests
                 type,
                 rows: new(int.MaxValue),
                 includeComposition: true,
-                includeSelectorCounts: true));
+                includeSelectorCounts: true),
+            RuntimeJsonPath);
         MetadataTypeMemberGroupPopulation @static = Inspect(
             Request(
                 type,
                 receiver: MetadataTypeMemberGroupReceiverFilter.Static,
                 rows: new(int.MaxValue),
-                includeSelectorCounts: true));
+                includeSelectorCounts: true),
+            RuntimeJsonPath);
         MetadataTypeMemberGroupPopulation @this = Inspect(
             Request(
                 type,
                 receiver: MetadataTypeMemberGroupReceiverFilter.This,
                 rows: new(int.MaxValue),
-                includeSelectorCounts: true));
+                includeSelectorCounts: true),
+            RuntimeJsonPath);
         MetadataTypeMemberGroupPopulation extension = Inspect(
             Request(
                 type,
                 receiver: MetadataTypeMemberGroupReceiverFilter.Extension,
                 rows: new(int.MaxValue),
-                includeSelectorCounts: true));
+                includeSelectorCounts: true),
+            RuntimeJsonPath);
         MetadataTypeMemberGroupPopulation nonExtension = Inspect(
             Request(
                 type,
                 receiver:
                     MetadataTypeMemberGroupReceiverFilter.NonExtension,
                 rows: new(int.MaxValue),
-                includeSelectorCounts: true));
+                includeSelectorCounts: true),
+            RuntimeJsonPath);
 
         MetadataTypeMemberComposition composition =
             Required(all.Composition);
@@ -293,7 +318,59 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             });
     }
 
+    [Fact]
+    public void SameNamedDeclaredAndAttachedFamiliesRemainDistinct()
+    {
+        MetadataTypeDefinitionName type = Name("Ns`1", "Widget");
+        MetadataTypeMemberGroupPopulation population = Inspect(
+            ExtensionAttachmentNameBoundaryTests.BuildImage(),
+            Request(
+                type,
+                rows: new(int.MaxValue),
+                includeSelectorCounts: true));
+
+        MetadataTypeMemberGroupRow[] rows =
+        [
+            .. Required(population.Rows).Items.Where(row =>
+                row.Name == "Extend"),
+        ];
+        Assert.Equal(2, rows.Length);
+
+        MetadataTypeMemberGroupRow declared = Assert.Single(
+            rows,
+            row => row.Role
+                is MetadataTypeMemberGroupRole.Declared);
+        Assert.Equal(type, declared.DeclaringType);
+        Assert.Equal(
+            MetadataTypeMemberGroupCategory.Method,
+            declared.Category);
+        Assert.Equal(
+            MetadataTypeMemberGroupReceiverForms.This,
+            declared.Receivers);
+        Assert.Equal(1, declared.ExactMemberCount);
+
+        MetadataTypeMemberGroupRow attached = Assert.Single(
+            rows,
+            row => row.Role
+                is MetadataTypeMemberGroupRole.AttachedExtension);
+        Assert.NotEqual(type, attached.DeclaringType);
+        Assert.Equal(
+            ["Extensions.WithDot"],
+            attached.DeclaringType.Segments);
+        Assert.Equal(
+            MetadataTypeMemberGroupCategory.ExtensionMethod,
+            attached.Category);
+        Assert.Equal(
+            MetadataTypeMemberGroupReceiverForms.Extension,
+            attached.Receivers);
+        Assert.Equal(1, attached.ExactMemberCount);
+    }
+
     [Theory]
+    [InlineData(
+        "System.Text.Json",
+        new[] { "JsonSerializer" },
+        MetadataMemberSpelling.CSharp)]
     [InlineData(
         "System.Text.Json",
         new[] { "JsonDocument" },
@@ -312,15 +389,19 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         MetadataMemberSpelling spelling)
     {
         MetadataTypeDefinitionName type = Name(@namespace, segments);
+        string path = segments is ["JsonSerializer"]
+            ? RuntimeJsonPath
+            : PackageJsonPath;
         MetadataTypeMemberGroupPopulation compact = Inspect(
             Request(
                 type,
                 spelling,
                 includeHidden: true,
                 accessibility: MetadataMethodAccessibilityFilter.All,
-                includeSelectorCounts: true));
+                includeSelectorCounts: true),
+            path);
 
-        using var session = AssemblyInspectionSession.Open(PackageJsonPath);
+        using var session = AssemblyInspectionSession.Open(path);
         MetadataTypeMemberPopulation eager = Assert.IsType<
                 MetadataTypeMemberPopulationOutcome.Available>(
                 MetadataTypeMemberPopulationInspection.Inspect(
@@ -363,7 +444,7 @@ public sealed class MetadataTypeMemberGroupPopulationTests
 
         var incomplete = Assert.IsType<
             MetadataTypeMemberGroupPopulationOutcome.Incomplete>(
-            InspectOutcome(count, memberBound));
+            InspectOutcome(count, memberBound, RuntimeJsonPath));
         Assert.Equal(
             MetadataTypeMemberGroupPopulationBound.Members,
             incomplete.Bound);
@@ -382,7 +463,8 @@ public sealed class MetadataTypeMemberGroupPopulationTests
                         int.MaxValue,
                         int.MaxValue,
                         int.MaxValue,
-                        maxRetainedTextCharacters: 0)))
+                        maxRetainedTextCharacters: 0),
+                    RuntimeJsonPath))
             .Population;
         MetadataTypeMemberGroupRows rows =
             Required(textBound.Rows);
@@ -417,17 +499,47 @@ public sealed class MetadataTypeMemberGroupPopulationTests
 
     static MetadataTypeMemberGroupPopulation Inspect(
         MetadataTypeMemberGroupPopulationRequest request) =>
+        Inspect(request, PackageJsonPath);
+
+    static MetadataTypeMemberGroupPopulation Inspect(
+        MetadataTypeMemberGroupPopulationRequest request,
+        string path) =>
         Assert.IsType<
                 MetadataTypeMemberGroupPopulationOutcome.Available>(
-                InspectOutcome(request, Unbounded))
+                InspectOutcome(request, Unbounded, path))
             .Population;
+
+    static MetadataTypeMemberGroupPopulation Inspect(
+        byte[] image,
+        MetadataTypeMemberGroupPopulationRequest request)
+    {
+        using var assembly =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+        using MetadataDeclarationSession declaration =
+            assembly.CreateDeclarationSession(
+                new MetadataOperationContext(
+                    MetadataOperationPolicy.Unbounded));
+        return Assert.IsType<
+                MetadataTypeMemberGroupPopulationOutcome.Available>(
+                declaration.InspectTypeMemberGroups(
+                    request,
+                    Unbounded))
+            .Population;
+    }
 
     static MetadataTypeMemberGroupPopulationOutcome InspectOutcome(
         MetadataTypeMemberGroupPopulationRequest request,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds) =>
+        InspectOutcome(request, bounds, PackageJsonPath);
+
+    static MetadataTypeMemberGroupPopulationOutcome InspectOutcome(
+        MetadataTypeMemberGroupPopulationRequest request,
+        ApiSurfaceExtractionBounds bounds,
+        string path)
     {
         using var assembly =
-            AssemblyInspectionSession.Open(PackageJsonPath);
+            AssemblyInspectionSession.Open(path);
         using MetadataDeclarationSession declaration =
             assembly.CreateDeclarationSession(
                 new MetadataOperationContext(
