@@ -422,25 +422,34 @@ Ecosystem-layer boundary; later populations are not realized merely to be
 discarded by the Browser.
 
 Spotlight adds an `Ecosystems` scope beside its result-kind scopes. It admits
-the same result kinds as `All`, carries one exact selected Ecosystem filter,
-and reverses the first two phases:
+Library, Type, and Member results, including Find rows sourced from exact
+package candidates, but not standalone Package hits, the All-only Capabilities
+group, or Commands. It carries an optional exact selected Ecosystem filter and
+reverses the first two phases:
 
 1. the selected Ecosystem followed by its dependency lineage in layered Find
-   order;
+   order, or all active Workspace registrations in owner-issued order when
+   there is no exact selection;
 2. exact admitted Workspace Libraries not already represented by those
    results; and
-3. package discovery constrained by the same selected Ecosystem when package
-   results are admitted.
+3. package-prefix Find blocks from the same exact selected-Ecosystem request.
+
+The initial Ecosystems scope has no exact filter. Its bounded request searches
+active Workspace registrations without package-prefix demand, and the
+catalog-backed selector remains independent of result blocks. Selecting an
+exact Ecosystem starts one replacement request for that Ecosystem, its
+dependencies, and its declared package prefixes. No external package phase
+runs in the unfiltered registered-Ecosystems mode.
 
 Selecting an Ecosystem filters a search request; it does not add, remove, or
 rewrite Workspace registrations. Workspace configuration remains a separate
 explicit gesture. The selector offers the canonical owner-issued identities in
 the product Ecosystem catalog and uses their owner-issued labels, including
-Ecosystems not registered in the active Workspace. On first use,
-Microsoft.Extensions is selected; later openings preserve the latest selection
-for the Browser session. Changing the selected Ecosystem replaces the running
-request under Spotlight's existing operation authority. It never filters a
-fully realized result set in TypeScript.
+Ecosystems not registered in the active Workspace. Changing the selected
+Ecosystem replaces the running request under Spotlight's existing operation
+authority. The request identity includes search text, optional exact Ecosystem,
+prefix demand, and finite result window. Spotlight never filters a fully
+realized result set in TypeScript.
 
 When no Ecosystem filter is selected, ordinary scopes preserve the product's
 configured Workspace registrations. The Ecosystems owner remains responsible
@@ -449,6 +458,16 @@ Microsoft.Extensions and its dependencies. Home consumes an owner-supplied
 product Workspace search authority with that configuration; Shell Interaction
 does not construct a Workspace, expand a lineage, or infer registrations from
 the selected filter.
+
+Ordinary `All` and `Packages` scopes continue to consume the unfiltered NuGet
+state owned by
+[Inspect Web Spotlight package search
+state](inspect-web-spotlight-package-search-state.md). That state does not
+admit the Ecosystems scope. Ecosystem-constrained API results from exact package candidates instead arrive
+as owner-issued prefix Find blocks in the same
+[Ecosystem Find Search](ecosystem-find-search.md) request as its bounded
+Ecosystem blocks. Changing the exact filter therefore cannot reuse an
+unfiltered NuGet hit or a prefix block from another Ecosystem.
 
 Each result retains its producer coordinate, source observation, optional
 Ecosystem memberships, phase identity, completion evidence, and exact
@@ -704,12 +723,15 @@ Search-composition implementation must add and pass these named gates:
   supplies typed owner-issued result blocks, changes the Ecosystem filter while
   work is pending, and proves phase order, exact-identity coalescing,
   package/framework distinction, selection continuity, and visible partial and
-  failure states without reimplementing matching or lineage expansion.
+  failure states without reimplementing matching or lineage expansion. It also
+  proves that Capabilities, standalone Package hits, and unfiltered NuGet state
+  remain absent from the Ecosystems scope.
 - `BrowserRetainedWorkspaceActivationTests.TypeFind.cs`:
   `Spotlight find request preserves Workspace and Ecosystem block identity`
   proves that the generated Browser operation projects the shared Find
-  operation's producer, phase, Ecosystem membership, completion evidence, and
-  exact activation association.
+  operation's request identity, producer, phase, Ecosystem membership,
+  completion evidence, and exact activation association, including distinct
+  replacement requests for different exact Ecosystem filters.
 - `spotlight-search.spec.ts`:
   `published Spotlight searches Workspace Ecosystems and packages in order`
   uses the Release-published Firefox/Wasm application and the real
@@ -906,9 +928,12 @@ outcomes.
     `JsonSerializer`. Confirm that the admitted Package Library observation
     precedes the framework observation and each activates its own exact
     destination.
-24. Select the Ecosystems scope and Aspire, then search for `.Add*`. Confirm
-    that result blocks arrive for Aspire, ASP.NET Core, Microsoft.Extensions,
-    and .NET Runtime in that order before ordinary Workspace Libraries.
+24. Select the Ecosystems scope without an exact filter and search for
+    `.Add*`. Confirm that active registered Ecosystem blocks precede ordinary
+    Workspace Libraries, no package-prefix work starts, and Capabilities do not
+    appear. Then select Aspire and confirm that result blocks arrive for
+    Aspire, ASP.NET Core, Microsoft.Extensions, and .NET Runtime in that order
+    before ordinary Workspace Libraries.
 25. Apply a finite result limit satisfied by Aspire and confirm that no
     ancestor, ordinary Workspace, or package-discovery phase starts. Increase
     the limit and confirm that work resumes only at the next owner-issued
@@ -918,7 +943,9 @@ outcomes.
     the new filter does not mutate Workspace registrations.
 27. Fail an Ecosystem phase while package discovery can still run. Confirm
     that the failure remains visible and is not presented as an empty local
-    result or erased by later package results.
+    result or erased by later package-sourced Find results. Confirm that those
+    results are prefix Find blocks from the exact Ecosystem Find request rather
+    than standalone hits retained by the unfiltered Spotlight NuGet state.
 
 ### Local Open
 
