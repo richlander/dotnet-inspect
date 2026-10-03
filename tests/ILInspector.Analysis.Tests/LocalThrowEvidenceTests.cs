@@ -29,7 +29,7 @@ public sealed class LocalThrowEvidenceTests
         int token = Token(methodName);
         LibraryBodyAnalysisExecution index = Open([token]);
         var body = Assert.IsType<MethodLocalThrowEvidence.Inspected>(
-            Assert.Single(index.CompatibilityIndex().LocalThrows, result => result.MethodToken == token));
+            Assert.Single(index.LocalThrows.Evidence, result => result.MethodToken == token));
         LocalThrowSite site = Assert.Single(body.Sites);
         var known = Assert.IsType<LocalThrowTypeEvidence.Known>(site.Type);
 
@@ -163,11 +163,17 @@ public sealed class LocalThrowEvidenceTests
         LibraryBodyAnalysisExecution unrequested = BodyAnalysisTestExecution.Open(
             FixturePath, LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyScope: new HashSet<int> { token });
-        Assert.Throws<InvalidOperationException>(() => unrequested.CompatibilityIndex().LocalThrows);
+        Assert.False(unrequested.LocalThrows.WasRequested);
+        Assert.Same(unrequested.Receipt, unrequested.LocalThrows.Receipt);
+        Assert.Throws<InvalidOperationException>(() => unrequested.LocalThrows.Evidence);
+        Assert.False(unrequested.HasMaterializedCompatibilityIndex);
         Assert.Equal(LibraryBodyAnalysisFeatures.None,
             LibraryBodyAnalysisFeatures.Default & LibraryBodyAnalysisFeatures.LocalThrows);
 
         LibraryBodyAnalysisExecution requested = Open([token]);
+        Assert.True(requested.LocalThrows.WasRequested);
+        Assert.Same(requested.Receipt, requested.LocalThrows.Receipt);
+        Assert.False(requested.HasMaterializedCompatibilityIndex);
         Assert.Equal(
             LibraryBodyAnalysisFeatures.MethodEvidence | LibraryBodyAnalysisFeatures.LocalThrows,
             requested.Receipt.Features);
@@ -180,7 +186,7 @@ public sealed class LocalThrowEvidenceTests
         MethodInfo? abstractMethod = typeof(AbstractThrowSample).GetMethod("NoBody");
         Assert.NotNull(abstractMethod);
         var absent = Assert.IsType<MethodLocalThrowEvidence.Unavailable>(
-            Assert.Single(requested.CompatibilityIndex().LocalThrows,
+            Assert.Single(requested.LocalThrows.Evidence,
                 result => result.MethodToken == abstractMethod.MetadataToken));
         Assert.Equal(LocalThrowUnavailableReason.NoManagedBody, absent.Reason);
         Assert.False(absent.IsComplete);
@@ -195,7 +201,7 @@ public sealed class LocalThrowEvidenceTests
         Assert.True(kickoff.IsComplete);
         Assert.Empty(kickoff.Sites);
         var physical = Assert.Single(
-            index.CompatibilityIndex().LocalThrows.OfType<MethodLocalThrowEvidence.Inspected>(),
+            index.LocalThrows.Evidence.OfType<MethodLocalThrowEvidence.Inspected>(),
             result => result.Sites.Any(site => site.Type is LocalThrowTypeEvidence.Known));
         Assert.NotEqual(kickoff.MethodToken, physical.MethodToken);
         Assert.Equal("MoveNext", physical.Method.Name);
@@ -218,9 +224,9 @@ public sealed class LocalThrowEvidenceTests
             bodyScope: scope);
 
         MethodLocalThrowEvidence positive = Assert.Single(
-            index.CompatibilityIndex().LocalThrows, result => result.MethodToken == throwing.MetadataToken);
+            index.LocalThrows.Evidence, result => result.MethodToken == throwing.MetadataToken);
         MethodLocalThrowEvidence negative = Assert.Single(
-            index.CompatibilityIndex().LocalThrows, result => result.MethodToken == helper.MetadataToken);
+            index.LocalThrows.Evidence, result => result.MethodToken == helper.MetadataToken);
         Assert.True(positive.IsComplete);
         Assert.Equal(nameof(ArgumentNullException),
             Assert.IsType<LocalThrowTypeEvidence.Known>(
@@ -284,7 +290,7 @@ public sealed class LocalThrowEvidenceTests
         LibraryBodyAnalysisExecution index = Probe(
             [0x73, 2, 0, 0, 6, 0x7A], lookalike: lookalike);
         MethodLocalThrowEvidence body = Assert.Single(
-            index.CompatibilityIndex().LocalThrows, result => result.MethodToken == 0x06000001);
+            index.LocalThrows.Evidence, result => result.MethodToken == 0x06000001);
         Assert.False(body.IsComplete);
         Assert.Equal(LocalThrowUnresolvedReason.NonExceptionType,
             Assert.IsType<LocalThrowTypeEvidence.Unresolved>(
@@ -295,14 +301,14 @@ public sealed class LocalThrowEvidenceTests
     public void ReferenceStubAndMalformedBodyAreUnavailable()
     {
         var reference = Assert.IsType<MethodLocalThrowEvidence.Unavailable>(
-            Assert.Single(Probe([0x2A], reference: true).CompatibilityIndex().LocalThrows,
+            Assert.Single(Probe([0x2A], reference: true).LocalThrows.Evidence,
                 result => result.MethodToken == 0x06000001));
         Assert.Equal(LocalThrowUnavailableReason.ReferenceAssembly, reference.Reason);
         Assert.False(reference.IsComplete);
 
         LibraryBodyAnalysisExecution malformed = Probe([0xFE]);
         var failed = Assert.IsType<MethodLocalThrowEvidence.Unavailable>(
-            Assert.Single(malformed.CompatibilityIndex().LocalThrows, result => result.MethodToken == 0x06000001));
+            Assert.Single(malformed.LocalThrows.Evidence, result => result.MethodToken == 0x06000001));
         Assert.Equal(LocalThrowUnavailableReason.AnalysisFailed, failed.Reason);
         Assert.False(failed.IsComplete);
         Assert.False(string.IsNullOrEmpty(failed.Detail));
@@ -313,7 +319,7 @@ public sealed class LocalThrowEvidenceTests
     public void CyclicAncestryRemainsUnresolved()
     {
         MethodLocalThrowEvidence body = Assert.Single(
-            Probe([0x73, 2, 0, 0, 6, 0x7A], cyclic: true).CompatibilityIndex().LocalThrows,
+            Probe([0x73, 2, 0, 0, 6, 0x7A], cyclic: true).LocalThrows.Evidence,
             result => result.MethodToken == 0x06000001);
         Assert.False(body.IsComplete);
         Assert.Equal(LocalThrowUnresolvedReason.UnresolvedType,
@@ -330,7 +336,7 @@ public sealed class LocalThrowEvidenceTests
             bodyScope: tokens.ToHashSet());
 
     static MethodLocalThrowEvidence Body(LibraryBodyAnalysisExecution index, string name)
-        => Assert.Single(index.CompatibilityIndex().LocalThrows, result => result.MethodToken == Token(name));
+        => Assert.Single(index.LocalThrows.Evidence, result => result.MethodToken == Token(name));
 
     sealed class ValueResolver : IMethodCallResolver
     {

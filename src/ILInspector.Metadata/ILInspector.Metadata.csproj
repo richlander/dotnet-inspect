@@ -19,6 +19,12 @@
     <!-- The dated legacy method classification oracle is the retired scanner
          verbatim, so it keeps its internal pointer-probe helpers. -->
     <InternalsVisibleTo Include="ILInspector.Metadata.LegacyOracles" />
+    <!-- The performance-oracle fixtures apply the product's guarded
+         signature decode as the extension-method predicate, so every
+         scorecard column answers the same question the product path
+         answers. A public decode entry point would expose containment
+         internals solely for test infrastructure. -->
+    <InternalsVisibleTo Include="DotnetInspector.PerformanceOracles" />
     <!-- This test assembly owns privileged Metadata performance projections.
          Member-group columns share the internal prepared model; hierarchy
          columns share only narrow decoding and containment primitives while
