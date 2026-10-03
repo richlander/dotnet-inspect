@@ -564,7 +564,9 @@ cache.
    [Library body analysis service](library-body-analysis-service.md).
 1. **Research (complete):** #9145 supplies the document, typed outcome, and
    fixture gates.
-2. **Query:** a Research-backed query in `DotnetInspector.ResearchQueries`
+2. **Query (implemented by
+   [#9156](https://github.com/richlander/dotnet-inspect/pull/9156)):** a
+   Research-backed query in `DotnetInspector.ResearchQueries`
    carries the completed document without rendering it. It shares the Analysis
    execution with `LibraryMetricsQuery` when both are selected, consumes only
    focused Analysis results, and exposes the issued rows through QuerySpace

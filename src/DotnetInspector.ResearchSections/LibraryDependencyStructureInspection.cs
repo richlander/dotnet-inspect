@@ -11,6 +11,20 @@ namespace DotnetInspector.ResearchSections;
 
 public static class LibraryDependencyStructureInspection
 {
+    public static InspectionEnvelope<LibraryDependencyStructureDocument>
+        Envelope(
+            LibraryDependencyStructureQueryResult.Available available)
+    {
+        ArgumentNullException.ThrowIfNull(available);
+        return new(
+            available.Document,
+            new InspectionShare.NonProjectable(
+                "library-dependency-structure/share",
+                "Inspect Web cannot yet restore an exact Library "
+                    + "dependency-structure inspection."),
+            []);
+    }
+
     public static LibraryDependencyStructureQueryResult Execute(
         LibraryBodyAnalysisExecution analysis,
         QuerySpaceRequest request)

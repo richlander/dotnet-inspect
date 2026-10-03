@@ -165,7 +165,7 @@ public static partial class LibraryDependencyStructureQuery
         QueryRegistration.RowSets;
 
     public static InspectionQuery<LibraryDependencyStructureQueryResult>
-        Definition => QueryRegistration.Definition;
+        Definition => DefinitionRegistration.Definition;
 
     public static IQueryOperationRoute OperationRoute =>
         QueryRegistration.Route;
@@ -299,12 +299,6 @@ public static partial class LibraryDependencyStructureQuery
                     [],
                     []);
 
-        internal static readonly InspectionQuery<
-            LibraryDependencyStructureQueryResult> Definition =
-            new(
-                "Library dependency structure",
-                InspectionCost.Unbounded);
-
         internal static readonly QuerySpaceBinding QuerySpace =
             QuerySpaceBinding.Create(
                 QuerySpaceIdentity,
@@ -323,5 +317,14 @@ public static partial class LibraryDependencyStructureQuery
                         QuerySpaceTerminalRequirement.Count,
                         "library-dependency-structure/count/v1"),
                 ]);
+    }
+
+    private static class DefinitionRegistration
+    {
+        internal static readonly InspectionQuery<
+            LibraryDependencyStructureQueryResult> Definition =
+            new(
+                "Library dependency structure",
+                InspectionCost.Unbounded);
     }
 }
