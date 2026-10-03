@@ -1,14 +1,16 @@
+using ILInspector.Metadata;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-namespace ILInspector.Metadata;
+namespace ILInspector.Metadata.LegacyOracles;
 
-public record SwitchInfo(
-    string Kind,
-    string Switch,
-    string Api);
-
-public static class SwitchScanner
+/// <summary>
+/// The <c>SwitchScanner.Scan</c> that walked every type's properties to find
+/// <c>[FeatureSwitchDefinition]</c>, frozen on 2026-10-03 when the scan moved
+/// to one pass over the custom attribute table. It is the equivalence oracle
+/// for that scan. Do not change its behavior.
+/// </summary>
+public static class LegacySwitchScanner
 {
     private const string FeatureSwitchDefinitionAttributeName =
         "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute";
@@ -44,79 +46,30 @@ public static class SwitchScanner
         AddAttributes(reader, "Module", reader.GetModuleDefinition().GetCustomAttributes(), switches);
     }
 
-    /// <summary>
-    /// Adds every property carrying <c>[FeatureSwitchDefinition]</c>. One pass
-    /// over the custom attribute table matches each attribute constructor's
-    /// type once, and only matching properties materialize their names, so
-    /// the scan reads no type or property name it does not report.
-    /// </summary>
     private static void AddFeatureSwitchDefinitions(
         MetadataReader reader,
         Dictionary<string, SwitchInfo> switches)
     {
-        Dictionary<EntityHandle, bool> constructors = [];
-        Dictionary<PropertyDefinitionHandle, TypeDefinitionHandle>? declaringTypes = null;
-        foreach (var attributeHandle in reader.CustomAttributes)
+        foreach (var typeHandle in reader.TypeDefinitions)
         {
-            var attribute = reader.GetCustomAttribute(attributeHandle);
-            if (attribute.Parent.Kind != HandleKind.PropertyDefinition)
-                continue;
-            if (!constructors.TryGetValue(attribute.Constructor, out bool matches))
+            var type = reader.GetTypeDefinition(typeHandle);
+            var typeName = reader.GetFullTypeName(type);
+            foreach (var propertyHandle in type.GetProperties())
             {
-                matches = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor)
-                    == FeatureSwitchDefinitionAttributeName;
-                constructors[attribute.Constructor] = matches;
-            }
-            if (!matches)
-                continue;
+                var property = reader.GetPropertyDefinition(propertyHandle);
+                var propertyName = reader.GetString(property.Name);
+                foreach (var attributeHandle in property.GetCustomAttributes())
+                {
+                    var attribute = reader.GetCustomAttribute(attributeHandle);
+                    if (AttributeReader.GetAttributeTypeName(reader, attribute.Constructor) != FeatureSwitchDefinitionAttributeName)
+                        continue;
 
-            var propertyHandle = (PropertyDefinitionHandle)attribute.Parent;
-            if (!TryGetDeclaringType(reader, propertyHandle, ref declaringTypes, out var typeHandle))
-                continue;
-
-            var switchName = TryGetStringArguments(reader, attribute).FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(switchName))
-                continue;
-
-            var property = reader.GetPropertyDefinition(propertyHandle);
-            var typeName = reader.GetFullTypeName(reader.GetTypeDefinition(typeHandle));
-            var propertyName = reader.GetString(property.Name);
-            AddSwitch(switches, "Feature Switch", switchName, $"{TypeResolver.FormatDisplayName(typeName)}.{propertyName}");
-        }
-    }
-
-    /// <summary>
-    /// The type whose property list contains the property. An accessor names
-    /// its declaring type directly; a property without one falls back to the
-    /// property map, built once. A property no type lists is not reported,
-    /// as a walk over each type's properties would not reach it.
-    /// </summary>
-    private static bool TryGetDeclaringType(
-        MetadataReader reader,
-        PropertyDefinitionHandle property,
-        ref Dictionary<PropertyDefinitionHandle, TypeDefinitionHandle>? declaringTypes,
-        out TypeDefinitionHandle type)
-    {
-        var accessors = reader.GetPropertyDefinition(property).GetAccessors();
-        var accessor = !accessors.Getter.IsNil ? accessors.Getter : accessors.Setter;
-        if (!accessor.IsNil)
-        {
-            type = reader.GetMethodDefinition(accessor).GetDeclaringType();
-            if (!type.IsNil && reader.GetTypeDefinition(type).GetProperties().Contains(property))
-                return true;
-        }
-
-        if (declaringTypes is null)
-        {
-            declaringTypes = [];
-            foreach (var typeHandle in reader.TypeDefinitions)
-            {
-                foreach (var propertyHandle in reader.GetTypeDefinition(typeHandle).GetProperties())
-                    declaringTypes.TryAdd(propertyHandle, typeHandle);
+                    var switchName = TryGetStringArguments(reader, attribute).FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(switchName))
+                        AddSwitch(switches, "Feature Switch", switchName, $"{TypeResolver.FormatDisplayName(typeName)}.{propertyName}");
+                }
             }
         }
-
-        return declaringTypes.TryGetValue(property, out type);
     }
 
     private static void AddAttributes(
