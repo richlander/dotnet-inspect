@@ -2490,18 +2490,21 @@ public class OpaqueUnsafeTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void OpaqueUnsafeMethods_PointerSignatureFixtureIsNotOpaque()
+    public void OpaqueUnsafe_PointerSignatureFixtureIsNotOpaque()
     {
         // The in-test fixture assembly is not opted into the updated memory-safety
         // rules, so its only requires-unsafe methods carry a pointer signature —
         // none should be reported as opaque.
-        var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+        var execution = BodyAnalysisTestExecution.Open(
+            typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        var opaque = index.CompatibilityIndex().OpaqueUnsafeMethods();
+        var opaque = OpaqueUnsafe.Collect(
+            execution.CallGraph.Methods);
 
         Assert.DoesNotContain(opaque, o => o.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead));
         Assert.All(opaque, o => Assert.False(
             o.Method.ParameterTypes.Any(t => t.ContainsPointer()) || o.Method.ReturnType.ContainsPointer()));
+        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 }
 
@@ -2588,17 +2591,23 @@ public class HollowUnsafeTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void HollowUnsafeMethods_PointerDereferenceFixtureIsNotHollow()
+    public void HollowUnsafe_PointerDereferenceFixtureIsNotHollow()
     {
         // UnsafePointerRead dereferences its pointer parameter, so it carries a
         // realized (IL-offset-anchored) body op and must not be reported hollow.
-        var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+        var execution = BodyAnalysisTestExecution.Open(
+            typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        var hollow = index.CompatibilityIndex().HollowUnsafeMethods();
+        var hollow = HollowUnsafe.Collect(
+            execution.CallGraph.Methods,
+            execution.Safety.Evidence);
 
         Assert.DoesNotContain(hollow, h => h.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead));
         Assert.All(hollow, h => Assert.False(
-            HollowUnsafe.HasRealizedUnsafeOp(h.Method, index.Safety.Evidence)));
+            HollowUnsafe.HasRealizedUnsafeOp(
+                h.Method,
+                execution.Safety.Evidence)));
+        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 }
 
