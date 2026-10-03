@@ -224,6 +224,9 @@ test("automatic decompiled settlement does not replace the requested source view
   const sourceLoad =
     appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
+  const memberNavigation =
+    appSource.match(/function navigateToMember\([\s\S]*?\n}/)?.[0]
+    ?? "";
 
   assert.match(
     appSource,
@@ -240,6 +243,9 @@ test("automatic decompiled settlement does not replace the requested source view
   assert.doesNotMatch(
     sourceLoad,
     /memberSourceRequestedView = "decompiler-source"/);
+  assert.match(
+    memberNavigation,
+    /state\.memberSection = section;\s*clearMemberContentCache\(\);/);
 });
 
 test("member request identity distinguishes colliding type queries", () => {
@@ -275,6 +281,9 @@ test("annotated source request identity includes the selected body", () => {
     /isCurrent: \(\) => memberRequestIsCurrent\(signature, true, true\)/);
   assert.match(
     annotatedLoader,
+    /await memberDetailInspection\.loadFindingCensus\([\s\S]*return signature;/);
+  assert.match(
+    annotatedLoader,
     /state\.selectedBodyTarget\?\.selectorKey \?\? overload\.graphSelectorKey,[\s\S]*?state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
   const annotatedCoordinator =
     memberDetailInspectionSource.match(/async loadFindingCensus\(request\)[\s\S]*?\n    },/)?.[0]
@@ -299,6 +308,49 @@ test("annotated source request identity includes the selected body", () => {
   assert.notEqual(
     memberRequestKey([...request, String(0x06000001), "M:Run"]),
     memberRequestKey([...request, String(0x06000002), "M:<Run>b__0_0"]));
+});
+
+test("annotated Source Explore opens only its captured member result", async () => {
+  const explore =
+    appSource.match(
+      /async function exploreSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+
+  assert.match(
+    explore,
+    /const signature = await loadSelectedMemberAnnotatedSource\(\);/);
+  assert.match(
+    explore,
+    /signature !== null\s*&& memberRequestIsCurrent\(signature, true, true\)\s*&& state\.memberAnnotatedKey === signature/);
+
+  const state = {
+    memberAnnotatedError: "",
+    memberAnnotatedKey: "member-b",
+    memberAnnotated: {},
+    memberAnnotatedLoading: false,
+    memberSection: "source",
+  };
+  let current = false;
+  let opens = 0;
+  const context = {
+    state,
+    loadSelectedMemberAnnotatedSource: async () => "member-a",
+    memberRequestIsCurrent: (signature: string) =>
+      current && signature === "member-a",
+    openAnnotatedSourceModal: () => opens++,
+  };
+  const invoke = `(${stripTypeScriptTypes(explore)})()`;
+
+  await runInNewContext(invoke, context);
+  assert.equal(opens, 0);
+
+  current = true;
+  await runInNewContext(invoke, context);
+  assert.equal(opens, 0);
+
+  state.memberAnnotatedKey = "member-a";
+  await runInNewContext(invoke, context);
+  assert.equal(opens, 1);
 });
 
 test("member detail adapters preserve exact engine coordinates", () => {
@@ -455,7 +507,7 @@ test("source operations cancel when superseded or hidden", () => {
     ?? "";
   assert.match(
     annotatedLoader,
-    /return memberDetailInspection\.loadFindingCensus\(\{/);
+    /await memberDetailInspection\.loadFindingCensus\(\{[\s\S]*return signature;/);
   assert.doesNotMatch(
     annotatedLoader,
     /sourceRequestNeedsLoad|memberAnnotatedLoading/);
@@ -746,7 +798,11 @@ test("every overload-specific member loader leaves a multi-overload picker inert
       appSource.match(new RegExp(`async function ${name}\\(\\)[\\s\\S]*?\\n}`))?.[0]
       ?? "";
     assert.match(body, /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
-    assert.match(body, /if \(!overload\) \{\s*render\(\);\s*return;\s*}/);
+    assert.match(
+      body,
+      name === "loadSelectedMemberAnnotatedSource"
+        ? /if \(!overload\) \{\s*render\(\);\s*return null;\s*}/
+        : /if \(!overload\) \{\s*render\(\);\s*return;\s*}/);
     assert.doesNotMatch(body, /selectedOverloadIndex \?\? 0/);
   }
 });

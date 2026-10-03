@@ -19848,13 +19848,13 @@ async function loadSelectedMemberAnnotatedSource() {
   if (!type || !member) {
     state.memberAnnotatedError = "Select a concrete overload before opening Annotated source.";
     render();
-    return;
+    return null;
   }
   const overload =
     selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
   if (!overload) {
     render();
-    return;
+    return null;
   }
   const signature = memberRequestSignature(type, overload, true, true);
   const pkg = currentPackage();
@@ -19873,7 +19873,7 @@ async function loadSelectedMemberAnnotatedSource() {
   };
   if (pkg.isRuntimePack) {
     const row = platformLibraryForRequest(pkg, type.assemblyId);
-    return memberDetailInspection.loadFindingCensus({
+    await memberDetailInspection.loadFindingCensus({
       ...request,
       kind: "platform",
       version: pkg.version,
@@ -19882,21 +19882,26 @@ async function loadSelectedMemberAnnotatedSource() {
       pack: row.pack,
       contextId: platformDemoContextIdFor(pkg),
     });
+  } else {
+    await memberDetailInspection.loadFindingCensus({
+      ...request,
+      kind: "package",
+      packageId: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: type.assembly,
+    });
   }
-  return memberDetailInspection.loadFindingCensus({
-    ...request,
-    kind: "package",
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
-  });
+  return signature;
 }
 
 async function exploreSelectedMemberAnnotatedSource() {
   state.memberAnnotatedError = "";
-  await loadSelectedMemberAnnotatedSource();
-  if (state.memberSection === "source"
+  const signature = await loadSelectedMemberAnnotatedSource();
+  if (signature !== null
+    && memberRequestIsCurrent(signature, true, true)
+    && state.memberAnnotatedKey === signature
+    && state.memberSection === "source"
     && state.memberAnnotated !== null
     && !state.memberAnnotatedLoading) {
     openAnnotatedSourceModal();
@@ -22395,17 +22400,7 @@ function navigateToMember(
   state.selectedOverloadIndex = overloadIndex;
   if (!enterMemberScope({ preserveAggregate })) return;
   state.memberSection = section;
-  state.memberSource = { status: "idle" };
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-  state.memberCallGraphKey = "";
-  state.memberFacts = null;
-  state.memberFactsError = "";
-  state.memberAnnotated = null;
-  state.memberAnnotatedError = "";
-  state.memberFindingInteraction = null;
-  state.memberFindingSelectionError = "";
-  state.annotatedDestinationError = "";
+  clearMemberContentCache();
   state.selectedBodyTarget = selectedBodyTarget;
   if (section === "source") {
     observeAsync(loadSelectedMemberSource(), "Loading member source");
