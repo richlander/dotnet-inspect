@@ -55,6 +55,38 @@ public sealed record MemberSearchOutcome(
     IReadOnlyList<string> SkippedAssemblies);
 
 /// <summary>
+/// One-based inclusive accepted-match positions retained by Member search.
+/// </summary>
+public sealed record MemberSearchWindow
+{
+    public MemberSearchWindow(int start, int end)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(start);
+        if (end < start)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(end),
+                end,
+                "The member-search Window end must not precede its start.");
+        }
+
+        Start = start;
+        End = end;
+    }
+
+    public int Start { get; }
+
+    public int End { get; }
+}
+
+/// <summary>
+/// Retained member projections and the number of accepted matches visited.
+/// </summary>
+public sealed record MemberSearchWindowResult(
+    IReadOnlyList<MemberSearchResult> Results,
+    int AcceptedCount);
+
+/// <summary>
 /// Closed-set member search: given a finite set of already-resolved assembly paths, find members
 /// whose name matches one or more patterns. This is the metadata-layer, offline "operate within a
 /// set" counterpart to type search — it reads local assemblies via
@@ -107,11 +139,13 @@ public static class MemberSearch
                 continue;
             }
 
-            CollectFromSurface(
+            _ = CollectFromSurface(
                 surface,
                 Path.GetFileNameWithoutExtension(path),
                 patterns,
-                limit,
+                acceptedCount: results.Count,
+                start: 1,
+                end: limit,
                 results);
         }
 
@@ -138,11 +172,13 @@ public static class MemberSearch
 
         var surface = AssemblyReader.ExtractApiSurface(assemblyPath, includeAll, typesOnly: false);
         if (surface is not null)
-            CollectFromSurface(
+            _ = CollectFromSurface(
                 surface,
                 Path.GetFileNameWithoutExtension(assemblyPath),
                 patterns,
-                limit: null,
+                acceptedCount: 0,
+                start: 1,
+                end: null,
                 results);
 
         return results;
@@ -162,15 +198,51 @@ public static class MemberSearch
         ArgumentNullException.ThrowIfNull(patterns);
 
         var results = new List<MemberSearchResult>();
-        CollectFromSurface(surface, assemblyName, patterns, limit, results);
+        _ = CollectFromSurface(
+            surface,
+            assemblyName,
+            patterns,
+            acceptedCount: 0,
+            start: 1,
+            end: limit,
+            results);
         return results;
     }
 
-    private static void CollectFromSurface(
+    /// <summary>
+    /// Searches an already-produced API surface while retaining only the
+    /// requested accepted-match positions.
+    /// </summary>
+    public static MemberSearchWindowResult SearchWindow(
         ApiSurface surface,
         string assemblyName,
         IReadOnlyList<string> patterns,
-        int? limit,
+        MemberSearchWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+        ArgumentNullException.ThrowIfNull(patterns);
+        ArgumentNullException.ThrowIfNull(window);
+
+        var results = new List<MemberSearchResult>();
+        int acceptedCount = CollectFromSurface(
+            surface,
+            assemblyName,
+            patterns,
+            acceptedCount: 0,
+            window.Start,
+            window.End,
+            results);
+        return new(results, acceptedCount);
+    }
+
+    private static int CollectFromSurface(
+        ApiSurface surface,
+        string assemblyName,
+        IReadOnlyList<string> patterns,
+        int acceptedCount,
+        int start,
+        int? end,
         List<MemberSearchResult> results)
     {
         foreach (var type in surface.Types)
@@ -179,8 +251,8 @@ public static class MemberSearch
             {
                 foreach (var pattern in patterns)
                 {
-                    if (limit is int cap && results.Count >= cap)
-                        return;
+                    if (end is int cap && acceptedCount >= cap)
+                        return acceptedCount;
 
                     var isGlob = pattern.Contains('*') || pattern.Contains('?');
                     var matched = isGlob
@@ -188,6 +260,10 @@ public static class MemberSearch
                         : TypeMatcher.MatchesMemberName(member.Name, pattern);
 
                     if (!matched)
+                        continue;
+
+                    acceptedCount++;
+                    if (acceptedCount < start)
                         continue;
 
                     results.Add(new MemberSearchResult
@@ -206,5 +282,7 @@ public static class MemberSearch
                 }
             }
         }
+
+        return acceptedCount;
     }
 }

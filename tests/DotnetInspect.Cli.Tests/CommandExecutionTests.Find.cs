@@ -525,6 +525,64 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_MemberWindowMatchesCompleteEvaluationAtHighStart()
+    {
+        var (completeExit, completeOutput, _) = await RunAppAsync(
+            "find", "*", "--members", "--library", TestAssemblyPath,
+            "--columns", "Member", "--tsv");
+        var (windowExit, windowOutput, _) = await RunAppAsync(
+            "find", "*", "--members", "--library", TestAssemblyPath,
+            "--columns", "Member", "--tsv", "--rows", "100..102");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, windowExit);
+        string[] complete = completeOutput
+            .ReplaceLineEndings("\n")
+            .Trim('\n')
+            .Split('\n');
+        string[] window = windowOutput
+            .ReplaceLineEndings("\n")
+            .Trim('\n')
+            .Split('\n');
+        Assert.True(
+            complete.Length > 102,
+            $"Expected at least 102 member rows, got {complete.Length - 1}.");
+        Assert.Equal(
+            complete.Skip(100).Take(3),
+            window.Skip(1));
+    }
+
+    [Fact]
+    public async Task Find_FilteredMemberWindowMatchesCompleteEvaluation()
+    {
+        string type = typeof(CommandExecutionTests).FullName!;
+        var (completeExit, completeOutput, _) = await RunAppAsync(
+            "find", "*", "--members", "--type", type,
+            "--library", TestAssemblyPath, "--columns", "Member", "--tsv");
+        var (windowExit, windowOutput, _) = await RunAppAsync(
+            "find", "*", "--members", "--type", type,
+            "--library", TestAssemblyPath, "--columns", "Member", "--tsv",
+            "--rows", "5..7");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, windowExit);
+        string[] complete = completeOutput
+            .ReplaceLineEndings("\n")
+            .Trim('\n')
+            .Split('\n');
+        string[] window = windowOutput
+            .ReplaceLineEndings("\n")
+            .Trim('\n')
+            .Split('\n');
+        Assert.True(
+            complete.Length > 7,
+            $"Expected at least 7 member rows, got {complete.Length - 1}.");
+        Assert.Equal(
+            complete.Skip(5).Take(3),
+            window.Skip(1));
+    }
+
+    [Fact]
     public async Task Find_FieldsProjectionWithJson_AgreesWithTableFormats()
     {
         // Format-invariance gate (#3494): --fields selects rows of a fields section, not table
@@ -1051,6 +1109,62 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Equal("2", output.Trim());
         Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_FiniteMemberWindowFailsWhenEndIsUnavailable()
+    {
+        string pattern =
+            nameof(Find_FiniteMemberWindowFailsWhenEndIsUnavailable);
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            pattern,
+            "--members",
+            "--library",
+            TestAssemblyPath,
+            "--rows",
+            "1..2",
+            "--json",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires member row 2, but only 1 member rows are available",
+            error);
+    }
+
+    [Fact]
+    public async Task Find_FiniteMemberWindowKeepsIncompleteSourceVisible()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindMemberWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--members",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "1..100000",
+            "--json",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Directory not found", error);
+        Assert.Contains(
+            "requires member row 100000",
+            error);
     }
 
     [Fact]

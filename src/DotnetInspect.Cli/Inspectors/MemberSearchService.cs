@@ -37,39 +37,48 @@ internal static class MemberSearchService
         if (platformWorkspace is not null)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            List<MemberFindResult> platformResults = [];
-            int? operationalLimit =
-                options.TypeFilter is null
-                    ? options.Limit
-                    : null;
-            AssemblyContextResult<AssemblyMemberMatches> queryResult =
-                platformWorkspace.QueryMembers(
+            var collector = new MemberResultCollector(options);
+            if (collector.RequiresParticipantStop)
+            {
+                _ = platformWorkspace.QueryMembersEach(
                     patterns,
                     options.IncludeAll,
-                    operationalLimit);
-            foreach (AssemblyContextEntry<AssemblyMemberMatches> entry
-                in queryResult.Assemblies)
-            {
-                AddMembers(
-                    platformResults,
-                    options.TypeFilter,
-                    platformWorkspace.SourceFor(entry.Subject),
-                    entry,
-                    logger,
-                    MarkFailure);
+                    entry =>
+                        collector.Add(
+                            platformWorkspace.SourceFor(entry.Subject),
+                            entry,
+                            logger,
+                            MarkFailure),
+                    collector.ReachedLimit);
             }
-            if (options.Limit.HasValue
-                && platformResults.Count > options.Limit.Value)
+            else
             {
-                platformResults =
-                    platformResults.Take(options.Limit.Value).ToList();
+                MemberSearchWindow? inputWindow =
+                    collector.MetadataWindow();
+                AssemblyContextResult<AssemblyMemberMatches> queryResult =
+                    inputWindow is null
+                        ? platformWorkspace.QueryMembers(
+                            patterns,
+                            options.IncludeAll,
+                            collector.QueryLimit())
+                        : platformWorkspace.QueryMemberWindow(
+                            patterns,
+                            options.IncludeAll,
+                            inputWindow);
+                foreach (AssemblyContextEntry<AssemblyMemberMatches> entry
+                    in queryResult.Assemblies)
+                {
+                    collector.Add(
+                        platformWorkspace.SourceFor(entry.Subject),
+                        entry,
+                        logger,
+                        MarkFailure);
+                }
             }
             cancellationToken.ThrowIfCancellationRequested();
-            return new(platformResults, hasFailures)
-            {
-                SourceSelectionIncomplete =
-                    options.PackagePrefixLimitReached,
-            };
+            return collector.ToSearchResult(
+                hasFailures,
+                options.PackagePrefixLimitReached);
         }
 
         AssemblySetRequest request =
@@ -91,9 +100,9 @@ internal static class MemberSearchService
                     logger.Log,
                     cancellationToken,
                     FindSourceCollector.CreateWorkspacePlan(options));
-            List<MemberFindResult> configuredResults =
+            MemberResultCollector collector =
                 configured is null
-                ? []
+                ? new(options)
                 : await CollectMembersAsync(
                     options,
                     patterns,
@@ -103,27 +112,23 @@ internal static class MemberSearchService
                     cancellationToken);
             if (configured is null)
                 MarkFailure();
-            return new(configuredResults, hasFailures)
-            {
-                SourceSelectionIncomplete =
-                    options.PackagePrefixLimitReached,
-            };
+            return collector.ToSearchResult(
+                hasFailures,
+                options.PackagePrefixLimitReached);
         }
 
         if (explicitWorkspace is not null)
         {
-            return new(
+            MemberResultCollector collector =
                 await CollectMembersAsync(
                     options,
                     patterns,
                     logger,
                     explicitWorkspace,
-                    MarkFailure),
-                hasFailures)
-            {
-                SourceSelectionIncomplete =
-                    options.PackagePrefixLimitReached,
-            };
+                    MarkFailure);
+            return collector.ToSearchResult(
+                hasFailures,
+                options.PackagePrefixLimitReached);
         }
 
         await using var ownedWorkspace =
@@ -132,56 +137,57 @@ internal static class MemberSearchService
                 httpClient,
                 logger.Log,
                 cancellationToken);
-        return new(
+        MemberResultCollector ownedCollector =
             await CollectMembersAsync(
                 options,
                 patterns,
                 logger,
                 ownedWorkspace,
-                MarkFailure),
-            hasFailures)
-        {
-            SourceSelectionIncomplete =
-                options.PackagePrefixLimitReached,
-        };
+                MarkFailure);
+        return ownedCollector.ToSearchResult(
+            hasFailures,
+            options.PackagePrefixLimitReached);
     }
 
     /// <summary>
     /// Resolves configured sources and searches their members through typed
     /// participant queries.
     /// </summary>
-    private static async Task<List<MemberFindResult>> CollectMembersAsync(
+    private static async Task<MemberResultCollector> CollectMembersAsync(
         FindOptions options,
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
         ExplicitFindSearchWorkspace workspace,
         Action markFailure)
     {
-        List<MemberFindResult> results = [];
-        int? queryLimit =
-            options.TypeFilter is null
-                ? options.Limit
-                : null;
-        bool ReachedLimit() =>
-            options.Limit is int limit
-            && results.Count >= limit;
+        var collector = new MemberResultCollector(options);
 
         await workspace.RunPerAssemblyAsync(
             AssemblyContextMemberMatchesQuery.Definition,
-            group => AssemblyContextMemberMatchesQuery.Execute(
-                group,
-                patterns,
-                options.IncludeAll,
-                queryLimit is int limit
-                    ? limit - results.Count
-                    : null),
-            (assembly, entry) => AddMembers(
-                results,
-                options.TypeFilter,
-                SearchAssemblySource.FromAssemblySet(assembly),
-                entry,
-                logger,
-                markFailure),
+            group =>
+            {
+                MemberSearchWindow? inputWindow =
+                    collector.MetadataWindow();
+                return inputWindow is null
+                    ? AssemblyContextMemberMatchesQuery.Execute(
+                        group,
+                        patterns,
+                        options.IncludeAll,
+                        collector.QueryLimit())
+                    : AssemblyContextMemberMatchesQuery.ExecuteWindow(
+                        group,
+                        patterns,
+                        inputWindow,
+                        options.IncludeAll);
+            },
+            (assembly, entry) =>
+            {
+                collector.Add(
+                    SearchAssemblySource.FromAssemblySet(assembly),
+                    entry,
+                    logger,
+                    markFailure);
+            },
             (assembly, failure) =>
             {
                 markFailure();
@@ -189,16 +195,11 @@ internal static class MemberSearchService
                     $"Could not read {assembly.Path}: {failure}");
             },
             markFailure,
-            options.Limit is not null ? ReachedLimit : null);
-        if (options.Limit.HasValue
-            && results.Count > options.Limit.Value)
-        {
-            results = results.Take(options.Limit.Value).ToList();
-        }
-        return results;
+            options.Limit is not null ? collector.ReachedLimit : null);
+        return collector;
     }
 
-    private static async Task<List<MemberFindResult>> CollectMembersAsync(
+    private static async Task<MemberResultCollector> CollectMembersAsync(
         FindOptions options,
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
@@ -206,70 +207,219 @@ internal static class MemberSearchService
         Action markFailure,
         CancellationToken cancellationToken)
     {
-        List<MemberFindResult> results = [];
+        var collector = new MemberResultCollector(options);
         ConfiguredPackageSearchQueryResult<
-            AssemblyContextResult<AssemblyMemberMatches>>? execution =
+            MemberSearchQueryReceipt>? execution =
                 await workspace.QuerySurfaceAsync(
                     context =>
-                        AssemblyContextMemberMatchesQuery.Execute(
-                            context.Group,
-                            patterns,
-                            options.IncludeAll),
+                    {
+                        if (collector.RequiresParticipantStop)
+                        {
+                            _ = AssemblyContextMemberMatchesQuery.ExecuteEach(
+                                context.Group,
+                                patterns,
+                                options.IncludeAll,
+                                entry =>
+                                    collector.Add(
+                                        context.Sources.SourceFor(
+                                            entry.Subject),
+                                        entry,
+                                        logger,
+                                        markFailure),
+                                collector.ReachedLimit);
+                            return MemberSearchQueryReceipt.Instance;
+                        }
+
+                        MemberSearchWindow? inputWindow =
+                            collector.MetadataWindow();
+                        AssemblyContextResult<AssemblyMemberMatches>
+                            queryResult =
+                                inputWindow is null
+                                    ? AssemblyContextMemberMatchesQuery.Execute(
+                                        context.Group,
+                                        patterns,
+                                        options.IncludeAll,
+                                        collector.QueryLimit())
+                                    : AssemblyContextMemberMatchesQuery
+                                        .ExecuteWindow(
+                                            context.Group,
+                                            patterns,
+                                            inputWindow,
+                                            options.IncludeAll);
+                        foreach (AssemblyContextEntry<AssemblyMemberMatches>
+                            entry in queryResult.Assemblies)
+                        {
+                            collector.Add(
+                                context.Sources.SourceFor(entry.Subject),
+                                entry,
+                                logger,
+                                markFailure);
+                        }
+                        return MemberSearchQueryReceipt.Instance;
+                    },
                     cancellationToken);
         if (execution is null)
         {
             markFailure();
-            return results;
+            return collector;
         }
-        if (execution.Sources is not { } sources
-            || execution.Result is not { } queryResult)
-        {
-            return results;
-        }
-
-        foreach (AssemblyContextEntry<AssemblyMemberMatches> entry
-            in queryResult.Assemblies)
-        {
-            AddMembers(
-                results,
-                options.TypeFilter,
-                sources.SourceFor(entry.Subject),
-                entry,
-                logger,
-                markFailure);
-        }
-        if (options.Limit.HasValue
-            && results.Count > options.Limit.Value)
-        {
-            results = results.Take(options.Limit.Value).ToList();
-        }
-        return results;
+        if (execution.Result is null)
+            return collector;
+        return collector;
     }
 
-    private static void AddMembers(
-        List<MemberFindResult> results,
-        string? typeFilter,
-        SearchAssemblySource assembly,
-        AssemblyContextEntry<AssemblyMemberMatches> entry,
-        VerboseLogger logger,
-        Action markFailure)
+    private sealed class MemberSearchQueryReceipt
     {
-        switch (entry)
-        {
-            case AssemblyContextEntry<
-                AssemblyMemberMatches>.Available available:
-                foreach (MemberSearchResult member
-                    in available.Value.Members)
-                {
-                    if (typeFilter is not null
-                        && !TypeMatcher.MatchesTypeFilter(
-                            member.DeclaringType,
-                            typeFilter))
-                    {
-                        continue;
-                    }
+        internal static MemberSearchQueryReceipt Instance { get; } = new();
+    }
 
-                    results.Add(new MemberFindResult
+    private sealed class MemberResultCollector
+    {
+        private readonly string? _typeFilter;
+        private readonly int? _limit;
+        private readonly FindInputRowSelection? _inputRows;
+
+        internal MemberResultCollector(FindOptions options)
+        {
+            ArgumentNullException.ThrowIfNull(options);
+            _typeFilter = options.TypeFilter;
+            _limit = options.Limit;
+            _inputRows = options.InputRows;
+        }
+
+        internal List<MemberFindResult> Results { get; } = [];
+
+        internal int AcceptedCount { get; private set; }
+
+        internal bool RequiresParticipantStop =>
+            _typeFilter is not null
+            && _limit is not null;
+
+        internal bool ReachedLimit() =>
+            _limit is int limit
+            && AcceptedCount >= limit;
+
+        internal int? QueryLimit() =>
+            _typeFilter is null
+            && _limit is int limit
+                ? Math.Max(0, limit - AcceptedCount)
+                : null;
+
+        internal MemberSearchWindow? MetadataWindow()
+        {
+            if (_typeFilter is not null
+                || _inputRows is null
+                || _limit is not int limit)
+            {
+                return null;
+            }
+
+            int start = Math.Max(
+                1,
+                _inputRows.Start - AcceptedCount);
+            int end = limit - AcceptedCount;
+            return start <= end
+                ? new(start, end)
+                : null;
+        }
+
+        internal void Add(
+            SearchAssemblySource assembly,
+            AssemblyContextEntry<AssemblyMemberMatches> entry,
+            VerboseLogger logger,
+            Action markFailure)
+        {
+            switch (entry)
+            {
+                case AssemblyContextEntry<
+                    AssemblyMemberMatches>.Available available:
+                    AddAvailable(
+                        assembly,
+                        available.Value);
+                    WriteInspectionFailures(
+                        assembly,
+                        available.Value.InspectionFailures,
+                        logger,
+                        markFailure);
+                    break;
+                case AssemblyContextEntry<
+                    AssemblyMemberMatches>.Rejected rejected:
+                    markFailure();
+                    CommandError.WriteWarning(
+                        $"Could not read {assembly.DiagnosticSubject}: "
+                        + rejected.Failure.Detail);
+                    break;
+                case AssemblyContextEntry<
+                    AssemblyMemberMatches>.Failed failed:
+                    markFailure();
+                    CommandError.WriteWarning(
+                        $"Could not read {assembly.DiagnosticSubject}: "
+                        + failed.Error.Message);
+                    break;
+            }
+        }
+
+        internal FindSearchResult<MemberFindResult> ToSearchResult(
+            bool hasFailures,
+            bool sourceSelectionIncomplete) =>
+            new(Results, hasFailures)
+            {
+                SourceSelectionIncomplete = sourceSelectionIncomplete,
+                Completion =
+                    hasFailures || sourceSelectionIncomplete
+                        ? FindSearchCompletion.Incomplete
+                        : ReachedLimit()
+                            ? FindSearchCompletion.ResultLimitReached
+                            : FindSearchCompletion.Exhausted,
+                InputRows =
+                    _inputRows is null
+                        ? null
+                        : new(_inputRows, AcceptedCount),
+            };
+
+        private void AddAvailable(
+            SearchAssemblySource assembly,
+            AssemblyMemberMatches matches)
+        {
+            int skippedProjectionCount =
+                matches.AcceptedCount - matches.Members.Length;
+            if (skippedProjectionCount < 0)
+            {
+                throw new InvalidOperationException(
+                    "Metadata Member search accepted fewer matches than it "
+                    + "projected.");
+            }
+            if (skippedProjectionCount > 0)
+            {
+                if (_typeFilter is not null)
+                {
+                    throw new InvalidOperationException(
+                        "Metadata Member Window execution cannot precede "
+                        + "the declaring-Type filter.");
+                }
+                AcceptedCount += skippedProjectionCount;
+            }
+
+            foreach (MemberSearchResult member in matches.Members)
+            {
+                if (ReachedLimit())
+                    break;
+                if (_typeFilter is not null
+                    && !TypeMatcher.MatchesTypeFilter(
+                        member.DeclaringType,
+                        _typeFilter))
+                {
+                    continue;
+                }
+                AcceptedCount++;
+                if (_inputRows is not null
+                    && AcceptedCount < _inputRows.Start)
+                {
+                    continue;
+                }
+
+                Results.Add(
+                    new MemberFindResult
                     {
                         Pattern = member.Pattern,
                         Match = member.IsGlob
@@ -286,27 +436,7 @@ internal static class MemberSearchService
                         Source = assembly.Source,
                         SourceVersion = assembly.SourceVersion,
                     });
-                }
-                WriteInspectionFailures(
-                    assembly,
-                    available.Value.InspectionFailures,
-                    logger,
-                    markFailure);
-                break;
-            case AssemblyContextEntry<
-                AssemblyMemberMatches>.Rejected rejected:
-                markFailure();
-                CommandError.WriteWarning(
-                    $"Could not read {assembly.DiagnosticSubject}: "
-                    + rejected.Failure.Detail);
-                break;
-            case AssemblyContextEntry<
-                AssemblyMemberMatches>.Failed failed:
-                markFailure();
-                CommandError.WriteWarning(
-                    $"Could not read {assembly.DiagnosticSubject}: "
-                    + failed.Error.Message);
-                break;
+            }
         }
     }
 

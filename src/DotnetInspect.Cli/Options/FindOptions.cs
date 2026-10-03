@@ -80,6 +80,11 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public int? Limit { get; init; }
 
     /// <summary>
+    /// Route-local accepted rows executed by the Member producer.
+    /// </summary>
+    internal FindInputRowSelection? InputRows { get; init; }
+
+    /// <summary>
     /// Raw API type-filter value supplied to <c>--type</c>.
     /// </summary>
     public string? TypeFilter { get; init; }

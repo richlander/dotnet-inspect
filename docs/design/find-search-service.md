@@ -421,10 +421,20 @@ implicit Member composition: proving that no later Member row precedes the
 bounded Type prefix requires the exhaustive Type result that this optimization
 would avoid.
 
-`FindSearchCompletion` records `ResultLimitReached` when Head settled,
-`Exhausted` when the source ended below N, and `Incomplete` when failure or
-incomplete source selection prevents either claim. These are internal
-operation facts, not new output fields.
+Find Query represents the same route-local prefix as one accepted-row
+selection. Head carries positions `1..N`; a finite Window carries `A..B`.
+Type Find currently consumes only the inclusive End as its traversal bound.
+Explicit Member Find may additionally execute the Start boundary by discarding
+accepted positions before A without projecting their result rows, as
+[Find member-name search service](find-member-search-service.md#finite-window-phases)
+owns.
+
+`FindSearchCompletion` records `ResultLimitReached` when the inclusive End
+settled, `Exhausted` when the source ended below it, and `Incomplete` when
+failure or incomplete source selection prevents either claim. The accompanying
+accepted count lets the shared evaluator preserve strict Window failure when a
+Member producer executed the Start boundary. These are internal operation
+facts, not new output fields.
 
 ## Failure and lifetime
 

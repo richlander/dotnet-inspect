@@ -279,6 +279,34 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
             limit);
     }
 
+    internal AssemblyContextResult<AssemblyMemberMatches> QueryMemberWindow(
+        IReadOnlyList<string> patterns,
+        bool includeAll,
+        MemberSearchWindow window)
+    {
+        ThrowIfDisposed();
+        return AssemblyContextMemberMatchesQuery.ExecuteWindow(
+            _group,
+            patterns,
+            window,
+            includeAll);
+    }
+
+    internal bool QueryMembersEach(
+        IReadOnlyList<string> patterns,
+        bool includeAll,
+        Action<AssemblyContextEntry<AssemblyMemberMatches>> consume,
+        Func<bool> stop)
+    {
+        ThrowIfDisposed();
+        return AssemblyContextMemberMatchesQuery.ExecuteEach(
+            _group,
+            patterns,
+            includeAll,
+            consume,
+            stop);
+    }
+
     internal SearchAssemblySource SourceFor(
         AssemblyContextSubject subject)
     {

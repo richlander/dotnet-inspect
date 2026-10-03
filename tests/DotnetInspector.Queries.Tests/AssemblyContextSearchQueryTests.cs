@@ -229,6 +229,88 @@ public sealed class AssemblyContextSearchQueryTests
     }
 
     [Fact]
+    public async Task MemberMatches_WindowCrossesParticipants()
+    {
+        string first =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        string second = typeof(string).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            CreateGroup(workspace, first, second);
+
+        AssemblyContextResult<AssemblyMemberMatches> result =
+            AssemblyContextMemberMatchesQuery.ExecuteWindow(
+                group,
+                [
+                    nameof(
+                        WorkspaceQueryImplementation.WorkspaceQueryMember),
+                    nameof(string.Concat),
+                ],
+                includeAll: true,
+                window: new MemberSearchWindow(2, 3));
+
+        var available = result.Assemblies
+            .OfType<
+                AssemblyContextEntry<
+                    AssemblyMemberMatches>.Available>()
+            .ToArray();
+        Assert.Equal(2, available.Length);
+        Assert.Empty(available[0].Value.Members);
+        Assert.Equal(1, available[0].Value.AcceptedCount);
+        Assert.Equal(2, available[1].Value.AcceptedCount);
+        Assert.Equal(2, available[1].Value.Members.Length);
+        Assert.All(
+            available[1].Value.Members,
+            member => Assert.Equal(
+                nameof(string.Concat),
+                member.MemberName));
+    }
+
+    [Fact]
+    public async Task MemberMatches_StopAvoidsLaterFailingParticipant()
+    {
+        string first =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        string second = Path.Combine(
+            Path.GetTempPath(),
+            $"workspace-query-partial-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(second, BuildPartialSurfaceImage());
+        try
+        {
+            await using var workspace = new InspectionWorkspace();
+            using AssemblyContextGroup group =
+                CreateGroup(workspace, first, second);
+            var entries =
+                new List<
+                    AssemblyContextEntry<AssemblyMemberMatches>>();
+
+            bool complete =
+                AssemblyContextMemberMatchesQuery.ExecuteEach(
+                    group,
+                    [
+                        nameof(
+                            WorkspaceQueryImplementation
+                                .WorkspaceQueryMember),
+                    ],
+                    includeAll: true,
+                    consume: entries.Add,
+                    stop: () => entries.Count == 1);
+
+            Assert.False(complete);
+            var available = Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyMemberMatches>.Available>(
+                        Assert.Single(entries));
+            Assert.Single(available.Value.Members);
+            Assert.Empty(available.Value.InspectionFailures);
+        }
+        finally
+        {
+            File.Delete(second);
+        }
+    }
+
+    [Fact]
     public async Task SurfaceQueries_PreserveHealthyRowsAndInspectionFailures()
     {
         string path = Path.Combine(
