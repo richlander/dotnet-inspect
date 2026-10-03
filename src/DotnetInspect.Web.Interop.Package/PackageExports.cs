@@ -446,7 +446,7 @@ public static partial class PackageExports
                     + "Share projection."));
 
     /// <summary>
-    /// Bounded public API summary for one exact package compile asset.
+    /// Bounded public API summary for one exact Package Library child.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryLibraryApi(
@@ -483,12 +483,19 @@ public static partial class PackageExports
                 targetFramework);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-        var request = new ExactLibraryApiInspectionRequest(
-            packageId,
-            version,
-            targetFramework,
-            assemblyId,
-            ExactLibraryApiSelectionKind.AssetId);
+        ExactLibraryApiInspectionRequest request =
+            targetFramework.Length == 0
+                ? ExactLibraryApiInspectionRequest.ForOwnerDefaultTarget(
+                    packageId,
+                    version,
+                    assemblyId,
+                    ExactLibraryApiSelectionKind.AssetId)
+                : new(
+                    packageId,
+                    version,
+                    targetFramework,
+                    assemblyId,
+                    ExactLibraryApiSelectionKind.AssetId);
         ExactLibraryApiInspectionExecution execution =
             scope.UsePackageAssemblyRoles(
             coordinate,

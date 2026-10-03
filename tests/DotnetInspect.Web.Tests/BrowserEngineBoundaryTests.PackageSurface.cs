@@ -1535,6 +1535,9 @@ public sealed partial class BrowserEngineBoundaryTests
     public async Task QueryPackage_ToolsPointerRetainsRootAndManifestDependencies()
     {
         const string packageId = "Tool.Pointer";
+        const string ridPackageId = "Tool.Pointer.linux-x64";
+        const string ridAsset =
+            "tools/net11.0/any/DotnetInspect.Web.Interop.Package.dll";
         byte[] package = PackageEntries(
             ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
                 """
@@ -1569,6 +1572,39 @@ public sealed partial class BrowserEngineBoundaryTests
                 """)));
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(packageId, "1.0.0", package, fromCache: false));
+        byte[] ridPackage = PackageEntries(
+            ($"{ridPackageId}.nuspec", Encoding.UTF8.GetBytes(
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Tool.Pointer.linux-x64</id>
+                    <version>1.0.0</version>
+                    <packageTypes>
+                      <packageType name="DotnetTool" />
+                    </packageTypes>
+                  </metadata>
+                </package>
+                """)),
+            ("tools/net11.0/any/DotnetToolSettings.xml",
+                Encoding.UTF8.GetBytes(
+                    """
+                    <DotNetCliTool Version="2">
+                      <Commands>
+                        <Command Name="tool-pointer" EntryPoint="DotnetInspect.Web.Interop.Package.dll" Runner="dotnet" />
+                      </Commands>
+                    </DotNetCliTool>
+                    """)),
+            (ridAsset,
+                File.ReadAllBytes(
+                    typeof(DotnetInspect.Web.Interop.Package
+                        .PackageExports).Assembly.Location)));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                ridPackageId,
+                "1.0.0",
+                ridPackage,
+                fromCache: false));
 
         await using BrowserScopeLease<BrowserInspectionScope> rootScopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -1629,9 +1665,7 @@ public sealed partial class BrowserEngineBoundaryTests
             child =>
             {
                 Assert.Equal("linux-x64", child.RuntimeIdentifier);
-                Assert.Equal(
-                    "Tool.Pointer.linux-x64",
-                    child.PackageId);
+                Assert.Equal(ridPackageId, child.PackageId);
             },
             child =>
             {
@@ -1641,6 +1675,47 @@ public sealed partial class BrowserEngineBoundaryTests
                     child.PackageId);
             });
         Assert.Empty(children.Libraries);
+
+        BrowserPackageLoadResult ridLoad =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryPackage(
+                            ridPackageId,
+                            "1.0.0",
+                            targetFramework: ""),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        BrowserPackageChildren ridChildren =
+            Assert.IsType<BrowserPackageChildrenInspection>(
+                ridLoad.PackageChildren).Content;
+        BrowserPackageLibraryChild ridLibrary =
+            Assert.Single(ridChildren.Libraries);
+        Assert.Equal("net11.0", ridChildren.TargetFramework);
+        Assert.Equal(ridAsset, ridLibrary.AssetId);
+
+        BrowserExactLibraryApiInspection ridApi =
+            Assert.IsType<BrowserExactLibraryApiInspection>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryLibraryApi(
+                            ridPackageId,
+                            "1.0.0",
+                            targetFramework: "",
+                            ridLibrary.AssetId),
+                    BrowserPackageJsonContext.Default
+                        .BrowserExactLibraryApiInspection));
+        Assert.True(ridApi.Content.IsAvailable);
+        Assert.Equal("", ridApi.Content.RequestedTargetFramework);
+        Assert.Equal("", ridApi.Content.Source?.Framework);
+        Assert.Equal("net11.0", ridApi.Content.Asset?.TargetFramework);
+        Assert.Equal(ridAsset, ridApi.Content.Asset?.Id);
+        Assert.Equal(
+            BrowserExactLibraryApiAssetKind.Tool,
+            ridApi.Content.Asset?.Kind);
+        Assert.Equal(
+            BrowserInspectionShareKind.Available,
+            ridApi.Share.Kind);
 
         BrowserPackageDependencies dependencies =
             Assert.IsType<BrowserPackageDependencies>(

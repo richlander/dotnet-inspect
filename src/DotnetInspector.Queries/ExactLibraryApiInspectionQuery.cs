@@ -27,15 +27,45 @@ public sealed record ExactLibraryApiInspectionRequest
         string library,
         ExactLibraryApiSelectionKind selectionKind =
             ExactLibraryApiSelectionKind.Query)
+        : this(
+            packageId,
+            packageVersion,
+            targetFramework,
+            PackageHouseTargetSelectionMode.Exact,
+            library,
+            selectionKind)
+    {
+    }
+
+    private ExactLibraryApiInspectionRequest(
+        string packageId,
+        string packageVersion,
+        string? targetFramework,
+        PackageHouseTargetSelectionMode targetSelectionMode,
+        string library,
+        ExactLibraryApiSelectionKind selectionKind)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
-        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
         ArgumentException.ThrowIfNullOrWhiteSpace(library);
-        if (targetFramework.Equals("all", StringComparison.OrdinalIgnoreCase))
+        if (!Enum.IsDefined(targetSelectionMode))
+            throw new ArgumentOutOfRangeException(nameof(targetSelectionMode));
+        if (targetSelectionMode == PackageHouseTargetSelectionMode.Exact)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+            if (targetFramework.Equals(
+                    "all",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "Exact Library API inspection requires one target framework.",
+                    nameof(targetFramework));
+            }
+        }
+        else if (targetFramework is not null)
         {
             throw new ArgumentException(
-                "Exact Library API inspection requires one target framework.",
+                "Owner-default Library API inspection cannot carry an exact target framework.",
                 nameof(targetFramework));
         }
         if (!Enum.IsDefined(selectionKind))
@@ -43,13 +73,32 @@ public sealed record ExactLibraryApiInspectionRequest
 
         PackageId = packageId;
         PackageVersion = packageVersion;
-        TargetFramework = targetFramework;
+        TargetSelectionMode = targetSelectionMode;
+        TargetFramework = targetFramework ?? "";
         Library = library;
         SelectionKind = selectionKind;
     }
 
+    /// <summary>
+    /// Creates a retained-Package request whose target remains owner-selected.
+    /// </summary>
+    public static ExactLibraryApiInspectionRequest ForOwnerDefaultTarget(
+        string packageId,
+        string packageVersion,
+        string library,
+        ExactLibraryApiSelectionKind selectionKind =
+            ExactLibraryApiSelectionKind.Query) =>
+        new(
+            packageId,
+            packageVersion,
+            targetFramework: null,
+            PackageHouseTargetSelectionMode.OwnerDefault,
+            library,
+            selectionKind);
+
     public string PackageId { get; }
     public string PackageVersion { get; }
+    public PackageHouseTargetSelectionMode TargetSelectionMode { get; }
     public string TargetFramework { get; }
     public string Library { get; }
     public ExactLibraryApiSelectionKind SelectionKind { get; }
@@ -149,10 +198,12 @@ public static class ExactLibraryApiInspectionQuery
             || !root.PackageVersion.Equals(
                 request.PackageVersion,
                 StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(
-                root.RequestedTargetFramework,
-                request.TargetFramework,
-                StringComparison.OrdinalIgnoreCase))
+            || (request.TargetSelectionMode
+                    == PackageHouseTargetSelectionMode.Exact
+                && !string.Equals(
+                    root.RequestedTargetFramework,
+                    request.TargetFramework,
+                    StringComparison.OrdinalIgnoreCase)))
         {
             return Unavailable(
                 request,

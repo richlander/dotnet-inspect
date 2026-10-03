@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
@@ -47,6 +48,13 @@ public static class ExactLibraryApiInspectionOperation
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(projectionLimits);
+        if (request.TargetSelectionMode
+            == PackageHouseTargetSelectionMode.OwnerDefault)
+        {
+            throw new ArgumentException(
+                "Cold exact Library API inspection requires an exact target framework.",
+                nameof(request));
+        }
 
         WorkspaceContextInput input = new()
         {
@@ -190,11 +198,22 @@ public static class ExactLibraryApiInspectionOperation
         ExactLibraryApiInspectionRequest request,
         ExactLibraryApiInspectionResult result)
     {
+        string framework =
+            request.TargetSelectionMode
+                == PackageHouseTargetSelectionMode.OwnerDefault
+                ? result.Asset?.TargetFramework ?? ""
+                : request.TargetFramework;
+        if (framework.Length == 0)
+        {
+            return new InspectionShare.NonProjectable(
+                "exact-library-api-share/default-target",
+                "An unavailable owner-default Library has no selected target framework to share.");
+        }
         var coordinate =
             new DefinitionMemberCoordinate.PackageCoordinate(
                 request.PackageId,
                 request.PackageVersion,
-                request.TargetFramework);
+                framework);
         const int schemaVersion = InspectionDefinitionSchema.Version1;
         var workspace = new WorkspaceDefinition(
             schemaVersion,
@@ -202,7 +221,7 @@ public static class ExactLibraryApiInspectionOperation
             [
                 new WorkspaceContextDefinition(
                     "g0",
-                    framework: request.TargetFramework,
+                    framework,
                     members: [coordinate]),
             ]);
         var navigation = new NavigationDefinition(
