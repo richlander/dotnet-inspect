@@ -88,6 +88,13 @@ remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
 
+[Query Space Producer Capabilities](query-space-producer-capabilities.md) owns
+the deeper contract through which a complete requirement set reaches one
+producer, that producer chooses among direct and covering provisions, and each
+requirement retains its own satisfaction path. This design continues to own
+the surrounding query-space request associations and source-plan groups; it
+does not define producer capabilities, coverage, or strategy selection.
+
 ## Owner and exact claim
 
 **Query Space Composition** owns this exact claim:
@@ -134,6 +141,8 @@ This owner does not define:
 - any Package, Library, Type, Member, Dependency, Graph, or Find semantics;
 - subject or source authority, acquisition, pagination, retry, caching, or
   completion-evidence construction;
+- producer capability identities, covering relationships, provision
+  strategies, or producer-owned plan selection;
 - timed batching, cross-operation collection windows, retention, or cost
   estimation;
 - row predicate, order, Head, Tail, Window, Top, projection, Count, or Exists
