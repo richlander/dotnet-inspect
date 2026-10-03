@@ -37,7 +37,7 @@ public static class MethodClassificationDemand
     /// </summary>
     public const MethodClassificationAnalyzer AsyncAnalyzer = MethodClassificationAnalyzer.Async;
 
-    /// <summary>Library Info shows the async method count.</summary>
+    /// <summary>Library Info shows the async and extension method counts.</summary>
     public static InspectionQuery<MethodClassificationBindingResult> LibraryInfo { get; } =
         new("Method classification (Library Info counts)", InspectionCost.NetworkFree);
 
@@ -100,7 +100,7 @@ public static class MethodClassificationDemand
         bool countOnly)
     {
         if (demand == LibraryInfo)
-            return [Count(AsyncAnalyzer)];
+            return [Count(AsyncAnalyzer), Count(MethodClassificationAnalyzer.Extension)];
         if (demand == Signals)
             return [Count(MethodClassificationAnalyzer.PointerSignature), Count(MethodClassificationAnalyzer.PInvoke)];
         if (demand == AsyncMethods)
