@@ -96,9 +96,9 @@ types and are not this analyzer's rows. The legacy scan also decodes each
 candidate's signature through the signature guard and skips a method with no
 parameters or a signature the guard rejects. Roslyn never emits a
 parameterless `[Extension]` method, and a Roslyn signature exceeds the guard
-only when a receiver nests more than 512 array or pointer levels, where the
-method is an extension method and the guard's rejection is containment, not
-fidelity. Under the [fidelity policy](#fidelity-policy) the analyzer omits
+only when a parameter or return type nests more than 512 array or pointer
+levels, where the method is an extension method and the guard's rejection is
+containment, not fidelity. Under the [fidelity policy](#fidelity-policy) the analyzer omits
 the decode: on Roslyn-produced assemblies its Count equals the legacy count
 plus any such over-bound method legacy drops (gated by a 513-level fixture in
 `MethodClassificationAnalyzerTests`), and it is wrong but contained
@@ -175,8 +175,10 @@ Each Tier 1 test must equal the legacy test on every input:
   matched through the same per-constructor memo and the values read in
   place: one `int32` for the browsable state, and the fixed-argument string
   compared byte for byte against the two compiler-compatibility messages and
-  feature names. No name or value is materialized, so the test stays inside
-  the Tier 1 work bound; it is declared as its own `HiddenAttribute` field,
+  feature names, within legacy's sixteen-byte length slack. No name or value
+  is materialized, and the row's `[CompilerFeatureRequired]` features are
+  read once however many compatibility markers it carries, so the test stays
+  inside the Tier 1 work bound; it is declared as its own `HiddenAttribute` field,
   and the scope reads it only for types and rows that passed the cheaper
   in-place tests. Hardening the legacy scan's own path is
   [#8780](https://github.com/richlander/dotnet-inspect/issues/8780).

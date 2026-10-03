@@ -445,6 +445,7 @@ internal sealed class MethodRowGate
 
     bool AnyHiddenAttribute(CustomAttributeHandleCollection attributes)
     {
+        CompilerFeatures features = CompilerFeatures.Unread;
         foreach (CustomAttributeHandle handle in attributes)
         {
             CustomAttribute attribute = Reader.GetCustomAttribute(handle);
@@ -455,7 +456,7 @@ internal sealed class MethodRowGate
             }
             else if (ConstructorMatches(attribute.Constructor, ObsoleteAttribute))
             {
-                if (!IsCompilerCompatibilityObsolete(attributes, attribute.Value))
+                if (!IsCompilerCompatibilityObsolete(attributes, attribute.Value, ref features))
                     return true;
             }
         }
@@ -473,24 +474,63 @@ internal sealed class MethodRowGate
         return blob.ReadInt32() == 1;
     }
 
-    bool IsCompilerCompatibilityObsolete(CustomAttributeHandleCollection attributes, BlobHandle obsoleteValue) =>
-        (FixedStringArgumentEquals(obsoleteValue, RequiredMembersObsoleteMessage)
-            && HasCompilerFeatureRequired(attributes, RequiredMembersFeatureName))
-        || (FixedStringArgumentEquals(obsoleteValue, RefStructsObsoleteMessage)
-            && HasCompilerFeatureRequired(attributes, RefStructsFeatureName));
-
-    bool HasCompilerFeatureRequired(CustomAttributeHandleCollection attributes, ReadOnlySpan<byte> featureName)
+    [Flags]
+    enum CompilerFeatures : byte
     {
+        Unread = 0,
+        Read = 1,
+        RequiredMembers = 2,
+        RefStructs = 4,
+    }
+
+    /// <summary>
+    /// Legacy's <c>IsCompilerCompatibilityObsolete</c>: the message names a
+    /// feature and a <c>[CompilerFeatureRequired]</c> on the same row names
+    /// it too. Legacy rescans the row's attributes at every compatibility
+    /// <c>Obsolete</c>; the gate reads the row's features once, on first need.
+    /// </summary>
+    bool IsCompilerCompatibilityObsolete(
+        CustomAttributeHandleCollection attributes,
+        BlobHandle obsoleteValue,
+        ref CompilerFeatures features)
+    {
+        CompilerFeatures named = ObsoleteMessageEquals(obsoleteValue, RequiredMembersObsoleteMessage)
+            ? CompilerFeatures.RequiredMembers
+            : ObsoleteMessageEquals(obsoleteValue, RefStructsObsoleteMessage)
+                ? CompilerFeatures.RefStructs
+                : CompilerFeatures.Unread;
+        if (named == CompilerFeatures.Unread)
+            return false;
+        if ((features & CompilerFeatures.Read) == 0)
+            features = ReadCompilerFeatures(attributes);
+        return (features & named) != 0;
+    }
+
+    CompilerFeatures ReadCompilerFeatures(CustomAttributeHandleCollection attributes)
+    {
+        CompilerFeatures features = CompilerFeatures.Read;
         foreach (CustomAttributeHandle handle in attributes)
         {
             CustomAttribute attribute = Reader.GetCustomAttribute(handle);
-            if (ConstructorMatches(attribute.Constructor, CompilerFeatureRequiredAttribute)
-                && FixedStringArgumentEquals(attribute.Value, featureName))
-                return true;
+            if (!ConstructorMatches(attribute.Constructor, CompilerFeatureRequiredAttribute))
+                continue;
+            if (FixedStringArgumentEquals(attribute.Value, RequiredMembersFeatureName))
+                features |= CompilerFeatures.RequiredMembers;
+            else if (FixedStringArgumentEquals(attribute.Value, RefStructsFeatureName))
+                features |= CompilerFeatures.RefStructs;
         }
 
-        return false;
+        return features;
     }
+
+    /// <summary>
+    /// Legacy's <c>AttributeValueEquals</c>: it compares only a value within
+    /// sixteen bytes of the message's length, so a compatibility message
+    /// carrying named arguments beyond that slack is an ordinary deprecation.
+    /// </summary>
+    bool ObsoleteMessageEquals(BlobHandle value, ReadOnlySpan<byte> expected) =>
+        Reader.GetBlobReader(value).Length <= expected.Length + 16
+        && FixedStringArgumentEquals(value, expected);
 
     /// <summary>
     /// Whether the value's first fixed argument is exactly the expected UTF-8

@@ -47,6 +47,9 @@ internal sealed class GateFixtureImage
 
     public MetadataBuilder Metadata => _metadata;
 
+    /// <summary>The types added so far, in order.</summary>
+    public IReadOnlyList<FixtureType> Types => _types;
+
     /// <summary>A TypeRef in the dependency assembly, or nested in <paramref name="enclosing"/>.</summary>
     public TypeReferenceHandle TypeRef(string ns, string name, TypeReferenceHandle? enclosing = null) =>
         _metadata.AddTypeReference(
