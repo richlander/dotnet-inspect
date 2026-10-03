@@ -933,7 +933,8 @@ internal static class TypeSearchService
                         findCandidates: pattern is not null,
                         identities: identities,
                         intent: options.TypeMatchIntent,
-                        headStopper: headStopper);
+                        headStopper: headStopper,
+                        onRow: options.OnTypeRow);
                     headStopper?.Commit();
                 },
                 pattern is not null && resultLimit.HasValue
@@ -1882,7 +1883,8 @@ internal static class TypeSearchService
                     findCandidates: classifyCandidates,
                     identities: identities,
                     intent: options.TypeMatchIntent,
-                    headStopper: headStopper);
+                    headStopper: headStopper,
+                    onRow: options.OnTypeRow);
                 headStopper?.Commit();
             },
             (assembly, failure) =>
@@ -1976,7 +1978,8 @@ internal static class TypeSearchService
                 findCandidates: classifyCandidates,
                 identities: identities,
                 intent: options.TypeMatchIntent,
-                headStopper: headStopper);
+                headStopper: headStopper,
+                onRow: options.OnTypeRow);
         }
         return results;
     }
@@ -1996,7 +1999,8 @@ internal static class TypeSearchService
             string FullName,
             TypeCandidateSourceIdentity Source)>? identities = null,
         FindTypeMatchIntent intent = FindTypeMatchIntent.Ordinary,
-        TypeHeadStopper? headStopper = null)
+        TypeHeadStopper? headStopper = null,
+        Action<TypeFindResult>? onRow = null)
     {
         switch (entry)
         {
@@ -2062,6 +2066,8 @@ internal static class TypeSearchService
                     }
 
                     results.Add(result);
+                    if (result.Classification is { } classified)
+                        onRow?.Invoke(classified);
                     if (reachedLimit())
                         break;
                 }
