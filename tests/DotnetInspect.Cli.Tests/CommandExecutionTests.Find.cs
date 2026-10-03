@@ -16,7 +16,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", ".Add*", "--ecosystem", "aspire", "-n", "20",
-            "--json", "--compact", "--verbose", "--tips", "q");
+            "--json", "--compact", "--verbose");
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -36,7 +36,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "JsonSerializer", "--ecosystem", "aspnetcore",
-            "--json", "--compact", "--tips", "q");
+            "--json", "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -60,7 +60,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "find", "JsonSerializer", "--ecosystem", "aspire", "-n", "3",
-            "--json", "--compact", "--tips", "q");
+            "--json", "--compact");
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -77,7 +77,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "JsonSerializer,AddProject", "--ecosystem", "aspire",
-            "-n", "12", "--json", "--compact", "--tips", "q");
+            "-n", "12", "--json", "--compact");
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -99,7 +99,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "System.Text", "--ecosystem", "runtime", "-n", "3",
-            "--json", "--compact", "--tips", "q");
+            "--json", "--compact");
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -112,7 +112,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "JsonSerializer", "-n", "2",
-            "--table", "--tips", "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
