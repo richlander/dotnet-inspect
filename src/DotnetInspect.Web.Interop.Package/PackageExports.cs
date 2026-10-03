@@ -367,28 +367,17 @@ public static partial class PackageExports
             DotnetToolSettingsData settings,
             CancellationToken cancellationToken)
     {
-        HashSet<string> entryPoints =
-        [
-            .. settings.CommandEntries?
-                .Select(static command => command.EntryPoint)
-                .Where(static entryPoint =>
-                    !string.IsNullOrWhiteSpace(entryPoint))
-                .Select(static entryPoint =>
-                    Path.GetFileName(entryPoint!))
-                ?? [],
-        ];
         PackageLibraryInspectionCandidate[] candidates =
         [
             .. measurements.SelectedEntries
                 .Select(path =>
                 {
-                    string fileName = Path.GetFileName(path);
                     return new PackageLibraryInspectionCandidate(
                         path,
                         path,
                         Path.GetFileNameWithoutExtension(path),
                         measurements.SelectedTargetFramework,
-                        entryPoints.Contains(fileName)
+                        settings.IsEntryPoint(path)
                             ? PackageLibraryChildRole.ToolEntryPoint
                             : PackageLibraryChildRole.ToolLibrary);
                 })

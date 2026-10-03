@@ -223,13 +223,23 @@ public partial class PackageCommand
                 ?? result.Version
                 ?? version,
             targetFramework: null);
-        if (!result.ToolSettingsProjectionComplete)
+        bool toolSettingsAvailable =
+            result.ToolSettingsProjectionStatus
+                == DotnetToolSettingsProjectionStatus.Available
+            || !string.IsNullOrWhiteSpace(result.ToolFormat);
+        if (!result.ToolSettingsProjectionComplete
+            || result.IsToolPackage && !toolSettingsAvailable)
         {
             return PackageChildrenPlan.FromDocument(
                 PackageChildrenDocument.UnavailableLibraries(
                     subject,
                     PackageChildrenStatus.Unavailable,
-                    "Tool settings could not be projected completely."));
+                    result.ToolSettingsProjectionStatus
+                        == DotnetToolSettingsProjectionStatus.Missing
+                            ? "The declared tool Package contains no "
+                                + "DotnetToolSettings.xml manifest."
+                            : "Tool settings could not be projected "
+                                + "completely."));
         }
 
         if (result.IsRidSpecificPointerPackage
@@ -299,15 +309,15 @@ public partial class PackageCommand
                             + "Libraries."));
             }
 
-            HashSet<string> entryPoints =
-                ToolEntryPoints(extractPath);
+            DotnetToolSettingsData? toolSettings =
+                ToolSettings(extractPath);
             candidates =
             [
                 .. toolSelection.SelectedEntries
                     .Select(assetPath =>
                     {
-                        bool entryPoint = entryPoints.Contains(
-                            Path.GetFileName(assetPath));
+                        bool entryPoint =
+                            toolSettings?.IsEntryPoint(assetPath) == true;
                         return new PackageChildCandidate(
                             assetPath,
                             assetPath,
@@ -509,23 +519,13 @@ public partial class PackageCommand
                     ?? "The compile Library population is unavailable."),
         };
 
-    private static HashSet<string> ToolEntryPoints(
+    private static DotnetToolSettingsData? ToolSettings(
         string extractPath)
     {
         string tools = Path.Combine(extractPath, "tools");
-        DotnetToolSettingsData? settings =
-            Directory.Exists(tools)
-                ? DotnetToolSettingsParser.FindAndParse(tools)
-                : null;
-        return new(
-            settings?.CommandEntries?
-                .Select(static command => command.EntryPoint)
-                .OfType<string>()
-                .Select(Path.GetFileName)
-                .Where(static entry => !string.IsNullOrWhiteSpace(entry))
-                .Select(static entry => entry!)
-                ?? [],
-            StringComparer.OrdinalIgnoreCase);
+        return Directory.Exists(tools)
+            ? DotnetToolSettingsParser.FindAndParse(tools)
+            : null;
     }
 
     private static string PackageAssetPath(

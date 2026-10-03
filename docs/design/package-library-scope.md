@@ -269,7 +269,11 @@ the exact asset path used by `package P --library <path>`; every RID Package row
 carries its exact Package selector. Inspect Web carries the same document and
 uses its Counts and exact asset IDs for Library navigation. Tool-package
 children consume the separate tool-Library population owned by Package Info
-tool measurements.
+tool measurements. A tool population requires an available
+`DotnetToolSettings.xml` projection; missing, invalid, or ambiguous settings
+produce a typed unavailable child document in both hosts. The settings owner
+matches an entry-point filename case-insensitively, and both hosts consume that
+correspondence when assigning `ToolEntryPoint` or `ToolLibrary`.
 
 The Package child producer applies
 [QuerySpace producer capabilities](query-space-producer-capabilities.md) below
@@ -289,9 +293,14 @@ Each adopter names its own Release gates. Package children are gated by
 definition-and-forwarder Counts, RID rows, and native no-Library state;
 `CommandExecutionTests.Package` for the CLI default and explicit Tree, complete
 formats, row selection and projection, scalar Count, visible empty states,
-Minimal-only tool collapse, and exact duplicate-name Library navigation; and
+Minimal-only tool collapse, missing tool settings, and exact duplicate-name
+Library navigation; and
 `BrowserMemberDeclarationTests` plus `package-acquisition.test.ts` for Browser
-transport and Count consumption.
+transport and Count consumption. `DotnetToolSettingsParserTests` owns typed
+settings status and case-insensitive entry-point correspondence, while
+`QueryPackage_ToolPayloadPublishesExactManagedLibraries` and
+`QueryPackage_DeclaredToolWithoutSettingsRemainsUnavailable` gate Browser
+adoption.
 `ProducerCapabilityPlanSelectsBeforeEnrichment` gates selection before
 per-Library work, while
 `PackageTreeCapabilitiesPreserveHostsAndWorkReduction` gates equivalent

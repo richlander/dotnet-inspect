@@ -2497,6 +2497,53 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DeclaredToolWithoutSettingsRemainsUnavailable()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalToolPackageWithoutSettings();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(1, result.Exit);
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "Unavailable",
+                document.RootElement
+                    .GetProperty("status")
+                    .GetString());
+            Assert.Contains(
+                "no DotnetToolSettings.xml manifest",
+                document.RootElement
+                    .GetProperty("detail")
+                    .GetString(),
+                StringComparison.Ordinal);
+            Assert.Empty(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+
+            var count = await RunAppAsync(
+                "package",
+                packagePath,
+                "--count");
+            Assert.Equal(1, count.Exit);
+            Assert.Empty(count.Output);
+            Assert.Contains(
+                "no DotnetToolSettings.xml manifest",
+                count.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_NoManagedChildrenRemainVisibleInRows()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
@@ -5013,6 +5060,46 @@ public partial class CommandExecutionTests
         string packagePath = Path.Combine(
             tempDir,
             "Test.AmbiguousTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalToolPackageWithoutSettings()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-settings-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string toolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(toolsDir);
+        File.WriteAllText(
+            Path.Combine(packageRoot, "Test.MissingTool.nuspec"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.MissingTool</id>
+                <version>1.0.0</version>
+                <authors>dotnet-inspect</authors>
+                <description>Missing tool settings fixture.</description>
+                <packageTypes>
+                  <packageType name="DotnetTool" />
+                </packageTypes>
+              </metadata>
+            </package>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(toolsDir, "Test.MissingTool.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.MissingTool.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
     }

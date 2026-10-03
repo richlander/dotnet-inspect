@@ -21,4 +21,19 @@ public sealed record DotnetToolSettingsData(
     IReadOnlyList<ToolRidPackage>? RuntimeIdentifierPackages)
 {
     public IReadOnlyList<DotnetToolCommand>? CommandEntries { get; init; }
+
+    public bool IsEntryPoint(string assetPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetPath);
+        string assetFileName = FileName(assetPath);
+        return CommandEntries?.Any(command =>
+            command.EntryPoint is { } entryPoint
+            && string.Equals(
+                FileName(entryPoint),
+                assetFileName,
+                StringComparison.OrdinalIgnoreCase)) == true;
+    }
+
+    private static string FileName(string path) =>
+        Path.GetFileName(path.Replace('\\', '/'));
 }

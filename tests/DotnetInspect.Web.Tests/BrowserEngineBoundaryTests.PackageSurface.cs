@@ -1757,10 +1757,11 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Theory]
-    [InlineData("1")]
-    [InlineData("2")]
+    [InlineData("1", "DotnetInspect.Web.Interop.Package.dll")]
+    [InlineData("2", "DOTNETINSPECT.WEB.INTEROP.PACKAGE.DLL")]
     public async Task QueryPackage_ToolPayloadPublishesExactManagedLibraries(
-        string settingsVersion)
+        string settingsVersion,
+        string entryPoint)
     {
         const string packageId = "Tool.Payload";
         const string asset =
@@ -1784,7 +1785,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     $"""
                     <DotNetCliTool Version="{settingsVersion}">
                       <Commands>
-                        <Command Name="tool-payload" EntryPoint="DotnetInspect.Web.Interop.Package.dll" Runner="dotnet" />
+                        <Command Name="tool-payload" EntryPoint="{entryPoint}" Runner="dotnet" />
                       </Commands>
                     </DotNetCliTool>
                     """)),
@@ -1844,6 +1845,58 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserExactLibraryApiAssetKind.Tool,
             api.Content.Asset?.Kind);
+    }
+
+    [Fact]
+    public async Task QueryPackage_DeclaredToolWithoutSettingsRemainsUnavailable()
+    {
+        const string packageId = "Tool.Missing.Settings";
+        byte[] package = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Tool.Missing.Settings</id>
+                    <version>1.0.0</version>
+                    <packageTypes>
+                      <packageType name="DotnetTool" />
+                    </packageTypes>
+                  </metadata>
+                </package>
+                """)),
+            ("tools/net11.0/any/DotnetInspect.Web.Interop.Package.dll",
+                File.ReadAllBytes(
+                    typeof(DotnetInspect.Web.Interop.Package
+                        .PackageExports).Assembly.Location)));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                package,
+                fromCache: false));
+
+        BrowserPackageLoadResult load =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryPackage(
+                            packageId,
+                            "1.0.0",
+                            "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+
+        BrowserPackageChildren children =
+            Assert.IsType<BrowserPackageChildrenInspection>(
+                load.PackageChildren).Content;
+        Assert.Equal("Libraries", children.Kind);
+        Assert.Equal("Unavailable", children.Status);
+        Assert.False(children.IsComplete);
+        Assert.Contains(
+            "no DotnetToolSettings.xml manifest",
+            children.Detail);
+        Assert.Empty(children.Libraries);
     }
 
     [Fact]

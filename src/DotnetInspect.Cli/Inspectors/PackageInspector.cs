@@ -353,6 +353,11 @@ internal static class PackageInspector
                 : null;
         result.PackageTypes = wrapperNuspec?.PackageTypes;
         result.IsToolPackage |= wrapperNuspec?.IsToolPackage == true;
+        if (wrapperNuspec?.IsToolPackage == true)
+        {
+            result.ToolSettingsProjectionStatus =
+                DotnetToolSettingsProjectionStatus.Missing;
+        }
 
         string toolsDir = Path.Combine(wrapper.ExtractPath, "tools");
         if (!Directory.Exists(toolsDir))
@@ -362,6 +367,8 @@ internal static class PackageInspector
         bool wrapperSettingsComplete =
             ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, wrapperTool);
         result.ToolSettingsProjectionComplete &= wrapperSettingsComplete;
+        result.ToolSettingsProjectionStatus =
+            wrapperTool.ToolSettingsProjectionStatus;
         if (!wrapperSettingsComplete
             || string.IsNullOrWhiteSpace(wrapperTool.ToolFormat))
             return;

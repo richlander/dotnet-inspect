@@ -247,6 +247,15 @@ public class DotnetToolSettingsParserTests
         try
         {
             Assert.Null(DotnetToolSettingsParser.FindAndParse(root));
+            Assert.True(
+                DotnetToolSettingsParser.TryProject(
+                    root,
+                    out DotnetToolSettingsData? data,
+                    out DotnetToolSettingsProjectionStatus status));
+            Assert.Null(data);
+            Assert.Equal(
+                DotnetToolSettingsProjectionStatus.Missing,
+                status);
         }
         finally
         {
@@ -272,8 +281,12 @@ public class DotnetToolSettingsParserTests
             Assert.False(
                 DotnetToolSettingsParser.TryProject(
                     malformed,
-                    out DotnetToolSettingsData? malformedData));
+                    out DotnetToolSettingsData? malformedData,
+                    out DotnetToolSettingsProjectionStatus malformedStatus));
             Assert.Null(malformedData);
+            Assert.Equal(
+                DotnetToolSettingsProjectionStatus.Invalid,
+                malformedStatus);
 
             Directory.CreateDirectory(Path.Combine(ambiguous, "net8.0"));
             File.WriteAllText(
@@ -288,8 +301,12 @@ public class DotnetToolSettingsParserTests
             Assert.True(
                 DotnetToolSettingsParser.TryProject(
                     ambiguous,
-                    out DotnetToolSettingsData? equivalentData));
+                    out DotnetToolSettingsData? equivalentData,
+                    out DotnetToolSettingsProjectionStatus equivalentStatus));
             Assert.NotNull(equivalentData);
+            Assert.Equal(
+                DotnetToolSettingsProjectionStatus.Available,
+                equivalentStatus);
 
             File.WriteAllText(
                 Path.Combine(
@@ -304,8 +321,12 @@ public class DotnetToolSettingsParserTests
             Assert.False(
                 DotnetToolSettingsParser.TryProject(
                     ambiguous,
-                    out DotnetToolSettingsData? ambiguousData));
+                    out DotnetToolSettingsData? ambiguousData,
+                    out DotnetToolSettingsProjectionStatus ambiguousStatus));
             Assert.Null(ambiguousData);
+            Assert.Equal(
+                DotnetToolSettingsProjectionStatus.Ambiguous,
+                ambiguousStatus);
         }
         finally
         {
@@ -314,5 +335,22 @@ public class DotnetToolSettingsParserTests
             if (Directory.Exists(ambiguous))
                 Directory.Delete(ambiguous, recursive: true);
         }
+    }
+
+    [Fact]
+    public void EntryPointCorrespondenceIsCaseInsensitive()
+    {
+        DotnetToolSettingsData settings = Assert.IsType<DotnetToolSettingsData>(
+            DotnetToolSettingsParser.ParseContent(
+                """
+                <DotNetCliTool Version="1">
+                  <Commands>
+                    <Command Name="tool" EntryPoint="sub/TEST.TOOL.DLL" Runner="dotnet" />
+                  </Commands>
+                </DotNetCliTool>
+                """));
+
+        Assert.True(settings.IsEntryPoint("tools/net11.0/any/Test.Tool.dll"));
+        Assert.False(settings.IsEntryPoint("tools/net11.0/any/Other.dll"));
     }
 }

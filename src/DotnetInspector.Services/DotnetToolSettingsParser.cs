@@ -79,27 +79,46 @@ public static class DotnetToolSettingsParser
         string toolsDir,
         out DotnetToolSettingsData? data)
     {
+        return TryProject(
+            toolsDir,
+            out data,
+            out _);
+    }
+
+    public static bool TryProject(
+        string toolsDir,
+        out DotnetToolSettingsData? data,
+        out DotnetToolSettingsProjectionStatus status)
+    {
         data = null;
         try
         {
             string[] candidates = FindSettingsCandidates(toolsDir);
             if (candidates.Length == 0)
+            {
+                status = DotnetToolSettingsProjectionStatus.Missing;
                 return true;
+            }
 
             DotnetToolSettingsData? selected = Parse(candidates[0]);
             if (selected is null)
+            {
+                status = DotnetToolSettingsProjectionStatus.Invalid;
                 return false;
+            }
 
             for (int i = 1; i < candidates.Length; i++)
             {
                 DotnetToolSettingsData? candidate = Parse(candidates[i]);
                 if (!Equivalent(selected, candidate))
                 {
+                    status = DotnetToolSettingsProjectionStatus.Ambiguous;
                     return false;
                 }
             }
 
             data = selected;
+            status = DotnetToolSettingsProjectionStatus.Available;
             return true;
         }
         catch (Exception ex) when (
@@ -108,6 +127,7 @@ public static class DotnetToolSettingsParser
                 or System.Xml.XmlException
                 or InvalidDataException)
         {
+            status = DotnetToolSettingsProjectionStatus.Invalid;
             return false;
         }
     }

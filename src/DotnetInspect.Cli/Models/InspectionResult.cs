@@ -21,6 +21,13 @@ public class InspectionResult
     [JsonIgnore]
     internal bool ToolSettingsProjectionComplete { get; set; } = true;
 
+    [JsonIgnore]
+    internal DotnetToolSettingsProjectionStatus ToolSettingsProjectionStatus
+    {
+        get;
+        set;
+    } = DotnetToolSettingsProjectionStatus.Missing;
+
     public string Version { get; set; } = "";
 
     /// <summary>
