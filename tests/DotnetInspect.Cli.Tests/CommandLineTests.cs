@@ -35,20 +35,214 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
-    [Theory]
-    [InlineData(null, false, TipLevel.Quiet)]
-    [InlineData(null, true, TipLevel.Minimal)]
-    [InlineData("q", true, TipLevel.Quiet)]
-    [InlineData("m", true, TipLevel.Minimal)]
-    [InlineData("d", true, TipLevel.Detailed)]
-    public void ParseTipLevel_RequiresExplicitOption(
-        string? value,
-        bool optionPresent,
-        TipLevel expected)
+    [Fact]
+    public void CompanionOptions_AreShortOnlyAndAcceptOneProjection()
     {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var member = Assert.Single(
+            root.Subcommands,
+            command => command.Name == "member");
+
+        foreach (var option in new[]
+        {
+            Assert.Single(root.Options, option => option.Name == "-E"),
+            Assert.Single(member.Options, option => option.Name == "-E"),
+        })
+        {
+            Assert.Equal(0, option.Arity.MinimumNumberOfValues);
+            Assert.Equal(1, option.Arity.MaximumNumberOfValues);
+            Assert.DoesNotContain("--tips", option.Aliases);
+        }
+    }
+
+    [Theory]
+    [InlineData("-T")]
+    [InlineData("--tips")]
+    [InlineData("-T:q")]
+    [InlineData("-T:m")]
+    [InlineData("-T:d")]
+    public void LegacyTipsOption_IsRejected(string option)
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", option],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains("Use '-E .tips'", error);
+    }
+
+    [Fact]
+    public void LongTipsOptionWithValue_IsRejected()
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "q"],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains("Use '-E .tips'", error);
+    }
+
+    [Theory]
+    [InlineData("package", "Newtonsoft.Json", "--out", "--tips")]
+    [InlineData("package", "Newtonsoft.Json", "--output", "--tips=q")]
+    [InlineData("package", "Newtonsoft.Json", "-o", "-T")]
+    [InlineData("package", "Newtonsoft.Json", "--out", "-T:q")]
+    [InlineData("package", "Newtonsoft.Json", "--out", "-e")]
+    [InlineData("package", "Newtonsoft.Json", "--out", "-E.tips")]
+    [InlineData("package", "Newtonsoft.Json", "--nugetconfig", "--tips")]
+    [InlineData("Newtonsoft.Json", "--out", "--tips", null)]
+    public void RemovedCompanionSpellingAsRequiredValueIsPreserved(
+        string first,
+        string second,
+        string third,
+        string? fourth)
+    {
+        string[] args = fourth is null
+            ? [first, second, third]
+            : [first, second, third, fourth];
+
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            args,
+            out string? error);
+
+        Assert.False(rejected);
+        Assert.Null(error);
+    }
+
+    [Theory]
+    [InlineData("-E.tips")]
+    [InlineData("-E=.tips")]
+    [InlineData("-E:.tips")]
+    public void InlineCompanionProjection_IsRejected(string option)
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", option],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains("separate token", error);
+    }
+
+    [Theory]
+    [InlineData("tips")]
+    [InlineData("references")]
+    public void UndottedCompanionProjection_ReportsReplacement(string projection)
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "-E", projection],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains($"Use '-E .{projection}'", error);
+    }
+
+    [Fact]
+    public void RepeatedCompanionOption_IsRejected()
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "-E", ".tips", "-E", ".tips"],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Equal("'-E' may be specified only once.", error);
+    }
+
+    [Fact]
+    public void LowercaseCompanionOption_IsRejected()
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "-e", ".tips"],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains("Use uppercase '-E'", error);
+    }
+
+    [Theory]
+    [InlineData("-T")]
+    [InlineData("--tips")]
+    [InlineData("-E.tips")]
+    [InlineData("-E=.tips")]
+    public void RemovedCompanionSpellingAfterTerminator_RemainsPositional(
+        string option)
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["cache", "--", option],
+            out string? error);
+
+        Assert.False(rejected);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void DottedTipsProjection_DoesNotConsumeFollowingPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", "-E", ".tips", "Serialize:1"],
+            root);
+        var result = root.Parse(tokens);
+
+        Assert.Empty(result.Errors);
+        var arguments = Assert.IsType<Argument<string[]>>(
+            Assert.Single(result.CommandResult.Command.Arguments));
+        var values = Assert.IsType<string[]>(result.GetValue(arguments));
         Assert.Equal(
-            expected,
-            OptionParsers.ParseTipLevel(value, optionPresent));
+            ["JsonSerializer", "Serialize:1"],
+            values);
+    }
+
+    [Fact]
+    public void PrefixCompanionProjection_BindsToSelectedCommand()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["-E", ".tips", "member", "JsonSerializer"],
+            root);
+        var result = root.Parse(tokens);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal(
+            ["member", "JsonSerializer", "-E", ".tips"],
+            tokens);
+        var option = Assert.IsType<Option<string?>>(
+            Assert.Single(
+                result.CommandResult.Command.Options,
+                option => option.Name == "-E"));
+        Assert.Equal(".tips", result.GetValue(option));
+    }
+
+    [Fact]
+    public void BareCompanionOption_DoesNotClaimFollowingPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["member", "JsonSerializer", "-E", "Serialize:1"],
+            root);
+
+        Assert.Equal(
+            ["member", "JsonSerializer", "Serialize:1", "-E"],
+            tokens);
+    }
+
+    [Theory]
+    [InlineData(null, "Bare '-E' is reserved")]
+    [InlineData(".references", "reusable references")]
+    [InlineData(".unknown", "Unknown companion projection '.unknown'")]
+    public void UnavailableCompanionProjection_IsRejected(
+        string? projection,
+        string expected)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = projection is null
+            ? ["member", "JsonSerializer", "-E"]
+            : ["member", "JsonSerializer", "-E", projection];
+
+        var result = root.Parse(tokens);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(expected, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -57,7 +251,7 @@ public class CommandLineTests
         var root = CommandLineBuilder.CreateRootCommand();
         var withoutTips = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeAsync(root.Parse([]), []));
-        string[] tipTokens = ["-T"];
+        string[] tipTokens = ["-E", ".tips"];
         var withTips = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeAsync(
                 root.Parse(tipTokens),
@@ -71,7 +265,7 @@ public class CommandLineTests
     public async Task RootVerbosity_PreservesRequestedTips()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        string[] tokens = ["-v:m", "-T"];
+        string[] tokens = ["-v:m", "-E", ".tips"];
         var result = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeAsync(
                 root.Parse(tokens),
@@ -391,21 +585,36 @@ public class CommandLineTests
     }
 
     [Fact]
-    public async Task WriteTips_WithQuietLevel_WritesNothing()
+    public async Task WriteTips_WithoutCompanion_DoesNotCreateTips()
     {
         var (_, error) = await ConsoleCapture.RunAsync(
-            () => Hints.WriteTips(TipLevel.Quiet, new Tip("package", "Foo", "inspect")));
+            () => Hints.WriteTips(
+                CompanionOutput.None,
+                static () => throw new InvalidOperationException(
+                    "Absent companion output must not invoke the recommendation factory.")));
 
         Assert.Empty(error);
     }
 
     [Fact]
-    public async Task WriteTips_WithMinimalLevel_WritesTips()
+    public async Task WriteTips_WithExplicitRequest_WritesAtMostThreeTips()
     {
         var (_, error) = await ConsoleCapture.RunAsync(
-            () => Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect")));
+            () => Hints.WriteTips(
+                CompanionOutput.Tips,
+                static () =>
+                [
+                    new("package", "First", "first"),
+                    new("package", "Second", "second"),
+                    new("package", "Third", "third"),
+                    new("package", "Fourth", "fourth"),
+                ]));
 
         Assert.Contains("Tips:", error);
+        Assert.Contains("First", error);
+        Assert.Contains("Second", error);
+        Assert.Contains("Third", error);
+        Assert.DoesNotContain("Fourth", error);
     }
 
     [Fact]
@@ -554,10 +763,26 @@ public class CommandLineTests
     [Fact]
     public void TypeCommand_WithTypeFilter_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "-t", "*Serializer*", "--package", "System.Text.Json"]);
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", "-t", "*Serializer*", "--package", "System.Text.Json"],
+            root);
+        var result = root.Parse(tokens);
 
         Assert.Empty(result.Errors);
         Assert.Equal("type", result.CommandResult.Command.Name);
+        Assert.Contains("-t", tokens);
+    }
+
+    [Fact]
+    public void LowercaseTypeAliasAfterTerminator_RemainsPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", "--", "-t"],
+            root);
+
+        Assert.Equal(["type", "--", "-t"], tokens);
     }
 
     [Theory]
@@ -938,7 +1163,9 @@ public class CommandLineTests
 
         string[] result = PreprocessAndApplyLineWindow(args);
 
-        Assert.Same(args, result);
+        Assert.Equal(
+            ["find", "--package-prefix", "Azure", option, "-5"],
+            result);
         Assert.Equal(
             option == "-n" ? -5 : (int?)null,
             CommandLineBuilder.HeadLines);
@@ -1007,12 +1234,13 @@ public class CommandLineTests
 
     [Theory]
     [InlineData("-v")]
-    [InlineData("-T")]
-    [InlineData("--tips")]
+    [InlineData("-E .tips")]
     public void PreprocessArgs_OptionalDisplayValueDoesNotHideLineLimit(
         string option)
     {
-        string[] args = ["package", "Foo", option, "-n1"];
+        string[] args = option == "-E .tips"
+            ? ["package", "Foo", "-E", ".tips", "-n1"]
+            : ["package", "Foo", option, "-n1"];
 
         PreprocessAndApplyLineWindow(args);
 
@@ -1022,16 +1250,20 @@ public class CommandLineTests
 
     [Theory]
     [InlineData("-v")]
-    [InlineData("-T")]
-    [InlineData("--tips")]
+    [InlineData("-E .tips")]
     public void PreprocessArgs_OptionalDisplayValueDoesNotHideHeadShorthand(
         string option)
     {
-        string[] args = ["package", "Foo", option, "-5"];
+        string[] args = option == "-E .tips"
+            ? ["package", "Foo", "-E", ".tips", "-5"]
+            : ["package", "Foo", option, "-5"];
 
         string[] result = PreprocessAndApplyLineWindow(args);
 
-        Assert.Equal(["package", "Foo", option, "-n", "5"], result);
+        string[] expected = option == "-E .tips"
+            ? ["package", "Foo", "-n", "5", "-E", ".tips"]
+            : ["package", "Foo", option, "-n", "5"];
+        Assert.Equal(expected, result);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
     }
@@ -1113,9 +1345,6 @@ public class CommandLineTests
     [Theory]
     [InlineData("--path=-n1")]
     [InlineData("--library=-n1")]
-    [InlineData("-T=-n1")]
-    [InlineData("-T:-n1")]
-    [InlineData("-T-n1")]
     public void ParsedLineWindow_InlineOptionalValueRemainsAValue(string option)
     {
         PreprocessAndApplyLineWindow(["package", "Foo", option]);
@@ -2231,14 +2460,14 @@ public class CommandLineTests
                 ScopeLib = scopeLib,
                 ScopeTools = scopeTools,
                 Tfm = tfm,
-                TipLevel = TipLevel.Detailed,
+                CompanionOutput = CompanionOutput.Tips,
             };
             var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
             Directory.CreateDirectory(Path.Combine(tempDir, "tools"));
             try
             {
-                PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", TipLevel.Detailed, isLayout);
+                PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", CompanionOutput.Tips, isLayout);
             }
             finally
             {

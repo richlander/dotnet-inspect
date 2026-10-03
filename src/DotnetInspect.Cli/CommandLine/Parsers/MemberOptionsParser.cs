@@ -730,7 +730,7 @@ public static class MemberOptionsParser
 
         options = options with
         {
-            TipLevel = opts.ParseTipLevel(parseResult)
+            CompanionOutput = opts.ParseCompanionOutput(parseResult)
         };
 
         ResolvedMemberInspectionPlan plan =

@@ -152,7 +152,7 @@ public static class TypeCommand
             BodyKindQuery = options.BodyKindQuery,
             CloneCandidateQuery = options.CloneCandidateQuery,
             SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel,
+            CompanionOutput = options.CompanionOutput,
             RenderOptions = options.RenderOptions,
             RenderConfigWarnings = options.RenderConfigWarnings,
             RequestAllTaste = options.RequestAllTaste,
@@ -393,7 +393,9 @@ public static class TypeCommand
                         failure.Operation
                             != ApiSurface.ConstraintResolutionOperation);
 
-                if (!loaded.IsSummary && !options.FormatExplicitlySet && !options.IsRawOutput)
+                if (!inspectionIncomplete
+                    && !loaded.IsSummary
+                    && options.CompanionOutput != CompanionOutput.None)
                 {
                     var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                         : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -416,7 +418,7 @@ public static class TypeCommand
                             new(Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
                         ];
 
-                        Hints.WriteTips(options.TipLevel, [.. tips]);
+                        Hints.WriteTips(options.CompanionOutput, () => [.. tips]);
                     }
                 }
 
@@ -710,44 +712,27 @@ public static class TypeCommand
                         ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
                     }
 
-                    if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput)
+                    if (selectedSurfaceExitCode != 0)
+                        return selectedSurfaceExitCode;
+
+                    if (effectiveOptions.CompanionOutput != CompanionOutput.None)
                     {
                         var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                             : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
                             : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
                             : "";
 
-                        var simpleName = TypeMatcher.GetSimpleName(apiType.FullName);
-
-                        var overloadGroups = apiType.Members
-                            .Where(ApiMemberSectionDescriptors.IsMethodLike)
-                            .GroupBy(m => m.Name)
-                            .OrderByDescending(g => g.Count())
-                            .ToList();
-                        var exampleGroup = overloadGroups.FirstOrDefault();
-
-                        List<Tip> tips = [];
-
-                        if (exampleGroup != null)
-                        {
-                            var memberName = exampleGroup.Key == ".ctor" ? ".ctor" : exampleGroup.Key;
-                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} {memberName}:1", "view member detail (source, IL)"));
-                        }
-
-                        if (overloadGroups.Any(g => g.Count() > 1))
-                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
-
-                        tips.Add(new(Name, $"{simpleName} {sourceFlag} --tree", "view type tree"));
-                        tips.Add(new(MemberCommand.Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
-
-                        if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
-                            tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
-
-                        Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
+                        WriteTypeTips(
+                            effectiveOptions.CompanionOutput,
+                            apiType.FullName,
+                            apiType.Members.Select(
+                                static member =>
+                                    (member.Name, member.Kind)),
+                            sourceFlag,
+                            packageName,
+                            packageVersion);
                     }
 
-                    if (selectedSurfaceExitCode != 0)
-                        return selectedSurfaceExitCode;
                 }
                 else if (TryWritePrefixBrowse(
                     api,
@@ -1066,7 +1051,9 @@ public static class TypeCommand
                     result.Failures.FirstOrDefault()?.Detail
                     ?? "Could not extract API from library.");
             }
-            else if (wrote && execution.Surface is not null)
+            else if (wrote
+                && result.IsComplete
+                && execution.Surface is not null)
             {
                 WriteExactLibraryTips(
                     options,
@@ -1094,16 +1081,15 @@ public static class TypeCommand
         if (writeExitCode != 0)
             return writeExitCode;
 
-        if (!options.FormatExplicitlySet
-            && !options.IsRawOutput)
-        {
-            WriteExactLibraryTips(
-                options,
-                request,
-                execution.Surface);
-        }
+        if (!result.IsComplete)
+            return 1;
 
-        return result.IsComplete ? 0 : 1;
+        WriteExactLibraryTips(
+            options,
+            request,
+            execution.Surface);
+
+        return 0;
     }
 
     static void WriteExactLibraryTips(
@@ -1111,6 +1097,9 @@ public static class TypeCommand
         ExactLibraryApiInspectionRequest request,
         ApiSurface surface)
     {
+        if (options.CompanionOutput == CompanionOutput.None)
+            return;
+
         ApiType? exampleType = surface.Types
             .OrderByDescending(type => type.Members.Count)
             .FirstOrDefault();
@@ -1123,7 +1112,8 @@ public static class TypeCommand
         string simpleName =
             TypeMatcher.GetSimpleName(exampleType.FullName);
         Hints.WriteTips(
-            options.TipLevel,
+            options.CompanionOutput,
+            () =>
             [
                 new(
                     MemberCommand.Name,
@@ -1138,6 +1128,72 @@ public static class TypeCommand
                     $"-t \"*Writer*\" {sourceFlag}",
                     "filter types by pattern"),
             ]);
+    }
+
+    static void WriteTypeTips(
+        CompanionOutput companionOutput,
+        string fullName,
+        IEnumerable<(string Name, string Kind)> members,
+        string sourceFlag,
+        string? packageName,
+        string? packageVersion)
+    {
+        string simpleName = TypeMatcher.GetSimpleName(fullName);
+        var overloadGroups = members
+            .Where(member =>
+                ApiMemberSectionDescriptors.IsMethodLike(member.Kind))
+            .GroupBy(member => member.Name)
+            .OrderByDescending(group => group.Count())
+            .ToList();
+        var exampleGroup = overloadGroups.FirstOrDefault();
+        List<Tip> tips = [];
+
+        if (exampleGroup is not null)
+        {
+            string memberName =
+                exampleGroup.Key == ".ctor"
+                    ? ".ctor"
+                    : exampleGroup.Key;
+            tips.Add(
+                new(
+                    MemberCommand.Name,
+                    $"{simpleName} {sourceFlag} {memberName}:1",
+                    "view member detail (source, IL)"));
+        }
+
+        if (overloadGroups.Any(group => group.Count() > 1))
+        {
+            tips.Add(
+                new(
+                    MemberCommand.Name,
+                    $"{simpleName} {sourceFlag} -S \"Member Index\"",
+                    "full selector/identity table"));
+        }
+
+        tips.Add(
+            new(
+                Name,
+                $"{simpleName} {sourceFlag} --tree",
+                "view type tree"));
+        tips.Add(
+            new(
+                MemberCommand.Name,
+                $"-m {simpleName}.{exampleGroup?.Key ?? "Method"} "
+                    + sourceFlag,
+                "dotted member syntax"));
+
+        if (!string.IsNullOrEmpty(packageName)
+            && !string.IsNullOrEmpty(packageVersion))
+        {
+            tips.Add(
+                new(
+                    DiffCommand.Name,
+                    $"--package {packageName}@<prev>..{packageVersion} "
+                        + $"-t {simpleName}",
+                    "compare API changes"));
+        }
+
+        Hints.WriteTips(companionOutput, () => [.. tips]);
     }
 
     static Task<int> ExecuteSharedExactTypeAsync(
@@ -1181,6 +1237,21 @@ public static class TypeCommand
                 WriteExactTypeNonSuccess(envelope);
             else
                 WriteInspectionDiagnostics(envelope.Diagnostics);
+            if (wrote
+                && result.IsComplete
+                && options.CompanionOutput != CompanionOutput.None)
+            {
+                ExactTypeApi type = result.Type!;
+                WriteTypeTips(
+                    options.CompanionOutput,
+                    type.FullName,
+                    type.Members.Select(
+                        static member =>
+                            (member.Name, member.Kind)),
+                    $"--package {request.PackageId}",
+                    request.PackageId,
+                    request.Version);
+            }
             return wrote && result.IsComplete ? 0 : 1;
         }
 
@@ -1249,32 +1320,47 @@ public static class TypeCommand
 
             SelectedContextExactTypeSource source =
                 AssertSingleDefiningSource(envelope.Content);
+            ExactTypeRenderSource renderSource =
+                ExactTypeRenderSource.From(source);
             int outputExitCode =
                 await ExecuteWorkspaceExactTypeResultAsync(
                     options with
                     {
                         WorkspacePacket = null,
                         ShareFormat = null,
+                        CompanionOutput = CompanionOutput.None,
                     },
                     plan,
                     inspection,
                     envelope.Diagnostics,
-                    ExactTypeRenderSource.From(source),
+                    renderSource,
                     liveTarget
                         ?? throw new InvalidOperationException(
                             "An available Workspace Type result requires a "
                                 + "live inspection target."))
                     .ConfigureAwait(false);
-            if (options.ShareFormat is not { } shareFormat)
-                return outputExitCode;
-
-            InspectionShare share =
-                shareChoice.Refusal ?? envelope.Share;
-            int shareExitCode =
-                WorkspaceShareOutput.Write(share, shareFormat);
-            return outputExitCode != 0 || shareExitCode != 0
-                ? 1
+            int shareExitCode = options.ShareFormat is { } shareFormat
+                ? WorkspaceShareOutput.Write(
+                    shareChoice.Refusal ?? envelope.Share,
+                    shareFormat)
                 : 0;
+            if (outputExitCode != 0 || shareExitCode != 0)
+                return 1;
+
+            if (options.CompanionOutput != CompanionOutput.None)
+            {
+                ExactTypeApi type = inspection.Type!;
+                WriteTypeTips(
+                    options.CompanionOutput,
+                    type.FullName,
+                    type.Members.Select(
+                        static member =>
+                            (member.Name, member.Kind)),
+                    sourceFlag: "",
+                    renderSource.PackageName,
+                    renderSource.PackageVersion);
+            }
+            return 0;
         }).ConfigureAwait(false);
     }
 

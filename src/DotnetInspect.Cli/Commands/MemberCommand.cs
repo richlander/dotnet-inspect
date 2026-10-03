@@ -1396,7 +1396,11 @@ public static class MemberCommand
             if (writeExitCode != 0)
                 return writeExitCode;
 
-            if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
+            if (selectedSurfaceExitCode != 0)
+                return selectedSurfaceExitCode;
+
+            if (effectiveOptions.CompanionOutput != CompanionOutput.None
+                && effectiveOptions.OverloadIndex == null)
             {
                 var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                     : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -1429,10 +1433,12 @@ public static class MemberCommand
                 if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
                     tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
 
-                Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
+                Hints.WriteTips(
+                    effectiveOptions.CompanionOutput,
+                    () => [.. tips]);
             }
 
-            return selectedSurfaceExitCode;
+            return 0;
         }
         catch (Exception ex)
         {

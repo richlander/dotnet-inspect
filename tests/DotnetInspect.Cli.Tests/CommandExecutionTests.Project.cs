@@ -1166,10 +1166,10 @@ public partial class CommandExecutionTests
                 var outputPath = Path.Combine(tempDir, $"project-{testCase.Name}.txt");
                 var baseline = await RunProjectFixtureAsync(
                     projectPath,
-                    [.. testCase.Arguments, "--tips", "q"]);
+                    [.. testCase.Arguments]);
                 var redirected = await RunProjectFixtureAsync(
                     projectPath,
-                    [.. testCase.Arguments, "--out", outputPath, "--tips", "q"]);
+                    [.. testCase.Arguments, "--out", outputPath]);
 
                 Assert.Equal(0, baseline.Exit);
                 Assert.Equal(baseline.Exit, redirected.Exit);
@@ -1577,7 +1577,7 @@ public partial class CommandExecutionTests
     public async Task Project_Discover_ListsSupportedDocumentSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "project", "-D", "--table", "--tips", "q");
+            "project", "-D", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1598,7 +1598,7 @@ public partial class CommandExecutionTests
     public async Task Project_Discover_ProjectCategoryListsOwnedSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "project", "-D", "@Project", "--schema", "--table", "--tips", "q");
+            "project", "-D", "@Project", "--schema", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1618,7 +1618,7 @@ public partial class CommandExecutionTests
     public async Task Project_ComputedCategoryPolesAreRejected(string selector)
     {
         var (exit, output, error) = await RunAppAsync(
-            "project", "missing-project", "-S", selector, "--tips", "q");
+            "project", "missing-project", "-S", selector);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

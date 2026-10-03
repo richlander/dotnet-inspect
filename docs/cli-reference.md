@@ -491,8 +491,8 @@ workflow in more depth.
 dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S "Library Metrics"
 dotnet-inspect library System.Text.Json -S @Performance --count
-dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json -T q
-dotnet-inspect library System.Text.Json -S "Performance: Strings" --json -T q
+dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json
+dotnet-inspect library System.Text.Json -S "Performance: Strings" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
@@ -559,8 +559,17 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Tips are off by default. Use `-T` for contextual suggestions on `stderr` or
-`-T:d` for a larger set.
+Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
+dotted token, for up to three contextual suggestions on `stderr`. Bare `-E`
+and `-E .references` are reserved and currently fail before acquisition.
+Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
+`-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
+unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
+token after `-E` remains positional. Option-like filenames and other required
+option values retain that option's ownership; for example, `--out --tips`
+names an output path rather than invoking the retired option. `E`
+suggests *explain* and can also remind users that the companion is written to
+the error stream; the latter is a mnemonic, not an error classification.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, Package Query, online package range-version population, and exact
@@ -587,7 +596,7 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
-| Control tip verbosity | `-T q`, `-T m`, `-T d` |
+| Show contextual tips | `-E .tips` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
@@ -643,7 +652,7 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource \
   -S Integrations --where "integration=integration.opentelemetry"
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
-dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl
 ```
 
 Library `-D --details` is structural and does not acquire the target. It adds a
@@ -1342,7 +1351,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --so
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
   --print --part body --markdown
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
@@ -1981,7 +1990,7 @@ With `--envelope`, `--depth` remains a traversal input and `--rows`,
 accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
 explicit `-v`, Count, fields/columns, presentation projections or decoration,
 and rendered-line clipping are rejected before acquisition. `--verbose` and
-`--tips` remain on stderr. `--share` retains its existing policy
+`-E .tips` remain on stderr. `--share` retains its existing policy
 and emits its optional URL or packet as the final stderr line. There is no
 `--evidence-envelope` support yet.
 

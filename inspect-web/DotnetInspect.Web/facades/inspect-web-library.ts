@@ -34,6 +34,15 @@ export interface BrowserLibraryAccessibilityDescriptor {
   readonly count: number;
 }
 
+export interface BrowserLibraryApiFacetDescriptor {
+  readonly id: string;
+  readonly singularLabel: string;
+  readonly pluralLabel: string;
+  readonly weight: number;
+  readonly count: number;
+  readonly isDefault: boolean;
+}
+
 export interface BrowserLibraryAssemblyReference {
   readonly name: string;
   readonly version: string;
@@ -174,6 +183,8 @@ export interface BrowserLibraryTypeSurface {
   readonly displayName: string;
   readonly namespace: string;
   readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
   readonly accessibility: string;
   readonly accessibilityId: string;
   readonly assembly: string;
@@ -226,6 +237,8 @@ export interface BrowserUploadedLibraryResult {
 export interface BrowserUploadedLibrarySurface {
   readonly assemblies: ReadonlyArray<BrowserLibraryAssemblySurface>;
   readonly types: ReadonlyArray<BrowserLibraryTypeSurface>;
+  readonly typeKinds: ReadonlyArray<BrowserLibraryApiFacetDescriptor>;
+  readonly typeTraits: ReadonlyArray<BrowserLibraryApiFacetDescriptor>;
   readonly accessibility: ReadonlyArray<BrowserLibraryAccessibilityDescriptor>;
   readonly totalMembers: number;
   readonly inspectionErrors: ReadonlyArray<string>;

@@ -523,4 +523,163 @@ public sealed class MethodClassificationAnalyzerTests
     {
         public readonly bool Test(scoped MethodDefinitionView view) => true;
     }
+
+    [Fact]
+    public void ExtensionAnalyzer_CountsPublicStaticExtensionMethodsOnStaticExtensionTypes()
+    {
+        GateFixtureImage builder = new();
+        MemberReferenceHandle extension = builder.AttributeConstructor(builder.TypeRef(
+            "System.Runtime.CompilerServices", "ExtensionAttribute"));
+        MemberReferenceHandle editorBrowsable = builder.AttributeConstructor(
+            builder.TypeRef("System.ComponentModel", "EditorBrowsableAttribute"),
+            static t => t.Int32());
+        MemberReferenceHandle obsolete = builder.AttributeConstructor(
+            builder.TypeRef("System", "ObsoleteAttribute"),
+            static t => t.String());
+        MemberReferenceHandle compilerFeatureRequired = builder.AttributeConstructor(
+            builder.TypeRef("System.Runtime.CompilerServices", "CompilerFeatureRequiredAttribute"),
+            static t => t.String());
+        builder.Type("N", "Extensions")
+            .Attributes(extension)
+            .Method("Visible", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .Method("NotExtension", PointerParameter(), PublicStatic)
+            .Method("Instance", PointerParameter(), MethodAttributes.Public, attributeConstructors: extension)
+            .Method("Internal", PointerParameter(), MethodAttributes.Assembly | MethodAttributes.Static, attributeConstructors: extension)
+            .Method("HiddenMethod", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(editorBrowsable, GateFixtureImage.AttributeValue(1))
+            .Method("BrowsableAdvanced", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(editorBrowsable, GateFixtureImage.AttributeValue(2))
+            .Method("Deprecated", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(obsolete, GateFixtureImage.AttributeValue("Use Visible."))
+            .Method("CompilerCompatibility", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(obsolete, GateFixtureImage.AttributeValue(
+                "Types with embedded references are not supported in this version of your compiler."))
+            .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RefStructs"))
+            .Method("CompilerCompatibilityWithDiagnosticId", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(obsolete, ObsoleteWithDiagnosticId(
+                "Types with embedded references are not supported in this version of your compiler.",
+                "CS9999"))
+            .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RefStructs"))
+            .Method("ManyCompatibilityMarkers", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        for (int marker = 0; marker < 2048; marker++)
+        {
+            builder.Types[^1]
+                .MethodAttribute(obsolete, GateFixtureImage.AttributeValue(
+                    "Constructors of types with required members are not supported in this version of your compiler."))
+                .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RequiredMembers"));
+        }
+        builder.Type("N", "NotExtensionType")
+            .Method("Stray", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        builder.Type("N", "HiddenExtensions")
+            .Attributes(extension)
+            .Attribute(editorBrowsable, GateFixtureImage.AttributeValue(1))
+            .Method("OnHiddenType", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        builder.Type("N", "InstanceExtensions")
+            .WithShape(TypeAttributes.Public)
+            .Attributes(extension)
+            .Method("OnInstanceType", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        ImmutableArray<byte> image = builder.Build();
+
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
+        ImmutableArray<ClassifiedMethodRow> rows = Rows(image, ExtensionMethodAnalyzer.Instance);
+
+        // Legacy compares a compatibility message only within sixteen bytes
+        // of its length, so the DiagnosticId variant is an ordinary
+        // deprecation (hidden) for both; the 2,048 repeated markers are read
+        // once per row by the gate where legacy rescans at every marker.
+        Assert.Equal(4, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+        Assert.Equal(
+            ["Visible", "BrowsableAdvanced", "CompilerCompatibility", "ManyCompatibilityMarkers"],
+            rows.Select(static row => row.MethodName.ToString()));
+        Assert.All(rows, static row => Assert.Equal(MethodClassification.Extension, row.Classification));
+        Assert.Equal(4, LegacyExtensionMethodCount(image));
+    }
+
+    /// <summary>An <c>[Obsolete(message, DiagnosticId = id)]</c> value: one fixed string and one named property.</summary>
+    static BlobBuilder ObsoleteWithDiagnosticId(string message, string diagnosticId)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteSerializedString(message);
+        blob.WriteUInt16(1);
+        blob.WriteByte(0x54); // PROPERTY
+        blob.WriteByte(0x0e); // ELEMENT_TYPE_STRING
+        blob.WriteSerializedString("DiagnosticId");
+        blob.WriteSerializedString(diagnosticId);
+        return blob;
+    }
+
+    [Fact]
+    public void ExtensionAnalyzer_CountsSignaturesBeyondTheLegacySignatureGuard()
+    {
+        // Roslyn compiles `void M(this int[][]...[] value)` with 513 array
+        // levels, a shallow receiver with a deep second parameter, and a
+        // shallow method with 33,000 `int[]` parameters. Legacy decodes every
+        // candidate's signature through the signature guard, whose bounds are
+        // 512 levels and 65,536 type nodes, and drops all three; the analyzer
+        // decodes nothing and counts them. All three are extension methods,
+        // so the analyzer's answer is the faithful one.
+        GateFixtureImage builder = new();
+        MemberReferenceHandle extension = builder.AttributeConstructor(builder.TypeRef(
+            "System.Runtime.CompilerServices", "ExtensionAttribute"));
+        builder.Type("N", "Extensions")
+            .Attributes(extension)
+            .Method(
+                "Deep",
+                GateFixtureImage.VoidSignature(static t =>
+                {
+                    SignatureTypeEncoder element = t;
+                    for (int level = 0; level < 513; level++)
+                        element = element.SZArray();
+                    element.Int32();
+                }),
+                PublicStatic,
+                attributeConstructors: extension)
+            .Method(
+                "DeepParameter",
+                GateFixtureImage.VoidSignature(
+                    static t => t.Int32(),
+                    static t =>
+                    {
+                        SignatureTypeEncoder element = t;
+                        for (int level = 0; level < 513; level++)
+                            element = element.SZArray();
+                        element.Int32();
+                    }),
+                PublicStatic,
+                attributeConstructors: extension)
+            .Method(
+                "Wide",
+                GateFixtureImage.VoidSignature(
+                    [.. Enumerable.Repeat<Action<SignatureTypeEncoder>>(static t => t.SZArray().Int32(), 33_000)]),
+                PublicStatic,
+                attributeConstructors: extension);
+        ImmutableArray<byte> image = builder.Build();
+
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
+
+        Assert.Equal(3, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+        Assert.Equal(0, LegacyExtensionMethodCount(image));
+    }
+
+    static int LegacyExtensionMethodCount(ImmutableArray<byte> image)
+    {
+        using var reader = new PEReader(image);
+        return ExtensionMethodScanner.FindAllExtensions(reader, includeAll: false)
+            .Count(static member => member.Kind == "method");
+    }
+
+    [Theory]
+    [InlineData(typeof(System.Text.Json.JsonSerializer))]
+    [InlineData(typeof(Enumerable))]
+    public void ExtensionAnalyzer_CountEqualsTheLegacyScanOnARealAssembly(Type anchor)
+    {
+        ImmutableArray<byte> image = [.. File.ReadAllBytes(anchor.Assembly.Location)];
+        int legacy = LegacyExtensionMethodCount(image);
+
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
+
+        Assert.True(legacy > 0);
+        Assert.Equal(legacy, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+    }
 }

@@ -144,7 +144,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             AssemblyPath = typeof(BodyShapeFixture).Assembly.Location,
             MemberFilter = ["Item"],
             IncludeSections = [SectionNames.MemberIndex],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
         var detailOptions = memberTypeOptions with
         {
@@ -269,7 +269,6 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "Library[schema:138:9C300A900259]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,"
                     + "Library Info->Method classification (Library Info counts),"
                     + "Library Info->Resources,"
                     + "Library Info->Type forwarders;"
@@ -283,7 +282,6 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "Library[schema:138:9C300A900259]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,"
                     + "Library Info->Method classification (Library Info counts),"
                     + "Library Info->Resources,"
                     + "Library Info->Type forwarders;discovery=none",
@@ -295,13 +293,11 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "Library[schema:140:35B0515E3EF6]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,"
                     + "Library Info->Method classification (Library Info counts),"
                     + "Library Info->Resources,"
                     + "Library Info->Type forwarders;"
                     + "discovery=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,"
                     + "Library Info->Method classification (Library Info counts),"
                     + "Library Info->Resources,"
                     + "Library Info->Type forwarders,"

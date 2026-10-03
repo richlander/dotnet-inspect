@@ -93,6 +93,93 @@ static class ClassifiedRows
     }
 }
 
+// ---- Extension methods ----
+
+/// <summary>
+/// The extension-method scope: static (sealed abstract) types carrying
+/// <c>[Extension]</c> and not hidden; within them, public static methods
+/// carrying <c>[Extension]</c> and not hidden. It is the scope
+/// <c>ExtensionMethodScanner.FindAllExtensions(includeAll: false)</c> selects
+/// for methods, minus the signature decode, which Roslyn never fails and
+/// never produces parameterless. Rows outside the scope belong to no class.
+/// </summary>
+/// <remarks>
+/// Owned by <c>docs/design/method-classification-analyzers.md#the-analyzers</c>.
+/// </remarks>
+public sealed class ExtensionMethodScope : MethodRowClassifier<ExtensionMethodScope.Classification>
+{
+    public const int Extension = 0;
+
+    static readonly MetadataTypeNameTarget ExtensionAttribute = new(KnownAttributeNames.ExtensionAttribute);
+
+    ExtensionMethodScope()
+        : base(
+            "MethodClassification.ExtensionScope",
+            MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.HiddenAttribute)
+    {
+    }
+
+    public static ExtensionMethodScope Instance { get; } = new();
+
+    /// <summary>The scope's tests, as a struct a kernel specializes to.</summary>
+    public readonly struct Classification : IMethodRowClassification
+    {
+        public bool TypeInScope(scoped MethodRowTypeView type)
+        {
+            TypeAttributes attributes = type.Attributes;
+            const TypeAttributes Static = TypeAttributes.Sealed | TypeAttributes.Abstract;
+            return (attributes & Static) == Static
+                && type.HasAttributeOfType(ExtensionAttribute)
+                && !type.IsHidden;
+        }
+
+        public int Classify(scoped MethodDefinitionView row)
+        {
+            MethodAttributes attributes = row.Attributes;
+            if ((attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                return -1;
+            if ((attributes & MethodAttributes.Static) == 0)
+                return -1;
+            return row.HasAttributeOfType(ExtensionAttribute) && !row.IsHidden ? Extension : -1;
+        }
+    }
+}
+
+/// <summary>The scope's <c>Extension</c> class is the whole test.</summary>
+public struct ExtensionMethodTest : IMethodDefinitionPredicate
+{
+    public readonly bool Test(scoped MethodDefinitionView view) => true;
+}
+
+public struct ExtensionMethodRowProjection : IMethodDefinitionProjection<ClassifiedMethodRow>
+{
+    public readonly ClassifiedMethodRow Project(scoped MethodDefinitionView view) =>
+        ClassifiedRows.Project(view, MethodClassification.Extension, withModule: false);
+}
+
+/// <summary>The extension-method analyzer: rows the extension scope admits.</summary>
+public sealed class ExtensionMethodAnalyzer
+    : MethodDefinitionQueryProducer<ExtensionMethodScope.Classification, ExtensionMethodTest, ExtensionMethodRowProjection, ClassifiedMethodRow>
+{
+    ExtensionMethodAnalyzer()
+        : base(
+            "MethodClassification.Extension",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.HiddenAttribute,
+            MethodDefinitionLayers.IdentityText)
+    {
+    }
+
+    public static ExtensionMethodAnalyzer Instance { get; } = new();
+
+    internal override MethodRowClassifier<ExtensionMethodScope.Classification> GateClassifier =>
+        ExtensionMethodScope.Instance;
+
+    internal override SourceGateGuard? SourceGate { get; } =
+        new(ExtensionMethodScope.Instance, 1UL << ExtensionMethodScope.Extension);
+}
+
 // ---- P/Invoke ----
 
 /// <summary>The gate's <c>PInvoke</c> class is the whole test.</summary>

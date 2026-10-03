@@ -33,7 +33,7 @@ test("ordinary Type lists load cues and filters without a separate viewer", asyn
   await chooseSubject(page, "type", "Type");
   await page.locator("#type-filter-summary").click();
 
-  await page.locator('[data-namespace="Example"]').click();
+  await page.locator("#namespace-jump").selectOption("Example");
   await expect(page.locator("html")).toHaveAttribute(
     "data-structural-salience-request-count",
     "1",

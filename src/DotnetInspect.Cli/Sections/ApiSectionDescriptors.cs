@@ -647,7 +647,15 @@ public static class ApiMemberSectionDescriptors
     }
 
     internal static bool IsMethodLike(ApiMember member) =>
-        member.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method";
+        IsMethodLike(member.Kind);
+
+    internal static bool IsMethodLike(string kind) =>
+        kind is "method"
+            or "constructor"
+            or "finalizer"
+            or "operator"
+            or "explicit-interface-implementation"
+            or "extension-method";
 
     /// <summary>
     /// True when the member carries executable IL that a body section can analyze.

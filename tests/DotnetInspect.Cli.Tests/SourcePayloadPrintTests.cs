@@ -171,7 +171,7 @@ public sealed class SourcePayloadPrintTests
                 [
                     "member", type.FullName!,
                     "--library", type.Assembly.Location,
-                    member, "-S", section, "--tips", "q",
+                    member, "-S", section,
                     .. options,
                 ];
                 var root = CommandLineBuilder.CreateRootCommand();

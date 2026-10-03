@@ -89,7 +89,47 @@ public class StackSlotReuseRenderingTests
     }
 
     [Fact]
-    public void SubtypeStoreSupertypeLoadStaysOneVariable()
+    public void SubtypeStoresWithoutShapeEvidenceStaySplit()
+    {
+        var output = CSharpPrinter.Print(SubtypeStoreSupertypeLoadFunction()).Output!;
+
+        Assert.Contains("string S_0;", output);
+        Assert.Contains("object S_0_1;", output);
+        Assert.Contains("Exception S_0_2;", output);
+        Assert.Contains("S_0 = s;", output);
+        Assert.Contains("S_0_1 = o;", output);
+        Assert.Contains("S_0_2 = e;", output);
+        Assert.Contains("ConsumeObject(S_0_1);", output);
+    }
+
+    [Fact]
+    public void ProvenSubtypeStoresMaterializeBeforeRendering()
+    {
+        var function = SubtypeStoreSupertypeLoadFunction();
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [String] = TypeShape.Reference,
+            [Exception] = TypeShape.Reference,
+        };
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.True(decision.WillMaterialize, decision.Vetoes.ToString());
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(Object, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("object S_0;", output);
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("S_0 = s;", output);
+        Assert.Contains("S_0 = o;", output);
+        Assert.Contains("S_0 = e;", output);
+        Assert.Contains("ConsumeObject(S_0);", output);
+    }
+
+    static IrFunction SubtypeStoreSupertypeLoadFunction()
     {
         var consumeObject = new MethodRef(Holder, "ConsumeObject", Void, [Object], HasThis: false);
         var block = new Block(0);
@@ -103,15 +143,7 @@ public class StackSlotReuseRenderingTests
             null));
         block.Add(new ExpressionStatement(new Call(consumeObject, isVirtual: false, [new LoadStackSlot(0, Object)])));
         block.Add(new Return(null));
-
-        var output = CSharpPrinter.Print(Function(Void, block)).Output!;
-
-        Assert.Contains("object S_0;", output);
-        Assert.DoesNotContain("S_0_1", output);
-        Assert.Contains("S_0 = s;", output);
-        Assert.Contains("S_0 = o;", output);
-        Assert.Contains("S_0 = e;", output);
-        Assert.Contains("ConsumeObject(S_0);", output);
+        return Function(Void, block);
     }
 
     static Block BlockOf(IrNode statement)

@@ -216,7 +216,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28", "--lines");
+            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "-n", "28", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -311,7 +311,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             [
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-                "-S", "Source Files", "--urls", "--tips", "q",
+                "-S", "Source Files", "--urls",
                 .. preferRendered ? new[] { "--prefer-rendered-urls" } : [],
             ]);
 
@@ -331,7 +331,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--urls", "--json-array", "--tips", "q");
+            "-S", "Source Files", "--urls", "--json-array");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -413,7 +413,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "DotnetInspect.Cli.Tests.Sample*Constraint*", "--library", TestAssemblyPath,
-            "-D", "Enums", "--table", "--tips", "q");
+            "-D", "Enums", "--table");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -437,7 +437,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--value", "--row", "2", "--tips", "q");
+            "-S", "Source Files", "--value", "--row", "2");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -449,7 +449,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--urls", "--rows", "1", "--tips", "q");
+            "-S", "Source Files", "--urls", "--rows", "1");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -461,7 +461,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--tips", "q");
+            "-S", "Source Files", "--print");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -473,7 +473,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "2", "--jsonl", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "2", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -489,7 +489,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "first", "--jsonl", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "first", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -504,7 +504,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "last", "--jsonl", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "last", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -520,7 +520,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "1", "--json-array", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "1", "--json-array");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -543,7 +543,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "1", "--json", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "1", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -563,7 +563,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--json", "--tips", "q");
+            "-S", "Source Files", "--print", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -575,7 +575,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--urls", "--json", "--tips", "q");
+            "-S", "Source Files", "--urls", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -591,7 +591,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--value", "--row", "2", "--json", "--tips", "q");
+            "-S", "Source Files", "--value", "--row", "2", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -618,7 +618,7 @@ public partial class CommandExecutionTests
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-                "-S", "Source Files", "--print", "--row", "2", "--tips", "q");
+                "-S", "Source Files", "--print", "--row", "2");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -658,7 +658,7 @@ public partial class CommandExecutionTests
                     "--package", "Newtonsoft.Json@13.0.3",
                     .. member ? new[] { "-m", "SerializeObject" } : [],
                     "-S", member ? "Source Locations" : "Source Files",
-                    "--print", "--row", "2", "--json", "--tips", "q",
+                    "--print", "--row", "2", "--json",
                 ]);
 
             Assert.Equal(1, exit);
@@ -690,7 +690,7 @@ public partial class CommandExecutionTests
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-                "-S", "Source Files", "--print", "--row", "2", "--tips", "q");
+                "-S", "Source Files", "--print", "--row", "2");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -726,7 +726,7 @@ public partial class CommandExecutionTests
                     "--package", "Newtonsoft.Json@13.0.3",
                     .. member ? new[] { "-m", "SerializeObject" } : [],
                     "-S", member ? "Source Locations" : "Source Files",
-                    "--print", "--row", "2", "--tips", "q",
+                    "--print", "--row", "2",
                 ]);
 
             Assert.Equal(1, exit);
@@ -747,7 +747,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--json-array", "--tips", "q");
+            "-S", "Source Files", "--json-array");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -759,7 +759,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonConvert", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Member Index", "--count", "--tips", "q");
+            "-S", "Member Index", "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -771,7 +771,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--count", "--tips", "q");
+            "-S", "Source Files", "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -783,7 +783,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "-S", "Annotated Source Document", "--json", "--tips", "q");
+            "-S", "Annotated Source Document", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -798,7 +798,7 @@ public partial class CommandExecutionTests
         // would be a switch that cannot change any output there.
         var (exit, _, error) = await RunAppAsync(
             "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "--focus", "allocation", "--tips", "q");
+            "--focus", "allocation");
 
         Assert.NotEqual(0, exit);
         Assert.Contains("--focus", error, StringComparison.Ordinal);
@@ -808,7 +808,7 @@ public partial class CommandExecutionTests
     public async Task Type_Discovery_DoesNotListCostOverlay()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath, "-D", "--table", "--tips", "q");
+            "type", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath, "-D", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
