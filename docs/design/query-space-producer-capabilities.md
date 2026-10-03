@@ -8,15 +8,18 @@ It defines the reusable contract through which Query Space communicates a
 complete structural requirement set to one producer and the producer chooses
 one plan that satisfies those requirements.
 
-The first production adoption is the replacement Package Tree stack following
+The first production adoption is
+[#9201](https://github.com/richlander/dotnet-inspect/pull/9201), the replacement
+Package Tree stack following
 [#9056](https://github.com/richlander/dotnet-inspect/pull/9056). That adoption
 uses the same host-neutral requirement set for CLI and Browser/Wasm and retires
-the eager Package-child path it replaces. The existing PR remains the exact
-behavioral and NativeAOT evidence source until the replacement is published.
+the eager Package-child path it replaces.
 
-This contract is unimplemented. Every property in
-[Required evidence](#required-evidence) remains **unverified** until its named
-implementation or adoption gate lands in Release.
+The reusable contract and Graph Libraries reference adopter are implemented by
+[#9198](https://github.com/richlander/dotnet-inspect/pull/9198). The Package
+adoption and its production work-reduction gates are implemented by #9201.
+Each property in [Required evidence](#required-evidence) is verified only by
+its named Release gate.
 
 The merged Method-body demand stack in
 [#9165](https://github.com/richlander/dotnet-inspect/pull/9165),
