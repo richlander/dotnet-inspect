@@ -293,6 +293,148 @@ public sealed class MethodClassificationQueryTests
     }
 
     [Fact]
+    public void PreparedRequestSet_ReusesPlanningAcrossSessionExecutions()
+    {
+        string path = FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
+        ClassificationQuestion rows = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Rows);
+        ClassificationQuestion count = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Count);
+        ClassificationQuestion exists = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Exists);
+        using var session = AssemblyInspectionSession.Open(path);
+        PreparedMethodClassificationQuery prepared =
+            MethodClassificationQuery.Prepare(
+                session,
+                [rows, count, exists]);
+        MethodClassificationResult first =
+            MethodClassificationQuery.Execute(prepared);
+        MethodClassificationResult second =
+            MethodClassificationQuery.Execute(prepared);
+
+        foreach (ClassificationQuestion question
+            in prepared.Questions)
+        {
+            ClassificationAnswer firstAnswer =
+                first.AnswerTo(question);
+            ClassificationAnswer secondAnswer =
+                second.AnswerTo(question);
+            if (firstAnswer is ClassificationAnswer.Rows firstRows)
+            {
+                Assert.Equal(
+                    firstRows.Methods.ToArray(),
+                    Assert.IsType<ClassificationAnswer.Rows>(
+                        secondAnswer)
+                    .Methods.ToArray());
+            }
+            else
+            {
+                Assert.Equal(firstAnswer, secondAnswer);
+            }
+        }
+
+        Assert.Equal(
+            first.Receipts.Select(
+                static receipt =>
+                    (
+                        receipt.Execution,
+                        receipt.Receipt.UnitsVisited,
+                        receipt.Receipt.Critical)),
+            second.Receipts.Select(
+                static receipt =>
+                    (
+                        receipt.Execution,
+                        receipt.Receipt.UnitsVisited,
+                        receipt.Receipt.Critical)));
+        Assert.Equal(3, first.AssociationReceipts.Length);
+        Assert.Equal(
+            first.AssociationReceipts.Select(
+                static receipt =>
+                    (
+                        receipt.Execution,
+                        receipt.Analyzer,
+                        receipt.Receipt.UnitsVisited,
+                        receipt.Receipt.Critical)),
+            second.AssociationReceipts.Select(
+                static receipt =>
+                    (
+                        receipt.Execution,
+                        receipt.Analyzer,
+                        receipt.Receipt.UnitsVisited,
+                        receipt.Receipt.Critical)));
+        Assert.Equal(
+            [
+                ClassificationClosing.Rows,
+                ClassificationClosing.Count,
+                ClassificationClosing.Exists,
+            ],
+            first.AssociationReceipts
+                .Select(static receipt =>
+                    receipt.Execution.Closing)
+                .Order());
+
+        session.Dispose();
+        Assert.Throws<ObjectDisposedException>(
+            () => MethodClassificationQuery.Execute(
+                prepared));
+    }
+
+    [Fact]
+    public void SessionRequestSet_MultiAnalyzerCriticalIsPubliclyReceipted()
+    {
+        byte[] image = AsyncImage(
+            runtimeAsync: true,
+            hostileAttribute: true);
+        ClassificationQuestion pinvoke = new(
+            MethodClassificationAnalyzer.PInvoke,
+            ClassificationClosing.Count);
+        ClassificationQuestion async = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Count);
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+        PreparedMethodClassificationQuery prepared =
+            MethodClassificationQuery.Prepare(
+                session,
+                [pinvoke, async]);
+        MethodClassificationResult result =
+            MethodClassificationQuery.Execute(prepared);
+
+        Assert.Equal(
+            new ClassificationAnswer.Count(0),
+            result.AnswerTo(pinvoke));
+        ClassificationAnswer.Aborted aborted =
+            Assert.IsType<ClassificationAnswer.Aborted>(
+                result.AnswerTo(async));
+        Assert.Same(aborted.Critical, result.Critical);
+        Assert.Equal(2, result.AssociationReceipts.Length);
+        ClassificationAssociationReceipt asyncReceipt =
+            Assert.Single(
+                result.AssociationReceipts,
+                static receipt =>
+                    receipt.Analyzer
+                    == MethodClassificationAnalyzer.Async);
+        Assert.Same(
+            aborted.Critical,
+            asyncReceipt.Receipt.Critical);
+        WorkReceipt aggregate = result.ReceiptOf(
+            new ClassificationExecution(
+                ClassificationClosing.Count));
+        Assert.Same(aborted.Critical, aggregate.Critical);
+        Assert.Equal(
+            [
+                PInvokeAnalyzer.Instance.Identity,
+                AsyncAnalyzer.Instance.Identity,
+            ],
+            aggregate.Producers.Select(
+                static participation =>
+                    participation.Producer));
+    }
+
+    [Fact]
     public void Async_ExistsStopsAtTheFirstAsyncMethodInOnePass()
     {
         // Runtime async first, then a method whose attribute type nests

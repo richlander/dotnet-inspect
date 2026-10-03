@@ -181,6 +181,21 @@ public readonly record struct ClassificationReceipt(
     WorkReceipt Receipt);
 
 /// <summary>
+/// One analyzer association's independently settled work receipt.
+/// </summary>
+public readonly record struct ClassificationAssociationReceipt(
+    ClassificationExecution Execution,
+    MethodClassificationAnalyzer Analyzer,
+    WorkReceipt Receipt);
+
+internal readonly record struct ClassificationRequestBinding(
+    ClassificationExecution Execution,
+    MethodClassificationAnalyzer Analyzer,
+    MethodDefinitionSourceAssociation Association,
+    MethodDefinitionSourceRequest<
+        ClosedQueryResult<ClassifiedMethodRow>> Request);
+
+/// <summary>
 /// The typed result of a classification request: one answer per question, in
 /// question order, and, when the Finding was requested, the merged rows in
 /// legacy order and the classified-method Finding inspection built from them.
@@ -188,8 +203,8 @@ public readonly record struct ClassificationReceipt(
 /// an analyzer failed or the execution aborted, it is a failed inspection that
 /// names the analyzer and the unit, and <see cref="MergedRows"/> is default.
 /// <see cref="Receipts"/> holds one work receipt per closing and operand that
-/// ran, and
-/// <see cref="Critical"/> the first execution's critical failure, if any.
+/// ran, and <see cref="Critical"/> the first requested execution's first
+/// analyzer-association critical failure, if any.
 /// </summary>
 public sealed record MethodClassificationResult(
     ImmutableArray<(ClassificationQuestion Question, ClassificationAnswer Answer)> Answers,
@@ -203,6 +218,17 @@ public sealed record MethodClassificationResult(
     /// execution; default for the direct PEReader reference path.
     /// </summary>
     public ImmutableArray<MethodDefinitionSourceGroupReceipt> SourceGroups
+    {
+        get;
+        init;
+    }
+
+    /// <summary>
+    /// Exact per-association receipts for the session-backed QuerySpace path;
+    /// default for the direct PEReader reference path.
+    /// </summary>
+    public ImmutableArray<ClassificationAssociationReceipt>
+        AssociationReceipts
     {
         get;
         init;
@@ -234,6 +260,46 @@ public sealed record MethodClassificationResult(
 }
 
 /// <summary>
+/// Immutable Method Classification planning bound to one retained assembly
+/// session, preserving the exact question set and caller associations it
+/// prepared.
+/// </summary>
+public sealed class PreparedMethodClassificationQuery
+{
+    internal PreparedMethodClassificationQuery(
+        AssemblyInspectionSession session,
+        ImmutableArray<ClassificationQuestion> questions,
+        FindingSubject? findingSubject,
+        ImmutableArray<ClassificationExecution> requestedExecutions,
+        ImmutableArray<ClassificationRequestBinding> bindings,
+        AssemblyAnalysisRequestSetOperation? operation)
+    {
+        Session = session;
+        Questions = questions;
+        FindingSubject = findingSubject;
+        RequestedExecutions = requestedExecutions;
+        Bindings = bindings;
+        Operation = operation;
+    }
+
+    public ImmutableArray<ClassificationQuestion> Questions { get; }
+
+    internal AssemblyInspectionSession Session { get; }
+
+    internal FindingSubject? FindingSubject { get; }
+
+    internal ImmutableArray<ClassificationExecution>
+        RequestedExecutions
+    {
+        get;
+    }
+
+    internal ImmutableArray<ClassificationRequestBinding> Bindings { get; }
+
+    internal AssemblyAnalysisRequestSetOperation? Operation { get; }
+}
+
+/// <summary>
 /// Host-neutral method classification: per-analyzer questions and one
 /// combined request. A session-backed request composes independent closings
 /// through QuerySpace over one Method-source traversal; the PEReader overload
@@ -256,15 +322,130 @@ public static class MethodClassificationQuery
         FindingSubject? findingSubject = null)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ValidateQuestions(questions);
+        return Execute(
+            Prepare(
+                session,
+                questions,
+                findingSubject));
+    }
 
+    /// <summary>
+    /// Prepares immutable request associations and source planning against one
+    /// retained session. The caller owns that session and keeps it alive while
+    /// reusing the prepared query.
+    /// </summary>
+    public static PreparedMethodClassificationQuery Prepare(
+        AssemblyInspectionSession session,
+        IReadOnlyList<ClassificationQuestion> questions,
+        FindingSubject? findingSubject = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ValidateQuestions(questions);
+        ImmutableArray<ClassificationQuestion> retainedQuestions =
+            [.. questions];
         if (!session.HasMetadata
-            || !session.InspectImage(MetadataFormatAdmission.AdmitImage))
+            || !session.InspectImage(
+                MetadataFormatAdmission.AdmitImage))
         {
-            return Empty(questions, findingSubject);
+            return new(
+                session,
+                retainedQuestions,
+                findingSubject,
+                [],
+                [],
+                null);
         }
 
-        return ExecuteRequestSet(session, questions, findingSubject);
+        bool finding = findingSubject is not null;
+        ImmutableArray<ClassificationExecution> requestedExecutions =
+            [.. RequestedExecutions(retainedQuestions, finding)];
+        var associations =
+            ImmutableArray.CreateBuilder<
+                MethodDefinitionSourceAssociation>();
+        var bindings =
+            ImmutableArray.CreateBuilder<
+                ClassificationRequestBinding>();
+
+        foreach (ClassificationExecution execution
+            in requestedExecutions)
+        {
+            foreach (MethodClassificationAnalyzer analyzer
+                in RequestedAnalyzers(
+                    execution,
+                    retainedQuestions,
+                    finding))
+            {
+                Analyzer producer = ProducerFor(analyzer);
+                ProducerRequest producerRequest =
+                    execution.HeadCount is int count
+                        ? ProducerRequest.Head(producer, count)
+                        : new(
+                            producer,
+                            TerminalFor(execution.Closing));
+                WorkDescription work =
+                    ProducerPlanner.Plan([producerRequest])
+                        is ProducerPlanResult.Accepted producerPlan
+                            ? producerPlan.Description
+                            : throw new ProducerContractException(
+                                "The Method Classification request must plan.");
+                MethodDefinitionSourceRequest<
+                    ClosedQueryResult<ClassifiedMethodRow>> request =
+                        MethodDefinitionSourceRequest<
+                            ClosedQueryResult<ClassifiedMethodRow>>.Create(
+                                MethodClassificationQuerySpace.CreateRequest(
+                                    analyzer,
+                                    execution),
+                                work,
+                                producer);
+                MethodDefinitionSourceAssociation association =
+                    MethodDefinitionSourceAssociation.Create(request);
+                associations.Add(association);
+                bindings.Add(
+                    new(
+                        execution,
+                        analyzer,
+                        association,
+                        request));
+            }
+        }
+
+        AssemblyAnalysisRequestSetOperation? operation = null;
+        if (associations.Count > 0)
+        {
+            MethodDefinitionSourceRequestSetPlan plan =
+                MethodDefinitionSourceRequestSet.Plan(
+                    MethodDefinitionSourceResourceIdentity.Create(),
+                    associations)
+                is MethodDefinitionSourceRequestSetPlanResult.Accepted accepted
+                    ? accepted.Plan
+                    : throw new ProducerContractException(
+                        "The Method Classification QuerySpace request set "
+                        + "must plan.");
+            operation = AssemblyAnalysisRequestSetOperation.Create(
+                "MethodClassification",
+                plan);
+        }
+
+        return new(
+            session,
+            retainedQuestions,
+            findingSubject,
+            requestedExecutions,
+            bindings.ToImmutable(),
+            operation);
+    }
+
+    /// <summary>
+    /// Executes one prepared Method Classification request against its
+    /// retained session.
+    /// </summary>
+    public static MethodClassificationResult Execute(
+        PreparedMethodClassificationQuery prepared)
+    {
+        ArgumentNullException.ThrowIfNull(prepared);
+        return ExecuteRequestSet(
+            prepared.Session,
+            prepared);
     }
 
     /// <summary>
@@ -349,75 +530,15 @@ public static class MethodClassificationQuery
 
     static MethodClassificationResult ExecuteRequestSet(
         AssemblyInspectionSession session,
-        IReadOnlyList<ClassificationQuestion> questions,
-        FindingSubject? findingSubject)
+        PreparedMethodClassificationQuery prepared)
     {
-        bool finding = findingSubject is not null;
-        List<ClassificationExecution> requestedExecutions =
-            RequestedExecutions(questions, finding);
-        var associations =
-            new List<MethodDefinitionSourceAssociation>();
-        var requests =
-            new Dictionary<
-                (ClassificationExecution, MethodClassificationAnalyzer),
-                ClassificationRequestBinding>();
-
-        foreach (ClassificationExecution execution
-            in requestedExecutions)
+        if (prepared.Operation is not { } operation)
         {
-            foreach (MethodClassificationAnalyzer analyzer
-                in RequestedAnalyzers(
-                    execution,
-                    questions,
-                    finding))
-            {
-                Analyzer producer = ProducerFor(analyzer);
-                ProducerRequest producerRequest =
-                    execution.HeadCount is int count
-                        ? ProducerRequest.Head(producer, count)
-                        : new(
-                            producer,
-                            TerminalFor(execution.Closing));
-                WorkDescription work =
-                    ProducerPlanner.Plan([producerRequest])
-                        is ProducerPlanResult.Accepted producerPlan
-                            ? producerPlan.Description
-                            : throw new ProducerContractException(
-                                "The Method Classification request must plan.");
-                MethodDefinitionSourceRequest<
-                    ClosedQueryResult<ClassifiedMethodRow>> request =
-                        MethodDefinitionSourceRequest<
-                            ClosedQueryResult<ClassifiedMethodRow>>.Create(
-                                MethodClassificationQuerySpace.CreateRequest(
-                                    analyzer,
-                                    execution),
-                                work,
-                                producer);
-                MethodDefinitionSourceAssociation association =
-                    MethodDefinitionSourceAssociation.Create(request);
-                associations.Add(association);
-                requests.Add(
-                    (execution, analyzer),
-                    new(association, request));
-            }
+            return Empty(
+                prepared.Questions,
+                prepared.FindingSubject);
         }
 
-        if (associations.Count == 0)
-            return Empty(questions, findingSubject);
-
-        MethodDefinitionSourceRequestSetPlan plan =
-            MethodDefinitionSourceRequestSet.Plan(
-                MethodDefinitionSourceResourceIdentity.Create(),
-                associations)
-            is MethodDefinitionSourceRequestSetPlanResult.Accepted accepted
-                ? accepted.Plan
-                : throw new ProducerContractException(
-                    "The Method Classification QuerySpace request set "
-                    + "must plan.");
-        AssemblyAnalysisRequestSetOperation operation =
-            AssemblyAnalysisRequestSetOperation.Create(
-                "MethodClassification",
-                plan);
         AssemblyAnalysisRequestSetServiceResult serviceResult =
             session.SnapshotOperation(
                 operation,
@@ -431,7 +552,9 @@ public static class MethodClassificationQuery
             if (rejected.Kind
                 == AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable)
             {
-                return Empty(questions, findingSubject);
+                return Empty(
+                    prepared.Questions,
+                    prepared.FindingSubject);
             }
 
             throw new ProducerContractException(
@@ -442,30 +565,29 @@ public static class MethodClassificationQuery
         MethodDefinitionSourceRequestSetExecution completed =
             ((AssemblyAnalysisRequestSetServiceResult.Completed)serviceResult)
                 .Execution;
+        ImmutableArray<ClassificationAssociationReceipt>
+            associationReceipts =
+                AssociationReceipts(prepared, completed);
         return BuildResult(
-            questions,
-            findingSubject,
-            requestedExecutions,
+            prepared.Questions,
+            prepared.FindingSubject,
+            prepared.RequestedExecutions,
             (execution, analyzer) =>
             {
                 ClassificationRequestBinding binding =
-                    requests[(execution, analyzer)];
+                    BindingOf(
+                        prepared,
+                        execution,
+                        analyzer);
                 return completed.ResultOf(
                     binding.Association,
                     binding.Request);
             },
-            execution =>
-            {
-                MethodClassificationAnalyzer analyzer =
-                    RequestedAnalyzers(
-                        execution,
-                        questions,
-                        finding)[0];
-                return completed.ResultOf(
-                    requests[(execution, analyzer)].Association)
-                    .WorkReceipt;
-            },
-            completed.GroupReceipts);
+            execution => AggregateReceipt(
+                associationReceipts,
+                execution),
+            completed.GroupReceipts,
+            associationReceipts);
     }
 
     static MethodClassificationResult BuildResult(
@@ -478,7 +600,9 @@ public static class MethodClassificationQuery
             Result> resultOf,
         Func<ClassificationExecution, WorkReceipt> receiptOf,
         ImmutableArray<MethodDefinitionSourceGroupReceipt> sourceGroups =
-            default)
+            default,
+        ImmutableArray<ClassificationAssociationReceipt>
+            associationReceipts = default)
     {
         var answers =
             ImmutableArray.CreateBuilder<
@@ -540,6 +664,7 @@ public static class MethodClassificationQuery
             receipts.MoveToImmutable())
         {
             SourceGroups = sourceGroups,
+            AssociationReceipts = associationReceipts,
         };
     }
 
@@ -613,10 +738,97 @@ public static class MethodClassificationQuery
         return analyzers;
     }
 
-    readonly record struct ClassificationRequestBinding(
-        MethodDefinitionSourceAssociation Association,
-        MethodDefinitionSourceRequest<
-            ClosedQueryResult<ClassifiedMethodRow>> Request);
+    static ClassificationRequestBinding BindingOf(
+        PreparedMethodClassificationQuery prepared,
+        ClassificationExecution execution,
+        MethodClassificationAnalyzer analyzer)
+    {
+        foreach (ClassificationRequestBinding binding
+            in prepared.Bindings)
+        {
+            if (binding.Execution == execution
+                && binding.Analyzer == analyzer)
+            {
+                return binding;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"The Method Classification association "
+            + $"'{analyzer}/{execution}' was not prepared.");
+    }
+
+    static ImmutableArray<ClassificationAssociationReceipt>
+        AssociationReceipts(
+            PreparedMethodClassificationQuery prepared,
+            MethodDefinitionSourceRequestSetExecution completed)
+    {
+        var receipts =
+            ImmutableArray.CreateBuilder<
+                ClassificationAssociationReceipt>(
+                    prepared.Bindings.Length);
+        foreach (ClassificationRequestBinding binding
+            in prepared.Bindings)
+        {
+            receipts.Add(
+                new(
+                    binding.Execution,
+                    binding.Analyzer,
+                    completed.ResultOf(
+                        binding.Association)
+                        .WorkReceipt));
+        }
+
+        return receipts.MoveToImmutable();
+    }
+
+    static WorkReceipt AggregateReceipt(
+        ImmutableArray<ClassificationAssociationReceipt> receipts,
+        ClassificationExecution execution)
+    {
+        var producers =
+            ImmutableArray.CreateBuilder<ProducerParticipation>();
+        int unitsVisited = 0;
+        CriticalFailure? critical = null;
+        bool identityBudgetArmed = false;
+        long identityWorkCharged = 0;
+        long signatureShapeNodesWalked = 0;
+        foreach (ClassificationAssociationReceipt association
+            in receipts)
+        {
+            if (association.Execution != execution)
+                continue;
+
+            WorkReceipt receipt = association.Receipt;
+            unitsVisited = Math.Max(
+                unitsVisited,
+                receipt.UnitsVisited);
+            producers.AddRange(receipt.Producers);
+            critical ??= receipt.Critical;
+            identityBudgetArmed |= receipt.IdentityBudgetArmed;
+            identityWorkCharged += receipt.IdentityWorkCharged;
+            signatureShapeNodesWalked +=
+                receipt.SignatureShapeNodesWalked;
+        }
+
+        if (producers.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"The Method Classification execution "
+                + $"'{execution}' has no association receipts.");
+        }
+
+        return new(
+            unitsVisited,
+            producers.ToImmutable())
+        {
+            Critical = critical,
+            IdentityBudgetArmed = identityBudgetArmed,
+            IdentityWorkCharged = identityWorkCharged,
+            SignatureShapeNodesWalked =
+                signatureShapeNodesWalked,
+        };
+    }
 
     static MethodDefinitionExecution ExecutionOf(
         IReadOnlyList<ClassificationExecution> identities,

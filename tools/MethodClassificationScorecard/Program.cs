@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -22,8 +23,9 @@ using NLinq;
 // identical row: the analyzers' gate and tests, with the gate's per-execution
 // attribute-match memos, and the Planner's projection (identity through
 // MethodRowProjection, every field inert). Direct uses the PEReader
-// reference path; Planner uses the production session-backed request set.
-// Only the read machinery differs.
+// reference path; Planner uses the production prepared session-backed request
+// set, with cold preparation reported separately. Only the read machinery
+// differs.
 // The equivalent columns follow #8870's audit harness (tools/AnalyzerAudit on
 // its scratch branch). Rows compare by method name in traversal order.
 if (args.Length == 0 || args[0] is not ("async" or "pinvoke"))
@@ -49,6 +51,9 @@ IReadOnlyList<ScorecardAsset<MethodClassificationAsset>> assets =
     LoadAssets(options!.Assets);
 try
 {
+    Metrics.WritePreparation(
+        population,
+        assets);
     ScorecardCheck check = Scorecard.Check(assets, oracle, columns, static name => name);
     foreach (ScorecardMismatch mismatch in check.Mismatches)
         Console.WriteLine($"mismatch\t{mismatch.Asset}\t{shape.Label(mismatch.Closing)}\t{mismatch.Column}\t{mismatch.Answer}\toracle={mismatch.OracleAnswer}");
@@ -167,9 +172,67 @@ sealed class MethodClassificationAsset(
     PEReader reader,
     AssemblyInspectionSession session) : IDisposable
 {
+    readonly Dictionary<
+        (
+            ClassificationPopulation Population,
+            ScorecardClosing Closing,
+            int HeadCount),
+        PreparedMethodClassificationQuery> _prepared = [];
+    readonly Dictionary<
+        ClassificationPopulation,
+        PreparedMethodClassificationQuery> _preparedBundles = [];
+
     public PEReader Reader { get; } = reader;
 
     public AssemblyInspectionSession Session { get; } = session;
+
+    public PreparedMethodClassificationQuery Prepared(
+        ClassificationPopulation population,
+        ScorecardClosing closing,
+        ScorecardShape shape)
+    {
+        var key = (
+            population,
+            closing,
+            closing == ScorecardClosing.Head
+                ? shape.N
+                : 0);
+        if (!_prepared.TryGetValue(
+                key,
+                out PreparedMethodClassificationQuery? prepared))
+        {
+            prepared = MethodClassificationQuery.Prepare(
+                Session,
+                [Columns.PlannerQuestion(
+                    population,
+                    closing,
+                    shape)]);
+            _prepared.Add(key, prepared);
+        }
+
+        return prepared;
+    }
+
+    public PreparedMethodClassificationQuery PreparedBundle(
+        ClassificationPopulation population)
+    {
+        if (!_preparedBundles.TryGetValue(
+                population,
+                out PreparedMethodClassificationQuery? prepared))
+        {
+            (
+                ClassificationQuestion rows,
+                ClassificationQuestion count,
+                ClassificationQuestion exists) =
+                    Columns.BundleQuestions(population);
+            prepared = MethodClassificationQuery.Prepare(
+                Session,
+                [rows, count, exists]);
+            _preparedBundles.Add(population, prepared);
+        }
+
+        return prepared;
+    }
 
     public void Dispose()
     {
@@ -180,6 +243,45 @@ sealed class MethodClassificationAsset(
 
 static class Metrics
 {
+    public static void WritePreparation(
+        ClassificationPopulation population,
+        IReadOnlyList<ScorecardAsset<MethodClassificationAsset>>
+            assets)
+    {
+        foreach (ScorecardAsset<MethodClassificationAsset> asset
+            in assets)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            long retainedBefore = GC.GetTotalMemory(
+                forceFullCollection: true);
+            long allocatedBefore =
+                GC.GetAllocatedBytesForCurrentThread();
+            long started = Stopwatch.GetTimestamp();
+            PreparedMethodClassificationQuery prepared =
+                asset.Asset.PreparedBundle(population);
+            double elapsedMicroseconds =
+                Stopwatch.GetElapsedTime(started)
+                    .TotalMicroseconds;
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread()
+                - allocatedBefore;
+            long retainedAfter = GC.GetTotalMemory(
+                forceFullCollection: true);
+
+            Console.WriteLine(
+                $"preparation\t{asset.Name}"
+                + "\tRows+Count+Exists"
+                + $"\tcold-us={elapsedMicroseconds:F3}"
+                + $"\tcold-allocated={allocated}"
+                + "\tretained-heap-delta="
+                + Math.Max(0, retainedAfter - retainedBefore)
+                + "\treuse=explicit-prepared-query");
+            GC.KeepAlive(prepared);
+        }
+    }
+
     public static void WriteWork(
         ClassificationPopulation population,
         IReadOnlyList<ScorecardAsset<MethodClassificationAsset>>
@@ -432,7 +534,7 @@ static class Columns
                 Planner(
                     population,
                     closing,
-                    asset.Session,
+                    asset,
                     shape)),
     ];
 
@@ -447,14 +549,14 @@ static class Columns
             (_, asset) =>
                 IndependentBundle(
                     population,
-                    asset.Session,
+                    asset,
                     shape)),
         new(
             "Collapsed",
             (_, asset) =>
                 CollapsedBundle(
                     population,
-                    asset.Session,
+                    asset,
                     shape)),
     ];
 
@@ -607,7 +709,7 @@ static class Columns
     /// </summary>
     static ScorecardAnswer<string> IndependentBundle(
         ClassificationPopulation population,
-        AssemblyInspectionSession session,
+        MethodClassificationAsset asset,
         ScorecardShape shape)
     {
         (
@@ -617,14 +719,20 @@ static class Columns
                 BundleQuestions(population);
         return BundleAnswer(
             MethodClassificationQuery.Execute(
-                session,
-                [rows]),
+                asset.Prepared(
+                    population,
+                    ScorecardClosing.Rows,
+                    shape)),
             MethodClassificationQuery.Execute(
-                session,
-                [count]),
+                asset.Prepared(
+                    population,
+                    ScorecardClosing.Count,
+                    shape)),
             MethodClassificationQuery.Execute(
-                session,
-                [exists]),
+                asset.Prepared(
+                    population,
+                    ScorecardClosing.Exists,
+                    shape)),
             rows,
             count,
             exists,
@@ -633,7 +741,7 @@ static class Columns
 
     static ScorecardAnswer<string> CollapsedBundle(
         ClassificationPopulation population,
-        AssemblyInspectionSession session,
+        MethodClassificationAsset asset,
         ScorecardShape shape)
     {
         (
@@ -643,8 +751,7 @@ static class Columns
                 BundleQuestions(population);
         MethodClassificationResult result =
             MethodClassificationQuery.Execute(
-                session,
-                [rows, count, exists]);
+                asset.PreparedBundle(population));
         return BundleAnswer(
             result,
             result,
@@ -655,7 +762,7 @@ static class Columns
             shape);
     }
 
-    static (
+    internal static (
         ClassificationQuestion Rows,
         ClassificationQuestion Count,
         ClassificationQuestion Exists) BundleQuestions(
@@ -726,19 +833,23 @@ static class Columns
     static ScorecardAnswer<string> Planner(
         ClassificationPopulation population,
         ScorecardClosing closing,
-        AssemblyInspectionSession session,
+        MethodClassificationAsset asset,
         ScorecardShape shape)
     {
         ClassificationQuestion question =
             PlannerQuestion(population, closing, shape);
         return PlannerAnswer(
-            MethodClassificationQuery.Execute(session, [question]),
+            MethodClassificationQuery.Execute(
+                asset.Prepared(
+                    population,
+                    closing,
+                    shape)),
             question,
             closing,
             shape);
     }
 
-    static ClassificationQuestion PlannerQuestion(
+    internal static ClassificationQuestion PlannerQuestion(
         ClassificationPopulation population,
         ScorecardClosing closing,
         ScorecardShape shape)

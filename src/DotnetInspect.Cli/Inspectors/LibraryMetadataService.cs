@@ -401,8 +401,10 @@ internal static class LibraryMetadataService
                         logger,
                         new MethodClassificationBindingResult.Available(
                             MethodClassificationQuery.Execute(
-                                session,
-                                MethodClassificationDemand.AllQuestions)));
+                                MethodClassificationQuery.Prepare(
+                                    session,
+                                    MethodClassificationDemand
+                                        .AllQuestions))));
                 }
 
                 catch (Exception ex)

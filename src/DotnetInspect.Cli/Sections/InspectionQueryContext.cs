@@ -233,8 +233,12 @@ public sealed class InspectionQueryContext : IDisposable
             {
                 try
                 {
+                    PreparedMethodClassificationQuery prepared =
+                        MethodClassificationQuery.Prepare(
+                            session,
+                            questions);
                     return new MethodClassificationBindingResult.Available(
-                        MethodClassificationQuery.Execute(session, questions));
+                        MethodClassificationQuery.Execute(prepared));
                 }
                 catch (Exception ex) when (ex is not ILInspector.Analysis.Planning.ProducerContractException)
                 {

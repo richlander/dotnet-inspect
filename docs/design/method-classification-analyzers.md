@@ -332,6 +332,18 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
     Producer Planning lane per closing and Head operand. The PEReader overload
     remains the independent direct reference path. Count and Exists still
     decode no identity text.
+  - Preparation is an explicit session-bound boundary. It admits one retained
+    `AssemblyInspectionSession`, then retains the exact question set, Producer
+    Planning descriptions, QuerySpace associations, Method-source request-set
+    plan, and operation before terminal execution. The convenience session
+    overload prepares and executes once; repeated or measured terminal
+    execution reuses one immutable prepared query against that exact session.
+    The caller owns and keeps the session alive.
+  - Session execution publishes every analyzer association's independent work
+    receipt. The compatible per-closing receipt is an aggregate over those
+    exact receipts, and its critical failure is the first association failure
+    in declared analyzer order. A later analyzer failure therefore cannot
+    disappear behind an earlier analyzer's successful receipt.
 - **Rows order is a typed request parameter,** not a host sort. A query
   offers exactly the orders today's outputs use:
 
@@ -516,5 +528,6 @@ work, tracked in #8733, and not part of this change.
   against the NLinq fixture
   of [#8745](https://github.com/richlander/dotnet-inspect/issues/8745).
   Independent and collapsed request-set columns compare Rows, Count, and
-  Exists composition. The scorecard also reports allocations, source work,
+  Exists composition. The scorecard reports cold session-bound preparation,
+  retained heap, prepared terminal allocations, source work,
   identity work, and row materialization.
