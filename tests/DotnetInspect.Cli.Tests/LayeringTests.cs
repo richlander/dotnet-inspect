@@ -831,6 +831,9 @@ public sealed class LayeringTests
         [
             "DotnetInspect.Cli.Tests",
             "DotnetInspector.MetadataRendering.Tests",
+            // Performance-oracle fixtures under tests/: they apply the product's
+            // guarded signature decode as a scorecard predicate (#9153).
+            "DotnetInspector.PerformanceOracles",
             "ILInspector.Metadata.LegacyOracles",
             "ILInspector.Metadata.PerformanceOracles.Tests",
             "ILInspector.Metadata.Tests",
