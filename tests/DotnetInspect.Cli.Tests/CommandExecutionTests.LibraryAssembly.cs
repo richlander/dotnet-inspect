@@ -5118,6 +5118,57 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_ExactEmptyIncompleteResourceTriageNamesLimitation()
+    {
+        var inspection = new LibraryInspection
+        {
+            FileName = "Lib.dll",
+        };
+        var complete =
+            new FindingInspection<ResourceLifecycleOccurrence>.Complete([]);
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Incomplete(
+                complete,
+                [],
+                [
+                    new ResourceLifecycleLimitation(
+                        ResourceLifecycleLimitationKind.UnsupportedFlow,
+                        "Address-taken resource flow is unsupported."),
+                ]),
+            () => new Dictionary<
+                int,
+                (string? Stable, string Visibility, string Selector)>());
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.ArrayPoolEscapes],
+            ExactIncludeSectionsOverride =
+                [SectionNames.ArrayPoolEscapes],
+        };
+
+        bool rejected = false;
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => rejected =
+                LibraryCommand.RejectEmptyExactSection(
+                    inspection,
+                    options,
+                    LibrarySections.CreatePipeline()));
+
+        Assert.True(rejected);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Warning: Array Pool Escapes inspection incomplete "
+            + "(analysis.resource-lifecycle): UnsupportedFlow: "
+            + "Address-taken resource flow is unsupported.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "This section (Array Pool Escapes) produced no output.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibraryCommand_CountStillNamesFailedSection()
     {
         var options = new LibraryOptions

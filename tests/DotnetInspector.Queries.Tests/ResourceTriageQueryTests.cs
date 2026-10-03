@@ -53,20 +53,21 @@ public sealed class ResourceTriageQueryTests
             lifecycle,
             new FindingSubject("query-tests", "query-tests"));
 
-        var available =
-            Assert.IsType<ResourceTriageResult.Available>(result);
+        var incomplete =
+            Assert.IsType<ResourceTriageResult.Incomplete>(result);
+        Assert.NotEmpty(incomplete.Limitations);
         Assert.DoesNotContain(
-            available.Assessments,
+            incomplete.Assessments,
             candidate =>
                 candidate.Source.Payload.Method.Name
                     == NormalAndExceptionalExit);
         ResourceTriageAssessment assessment = Assert.Single(
-            available.Assessments,
+            incomplete.Assessments,
             candidate =>
                 candidate.Source.Payload.Method.Name
                     == ReadBeforeReturn);
         Assert.Contains(
-            available.Inspection.Findings,
+            incomplete.Inspection.Findings,
             finding => finding == assessment.Source);
         Assert.Equal(
             ResourceTriageActionability.UntrustedActionable,
@@ -98,11 +99,11 @@ public sealed class ResourceTriageQueryTests
         ResourceTriageResult result = ResourceTriageQuery.Execute(
             execution.ResourceLifecycle,
             new FindingSubject("query-tests", "query-tests"));
-        var available =
-            Assert.IsType<ResourceTriageResult.Available>(result);
+        var incomplete =
+            Assert.IsType<ResourceTriageResult.Incomplete>(result);
 
         ResourceTriageAssessment lookalike = Assessment(
-            available,
+            incomplete,
             "RentLookalikeReadBeforeReturn");
         Assert.Equal(
             ResourceTriageActionability.Unknown,
@@ -112,7 +113,7 @@ public sealed class ResourceTriageQueryTests
             Assert.Single(lookalike.Boundaries).Kind);
 
         ResourceTriageAssessment framework = Assessment(
-            available,
+            incomplete,
             "RentTextReaderReadBeforeReturn");
         Assert.Equal(
             ResourceTriageActionability.UntrustedActionable,
@@ -122,7 +123,7 @@ public sealed class ResourceTriageQueryTests
             Assert.Single(framework.Boundaries).Kind);
 
         ResourceTriageAssessment trusted = Assessment(
-            available,
+            incomplete,
             "RentEncodeThenUnrelatedReadAfterReturn");
         Assert.Equal(
             ResourceTriageActionability.TrustedLowActionability,
@@ -160,27 +161,27 @@ public sealed class ResourceTriageQueryTests
                 LibraryBodyAnalysisRequest.CreateResourceLifecycle(
                     ArrayPoolResourceEffectModel.Create()),
                 resolver);
-        var available = Assert.IsType<ResourceTriageResult.Available>(
+        var incomplete = Assert.IsType<ResourceTriageResult.Incomplete>(
             ResourceTriageQuery.Execute(
                 execution.ResourceLifecycle,
                 new FindingSubject("query-tests", "query-tests")));
 
         AssertExternalRead(
-            available,
+            incomplete,
             "ExternalReadThroughReinitializedMemory");
         ResourceTriageAssessment loop = AssertExternalRead(
-            available,
+            incomplete,
             "ExternalReadThroughLoopReinitializedMemory");
         Assert.DoesNotContain(
             loop.Boundaries,
             boundary =>
                 boundary.Evidence.Operation.Name == "Observe");
         AssertExternalRead(
-            available,
+            incomplete,
             "ExternalReadThroughConditionallyResetMemory");
 
         ResourceTriageAssessment disjoint = Assessment(
-            available,
+            incomplete,
             "DisjointMemoryUseDoesNotConsumeRent");
         Assert.Equal(
             ResourceTriageActionability.Unknown,
@@ -241,7 +242,7 @@ public sealed class ResourceTriageQueryTests
     }
 
     static ResourceTriageAssessment Assessment(
-        ResourceTriageResult.Available result,
+        ResourceTriageResult.Incomplete result,
         string methodName) =>
         Assert.Single(
             result.Assessments,
@@ -249,7 +250,7 @@ public sealed class ResourceTriageQueryTests
                 assessment.Source.Payload.Method.Name == methodName);
 
     static ResourceTriageAssessment AssertExternalRead(
-        ResourceTriageResult.Available result,
+        ResourceTriageResult.Incomplete result,
         string methodName)
     {
         ResourceTriageAssessment assessment =

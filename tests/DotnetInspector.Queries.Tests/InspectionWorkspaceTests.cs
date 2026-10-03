@@ -667,6 +667,32 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task UnregisteredTypedResource_CanBeCreatedAgain()
+    {
+        TestAssembly source = TestAssembly.Create();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        CountingResource first =
+            group.GetOrCreateOwnedResource(
+                0,
+                static _ => new CountingResource());
+
+        group.UnregisterOwnedResource(first);
+        CountingResource second =
+            group.GetOrCreateOwnedResource(
+                0,
+                static _ => new CountingResource());
+        group.Dispose();
+
+        Assert.NotSame(first, second);
+        Assert.Equal(0, first.DisposeCount);
+        Assert.Equal(1, second.DisposeCount);
+        first.Dispose();
+    }
+
+    [Fact]
     public async Task AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder()
     {
         TestAssembly source = TestAssembly.Create();

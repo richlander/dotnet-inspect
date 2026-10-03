@@ -34,6 +34,7 @@ interface MemberSourceSelection {
   selectorKey: string;
   metadataToken: number;
   taste: string;
+  view: MemberSourceView;
 }
 
 export type MemberSourceQuery =
@@ -73,6 +74,14 @@ export type TypeSourceView =
   | "decompiler-source"
   | "api-declarations"
   | "all-declarations";
+
+export type MemberSourceView = "source" | "decompiler-source";
+
+export function memberSourceView(value: string): MemberSourceView | null {
+  return value === "source" || value === "decompiler-source"
+    ? value
+    : null;
+}
 
 export function typeSourceView(value: string): TypeSourceView | null {
   return value === "source"

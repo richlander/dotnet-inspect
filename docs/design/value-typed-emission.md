@@ -82,9 +82,10 @@ Hierarchy-aware binding and broader storage-proof work remain on #2095.
 The motivating published input is dotnet-inspect.any 0.14.0,
 `ApiOutputFormatter.FormatCallGraphAnnotation` (`0x06000ED9`). Its coalesce
 producer and object-typed null share a string-observed slot. Deciding the
-coalesce does not, by itself, authorize materializing the separate null
-producer. Printer decision retirement and slot-count reduction are distinct
-measurements.
+coalesce did not, by itself, authorize materializing the separate null
+producer; the later [null-literal storage testimony](#null-literal-storage-testimony)
+slice owns that independent assignment decision. Printer decision retirement
+and slot-count reduction remain distinct measurements.
 
 The focused Release gate is `ReferenceCoalesceBindingTests`, covering
 compiler-produced reference/null and reference-to-object cases, the pinned
@@ -162,6 +163,68 @@ methods that were valid in the supported Render A/B population retain their
 pre-existing `OpcodeDiff` compile-back verdicts on both base and head. This
 evidence proves the measured population and observed output movement, not
 semantic equivalence for the unavailable structural population.
+
+### Null-literal storage testimony
+
+A bare `Constant(null, ...)` is a C# null literal, not a conversion from its
+importer stack type (#2095). `ReferenceAssignmentTargets` therefore issues the
+same any-proven-reference testimony for direct null-literal storage that it
+already owns for conditional arms. `SlotMaterializationPass` consumes that
+testimony at the one load-testified storage type. The constant's imported
+`object` type does not become storage identity and does not license any other
+reference conversion.
+
+This is deliberately narrower than null-valued expressions in general. An
+explicit `(object)null` remains a `Coerce` to `object`; it cannot assign to
+`string` or another narrower reference slot. Unknown reference shapes, value
+types, pointers, hierarchy conversions, variance, boxing, and user-defined
+conversions acquire no proof. Existing storage spellability, testimony,
+pending-swap, scope, and atomic-copy gates still apply. A complete direct-copy
+component materializes only when this decision resolves every previously
+blocked member.
+
+The printer no longer recognizes null-to-reference assignment while choosing
+a stack-slot declaration type. Every null-bearing web that can use that rule
+has already materialized, while incompatible or unproven targets stay outside
+the rule before printing. The published witness is
+Microsoft.CodeAnalysis.CSharp 5.0.0
+`Binder.GetOperatorMethodName`: its `string` merge stores either
+`BinaryOperatorNameFromSyntaxKindIfAny(...)` or a bare null before assigning
+the result to the authored local.
+
+`StringSlotMaterializationTests` gates importer-style null-to-string
+assignment, mixed exact/null producers, explicit object-conversion decline,
+atomic copy completion, and the real Roslyn witness.
+`NamedReferenceSlotMaterializationTests` gates a proven named-reference target
+and preserves unknown-shape and non-exact-conversion decline.
+`SlotMaterializationPassTests` keeps the complete decision census explicit.
+
+On the fixed 14-assembly, 89,065-method corpus, this decision moves
+materialization from 41,804 materialized and 600 retained slots to 41,956
+materialized and 448 retained slots. The 152 newly materialized webs comprise
+133 null-bearing webs plus 19 direct-copy peers, removing 371 stores and 219
+loads from the materialization boundary and leaving zero null-bearing residual
+webs. At the printer boundary, stores fall from 1,037 to 666, loads from 808 to
+589, direct copies from 107 to 88, distinct slots from 593 to 441, residual
+methods from 411 to 295, and declarations from 615 to 469. The key ownership
+measure falls from 137 to 4 multi-candidate slots unified by the printer;
+single-candidate slots fall from 328 to 309, while the 141 un-unified split
+slots remain unchanged. Both censuses report zero pass bugs.
+
+Render A/B covers 46,945 methods across the 13 assemblies whose unchanged base
+can issue the required structural projection. It reports 38 structural
+changes, 15 valid-to-valid and 23 invalid-to-invalid, with no valid-to-invalid,
+added, or removed method. All 38 structural reviews are Partial; direct body
+diffs show only stack-slot declaration placement or initialization changes.
+The unchanged Microsoft.CodeAnalysis.CSharp base cannot create a Render A/B
+baseline because its `CSharpParseOptions.get_InterceptorsNamespaces`
+structural projection disagrees with its product body. A supplemental
+product-render hash comparison covers that assembly's full 42,120-method
+population and finds 20 changed methods. Nineteen move or initialize
+declarations; `CreateBoundLocalFunctionStatementOperation` also improves one
+slot declaration from `object` to its testified `IBlockOperation`. This
+supplement is output review, not semantic-validity evidence for the unavailable
+structural population.
 
 ### Primitive-join target testimony
 
@@ -886,11 +949,14 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    gate.
 
    Exact core-library string and object webs also materialize when every
-   producer already has the testified type. This does not expand the coercion
-   domain or infer reference conversions: an object-typed null cannot testify
-   to string storage, and a string-typed producer cannot testify to object
-   storage. Exact arrays use the same admission across element families when
-   their complete array type passes the shared explicit-type spelling gate.
+   non-null producer already has the testified type. A bare null constant is
+   owner-issued null-literal testimony and may assign to any proven reference
+   storage type; its importer stack type is not an object conversion. An
+   explicit object conversion remains a `Coerce` node and cannot testify to
+   string storage. This does not expand the coercion domain or infer other
+   reference conversions: a string-typed producer still cannot testify to
+   object storage. Exact arrays use the same admission across element families
+   when their complete array type passes the shared explicit-type spelling gate.
    This covers single-dimensional zero-based arrays and C#-spellable
    multidimensional arrays of rank 2 through 32. The array itself, including
    rank, not merely its element representation, must already have the testified
