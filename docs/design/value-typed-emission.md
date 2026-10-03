@@ -226,6 +226,68 @@ slot declaration from `object` to its testified `IBlockOperation`. This
 supplement is output review, not semantic-validity evidence for the unavailable
 structural population.
 
+### Bounded reference storage testimony
+
+The remaining reference-storage relation is decided before printing. A
+function-scope slot may use owner-issued reference assignment testimony when
+either:
+
+- a coalesce has a proven assignment type accepted by
+  `ReferenceAssignmentTargets`; or
+- an ordinary expression has a proven reference assignment type and the
+  storage target is nominal core-library `System.Object`.
+
+This combines the already bounded coalesce assignment decision with the
+ordinary C# reference-to-`object` conversion. It does not infer a class or
+interface hierarchy, array covariance, boxing, user-defined conversions,
+pointers, or unknown reference shapes. The existing null-literal and
+conditional-arm cases remain members of the same accepted-target relation.
+Storage spellability, one-type testimony, pending-swap, scope, and atomic-copy
+gates remain unchanged.
+
+The printer no longer accepts coalesces or reference-to-`object` widening while
+choosing a residual stack-slot declaration. A separate one-way
+reference-to-`object` check remains only in the overload anti-narrowing guard:
+choosing a narrower declaration for an `object` load can silently rebind a
+call, even though declaration-type inference no longer owns that conversion.
+Unsupported coalesces and true disjoint live ranges therefore remain split
+instead of regaining semantic ownership in the writer.
+
+The published witnesses are Newtonsoft.Json 13.0.4
+`JToken.AddAnnotation`, whose object-observed carrier stores either the
+original annotation or an `object[]`, and Microsoft.CodeAnalysis.CSharp 5.0.0
+`Binder.CheckLambdaConversion`, whose object-observed carrier stores a
+reference coalesce with an issued `object` assignment type.
+`ObjectSlotMaterializationTests` gates direct string and array assignment,
+coalesce assignment, the two real witnesses, boxing decline, nominal
+`System.Object`, observer agreement, atomic copies, and pending swaps.
+`SlotResidualCensusTests` gates that an unmaterialized coalesce no longer
+receives printer-owned unification.
+
+On the pinned 14-assembly, 89,065-method corpus, this relation materializes
+exactly five additional webs: three direct proven-reference-to-`object` webs
+and two coalesce-assignment webs. Eight stores and five loads leave the printer
+boundary. Multi-candidate printer unification falls from four slots to zero,
+and residual split slots fall from 141 to 140, with zero census failures. The
+removed split is
+`CommonCompiler.CompilerEmitStreamProvider.ReportOpenFileDiagnostic S_9`;
+its `LocalizableResourceString` and `string` producers now share one testified
+`object` local.
+
+Exact-base Render A/B over the 46,945-method structurally available population
+reports two changes: one valid-to-valid, one invalid-to-valid, and zero
+valid-to-invalid. `JToken.AddAnnotation` only moves the existing `object S_1`
+declaration. `ReportOpenFileDiagnostic` replaces an unassigned synthetic
+split-slot read with the single assigned `object S_9`, making its emitted body
+valid. The unchanged Microsoft.CodeAnalysis.CSharp base still cannot issue a
+structural baseline because
+`CSharpParseOptions.get_InterceptorsNamespaces` fails projection consistency.
+A supplemental full 42,120-method product-render hash comparison reports only
+`Binder.CheckLambdaConversion` and
+`UsingStatementBinder.<BindUsingStatementOrDeclarationFromParts>g__bindDisposable|6_0`;
+both changes move an existing `object` declaration to its materialized-local
+position without changing statements.
+
 ### Primitive-join target testimony
 
 Primitive integer-family join compatibility is decided before printing

@@ -1,6 +1,7 @@
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 using Microsoft.CodeAnalysis;
+using System.Security.Cryptography;
 using static ILInspector.Decompiler.Tests.ReferenceSlotMaterializationTestHelpers;
 
 namespace ILInspector.Decompiler.Tests;
@@ -59,26 +60,74 @@ public class ObjectSlotMaterializationTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public void ObjectTestimonyDoesNotInventReferenceConversionsOrBoxing(bool mixed, bool unboxed)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProvenReferenceValuesAssignToObjectStorage(bool array)
     {
-        var nonExact = unboxed ? new Constant(42, Int32) : new Constant("text", String);
+        IrExpression value = array
+            ? new NewArray(String, new Constant(1, Int32))
+            : new Constant("text", String);
+        var function = Function(Object,
+            new StoreStackSlot(0, value),
+            new Return(new LoadStackSlot(0, Object)));
+
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(Object, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Contains("object S_0", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ObjectTestimonyDoesNotInventBoxing(bool mixed)
+    {
+        var unboxed = new Constant(42, Int32);
         var function = mixed
             ? Function(Object,
                 new StoreStackSlot(0, new Box(Int32, new Constant(42, Int32))),
                 Observe(new LoadStackSlot(0, Object), Object),
-                new StoreStackSlot(0, nonExact),
+                new StoreStackSlot(0, unboxed),
                 new Return(new LoadStackSlot(0, Object)))
             : Function(Object,
-                new StoreStackSlot(0, nonExact),
+                new StoreStackSlot(0, unboxed),
                 new Return(new LoadStackSlot(0, Object)));
 
         Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function))
             .Vetoes.HasFlag(SlotMaterializationVeto.OutsideCoercionDomain));
         AssertRetained(function);
+    }
+
+    [Fact]
+    public void ReferenceCoalesceAssignmentMaterializesObjectStorage()
+    {
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new LoadLocal(0, String),
+            new LoadLocal(1, Object))));
+        block.Add(new Return(new LoadStackSlot(0, Object)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Object, [], HasThis: false, GenericParameterCount: 0),
+            [String, Object],
+            body);
+
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(Object, function.Locals[^1]);
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Theory]
@@ -146,6 +195,61 @@ public class ObjectSlotMaterializationTests
     {
         using var source = MetadataSource.Open(typeof(SyntaxTree).Assembly.Location);
         AssertMaterializes(source, "Microsoft.CodeAnalysis.ExceptionUtilities", "UnexpectedValue", Object, "object");
+    }
+
+    [Fact]
+    public void RealNewtonsoftReferenceToObjectWebMaterializes()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "ReferenceConditional",
+            "Newtonsoft.Json.dll");
+        Assert.Equal(
+            "A28C251DFE36D881E9E2462E171441B8B0EC156FE3F452602C9149B1B9EFE05B",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = RaiseToMaterialization(
+            source,
+            "Newtonsoft.Json.Linq.JToken",
+            "AddAnnotation");
+
+        var decision = Assert.Single(
+            SlotMaterializationPass.Analyze(function),
+            decision => decision.Slot == 1);
+        Assert.Equal(Object, decision.Type);
+        Assert.True(decision.WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+        Assert.Contains("object S_1", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void RealRoslynReferenceCoalesceWebMaterializes()
+    {
+        using var source = MetadataSource.Open(
+            typeof(Microsoft.CodeAnalysis.CSharp.CSharpCompilation).Assembly.Location);
+        var function = RaiseToMaterialization(
+            source,
+            "Microsoft.CodeAnalysis.CSharp.Binder",
+            "CheckLambdaConversion");
+
+        var decision = Assert.Single(
+            SlotMaterializationPass.Analyze(function),
+            decision => decision.Slot == 11);
+        Assert.Equal(Object, decision.Type);
+        Assert.True(decision.WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 11);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 11);
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Fact]
