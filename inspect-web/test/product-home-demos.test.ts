@@ -286,7 +286,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     openPlatformLibrary: async () => { state.package = pkg; return pkg; },
     selectedType: () => type,
     selectedMember: () => ({ overloads: [overload] }),
-    selectedConcreteOverload: () => overload,
+    selectedMemberOverload: () => overload,
     currentPackage: () => state.package,
     assemblyDescriptorForType: () => pkg.assemblies[0],
     platformPackForAssembly: () => "netcore.app",

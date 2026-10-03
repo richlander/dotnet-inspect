@@ -18,6 +18,7 @@ import {
   restoreMemberHistoryState,
   selectMemberFamilyParent,
   selectedConcreteOverload,
+  selectedSourceOverload,
 } from "../src/member-filtering.ts";
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
@@ -242,6 +243,11 @@ test("filtered member overloads retain their exact source index", () => {
   };
 
   assert.equal(memberOverloadSourceIndex(source, filtered, 0), 2);
+  assert.equal(
+    selectedSourceOverload(source, filtered, 2),
+    source[0]?.overloads[2],
+  );
+  assert.equal(selectedSourceOverload(source, filtered, null), undefined);
 });
 
 test("selecting a filtered source-family parent clears its exact child", () => {

@@ -199,6 +199,22 @@ export function selectedConcreteOverload<T>(
   return overloads[selectedIndex ?? 0];
 }
 
+export function selectedSourceOverload<T>(
+  sourceGroups: readonly {
+    readonly key: string;
+    readonly overloads: readonly T[];
+  }[],
+  group: {
+    readonly key: string;
+    readonly overloads: readonly T[];
+  },
+  selectedIndex: number | null | undefined,
+): T | undefined {
+  const sourceGroup = sourceGroups.find(candidate =>
+    candidate.key === group.key) ?? group;
+  return selectedConcreteOverload(sourceGroup.overloads, selectedIndex);
+}
+
 export interface MemberCallGraphWorkState {
   memberCallGraphLoading: boolean;
   memberCallGraphExpanding: boolean;

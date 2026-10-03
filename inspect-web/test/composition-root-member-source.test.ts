@@ -671,7 +671,7 @@ test("moving between members keeps sections sticky without section-driven profil
     /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
   assert.match(
     openMemberGroupBody,
-    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex =\s*memberNavOverloadSourceIndex\(group, 0\);[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     openMemberGroupBody,
     /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
@@ -716,7 +716,10 @@ test("every overload-specific member loader leaves a multi-overload picker inert
     const body =
       appSource.match(new RegExp(`async function ${name}\\(\\)[\\s\\S]*?\\n}`))?.[0]
       ?? "";
-    assert.match(body, /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
+    assert.match(body, /selectedMemberOverload\(type, member\)/);
+    assert.doesNotMatch(
+      body,
+      /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
     assert.match(body, /if \(!overload\) \{\s*render\(\);\s*return;\s*}/);
     assert.doesNotMatch(body, /selectedOverloadIndex \?\? 0/);
   }

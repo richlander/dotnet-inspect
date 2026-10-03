@@ -467,6 +467,8 @@ function graphRemovalHarness() {
       createPackageRemoval, packageIdentityKey, memberRequestKey,
       partitionGraphMembers, searchableMemberGroups, filterMemberGroups,
       assemblyDescriptorForType, selectedConcreteOverload, memberScopeIsActive,
+      selectedMemberOverload: (_type: unknown, member: { overloads: unknown[] }) =>
+        selectedConcreteOverload(member.overloads, state.selectedOverloadIndex),
       memberRequestIsCurrent: () => true,
       invalidateMemberCallGraphWork,
       invalidateGraphMemberNavigationWork, navigationSequence: createNavigationSequence(),
