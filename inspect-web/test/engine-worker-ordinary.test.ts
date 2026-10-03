@@ -1606,11 +1606,16 @@ test("ordinary source transport preserves member parts and flat graph source", a
         end: 19,
       }],
     }],
+    diagnostics: [],
   } satisfies BrowserMemberSource;
   const state = fixture({
     source: {
-      queryMemberSource: async () => member,
-      queryPlatformMemberSource: async () => member,
+      queryMemberSource: async () => ({
+        value: member, error: null, diagnostics: [],
+      }),
+      queryPlatformMemberSource: async () => ({
+        value: member, error: null, diagnostics: [],
+      }),
       queryTypeMemberSource: async () => flat,
     },
   });
@@ -1624,6 +1629,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "M",
     "selector",
     0x06000001,
+    0,
     "[]",
     "source",
   );
@@ -1647,14 +1653,19 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "Clone",
     "Clone()",
     0x06000001,
+    0,
     "[]",
     "source",
     "platform-context",
   );
   await state.environment.flushAsync();
 
-  assert.deepEqual(await memberResult, member);
-  assert.deepEqual(await platformMemberResult, member);
+  assert.deepEqual(await memberResult, {
+    value: member, error: null, diagnostics: [],
+  });
+  assert.deepEqual(await platformMemberResult, {
+    value: member, error: null, diagnostics: [],
+  });
   assert.deepEqual(await graphResult, flat);
   state.host.dispose();
 });

@@ -63,7 +63,8 @@ public static partial class MetadataExports
                                 group,
                                 member,
                                 AssemblyContextLibraryRole.ApiOnly,
-                                s_memberGroupMaterializationLimits,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
@@ -136,7 +137,8 @@ public static partial class MetadataExports
                                 group,
                                 member,
                                 AssemblyContextLibraryRole.Implementation,
-                                s_memberGroupMaterializationLimits,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
@@ -193,7 +195,8 @@ public static partial class MetadataExports
                         declaredName,
                         ImmutableArray.CreateRange(content),
                         AssemblyContextLibraryRole.Implementation,
-                        s_memberGroupMaterializationLimits),
+                        BrowserExactMemberPolicy
+                            .MaterializationLimits),
                     typeIdentity,
                     memberName,
                     baselineOrdinal,
@@ -228,68 +231,21 @@ public static partial class MetadataExports
         }
         var plan = new MemberDocumentInspectionPlan(
             new MemberGroupSubject(
-                ParseTypeIdentity(typeIdentity),
+                BrowserExactMemberPolicy.ParseTypeIdentity(
+                    typeIdentity),
                 memberName),
             hasOrdinal
                 ? new MemberDocumentSelector(
                     baselineOrdinal: baselineOrdinal)
                 : new MemberDocumentSelector(
                     fingerprintPrefix: fingerprintPrefix),
-            s_memberGroupBounds,
+            BrowserExactMemberPolicy.Bounds,
             documentation: documentation);
-        AssemblyContextLibraryInspectionRun<
-            InspectionEnvelope<MemberDocumentInspectionOutcome>> run =
-                documentationProvider is null
-                    ? await AssemblyContextLibraryInspection.ExecuteAsync(
-                            materialization,
-                            (reference, owner) =>
-                                owner.IssueOperationLease(reference)
-                                    is LibraryOperationLeaseIssueOutcome.Issued
-                                        issued
-                                    ? MemberDocumentInspectionOperation
-                                        .Execute(
-                                            new(reference, plan),
-                                            issued.Lease)
-                                    : null)
-                        .ConfigureAwait(false)
-                    : await AssemblyContextLibraryInspection
-                        .ExecuteComposedAsync(
-                            materialization,
-                            async (reference, owner) =>
-                                owner.IssueOperationLease(reference)
-                                    is LibraryOperationLeaseIssueOutcome.Issued
-                                        issued
-                                    ? await MemberDocumentInspectionOperation
-                                        .ExecuteAsync(
-                                            new(reference, plan),
-                                            issued.Lease,
-                                            documentationProvider)
-                                        .ConfigureAwait(false)
-                                    : null)
-                        .ConfigureAwait(false);
-        if (run.Failure is { } failure)
-        {
-            throw new InvalidOperationException(
-                $"The Member Library could not be materialized: {failure}");
-        }
-        if (run.Result is not { } inspection)
-        {
-            throw new InvalidOperationException(
-                "The exact Library owner could not issue the Member "
-                    + "inspection lease.");
-        }
-        if (run.CleanupFailures.IsEmpty)
-            return inspection;
-
-        return new InspectionEnvelope<MemberDocumentInspectionOutcome>(
-            inspection.Content,
-            inspection.Share,
-            inspection.Diagnostics.Concat(
-                run.CleanupFailures.Select(static failure =>
-                    new InspectionDiagnostic(
-                        "member-document.library-retirement",
-                        InspectionDiagnosticSeverity.Warning,
-                        failure))));
+        return await BrowserMemberDocumentExecution.ExecuteAsync(
+                materialization,
+                plan,
+                documentationProvider)
+            .ConfigureAwait(false);
     }
 
     private static BrowserMemberDocumentInspection ProjectMemberDocument(

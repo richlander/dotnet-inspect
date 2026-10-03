@@ -394,6 +394,7 @@ public static partial class SourceHouse
         }
 
         ApiSurface surface;
+        bool targetExists;
         using (AssemblyInspectionSession session =
                AssemblyInspectionSession.Open(descriptor))
         {
@@ -415,7 +416,9 @@ public static partial class SourceHouse
                 ((ApiSurfaceExtractionResult.Extracted)extraction)
                     .Surface;
 
-            if (!TargetExists(surface, request.Target)
+            targetExists =
+                TargetExists(session, surface, request.Target);
+            if (!targetExists
                 && RequiresCompilerGeneratedSurface(request.Target))
             {
                 extraction =
@@ -436,10 +439,12 @@ public static partial class SourceHouse
                 surface =
                     ((ApiSurfaceExtractionResult.Extracted)extraction)
                         .Surface;
+                targetExists =
+                    TargetExists(session, surface, request.Target);
             }
         }
 
-        if (!TargetExists(surface, request.Target))
+        if (!targetExists)
         {
             if (CreateTargetInspectionFailure(
                     surface,
@@ -1446,6 +1451,7 @@ public static partial class SourceHouse
     }
 
     private static bool TargetExists(
+        AssemblyInspectionSession session,
         ApiSurface surface,
         SourceHouseTarget target)
     {
@@ -1460,7 +1466,10 @@ public static partial class SourceHouse
         if (target is not SourceHouseTarget.MemberTarget memberTarget)
             return true;
 
-        return ResolveMemberTarget(surface, memberTarget) is not null;
+        return ResolveMemberTarget(
+            session,
+            surface,
+            memberTarget) is not null;
     }
 
     private static (
@@ -1468,6 +1477,7 @@ public static partial class SourceHouse
         ApiMember Member,
         bool RequiresAccessorProjection)?
         ResolveMemberTarget(
+            AssemblyInspectionSession session,
             ApiSurface surface,
             SourceHouseTarget.MemberTarget target)
     {
@@ -1489,10 +1499,14 @@ public static partial class SourceHouse
                 candidate =>
                     candidate.MetadataToken
                         == target.MetadataToken
-                    && ApiMemberIdentity.GetMemberAnchor(
-                        type,
-                        candidate)
-                        == target.Member),
+                   && (session.MethodAnchorMatches(
+                       target.Type,
+                       target.MetadataToken,
+                       target.Member)
+                       || ApiMemberIdentity.GetMemberAnchor(
+                       type,
+                       candidate)
+                       == target.Member)),
         ];
         if (direct.Length == 1)
             return (type, direct[0], false);
@@ -1508,10 +1522,14 @@ public static partial class SourceHouse
                     candidate =>
                         candidate.MetadataToken
                             == target.MetadataToken
-                        && ApiMemberIdentity.GetMemberAnchor(
-                            type,
-                            candidate)
-                            == target.Member),
+                       && (session.MethodAnchorMatches(
+                               target.Type,
+                               target.MetadataToken,
+                               target.Member)
+                           || ApiMemberIdentity.GetMemberAnchor(
+                               type,
+                               candidate)
+                               == target.Member)),
         ];
         if (accessors.Length != 1)
             return null;

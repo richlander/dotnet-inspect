@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using CSharpText;
+using DotnetInspector.Libraries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -50,10 +51,11 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
+        int documentBaselineOrdinal,
         string styleOptionsJson,
         string view = "source")
     {
-        BrowserMemberSource source = await QueryMemberSourceCore(
+        BrowserMemberSourceResult result = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -62,12 +64,13 @@ public static partial class SourceExports
             memberName,
             selectorKey,
             metadataToken,
+            documentBaselineOrdinal,
             styleOptionsJson,
             view,
             includeParts: true);
         return JsonSerializer.Serialize(
-            source,
-            BrowserSourceJsonContext.Default.BrowserMemberSource);
+            result,
+            BrowserSourceJsonContext.Default.BrowserMemberSourceResult);
     }
 
     [JSExport]
@@ -80,11 +83,12 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
+        int documentBaselineOrdinal,
         string styleOptionsJson,
         string view = "source",
         string? contextId = null)
     {
-        BrowserMemberSource source =
+        BrowserMemberSourceResult result =
             await QueryPlatformMemberSourceCore(
                 targetFramework,
                 platformVersion,
@@ -94,15 +98,16 @@ public static partial class SourceExports
                 memberName,
                 selectorKey,
                 metadataToken,
+                documentBaselineOrdinal,
                 styleOptionsJson,
                 view,
                 contextId);
         return JsonSerializer.Serialize(
-            source,
-            BrowserSourceJsonContext.Default.BrowserMemberSource);
+            result,
+            BrowserSourceJsonContext.Default.BrowserMemberSourceResult);
     }
 
-    static async Task<BrowserMemberSource> QueryPlatformMemberSourceCore(
+    static async Task<BrowserMemberSourceResult> QueryPlatformMemberSourceCore(
         string targetFramework,
         string platformVersion,
         string assemblyName,
@@ -111,11 +116,28 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
+        int documentBaselineOrdinal,
         string styleOptionsJson,
         string view,
         string? contextId)
     {
         bool decompilerOnly = MemberSourceDecompilerOnly(view);
+        if (documentBaselineOrdinal > 0 && !decompilerOnly)
+        {
+            return await QueryPlatformMemberDocumentSourceCore(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    typeIdentity,
+                    memberName,
+                    documentBaselineOrdinal,
+                    styleOptionsJson,
+                    includeParts: true,
+                    contextId)
+                .ConfigureAwait(false);
+        }
+
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
         await using BrowserMemberResolution.ScopedPlatformResolution resolved =
@@ -149,9 +171,14 @@ public static partial class SourceExports
                             request,
                             BrowserSourceQueryContext.Create(),
                             cancellationToken: operation.CancellationToken));
-            return AdaptMember(
+            BrowserMemberSource decompiledSource = AdaptMember(
                 decompilationInspection.Content,
-                resolved.Participant);
+                resolved.Participant,
+                decompilationInspection.Diagnostics);
+            return new(
+                decompiledSource,
+                null,
+                decompiledSource.Diagnostics);
         }
         InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
             await resolved.Scope.UseParticipant(
@@ -165,8 +192,9 @@ public static partial class SourceExports
         BrowserMemberSource source = AdaptMember(
             inspection.Content,
             resolved.Participant,
-            includeParts: true);
-        return source;
+            includeParts: true,
+            diagnostics: inspection.Diagnostics);
+        return new(source, null, source.Diagnostics);
     }
 
     [JSExport]
@@ -635,7 +663,7 @@ public static partial class SourceExports
         int metadataToken,
         string styleOptionsJson)
     {
-        BrowserMemberSource source = await QueryMemberSourceCore(
+        BrowserMemberSourceResult result = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -644,15 +672,18 @@ public static partial class SourceExports
             memberName,
             selectorKey,
             metadataToken,
+            documentBaselineOrdinal: 0,
             styleOptionsJson,
             view: "source",
             includeParts: false);
+        BrowserMemberSource source = result.Value
+            ?? throw new InvalidOperationException(result.Error);
         return JsonSerializer.Serialize(
             source.Source,
             BrowserSourceJsonContext.Default.BrowserSource);
     }
 
-    static async Task<BrowserMemberSource> QueryMemberSourceCore(
+    static async Task<BrowserMemberSourceResult> QueryMemberSourceCore(
         string packageId,
         string version,
         string targetFramework,
@@ -661,11 +692,27 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
+        int documentBaselineOrdinal,
         string styleOptionsJson,
         string view,
         bool includeParts)
     {
         bool decompilerOnly = MemberSourceDecompilerOnly(view);
+        if (documentBaselineOrdinal > 0 && !decompilerOnly)
+        {
+            return await QueryPackageMemberDocumentSourceCore(
+                    packageId,
+                    version,
+                    targetFramework,
+                    assemblyName,
+                    typeIdentity,
+                    memberName,
+                    documentBaselineOrdinal,
+                    styleOptionsJson,
+                    includeParts)
+                .ConfigureAwait(false);
+        }
+
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
         await using BrowserMemberResolution.ScopedResolution resolved =
@@ -704,7 +751,14 @@ public static partial class SourceExports
                             request,
                             BrowserSourceQueryContext.Create(),
                             cancellationToken: operation.CancellationToken));
-            return AdaptMember(decompilationInspection.Content, participant);
+            BrowserMemberSource decompiledSource = AdaptMember(
+                decompilationInspection.Content,
+                participant,
+                decompilationInspection.Diagnostics);
+            return new(
+                decompiledSource,
+                null,
+                decompiledSource.Diagnostics);
         }
         InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
             await scope.UseImplementationParticipant(
@@ -716,7 +770,277 @@ public static partial class SourceExports
                     BrowserSourceQueryContext.Create(),
                     operation.CancellationToken));
 
-        return AdaptMember(inspection.Content, participant, includeParts);
+        BrowserMemberSource source = AdaptMember(
+            inspection.Content,
+            participant,
+            includeParts,
+            inspection.Diagnostics);
+        return new(source, null, source.Diagnostics);
+    }
+
+    static async Task<BrowserMemberSourceResult>
+        QueryPackageMemberDocumentSourceCore(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            string typeIdentity,
+            string memberName,
+            int baselineOrdinal,
+            string styleOptionsJson,
+            bool includeParts)
+    {
+        using BrowserSourceOperationLease operation =
+            await BrowserSourceOperationCoordinator.BeginAsync();
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    operation.CancellationToken)
+                .ConfigureAwait(false);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        if (!coordinate.Selection.IsSelected)
+        {
+            throw new InvalidOperationException(
+                $"{packageId} {version} has no selected compile Library "
+                    + $"({coordinate.Selection.Status}).");
+        }
+        BrowserWorkspaceParticipant surface =
+            scope.SurfaceParticipant(
+                coordinate,
+                coordinate.CompileAsset(assemblyName));
+        BrowserWorkspaceParticipant implementation =
+            scope.ImplementationParticipant(surface);
+        var subject = new MemberGroupSubject(
+            BrowserExactMemberPolicy.ParseTypeIdentity(typeIdentity),
+            memberName);
+        var source = new MemberSourceAttachmentRequest(
+            BrowserStyleOptions.Resolve(styleOptionsJson),
+            includeParts,
+            allowDecompiledFallback: true);
+        InspectionEnvelope<MemberDocumentInspectionOutcome>
+            inspection =
+                await BrowserMemberDocumentExecution
+                    .ExecuteImplementationSourceAsync(
+                        scope.UseSurfaceParticipant(
+                            surface,
+                            (group, member) =>
+                                AssemblyContextLibraryAdapter
+                                    .MaterializeAsync(
+                                        group,
+                                        member,
+                                        AssemblyContextLibraryRole.ApiOnly,
+                                        BrowserExactMemberPolicy
+                                            .MaterializationLimits,
+                                        operation.CancellationToken)),
+                        () => scope.UseImplementationParticipant(
+                            implementation,
+                            (group, member) =>
+                                AssemblyContextLibraryAdapter
+                                    .MaterializeAsync(
+                                        group,
+                                        member,
+                                        AssemblyContextLibraryRole
+                                            .Implementation,
+                                        BrowserExactMemberPolicy
+                                            .MaterializationLimits,
+                                        operation.CancellationToken)),
+                        subject,
+                        baselineOrdinal,
+                        source,
+                        sourceProvider:
+                            async (request, token) =>
+                                (await scope
+                                    .UseImplementationParticipant(
+                                        implementation,
+                                        (group, member) =>
+                                            MemberSourceInspection
+                                                .ExecuteAsync(
+                                                    group,
+                                                    member,
+                                                    request,
+                                                    BrowserSourceQueryContext
+                                                        .Create(),
+                                                    token))
+                                    .ConfigureAwait(false))
+                                .Content,
+                        cancellationToken:
+                            operation.CancellationToken)
+                    .ConfigureAwait(false);
+        return AdaptAttachedMemberSource(
+            inspection,
+            implementation,
+            includeParts);
+    }
+
+    static async Task<BrowserMemberSourceResult>
+        QueryPlatformMemberDocumentSourceCore(
+            string targetFramework,
+            string platformVersion,
+            string assemblyName,
+            string pack,
+            string typeIdentity,
+            string memberName,
+            int baselineOrdinal,
+            string styleOptionsJson,
+            bool includeParts,
+            string? contextId)
+    {
+        using BrowserSourceOperationLease operation =
+            await BrowserSourceOperationCoordinator.BeginAsync();
+        await using BrowserPlatformScopeResolution resolution =
+            await (contextId is null
+                ? BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    operation.CancellationToken)
+                : BrowserPlatformWorkspace
+                    .OpenRetainedContextAssemblyAsync(
+                        contextId,
+                        targetFramework,
+                        platformVersion,
+                        assemblyName,
+                        pack,
+                        operation.CancellationToken))
+                .ConfigureAwait(false);
+        var plan = new MemberDocumentInspectionPlan(
+            new MemberGroupSubject(
+                BrowserExactMemberPolicy.ParseTypeIdentity(
+                    typeIdentity),
+                memberName),
+            new(baselineOrdinal: baselineOrdinal),
+            BrowserExactMemberPolicy.Bounds,
+            source:
+                new(
+                    BrowserStyleOptions.Resolve(
+                        styleOptionsJson),
+                    includeParts,
+                    allowDecompiledFallback: true));
+        InspectionEnvelope<MemberDocumentInspectionOutcome>
+            inspection =
+                await BrowserMemberDocumentExecution.ExecuteAsync(
+                        resolution.Scope.UseParticipant(
+                            resolution.Participant,
+                            (group, member) =>
+                                AssemblyContextLibraryAdapter
+                                    .MaterializeAsync(
+                                        group,
+                                        member,
+                                        AssemblyContextLibraryRole
+                                            .Implementation,
+                                        BrowserExactMemberPolicy
+                                            .MaterializationLimits,
+                                        operation.CancellationToken)),
+                        plan,
+                        sourceProvider:
+                            async (request, token) =>
+                                (await resolution.Scope.UseParticipant(
+                                        resolution.Participant,
+                                        (group, member) =>
+                                            MemberSourceInspection
+                                                .ExecuteAsync(
+                                                    group,
+                                                    member,
+                                                    request,
+                                                    BrowserSourceQueryContext
+                                                        .Create(),
+                                                    token))
+                                    .ConfigureAwait(false))
+                                .Content,
+                        cancellationToken:
+                            operation.CancellationToken)
+                    .ConfigureAwait(false);
+        return AdaptAttachedMemberSource(
+            inspection,
+            resolution.Participant,
+            includeParts);
+    }
+
+    internal static BrowserMemberSourceResult AdaptAttachedMemberSource(
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection,
+        BrowserWorkspaceParticipant participant,
+        bool includeParts) =>
+        AdaptAttachedMemberSource(
+            inspection,
+            source => AdaptMember(
+                source,
+                participant,
+                includeParts,
+                inspection.Diagnostics));
+
+    internal static BrowserMemberSourceResult AdaptAttachedMemberSource(
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection,
+        WorkspaceContextMember participant,
+        bool includeParts) =>
+        AdaptAttachedMemberSource(
+            inspection,
+            source => AdaptMember(
+                source,
+                participant,
+                includeParts,
+                inspection.Diagnostics));
+
+    internal static BrowserMemberSourceResult AdaptAttachedMemberSource(
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection,
+        Func<AssemblyMemberSourceEntry, BrowserMemberSource> adapt)
+    {
+        BrowserMemberSourceDiagnostic[] diagnostics =
+            ProjectMemberSourceDiagnostics(inspection.Diagnostics);
+        if (inspection.Content
+            is not MemberDocumentInspectionOutcome.Available available)
+        {
+            string error = inspection.Content switch
+            {
+                MemberDocumentInspectionOutcome.Rejected rejected =>
+                    $"The Member document source was rejected "
+                        + $"({rejected.Reason}).",
+                MemberDocumentInspectionOutcome.Incomplete incomplete =>
+                    $"The Member document source reached "
+                        + $"{incomplete.Bound} "
+                        + $"({incomplete.Measured} > "
+                        + $"{incomplete.Limit}).",
+                MemberDocumentInspectionOutcome.Failed failed =>
+                    $"The Member document source failed "
+                        + $"({failed.Reason}).",
+                _ => throw new InvalidOperationException(
+                    "Unknown Member document source outcome."),
+            };
+            return new(null, error, diagnostics);
+        }
+        AssemblyMemberSourceEntry source =
+            available.Document.Source?.Outcome
+            ?? throw new InvalidOperationException(
+                "The requested Member document source attachment "
+                    + "was not produced.");
+        if (source is AssemblyMemberSourceEntry.Rejected rejectedSource)
+        {
+            return new(
+                null,
+                $"{rejectedSource.Failure.Kind}: "
+                    + rejectedSource.Failure.Detail,
+                diagnostics);
+        }
+        if (source is AssemblyMemberSourceEntry.Unavailable unavailable)
+        {
+            return new(
+                null,
+                SourceUnavailable(
+                    unavailable.Failure,
+                    unavailable.PdbAttempt is { } pdb
+                        ? PdbSourceLimitation(pdb.Lines)
+                        : null,
+                    unavailable.DecompiledAttempt
+                        is { IsAvailable: false } attempt
+                            ? attempt.DiagnosticSummary
+                            : null).Message,
+                diagnostics);
+        }
+        BrowserMemberSource result = adapt(source);
+        return new(result, null, diagnostics);
     }
 
     static bool MemberSourceDecompilerOnly(string view)
@@ -842,32 +1166,38 @@ public static partial class SourceExports
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSourceEntry result,
         BrowserWorkspaceParticipant participant,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         AdaptMember(
             result,
             DecompiledProvenance(participant),
-            includeParts);
+            includeParts,
+            diagnostics);
 
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSourceEntry result,
         WorkspaceContextMember participant,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         AdaptMember(
             result,
             DecompiledProvenance(participant),
-            includeParts);
+            includeParts,
+            diagnostics);
 
     static BrowserMemberSource AdaptMember(
         AssemblyMemberSourceEntry result,
         InertString decompiledProvenance,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics) =>
         result switch
         {
             AssemblyMemberSourceEntry.Available available =>
                 AdaptMember(
                     available.Source,
                     decompiledProvenance,
-                    includeParts),
+                    includeParts,
+                    diagnostics),
             AssemblyMemberSourceEntry.Rejected rejected =>
                 throw new InvalidOperationException(
                     $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
@@ -886,17 +1216,26 @@ public static partial class SourceExports
 
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberDecompilationEntry result,
-        BrowserWorkspaceParticipant participant) =>
-        AdaptMember(result, DecompiledProvenance(participant));
+        BrowserWorkspaceParticipant participant,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
+        AdaptMember(
+            result,
+            DecompiledProvenance(participant),
+            diagnostics);
 
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberDecompilationEntry result,
-        WorkspaceContextMember participant) =>
-        AdaptMember(result, DecompiledProvenance(participant));
+        WorkspaceContextMember participant,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
+        AdaptMember(
+            result,
+            DecompiledProvenance(participant),
+            diagnostics);
 
     static BrowserMemberSource AdaptMember(
         AssemblyMemberDecompilationEntry result,
-        InertString decompiledProvenance) =>
+        InertString decompiledProvenance,
+        IEnumerable<InspectionDiagnostic>? diagnostics) =>
         result switch
         {
             AssemblyMemberDecompilationEntry.Settled
@@ -913,7 +1252,8 @@ public static partial class SourceExports
                     null,
                     null,
                     text),
-                []),
+                [],
+                ProjectMemberSourceDiagnostics(diagnostics)),
             AssemblyMemberDecompilationEntry.Settled settled =>
                 throw new InvalidOperationException(
                     "Decompiler source unavailable: "
@@ -1031,25 +1371,30 @@ public static partial class SourceExports
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSource source,
         BrowserWorkspaceParticipant participant,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         AdaptMember(
             source,
             DecompiledProvenance(participant),
-            includeParts);
+            includeParts,
+            diagnostics);
 
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSource source,
         WorkspaceContextMember participant,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         AdaptMember(
             source,
             DecompiledProvenance(participant),
-            includeParts);
+            includeParts,
+            diagnostics);
 
     static BrowserMemberSource AdaptMember(
         AssemblyMemberSource source,
         InertString decompiledProvenance,
-        bool includeParts)
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics)
     {
         BrowserSource browserSource = Adapt(source, decompiledProvenance);
         BrowserMemberSourcePart[] parts = includeParts
@@ -1062,8 +1407,23 @@ public static partial class SourceExports
                     document.Parts,
                     browserSource.Text.Length)
                 : [];
-        return new BrowserMemberSource(browserSource, parts);
+        return new BrowserMemberSource(
+            browserSource,
+            parts,
+            ProjectMemberSourceDiagnostics(diagnostics));
     }
+
+    internal static BrowserMemberSourceDiagnostic[]
+        ProjectMemberSourceDiagnostics(
+            IEnumerable<InspectionDiagnostic>? diagnostics) =>
+        [
+            .. (diagnostics ?? []).Select(static diagnostic =>
+                new BrowserMemberSourceDiagnostic(
+                    diagnostic.Code,
+                    diagnostic.Severity.ToString(),
+                    diagnostic.Summary.ToString(),
+                    diagnostic.Correspondence?.ToString())),
+        ];
 
     internal static BrowserMemberSourcePart[] ProjectMemberParts(
         string documentText,

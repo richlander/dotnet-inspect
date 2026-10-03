@@ -553,10 +553,22 @@ public static class MemberCommand
                     };
             }
 
+            if ((effectiveOptions.SourceParts
+                    || effectiveOptions.SourcePart is not null)
+                && MemberSourcePartsOutput.ValidateSections(effectiveOptions)
+                    is { } sectionError)
+            {
+                CommandError.Write(sectionError);
+                return 1;
+            }
+
             if (MemberDocumentOutput.IsSelected(
                         apiType,
                         effectiveOptions,
-                        executionPlan))
+                        executionPlan)
+                || MemberDocumentOutput.IsSourceSelected(
+                    apiType,
+                    effectiveOptions))
             {
                 string? memberAssemblyPath =
                     apiType.SourceAssemblyPath
@@ -573,6 +585,10 @@ public static class MemberCommand
                     apiType,
                     effectiveOptions,
                     memberAssemblyPath,
+                    sourceAssembly,
+                    packageName,
+                    packageVersion,
+                    context.HttpClient,
                     CancellationToken.None);
             }
 
@@ -727,13 +743,6 @@ public static class MemberCommand
                 }
 
                 apiType.Members = arityCandidates;
-            }
-
-            if ((effectiveOptions.SourceParts || effectiveOptions.SourcePart is not null)
-                && MemberSourcePartsOutput.ValidateSections(effectiveOptions) is { } sectionError)
-            {
-                CommandError.Write(sectionError);
-                return 1;
             }
 
             if (!CloneCandidatesCommand.ValidatePredicateSelection(
