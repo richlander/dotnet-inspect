@@ -156,6 +156,8 @@ public partial class LibraryCommand
             return 1;
         if (!ValidateNameFamilyTransport(options))
             return 1;
+        if (!ValidateDependencyStructureTransport(options))
+            return 1;
 
         if (!LibrarySourceAdapter.TryBind(
                 options,
@@ -628,9 +630,29 @@ public partial class LibraryCommand
             IncludeSections =
                 nameFamilySelection.Sections,
         };
+        var dependencyStructureSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.DependencyStructure);
+        if (dependencyStructureSelection.Error is not null)
+        {
+            CommandError.Write(
+                dependencyStructureSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                dependencyStructureSelection.Sections,
+        };
         if (!ValidateLibraryMetricsTransport(options))
             return 1;
         if (!ValidateNameFamilyTransport(options))
+            return 1;
+        if (!ValidateDependencyStructureTransport(options))
             return 1;
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
@@ -769,6 +791,7 @@ public partial class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !RequestsLibraryMetricsTransport(options)
             && !RequestsNameFamilyTransport(options)
+            && !RequestsDependencyStructureTransport(options)
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Json,
                 options.IncludeSections))
@@ -1335,6 +1358,16 @@ public partial class LibraryCommand
                     return WriteNameFamilyTransport(inspection, options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
+                if (RequestsDependencyStructureTransport(options))
+                    return WriteDependencyStructureTransport(
+                        inspection,
+                        options);
+                if (RejectUnavailableDependencyStructure(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1683,8 +1716,28 @@ public partial class LibraryCommand
                         inspections[0],
                         options);
                 }
+                if (RequestsDependencyStructureTransport(options))
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Dependency Structure requires one exact "
+                                + "Library.");
+                        return 1;
+                    }
+                    return WriteDependencyStructureTransport(
+                        inspections[0],
+                        options);
+                }
                 if (inspections.Count == 1
                     && RejectUnavailableNameFamilies(
+                        inspections[0],
+                        options))
+                {
+                    return 1;
+                }
+                if (inspections.Count == 1
+                    && RejectUnavailableDependencyStructure(
                         inspections[0],
                         options))
                 {
@@ -1922,6 +1975,16 @@ public partial class LibraryCommand
                     return WriteNameFamilyTransport(inspection, options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
+                if (RequestsDependencyStructureTransport(options))
+                    return WriteDependencyStructureTransport(
+                        inspection,
+                        options);
+                if (RejectUnavailableDependencyStructure(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)

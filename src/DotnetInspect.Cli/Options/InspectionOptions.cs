@@ -117,6 +117,9 @@ public record InspectionOptions : IProjectionOptions
     public RowSelectionIntent<string>? NameFamilyRowSelection
     { get; init; }
 
+    public RowSelectionIntent<string>? DependencyStructureRowSelection
+    { get; init; }
+
     public PerformanceTriageOptions PerformanceTriage { get; init; } =
         PerformanceTriageOptions.Default;
 

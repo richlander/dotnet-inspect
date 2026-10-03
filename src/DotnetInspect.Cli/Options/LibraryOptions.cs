@@ -374,6 +374,13 @@ public record LibraryOptions : IProjectionOptions
     { get; init; }
 
     /// <summary>
+    /// Semantic namespace-edge selection for the exact Dependency Structure
+    /// section.
+    /// </summary>
+    public RowSelectionIntent<string>? DependencyStructureRowSelection
+    { get; init; }
+
+    /// <summary>
     /// Row predicates for the Performance Triage section.
     /// </summary>
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;

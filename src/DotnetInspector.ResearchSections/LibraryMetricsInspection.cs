@@ -36,7 +36,9 @@ public static class LibraryMetricsInspectionJson
 
         writer.WriteStartObject();
         writer.WritePropertyName("analysisReceipt");
-        WriteAnalysisReceipt(writer, document.AnalysisReceipt);
+        AnalysisExecutionJson.WriteReceipt(
+            writer,
+            document.AnalysisReceipt);
         writer.WriteString(
             "methodologyVersion",
             document.MethodologyVersion);
@@ -76,56 +78,9 @@ public static class LibraryMetricsInspectionJson
         else
             writer.WriteNullValue();
         writer.WritePropertyName("diagnostics");
-        WriteDiagnostics(writer, document.Diagnostics);
-        writer.WriteEndObject();
-    }
-
-    private static void WriteAnalysisReceipt(
-        Utf8JsonWriter writer,
-        LibraryBodyAnalysisReceipt receipt)
-    {
-        writer.WriteStartObject();
-        writer.WriteString("sourceName", receipt.SourceName);
-        writer.WritePropertyName("moduleIdentity");
-        WriteModuleIdentity(writer, receipt.ModuleIdentity);
-        writer.WriteString("features", receipt.Features.ToString());
-        writer.WriteNumber("featureMask", (int)receipt.Features);
-        writer.WriteBoolean(
-            "hasFullMethodEvidenceScope",
-            receipt.HasFullMethodEvidenceScope);
-        writer.WritePropertyName("diagnostics");
-        WriteDiagnostics(writer, receipt.Diagnostics);
-        writer.WriteEndObject();
-    }
-
-    private static void WriteModuleIdentity(
-        Utf8JsonWriter writer,
-        LibraryBodyModuleIdentity identity)
-    {
-        writer.WriteStartObject();
-        writer.WritePropertyName("assemblyIdentity");
-        if (identity.AssemblyIdentity is { } assembly)
-            WriteAssemblyIdentity(writer, assembly);
-        else
-            writer.WriteNullValue();
-        writer.WriteString(
-            "moduleVersionId",
-            identity.ModuleVersionId);
-        writer.WriteEndObject();
-    }
-
-    private static void WriteAssemblyIdentity(
-        Utf8JsonWriter writer,
-        AssemblyReferenceIdentity identity)
-    {
-        writer.WriteStartObject();
-        writer.WriteString("name", identity.Name);
-        WriteString(writer, "version", identity.Version?.ToString());
-        WriteString(writer, "culture", identity.Culture);
-        WriteString(
+        AnalysisExecutionJson.WriteDiagnostics(
             writer,
-            "publicKeyToken",
-            identity.PublicKeyToken);
+            document.Diagnostics);
         writer.WriteEndObject();
     }
 
@@ -200,14 +155,18 @@ public static class LibraryMetricsInspectionJson
             writer.WriteString("reason", body.Reason.ToString());
             writer.WritePropertyName("diagnostic");
             if (body.Diagnostic is { } diagnostic)
-                WriteDiagnostic(writer, diagnostic);
+                AnalysisExecutionJson.WriteDiagnostic(
+                    writer,
+                    diagnostic);
             else
                 writer.WriteNullValue();
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
         writer.WritePropertyName("diagnostics");
-        WriteDiagnostics(writer, coverage.Diagnostics);
+        AnalysisExecutionJson.WriteDiagnostics(
+            writer,
+            coverage.Diagnostics);
         writer.WriteEndObject();
     }
 
@@ -554,7 +513,7 @@ public static class LibraryMetricsInspectionJson
             "moduleVersionId",
             qualification.Receipt.ModuleVersionId);
         writer.WritePropertyName("assemblyIdentity");
-        WriteAssemblyIdentity(
+        AnalysisExecutionJson.WriteAssemblyIdentity(
             writer,
             qualification.Receipt.Assembly);
         if (qualification.Receipt.ExactNamespace is { } exactNamespace)
@@ -830,41 +789,6 @@ public static class LibraryMetricsInspectionJson
         writer.WriteBoolean(
             "terminalSettled",
             receipt.TerminalSettled);
-        writer.WriteEndObject();
-    }
-
-    private static void WriteDiagnostics(
-        Utf8JsonWriter writer,
-        IEnumerable<AnalysisDiagnostic> diagnostics)
-    {
-        writer.WriteStartArray();
-        foreach (AnalysisDiagnostic diagnostic in diagnostics)
-            WriteDiagnostic(writer, diagnostic);
-        writer.WriteEndArray();
-    }
-
-    private static void WriteDiagnostic(
-        Utf8JsonWriter writer,
-        AnalysisDiagnostic diagnostic)
-    {
-        writer.WriteStartObject();
-        writer.WriteNumber("methodToken", diagnostic.MethodToken);
-        writer.WriteString("method", diagnostic.Method);
-        writer.WriteString("message", diagnostic.Message);
-        WriteNumber(
-            writer,
-            "sourceMethodToken",
-            diagnostic.SourceMethodToken);
-        writer.WritePropertyName("declaringType");
-        if (diagnostic.DeclaringType is { } declaringType)
-            AnalysisIdentityJson.WriteType(writer, declaringType);
-        else
-            writer.WriteNullValue();
-        writer.WritePropertyName("sourceDeclaringType");
-        if (diagnostic.SourceDeclaringType is { } sourceDeclaringType)
-            AnalysisIdentityJson.WriteType(writer, sourceDeclaringType);
-        else
-            writer.WriteNullValue();
         writer.WriteEndObject();
     }
 

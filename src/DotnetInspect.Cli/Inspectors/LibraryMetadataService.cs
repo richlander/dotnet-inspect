@@ -201,6 +201,8 @@ internal static class LibraryMetadataService
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
                             options.NameFamilyRowSelection,
+                        DependencyStructureRowSelection =
+                            options.DependencyStructureRowSelection,
                     };
                     await RunTypedQueriesAsync(
                         path,
@@ -347,6 +349,8 @@ internal static class LibraryMetadataService
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
                         options.NameFamilyRowSelection,
+                    DependencyStructureRowSelection =
+                        options.DependencyStructureRowSelection,
                 };
 
                 await RunTypedQueriesAsync(
@@ -552,7 +556,9 @@ internal static class LibraryMetadataService
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true)
+            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true
+            || queries?.Contains(
+                LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
@@ -2361,6 +2367,18 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                LibraryDependencyStructureQuery.Definition,
+                out LibraryDependencyStructureQueryResult?
+                    dependencyStructure))
+        {
+            ApplyLibraryDependencyStructureResult(
+                path,
+                inspection,
+                logger,
+                dependencyStructure);
+        }
+
+        if (results.TryGet(
                 OptimizationOpportunitiesQuery.Definition,
                 out OptimizationOpportunitiesResult? optimizationOpportunities))
         {
@@ -2686,6 +2704,34 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     "Unknown Library name-family result "
                         + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyLibraryDependencyStructureResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryDependencyStructureQueryResult result)
+    {
+        inspection.DependencyStructureQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryDependencyStructureQueryResult.Available:
+            case LibraryDependencyStructureQueryResult.Unavailable:
+            case LibraryDependencyStructureQueryResult.SelectionFailed:
+                break;
+
+            case LibraryDependencyStructureQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting dependency structure in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown dependency structure result "
+                    + $"'{result.GetType().Name}'.");
         }
     }
 

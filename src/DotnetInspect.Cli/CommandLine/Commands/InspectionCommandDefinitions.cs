@@ -570,17 +570,26 @@ public static class InspectionCommandDefinitions
                     exactSelector,
                     SectionNames.NameFamilies,
                     StringComparison.OrdinalIgnoreCase);
+            bool exactDependencyStructure =
+                string.Equals(
+                    exactSelector,
+                    SectionNames.DependencyStructure,
+                    StringComparison.OrdinalIgnoreCase);
             if (result.GetResult(opts.Select)
                     is { Implicit: false }
                 && !exactLibraryMetrics
-                && !exactNameFamilies)
+                && !exactNameFamilies
+                && !exactDependencyStructure)
             {
                 result.AddError(
                     "library --envelope accepts only the exact "
-                        + "\"Library Metrics\" or \"Name Families\" "
+                        + "\"Library Metrics\", \"Name Families\", or "
+                        + "\"Dependency Structure\" "
                         + "section selection.");
             }
-            if (exactLibraryMetrics || exactNameFamilies)
+            if (exactLibraryMetrics
+                || exactNameFamilies
+                || exactDependencyStructure)
                 return;
 
             Option[] directEnvelopeIncompatibleOptions =
@@ -698,6 +707,9 @@ public static class InspectionCommandDefinitions
                         parseResult,
                         opts)
                     || HasExactNameFamiliesSelector(
+                        parseResult,
+                        opts)
+                    || HasExactDependencyStructureSelector(
                         parseResult,
                         opts));
             if (parseResult.GetValue(opts.Envelope)
@@ -921,6 +933,19 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(nameFamilyRowSelectionError!);
                 return 1;
             }
+            RowSelectionIntent<string>? dependencyStructureRowSelection =
+                null;
+            if (HasExactDependencyStructureSelector(select, selectDefault)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        SectionNames.DependencyStructure,
+                        out dependencyStructureRowSelection,
+                        out string? dependencyStructureSelectionError))
+            {
+                CommandError.Write(dependencyStructureSelectionError!);
+                return 1;
+            }
             string? nameFamilyPopulationText =
                 parseResult.GetValue(nameFamilyPopulationOption);
             if (nameFamilyPopulationText is not null
@@ -1044,6 +1069,7 @@ public static class InspectionCommandDefinitions
                     && referenceRowSelection is null
                     && ecosystemDependencyRowSelection is null
                     && nameFamilyRowSelection is null
+                    && dependencyStructureRowSelection is null
                     ? opts.ParseRows(parseResult)
                     : null,
                 CloneCandidateRowSelection =
@@ -1054,6 +1080,8 @@ public static class InspectionCommandDefinitions
                     ecosystemDependencyRowSelection,
                 NameFamilyPopulation = nameFamilyPopulation,
                 NameFamilyRowSelection = nameFamilyRowSelection,
+                DependencyStructureRowSelection =
+                    dependencyStructureRowSelection,
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
@@ -1083,6 +1111,27 @@ public static class InspectionCommandDefinitions
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             result => CloneCandidateRowSelectionAdoption.IsActive(
+                result,
+                opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => HasExactDependencyStructureSelector(
                 result,
                 opts),
             validateLowering: (result, lowering) =>
@@ -1208,6 +1257,31 @@ public static class InspectionCommandDefinitions
         return selectors is [var selector]
             && selector.Equals(
                 SectionNames.NameFamilies,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasExactDependencyStructureSelector(
+        ParseResult parseResult,
+        SharedOptions opts)
+        => HasExactDependencyStructureSelector(
+            opts.ParseSelect(parseResult),
+            opts.ParseSelectDefault(parseResult));
+
+    private static bool HasExactDependencyStructureSelector(
+        string[]? select,
+        bool selectDefault)
+    {
+        if (selectDefault)
+            return false;
+
+        string[] selectors =
+        [
+            .. (select ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.DependencyStructure,
                 StringComparison.OrdinalIgnoreCase);
     }
 

@@ -308,6 +308,21 @@ public class LibraryInspectionView
                 markWindowedFragments: true)
             : null;
 
+    [MarkoutIgnore]
+    public bool HasDependencyStructure =>
+        _data.DependencyStructureQueryResult
+            is LibraryDependencyStructureQueryResult.Available;
+
+    [MarkoutSection(
+        Name = SectionNames.DependencyStructure,
+        EmptyText = "No internal namespace dependencies.",
+        ShowWhenProperty = nameof(HasDependencyStructure))]
+    public Markout.Graph? DependencyStructureSection =>
+        _data.DependencyStructureQueryResult
+            is LibraryDependencyStructureQueryResult.Available available
+                ? LibraryDependencyStructureOutputAdapter.ToGraph(available)
+                : null;
+
     private EcosystemDependencyRecognitionDocument? RecognitionDocument =>
         _data.EcosystemDependencyRecognitionInspection?.Content switch
         {
