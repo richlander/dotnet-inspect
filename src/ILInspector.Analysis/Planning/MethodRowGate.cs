@@ -25,7 +25,8 @@ public abstract class MethodRowClassifier
         MethodDefinitionLayers.Flags
         | MethodDefinitionLayers.NameComparison
         | MethodDefinitionLayers.SignatureShape
-        | MethodDefinitionLayers.AttributeTypeMatch;
+        | MethodDefinitionLayers.AttributeTypeMatch
+        | MethodDefinitionLayers.HiddenAttribute;
 
     private protected MethodRowClassifier(string identity, MethodDefinitionLayers fields)
     {
@@ -148,6 +149,28 @@ public readonly ref struct MethodRowTypeView
     {
         Require(MethodDefinitionLayers.NameComparison);
         return _gate.Reader.StringComparer.StartsWith(_type.Name, prefix);
+    }
+
+    /// <summary>
+    /// Whether a custom attribute on the type has the target type, matched in
+    /// place with the same per-constructor memo as the method accessor.
+    /// Requires <see cref="MethodDefinitionLayers.AttributeTypeMatch"/>.
+    /// </summary>
+    public bool HasAttributeOfType(MetadataTypeNameTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        Require(MethodDefinitionLayers.AttributeTypeMatch);
+        return _gate.TypeHasAttributeOfType(_type, target);
+    }
+
+    /// <summary>The legacy hidden test on the type's own attributes. Requires <see cref="MethodDefinitionLayers.HiddenAttribute"/>.</summary>
+    public bool IsHidden
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.HiddenAttribute);
+            return _gate.TypeIsHidden(_type);
+        }
     }
 
     void Require(MethodDefinitionLayers field)
@@ -385,9 +408,29 @@ internal sealed class MethodRowGate
     /// bound, or a TypeSpec blob over legacy's guard, aborts; an unreadable
     /// name is a recoverable failure.
     /// </summary>
-    internal bool HasAttributeOfType(MetadataTypeNameTarget target)
+    internal bool HasAttributeOfType(MetadataTypeNameTarget target) =>
+        AnyAttributeOfType(_methodDefinition.GetCustomAttributes(), target);
+
+    /// <summary>The method accessor's test over a type's attributes, sharing its memo.</summary>
+    internal bool TypeHasAttributeOfType(TypeDefinition type, MetadataTypeNameTarget target) =>
+        AnyAttributeOfType(type.GetCustomAttributes(), target);
+
+    /// <summary>
+    /// The legacy hidden test, through Metadata's <c>AttributeReader</c>, so
+    /// the answer equals <c>ExtensionMethodScanner</c>'s on every input. It
+    /// materializes attribute type names, which Tier 1 otherwise avoids; the
+    /// classifier that declares it reads it only for rows that passed its
+    /// in-place tests, and <c>#8780</c> owns hardening that shared path.
+    /// </summary>
+    internal bool IsHidden() =>
+        AttributeReader.HasHiddenAttribute(Reader, _methodDefinition.GetCustomAttributes());
+
+    internal bool TypeIsHidden(TypeDefinition type) =>
+        AttributeReader.HasHiddenAttribute(Reader, type.GetCustomAttributes());
+
+    bool AnyAttributeOfType(CustomAttributeHandleCollection attributes, MetadataTypeNameTarget target)
     {
-        foreach (CustomAttributeHandle handle in _methodDefinition.GetCustomAttributes())
+        foreach (CustomAttributeHandle handle in attributes)
         {
             EntityHandle constructor = Reader.GetCustomAttribute(handle).Constructor;
             if (!_attributeConstructors.TryGetValue((constructor, target), out bool matches))
