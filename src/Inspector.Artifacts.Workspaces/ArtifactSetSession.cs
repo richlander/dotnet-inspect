@@ -1859,14 +1859,59 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         long maxArtifactBytes,
         CancellationToken cancellationToken)
     {
-        if (stream.CanSeek
-            && checked(stream.Length - stream.Position)
-                > maxArtifactBytes)
+        if (stream.CanSeek)
         {
-            throw new ArtifactMaterializationLimitException();
+            long remaining = checked(stream.Length - stream.Position);
+            if (remaining > maxArtifactBytes)
+                throw new ArtifactMaterializationLimitException();
+
+            // A seekable stream states its length, so read into one exact
+            // array instead of growing a buffer and copying it again.
+            byte[] exact = new byte[remaining];
+            int filled = 0;
+            while (filled < exact.Length)
+            {
+                int read = await stream.ReadAsync(
+                        exact.AsMemory(filled),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (read == 0)
+                    return exact.AsSpan(0, filled).ToArray();
+                filled += read;
+            }
+
+            // A stream longer than its stated length continues through the
+            // general path with what was read so far, so the bound and the
+            // result are unchanged.
+            byte[] probe = new byte[1];
+            if (await stream.ReadAsync(probe, cancellationToken).ConfigureAwait(false) == 0)
+                return exact;
+            if ((long)exact.Length + 1 > maxArtifactBytes)
+                throw new ArtifactMaterializationLimitException();
+            return await CopyRemainderAsync(
+                    stream,
+                    [.. exact, probe[0]],
+                    maxArtifactBytes,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
+        return await CopyRemainderAsync(
+                stream,
+                [],
+                maxArtifactBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async ValueTask<byte[]> CopyRemainderAsync(
+        Stream stream,
+        byte[] prefix,
+        long maxArtifactBytes,
+        CancellationToken cancellationToken)
+    {
         using var destination = new MemoryStream();
+        destination.Write(prefix, 0, prefix.Length);
         byte[] buffer = new byte[81920];
         while (true)
         {
