@@ -458,6 +458,12 @@ authority. The request identity includes search text, optional exact Ecosystem,
 prefix demand, and finite result window. Spotlight never filters a fully
 realized result set in TypeScript.
 
+Changing search text, result-kind scope, exact Ecosystem, or finite result
+window starts a replacement session. A completed or zero-capacity-finalized
+continuation is never resumed across requests. Owner-issued caches may reuse
+source facts under their own keys, but Shell Interaction makes no
+cross-session no-repeat claim.
+
 When no Ecosystem filter is selected, ordinary scopes preserve the product's
 configured Workspace registrations. The Ecosystems owner remains responsible
 for the product-curated registration set, which continues to include
@@ -745,6 +751,8 @@ Search-composition implementation must add and pass these named gates:
   replacement sessions for different exact Ecosystem filters. It also proves
   that admitted Workspace results reduce the owner-issued remaining window and
   that zero capacity finalizes the exact continuation without prefix work.
+  Increasing the window starts a replacement bounded session and cannot resume
+  that finalized continuation.
 - `spotlight-search.spec.ts`:
   `published Spotlight searches Workspace Ecosystems and packages in order`
   uses the Release-published Firefox/Wasm application and the real
@@ -952,7 +960,9 @@ outcomes.
     limit not filled by the bounded Ecosystem blocks but filled by admitted
     Workspace results; confirm that the exact prefix continuation finalizes
     with zero capacity and no package source starts. Increase the limit and
-    confirm that work resumes only at the next owner-issued boundary.
+    confirm that a replacement session starts from its bounded phase rather
+    than resuming the finalized continuation; owner-issued caches may satisfy
+    repeated source facts without changing that session boundary.
 26. Change the selected Ecosystem while work is pending. Confirm that the old
     request is superseded, stale completion cannot alter the visible list, and
     the new filter does not mutate Workspace registrations.
