@@ -8032,12 +8032,9 @@ function openMemberGroup(key: string) {
   const preserveSection =
     state.memberBrowseTypeId === type?.id && Boolean(state.selectedMemberKey);
   const group = memberGroupForCurrentFilters(type, key);
-  const sourceOverloadCount =
-    group?.sourceOverloadCount ?? group?.overloads.length ?? 0;
   const filteredDocumentOrdinal =
     Boolean(state.memberTraitFilter)
     && group?.overloads.length === 1
-    && sourceOverloadCount === 1
       ? memberDocumentOrdinalForOverload(group, 0)
       : null;
   const graphOnlyTarget =

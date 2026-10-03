@@ -1112,7 +1112,7 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /function openMemberGroup\([\s\S]*memberGroupForCurrentFilters\(type, key\)/);
   assert.match(
     appSource,
-    /function openMemberGroup\([\s\S]*sourceOverloadCount[\s\S]*state\.memberTraitFilter[\s\S]*sourceOverloadCount === 1[\s\S]*memberDocumentOrdinalForOverload\(group, 0\)[\s\S]*openMemberDocument\(filteredDocumentOrdinal\)/);
+    /function openMemberGroup\([\s\S]*state\.memberTraitFilter[\s\S]*memberDocumentOrdinalForOverload\(group, 0\)[\s\S]*openMemberDocument\(filteredDocumentOrdinal\)/);
   assert.match(
     filters,
     /function selectedMemberGroups\([\s\S]*?return declaredMemberGroups\(type\)/);

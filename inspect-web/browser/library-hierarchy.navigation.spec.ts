@@ -806,14 +806,14 @@ test("metadata accessors retain their established overload detail route", async 
     .toContainText("int Example.Widget.get_Value()");
 });
 
-test("non-public overload navigation retains its established detail route", async ({
+test("filtered non-public overload navigation retains its established detail route", async ({
   page,
 }) => {
-  const hidden = [1, 2].map(index => ({
+  const hidden = [1, 2, 3].map(index => ({
     ...run,
     signature: `private void Hidden(int value${index})`,
     name: "Hidden",
-    isStatic: index === 2,
+    isStatic: index !== 2,
     accessibility: "private",
     stableSelector: `Hidden:${index}`,
     anchorDigest: `widget-hidden-${index}`,
@@ -842,15 +842,15 @@ test("non-public overload navigation retains its established detail route", asyn
   await page.locator("[data-member-access-filter]").selectOption("private");
   await page.locator("[data-member-trait-filter]").selectOption("static");
   await chooseSubject(page, "member", "Member");
-  await page.locator('[data-nav-overload="1"]').click();
+  await page.locator('[data-nav-overload="2"]').click();
 
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
   )).toBeNull();
-  await expect(page.locator('[data-nav-overload="1"]'))
+  await expect(page.locator('[data-nav-overload="2"]'))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface"))
-    .toContainText("void Example.Widget.Hidden(int value2)");
+    .toContainText("void Example.Widget.Hidden(int value3)");
 });
 
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
