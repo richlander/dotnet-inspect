@@ -298,22 +298,32 @@ sealed class Asset
         _ = MeasureBuild(1);
         yield return MeasureBuild(iterations);
 
-        using CatalogCallGraphScope scope = CreateScope();
-        _ = scope.StorageEdgeCount;
-        _ = MeasureTrees(scope, CallerRoots, callers: true, 1);
-        yield return MeasureTrees(
-            scope,
-            CallerRoots,
-            callers: true,
-            iterations);
-        _ = MeasureTrees(scope, CalleeRoots, callers: false, 1);
-        yield return MeasureTrees(
-            scope,
-            CalleeRoots,
-            callers: false,
-            iterations);
-        _ = MeasureCensus(scope, 1);
-        yield return MeasureCensus(scope, iterations);
+        using (CatalogCallGraphScope scope = CreateScope())
+        {
+            _ = scope.StorageEdgeCount;
+            _ = MeasureTrees(scope, CallerRoots, callers: true, 1);
+            yield return MeasureTrees(
+                scope,
+                CallerRoots,
+                callers: true,
+                iterations);
+        }
+        using (CatalogCallGraphScope scope = CreateScope())
+        {
+            _ = scope.StorageEdgeCount;
+            _ = MeasureTrees(scope, CalleeRoots, callers: false, 1);
+            yield return MeasureTrees(
+                scope,
+                CalleeRoots,
+                callers: false,
+                iterations);
+        }
+        using (CatalogCallGraphScope scope = CreateScope())
+        {
+            _ = scope.StorageEdgeCount;
+            _ = MeasureCensus(scope, 1);
+            yield return MeasureCensus(scope, iterations);
+        }
     }
 
     Measurement MeasureBuild(int iterations) =>
