@@ -1320,32 +1320,47 @@ public static class TypeCommand
 
             SelectedContextExactTypeSource source =
                 AssertSingleDefiningSource(envelope.Content);
+            ExactTypeRenderSource renderSource =
+                ExactTypeRenderSource.From(source);
             int outputExitCode =
                 await ExecuteWorkspaceExactTypeResultAsync(
                     options with
                     {
                         WorkspacePacket = null,
                         ShareFormat = null,
+                        CompanionOutput = CompanionOutput.None,
                     },
                     plan,
                     inspection,
                     envelope.Diagnostics,
-                    ExactTypeRenderSource.From(source),
+                    renderSource,
                     liveTarget
                         ?? throw new InvalidOperationException(
                             "An available Workspace Type result requires a "
                                 + "live inspection target."))
                     .ConfigureAwait(false);
-            if (options.ShareFormat is not { } shareFormat)
-                return outputExitCode;
-
-            InspectionShare share =
-                shareChoice.Refusal ?? envelope.Share;
-            int shareExitCode =
-                WorkspaceShareOutput.Write(share, shareFormat);
-            return outputExitCode != 0 || shareExitCode != 0
-                ? 1
+            int shareExitCode = options.ShareFormat is { } shareFormat
+                ? WorkspaceShareOutput.Write(
+                    shareChoice.Refusal ?? envelope.Share,
+                    shareFormat)
                 : 0;
+            if (outputExitCode != 0 || shareExitCode != 0)
+                return 1;
+
+            if (options.CompanionOutput != CompanionOutput.None)
+            {
+                ExactTypeApi type = inspection.Type!;
+                WriteTypeTips(
+                    options.CompanionOutput,
+                    type.FullName,
+                    type.Members.Select(
+                        static member =>
+                            (member.Name, member.Kind)),
+                    sourceFlag: "",
+                    renderSource.PackageName,
+                    renderSource.PackageVersion);
+            }
+            return 0;
         }).ConfigureAwait(false);
     }
 

@@ -69,17 +69,35 @@ public static class CommandLineBuilder
 
     public static bool TryGetRemovedCommandError(
         string[] args,
-        out string? error) =>
-        TryGetRemovedCommandError(
+        out string? error)
+    {
+        if (!ArgumentPreprocessor.RequiresRemovedCommandOwnershipParse(args))
+        {
+            return ArgumentPreprocessor.TryGetRemovedCommandError(
+                args,
+                parseResult: null,
+                out error);
+        }
+
+        return TryGetRemovedCommandError(
             args,
             CreateRootCommand(),
             out error);
+    }
 
     internal static bool TryGetRemovedCommandError(
         string[] args,
         RootCommand rootCommand,
         out string? error)
     {
+        if (!ArgumentPreprocessor.RequiresRemovedCommandOwnershipParse(args))
+        {
+            return ArgumentPreprocessor.TryGetRemovedCommandError(
+                args,
+                parseResult: null,
+                out error);
+        }
+
         bool isImplicitPackageCandidate =
             ArgumentPreprocessor.IsImplicitPackageCandidate(
                 args,

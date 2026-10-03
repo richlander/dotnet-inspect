@@ -99,7 +99,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            CompanionOutput = CompanionOutput.None,
+            CompanionOutput = CompanionOutput.Tips,
         };
 
         (int exitCode, string output, string error) =
@@ -115,10 +115,14 @@ public sealed class ExactTypeWorkspaceRouteTests
             "ILInspector.Metadata.ApiType",
             output,
             StringComparison.Ordinal);
-        string derivedPacket = Assert.Single(
-            error.Split(
-                Environment.NewLine,
-                StringSplitOptions.RemoveEmptyEntries));
+        string[] errorLines = error.Split(
+            Environment.NewLine,
+            StringSplitOptions.RemoveEmptyEntries);
+        string derivedPacket = errorLines[0];
+        Assert.Contains("Tips:", error, StringComparison.Ordinal);
+        Assert.True(
+            error.IndexOf(derivedPacket, StringComparison.Ordinal)
+                < error.IndexOf("Tips:", StringComparison.Ordinal));
         WorkspaceSharePacket derived =
             WorkspaceSharePacketCodec.Decode(
                 derivedPacket,
@@ -230,7 +234,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            CompanionOutput = CompanionOutput.None,
+            CompanionOutput = CompanionOutput.Tips,
         };
 
         (int exitCode, string output, string error) =
@@ -254,6 +258,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             "schema version 4",
             error,
             StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
     }
 
     [Fact]

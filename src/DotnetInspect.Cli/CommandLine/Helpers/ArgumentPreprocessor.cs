@@ -134,16 +134,19 @@ public static class ArgumentPreprocessor
 
     internal static bool TryGetRemovedCommandError(
         string[] args,
-        ParseResult parseResult,
+        ParseResult? parseResult,
         out string? error)
     {
         int terminator = Array.IndexOf(args, "--");
         int end = terminator >= 0 ? terminator : args.Length;
         bool[] requiredOptionValues = new bool[end];
-        for (int i = 0; i < end; i++)
+        if (parseResult is not null)
         {
-            requiredOptionValues[i] =
-                IsClaimedByRequiredOption(parseResult, args, i);
+            for (int i = 0; i < end; i++)
+            {
+                requiredOptionValues[i] =
+                    IsClaimedByRequiredOption(parseResult, args, i);
+            }
         }
 
         for (var i = 0; i < end; i++)
@@ -151,12 +154,7 @@ public static class ArgumentPreprocessor
             if (requiredOptionValues[i])
                 continue;
 
-            if (args[i].Equals("--tips", StringComparison.Ordinal)
-                || args[i].StartsWith("--tips=", StringComparison.Ordinal)
-                || args[i].StartsWith("--tips:", StringComparison.Ordinal)
-                || args[i].Equals("-T", StringComparison.Ordinal)
-                || args[i].StartsWith("-T=", StringComparison.Ordinal)
-                || args[i].StartsWith("-T:", StringComparison.Ordinal))
+            if (IsRemovedTipsOption(args[i]))
             {
                 error = $"'{args[i]}' is no longer valid. "
                     + "Use '-E .tips' to request up to three contextual tips.";
@@ -170,8 +168,7 @@ public static class ArgumentPreprocessor
                 return true;
             }
 
-            if (args[i].Length > 2
-                && args[i].StartsWith("-E", StringComparison.Ordinal))
+            if (IsAttachedCompanionOption(args[i]))
             {
                 error = $"'{args[i]}' is not valid. "
                     + "Pass a dotted companion projection as a separate token, "
@@ -231,6 +228,47 @@ public static class ArgumentPreprocessor
         error = null;
         return false;
     }
+
+    internal static bool RequiresRemovedCommandOwnershipParse(string[] args)
+    {
+        int terminator = Array.IndexOf(args, "--");
+        int end = terminator >= 0 ? terminator : args.Length;
+        int companionCount = 0;
+        for (int i = 0; i < end; i++)
+        {
+            string argument = args[i];
+            if (IsRemovedTipsOption(argument)
+                || argument == "-e"
+                || IsAttachedCompanionOption(argument))
+            {
+                return true;
+            }
+
+            if (argument != "-E")
+                continue;
+
+            companionCount++;
+            if (i + 1 < end
+                && args[i + 1] is "tips" or "references")
+            {
+                return true;
+            }
+        }
+
+        return companionCount > 1;
+    }
+
+    private static bool IsRemovedTipsOption(string argument) =>
+        argument.Equals("--tips", StringComparison.Ordinal)
+        || argument.StartsWith("--tips=", StringComparison.Ordinal)
+        || argument.StartsWith("--tips:", StringComparison.Ordinal)
+        || argument.Equals("-T", StringComparison.Ordinal)
+        || argument.StartsWith("-T=", StringComparison.Ordinal)
+        || argument.StartsWith("-T:", StringComparison.Ordinal);
+
+    private static bool IsAttachedCompanionOption(string argument) =>
+        argument.Length > 2
+        && argument.StartsWith("-E", StringComparison.Ordinal);
 
     private static bool IsDependencyEvidenceToken(string token) =>
         token.Equals(
