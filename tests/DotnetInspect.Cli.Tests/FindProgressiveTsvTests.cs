@@ -47,6 +47,19 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task ProgressiveMemberRowsAreNotWrittenTwice()
+    {
+        var result = await Run(
+            "find", ".Serialize", "--library", JsonLibrary, "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        string[] lines = result.Output.TrimEnd('\n').Split('\n');
+        string[] rows = lines.Skip(1).ToArray();
+        Assert.NotEmpty(rows);
+        Assert.Equal(rows.Length, rows.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public async Task SelectionKeepsEstablishedBufferedPathAndProjection()
     {
         var result = await Run("find", ".Serialize", "--library", JsonLibrary,

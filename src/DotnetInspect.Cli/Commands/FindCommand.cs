@@ -164,7 +164,7 @@ public class FindCommand
                     explicitWorkspace,
                     layered?.MemberSearch,
                     tsv,
-                    layered is not null && progressive
+                    () => layered is not null && progressive
                         ? layered.MemberSearch.Rows.Count
                         : streamedMembers);
             }
@@ -727,7 +727,7 @@ public class FindCommand
         ExplicitFindSearchWorkspace? explicitWorkspace,
         FindSearchResult<MemberFindResult>? preparedSearch = null,
         FindDiscoveryTsvWriter? tsv = null,
-        int streamedRows = 0)
+        Func<int>? streamedRowCount = null)
     {
         // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
         // the member named "Serialize". ".ctor"/".cctor" are preserved (they are real member names).
@@ -782,7 +782,8 @@ public class FindCommand
         }
         else if (tsv is not null)
         {
-            foreach (MemberFindResult row in results.Skip(streamedRows))
+            int alreadyStreamed = streamedRowCount?.Invoke() ?? 0;
+            foreach (MemberFindResult row in results.Skip(alreadyStreamed))
                 tsv.Write(FindDiscoveryOutput.Project(row));
             if (results.Count == 0)
                 CommandError.WriteLine("No members found matching the pattern.");
