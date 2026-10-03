@@ -816,9 +816,11 @@ extraction directories.
 **Declaration and contextual Member populations.** Assembly Inspection can
 publish a completed declaration-only `ApiSurface` through
 `ApiSurfaceExtractor.ExtractDeclarations`, its bounded peer, and the
-`AssemblyInspectionSession` declaration peers. A query may request the
-declaration population, a contextual extension population, or both. These are
-separate results even when execution shares the same admitted session.
+`AssemblyInspectionSession` declaration peers. At the current Assembly
+Inspection boundary, callers make separate declaration and extension-relation
+requests. A caller may issue both against the same retained session, but the
+results remain separate. This slice does not introduce a combined
+population-selection request; #9183 owns that later QuerySpace composition.
 
 A declaration request publishes one completed `ApiSurface`. Each
 `ApiType.Members` population contains only declarations physically owned by
