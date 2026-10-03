@@ -807,6 +807,20 @@ public class LibraryInspection
         set => _asyncMethodCount = value;
     }
 
+    private int? _extensionMethodCount;
+
+    /// <summary>
+    /// The number of public static extension methods on static extension
+    /// types, from the extension analyzer's Count: the method half of the
+    /// Library Info Extension Methods row.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ExtensionMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Extension) is null ? _extensionMethodCount : null;
+        set => _extensionMethodCount = value;
+    }
+
     /// <summary>Whether the async analyzer found any method, by its rows or its count.</summary>
     [JsonIgnore]
     public bool HasAsyncMethods =>

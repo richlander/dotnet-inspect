@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryInfoAndExtensionMethodsSections_ShareTypedExtensionMethodsQuery()
+    public void LibraryInfoNoLongerBindsTheTypedExtensionMethodsQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();
         string[] boundSections = pipeline.QueryBoundSections
@@ -125,7 +125,7 @@ public partial class SectionPipelineTests
             sections);
 
         Assert.Equal(
-            [SectionNames.ExtensionMethods, SectionNames.LibraryInfo],
+            [SectionNames.ExtensionMethods],
             boundSections);
         Assert.Equal(
             [
@@ -168,7 +168,6 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 CustomAttributesQuery.Definition,
-                ExtensionMethodsQuery.Definition,
                 MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
@@ -205,7 +204,6 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 CustomAttributesQuery.Definition,
-                ExtensionMethodsQuery.Definition,
                 MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
@@ -242,7 +240,6 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 CustomAttributesQuery.Definition,
-                ExtensionMethodsQuery.Definition,
                 MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,

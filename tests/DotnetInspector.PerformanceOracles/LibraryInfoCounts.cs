@@ -55,10 +55,14 @@ public static class LibraryInfoLanes
 
     /// <summary>
     /// Extension Methods, method half: a public static method carrying
-    /// <c>[Extension]</c>, not hidden, whose signature decodes with at least
-    /// one parameter. Extension properties (C# 14 extension blocks) are the
-    /// row's other half and are not a lane here: their selection walks
-    /// nested marker types through a private product path.
+    /// <c>[Extension]</c> and not hidden, as the <c>Extension</c>
+    /// classification analyzer tests it. The legacy row scan also decodes the
+    /// signature and skips a method with no parameters; Roslyn never emits a
+    /// parameterless <c>[Extension]</c> method and never fails that decode,
+    /// so under the fidelity policy the Count test omits it. Extension
+    /// properties (C# 14 extension blocks) are the row's other half and are
+    /// not a lane here: their selection walks nested marker types through a
+    /// private product path.
     /// </summary>
     public static bool IsExtensionMethod(MetadataReader reader, TypeDefinition type, MethodDefinition method)
     {
@@ -67,13 +71,8 @@ public static class LibraryInfoLanes
             return false;
         if ((attributes & MethodAttributes.Static) == 0)
             return false;
-        if (!AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
-            return false;
-        if (AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
-            return false;
-        GenericContext context = GenericContext.ForMethod(reader, type, method);
-        return GuardedSignatureText.MethodText(reader, method, context).TryGetValue(out MethodSignature<string> signature)
-            && signature.ParameterTypes.Length > 0;
+        return AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes())
+            && !AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes());
     }
 
     /// <summary>Async Methods: the gate, then the async tests, as the Planner's Count terminal applies them.</summary>
