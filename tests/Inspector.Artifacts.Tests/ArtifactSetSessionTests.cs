@@ -1953,6 +1953,174 @@ public sealed partial class ArtifactSetSessionTests
             lease);
     }
 
+    [Theory]
+    [InlineData(200_000, 200_000, 1_000_000, true)]   // exact length
+    [InlineData(10, 4, 100, true)]                      // longer than stated
+    [InlineData(5, 4, 5, true)]                         // longer than stated, at the bound
+    [InlineData(10, 4, 8, false)]                       // longer than stated, over the bound
+    [InlineData(4, 10, 100, true)]                      // shorter than stated
+    [InlineData(10, 10, 9, false)]                      // stated length over the bound
+    public async Task ArtifactSetSession_SeekableContentMaterializesExactlyWhateverItsStatedLength(
+        int actualLength,
+        long statedLength,
+        long maxArtifactBytes,
+        bool published)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] content = [.. Enumerable.Range(0, actualLength).Select(static i => (byte)(i * 31))];
+        await using var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+                MaxArtifactBytes = maxArtifactBytes,
+                MaxRetainedBytes = maxArtifactBytes,
+            });
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("stated-length"),
+                    _ => new StatedLengthStream(content, statedLength));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        ArtifactSetPublicationOutcome outcome =
+            await session.SealAsync(cancellationToken);
+
+        if (!published)
+        {
+            var rejected =
+                Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(outcome);
+            Assert.Equal(
+                "artifact.session.artifact-byte-limit",
+                Assert.Single(rejected.Failures).Diagnostic.Code);
+            return;
+        }
+
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(outcome);
+        using ArtifactQueryLease lease =
+            session.IssueLease(session.CreateQueryAuthorization());
+        using Stream read = session.OpenRead(
+            Assert.Single(session.GetCatalog(lease)).Identity,
+            lease);
+        Assert.Equal(content, ReadAll(read));
+    }
+
+    [Fact]
+    public async Task ArtifactSetSession_SeekableStreamPositionedPastItsEndPublishesEmptyContent()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+                MaxArtifactBytes = 16,
+                MaxRetainedBytes = 16,
+            });
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("past-end"),
+                    _ => new MemoryStream([1, 2, 3], writable: false) { Position = 4 });
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        using ArtifactQueryLease lease =
+            session.IssueLease(session.CreateQueryAuthorization());
+        using Stream read = session.OpenRead(
+            Assert.Single(session.GetCatalog(lease)).Identity,
+            lease);
+        Assert.Empty(ReadAll(read));
+    }
+
+    [Theory]
+    [InlineData(100, 3, 1_000, true)]   // within the bound
+    [InlineData(100, 3, 97, true)]      // the remainder is exactly the bound
+    [InlineData(100, 3, 96, false)]     // the remainder is over the bound
+    public async Task ArtifactSetSession_ChunkedSeekableStreamFromAnInnerPositionMaterializesItsRemainder(
+        int contentLength,
+        int startPosition,
+        long maxArtifactBytes,
+        bool published)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] content = [.. Enumerable.Range(0, contentLength).Select(static i => (byte)(i * 7 + 1))];
+        await using var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+                MaxArtifactBytes = maxArtifactBytes,
+                MaxRetainedBytes = maxArtifactBytes,
+            });
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("chunked"),
+                    _ => new ChunkedReadStream(content, maxChunk: 7) { Position = startPosition });
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        ArtifactSetPublicationOutcome outcome =
+            await session.SealAsync(cancellationToken);
+
+        if (!published)
+        {
+            var rejected =
+                Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(outcome);
+            Assert.Equal(
+                "artifact.session.artifact-byte-limit",
+                Assert.Single(rejected.Failures).Diagnostic.Code);
+            return;
+        }
+
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(outcome);
+        using ArtifactQueryLease lease =
+            session.IssueLease(session.CreateQueryAuthorization());
+        using Stream read = session.OpenRead(
+            Assert.Single(session.GetCatalog(lease)).Identity,
+            lease);
+        Assert.Equal(content[startPosition..], ReadAll(read));
+    }
+
+    /// <summary>A seekable stream that returns at most <paramref name="maxChunk"/> bytes per read.</summary>
+    private sealed class ChunkedReadStream(byte[] content, int maxChunk) :
+        MemoryStream(content, writable: false)
+    {
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            base.ReadAsync(buffer[..Math.Min(buffer.Length, maxChunk)], cancellationToken);
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            base.Read(buffer, offset, Math.Min(count, maxChunk));
+    }
+
+    /// <summary>A seekable stream that reports a length other than its content's.</summary>
+    private sealed class StatedLengthStream(byte[] content, long statedLength) :
+        MemoryStream(content, writable: false)
+    {
+        public override long Length => statedLength;
+    }
+
     private static byte[] ReadAll(Stream stream)
     {
         using var destination = new MemoryStream();
