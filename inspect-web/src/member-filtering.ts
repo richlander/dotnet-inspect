@@ -33,6 +33,7 @@ export interface FilterableMemberGroup extends MemberGroup {
 type FilteredMemberGroup<TGroup extends FilterableMemberGroup> =
   Omit<TGroup, "overloads"> & {
     overloads: Array<TGroup["overloads"][number]>;
+    sourceOverloadCount: number;
   };
 
 export function memberGroupMatches(
@@ -99,8 +100,77 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
       return [];
     }
 
-    return [{ ...group, overloads }];
+    return [{
+      ...group,
+      overloads,
+      sourceOverloadCount:
+        group.sourceOverloadCount ?? group.overloads.length,
+    }];
   });
+}
+
+interface StableMemberOverload {
+  readonly stableSelector?: string | null;
+}
+
+interface StableMemberGroup {
+  readonly key: string;
+  readonly overloads: readonly StableMemberOverload[];
+}
+
+export function memberOverloadSourceIndex(
+  sourceGroups: readonly StableMemberGroup[],
+  group: StableMemberGroup,
+  index: number,
+): number {
+  const overload = group.overloads[index];
+  const sourceGroup = sourceGroups.find(candidate =>
+    candidate.key === group.key);
+  if (!overload || !sourceGroup || sourceGroup === group) return index;
+  const sourceIndex = sourceGroup.overloads.findIndex(candidate =>
+    candidate === overload
+    || (Boolean(overload.stableSelector)
+      && candidate.stableSelector === overload.stableSelector));
+  if (sourceIndex < 0) {
+    throw new Error(
+      `Filtered member '${group.key}' has no exact source overload.`);
+  }
+  return sourceIndex;
+}
+
+export function memberOverloadVisibleIndex(
+  sourceGroups: readonly StableMemberGroup[],
+  group: StableMemberGroup,
+  sourceIndex: number,
+): number {
+  const sourceGroup = sourceGroups.find(candidate =>
+    candidate.key === group.key) ?? group;
+  const sourceOverload = sourceGroup.overloads[sourceIndex];
+  if (!sourceOverload) {
+    throw new Error(
+      `Member '${group.key}' has no source overload ${sourceIndex}.`);
+  }
+  const visibleIndex = group.overloads.findIndex(candidate =>
+    candidate === sourceOverload
+    || (Boolean(sourceOverload.stableSelector)
+      && candidate.stableSelector === sourceOverload.stableSelector));
+  if (visibleIndex < 0) {
+    throw new Error(
+      `Source overload ${sourceIndex} for member '${group.key}' is not visible.`);
+  }
+  return visibleIndex;
+}
+
+export function selectMemberFamilyParent(
+  state: { selectedOverloadIndex: number | null },
+  group: {
+    readonly overloads: readonly unknown[];
+    readonly sourceOverloadCount?: number;
+  },
+): boolean {
+  if ((group.sourceOverloadCount ?? group.overloads.length) <= 1) return false;
+  state.selectedOverloadIndex = null;
+  return true;
 }
 
 export function memberKindCount(
@@ -150,6 +220,22 @@ export function selectedConcreteOverload<T>(
 ): T | undefined {
   if (overloads.length > 1 && selectedIndex == null) return undefined;
   return overloads[selectedIndex ?? 0];
+}
+
+export function selectedSourceOverload<T>(
+  sourceGroups: readonly {
+    readonly key: string;
+    readonly overloads: readonly T[];
+  }[],
+  group: {
+    readonly key: string;
+    readonly overloads: readonly T[];
+  },
+  selectedIndex: number | null | undefined,
+): T | undefined {
+  const sourceGroup = sourceGroups.find(candidate =>
+    candidate.key === group.key) ?? group;
+  return selectedConcreteOverload(sourceGroup.overloads, selectedIndex);
 }
 
 export interface MemberCallGraphWorkState {
