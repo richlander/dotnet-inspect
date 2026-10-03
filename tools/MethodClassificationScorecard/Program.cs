@@ -16,6 +16,8 @@ using NLinq;
 // method-classification-scorecard async|pinvoke time [--rounds N] [--budget-ms N] [--tsv <path>] <assembly>...
 //
 // Old is the retired scanner (dated oracle) filtered as the CLI filtered it.
+// The gate, tests, and call state live in DotnetInspector.PerformanceOracles
+// (MethodClassificationOracle.cs) so other scorecards apply the same analysis.
 // LINQ, NLinq, and Planner apply the identical analysis and produce the
 // identical row: the analyzers' gate and tests, with the gate's per-execution
 // attribute-match memos, and the Planner's projection (identity through
@@ -28,7 +30,7 @@ if (args.Length == 0 || args[0] is not ("async" or "pinvoke"))
     return 2;
 }
 
-Population population = args[0] == "async" ? Population.Async : Population.PInvoke;
+ClassificationPopulation population = args[0] == "async" ? ClassificationPopulation.Async : ClassificationPopulation.PInvoke;
 if (!ScorecardCommandLine.TryParse(args[1..], out ScorecardOptions? options, out string? error))
 {
     Console.Error.WriteLine(error);
@@ -69,116 +71,10 @@ finally
         asset.Asset.Dispose();
 }
 
-enum Population
-{
-    Async,
-    PInvoke,
-}
-
-/// <summary>The gate's population: <c>MethodClassificationScope</c>, exactly.</summary>
-static class Gate
-{
-    public static bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
-        !reader.StringComparer.StartsWith(type.Name, "<");
-
-    public static bool MethodInScope(MetadataReader reader, MethodDefinition method)
-    {
-        if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
-            return false;
-        StringHandle name = method.Name;
-        return !(reader.StringComparer.StartsWith(name, "get_")
-            || reader.StringComparer.StartsWith(name, "set_")
-            || reader.StringComparer.StartsWith(name, "add_")
-            || reader.StringComparer.StartsWith(name, "remove_"));
-    }
-
-    public static bool IsPInvoke(MethodDefinition method) => (method.Attributes & MethodAttributes.PinvokeImpl) != 0;
-}
-
-/// <summary>
-/// Per-call state: the identity budgets the Planner keeps per execution, and
-/// the attribute-match memos the gate keeps per execution.
-/// </summary>
-sealed class CallState(MetadataReader reader)
-{
-    public readonly MetadataReader Reader = reader;
-    public int IdentityDecodeFailures;
-    public int IdentityWork = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
-    public readonly Dictionary<(EntityHandle, MetadataTypeNameTarget), bool> Constructors = [];
-    public readonly Dictionary<(EntityHandle, MetadataTypeNameTarget), bool> Types = [];
-}
-
-/// <summary>
-/// The analyzers' tests, as the Planner applies them after its gate: the
-/// P/Invoke flag; the runtime-async flag; and the in-place attribute type
-/// match through <see cref="MetadataTypeNameMatch"/>, one target at a time,
-/// memoized per constructor and per attribute type.
-/// </summary>
-static class Tests
-{
-    const MethodImplAttributes RuntimeAsyncFlag = (MethodImplAttributes)0x2000;
-    static readonly MetadataTypeNameTarget AsyncStateMachine = new(KnownAttributeNames.AsyncStateMachineAttribute);
-    static readonly MetadataTypeNameTarget AsyncIteratorStateMachine = new(KnownAttributeNames.AsyncIteratorStateMachineAttribute);
-
-    public static bool IsRuntimeAsync(MethodDefinition method) => (method.ImplAttributes & RuntimeAsyncFlag) != 0;
-
-    public static MethodClassification? Classify(Population population, CallState state, MethodDefinition method)
-    {
-        if (population == Population.PInvoke)
-            return Gate.IsPInvoke(method) ? MethodClassification.PInvoke : null;
-        if (Gate.IsPInvoke(method))
-            return null;
-        if (IsRuntimeAsync(method))
-            return MethodClassification.RuntimeAsync;
-        return HasAttributeOfType(state, method, AsyncStateMachine) || HasAttributeOfType(state, method, AsyncIteratorStateMachine)
-            ? MethodClassification.StateMachineAsync
-            : null;
-    }
-
-    static bool HasAttributeOfType(CallState state, MethodDefinition method, MetadataTypeNameTarget target)
-    {
-        MetadataReader reader = state.Reader;
-        foreach (CustomAttributeHandle handle in method.GetCustomAttributes())
-        {
-            EntityHandle constructor = reader.GetCustomAttribute(handle).Constructor;
-            if (!state.Constructors.TryGetValue((constructor, target), out bool matches))
-            {
-                EntityHandle parent = constructor.Kind switch
-                {
-                    HandleKind.MemberReference => reader.GetMemberReference((MemberReferenceHandle)constructor).Parent,
-                    HandleKind.MethodDefinition => reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType(),
-                    _ => default,
-                };
-                matches = !parent.IsNil && TypeMatches(state, parent, target);
-                state.Constructors[(constructor, target)] = matches;
-            }
-
-            if (matches)
-                return true;
-        }
-
-        return false;
-    }
-
-    static bool TypeMatches(CallState state, EntityHandle type, MetadataTypeNameTarget target)
-    {
-        if (state.Types.TryGetValue((type, target), out bool known))
-            return known;
-        bool matches = MetadataTypeNameMatch.Matches(state.Reader, type, target) switch
-        {
-            MetadataTypeNameMatchResult.Match => true,
-            MetadataTypeNameMatchResult.NoMatch => false,
-            _ => throw new BadImageFormatException("An attribute type's name could not be matched."),
-        };
-        state.Types[(type, target)] = matches;
-        return matches;
-    }
-}
-
 /// <summary>The Planner's row, built as its projection builds it.</summary>
 static class Rows
 {
-    public static ClassifiedMethodRow Project(CallState state, MethodDefinitionRow row, MethodClassification classification)
+    public static ClassifiedMethodRow Project(MethodClassificationCallState state, MethodDefinitionRow row, MethodClassification classification)
     {
         MetadataReader reader = state.Reader;
         MethodAnchorInfo? anchor = MethodRowProjection.TryCreateMethodIdentity(
@@ -231,7 +127,7 @@ sealed class View<T>(IReadOnlyList<T> rows, Func<T, string> name) : IReadOnlyLis
 
 static class Columns
 {
-    public static ScorecardColumn<PEReader, string>[] For(Population population, ScorecardShape shape) =>
+    public static ScorecardColumn<PEReader, string>[] For(ClassificationPopulation population, ScorecardShape shape) =>
     [
         new("Old", (closing, pe) => Old(population, closing, pe, shape)),
         new("LINQ", (closing, pe) => Linq(population, closing, pe, shape)),
@@ -254,10 +150,10 @@ static class Columns
         };
 
     /// <summary>The retired path: classify every method into rows, then filter and close.</summary>
-    static ScorecardAnswer<string> Old(Population population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
+    static ScorecardAnswer<string> Old(ClassificationPopulation population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
     {
         List<ClassifiedMethodInfo> rows = [.. LegacyMethodClassificationScanner.Scan(pe)
-            .Where(m => population == Population.Async
+            .Where(m => population == ClassificationPopulation.Async
                 ? m.Classification is MethodClassification.RuntimeAsync or MethodClassification.StateMachineAsync
                 : m.Classification == MethodClassification.PInvoke)];
         return Answer(closing, rows, static m => m.MethodName, shape);
@@ -268,16 +164,16 @@ static class Columns
     /// tests. Row-returning closings project only the rows they consume;
     /// Exists and Count never construct the projection.
     /// </summary>
-    static ScorecardAnswer<string> Linq(Population population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
+    static ScorecardAnswer<string> Linq(ClassificationPopulation population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
     {
         MetadataReader reader = pe.GetMetadataReader();
-        var state = new CallState(reader);
+        var state = new MethodClassificationCallState(reader);
         IEnumerable<MethodDefinitionRow> selected = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Type: reader.GetTypeDefinition(handle)))
-            .Where(type => Gate.TypeInScope(reader, type.Type))
+            .Where(type => MethodClassificationGate.TypeInScope(reader, type.Type))
             .SelectMany(type => type.Type.GetMethods().Select(method => new MethodDefinitionRow(reader, type.Handle, type.Type, method, reader.GetMethodDefinition(method))))
-            .Where(row => Gate.MethodInScope(reader, row.Method))
-            .Where(row => Tests.Classify(population, state, row.Method) is not null);
+            .Where(row => MethodClassificationGate.MethodInScope(reader, row.Method))
+            .Where(row => MethodClassificationTests.Classify(population, state, row.Method) is not null);
         return closing switch
         {
             ScorecardClosing.Exists => ScorecardAnswer<string>.OfExists(selected.Any()),
@@ -312,10 +208,10 @@ static class Columns
     }
 
     /// <summary>The NLinq oracle over the method-definition source: the gate, the test, the projection, then the closing.</summary>
-    static ScorecardAnswer<string> NLinqColumn(Population population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
+    static ScorecardAnswer<string> NLinqColumn(ClassificationPopulation population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
     {
         MetadataReader reader = pe.GetMetadataReader();
-        var state = new CallState(reader);
+        var state = new MethodClassificationCallState(reader);
         var select = new Select(population, state);
         if (closing == ScorecardClosing.Exists)
         {
@@ -386,9 +282,9 @@ static class Columns
     /// The enablement: Exists, Count, and Head are source closings. Tail and
     /// the strict window still read the Rows closing.
     /// </summary>
-    static ScorecardAnswer<string> Planner(Population population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
+    static ScorecardAnswer<string> Planner(ClassificationPopulation population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
     {
-        MethodClassificationAnalyzer analyzer = population == Population.Async
+        MethodClassificationAnalyzer analyzer = population == ClassificationPopulation.Async
             ? MethodClassificationAnalyzer.Async
             : MethodClassificationAnalyzer.PInvoke;
         ClassificationQuestion question = closing == ScorecardClosing.Head
@@ -412,20 +308,20 @@ static class Columns
 
     static string Name(ClassifiedMethodRow row) => row.MethodName.ToString();
 
-    static MethodClassification ClassOf(Population population, MethodDefinition method) =>
-        population == Population.PInvoke ? MethodClassification.PInvoke
-        : Tests.IsRuntimeAsync(method) ? MethodClassification.RuntimeAsync
+    static MethodClassification ClassOf(ClassificationPopulation population, MethodDefinition method) =>
+        population == ClassificationPopulation.PInvoke ? MethodClassification.PInvoke
+        : MethodClassificationTests.IsRuntimeAsync(method) ? MethodClassification.RuntimeAsync
         : MethodClassification.StateMachineAsync;
 
-    struct Select(Population population, CallState state) : IFunc<MethodDefinitionRow, bool>
+    struct Select(ClassificationPopulation population, MethodClassificationCallState state) : IFunc<MethodDefinitionRow, bool>
     {
         public readonly bool Invoke(MethodDefinitionRow row) =>
-            Gate.TypeInScope(row.Reader, row.Type)
-            && Gate.MethodInScope(row.Reader, row.Method)
-            && Tests.Classify(population, state, row.Method) is not null;
+            MethodClassificationGate.TypeInScope(row.Reader, row.Type)
+            && MethodClassificationGate.MethodInScope(row.Reader, row.Method)
+            && MethodClassificationTests.Classify(population, state, row.Method) is not null;
     }
 
-    struct Project(Population population, CallState state) : IFunc<MethodDefinitionRow, ClassifiedMethodRow>
+    struct Project(ClassificationPopulation population, MethodClassificationCallState state) : IFunc<MethodDefinitionRow, ClassifiedMethodRow>
     {
         // As the Planner's projections: a selected row's class follows from
         // the population and the runtime flag.

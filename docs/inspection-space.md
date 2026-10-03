@@ -410,7 +410,17 @@ host work receives a descriptor whose opener retains that same immutable image,
 so suspension does not reopen a mutable path. Disposing the group prevents new
 access and releases its retained references after active callbacks complete,
 but it never attempts to revoke or recycle an already returned span or retained
-descriptor.
+descriptor. A query may also turn one admitted owned resource into an explicit
+disposable borrow before repeated execution; that lease participates in the
+same active-callback count, so terminal execution need not re-enter lifetime
+synchronization and group release still waits for the borrow to end. The host
+must dispose that explicit borrow: abandoning it keeps terminal group release
+waiting because the group cannot infer that repeated execution has ended.
+Participant-terminal streaming release also notifies participant-scoped owned
+resources before releasing the immutable image. A resource with a live explicit
+borrow removes its participant from new preparation, but defers its derived
+resource cleanup and keeps the image retained and accounted until the last
+borrow ends; cleanup then completes before image release.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.

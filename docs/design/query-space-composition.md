@@ -342,6 +342,30 @@ starts no work. Different valid source bindings remain in the same request set
 and form separate groups. Request order is retained only for deterministic
 result publication. It neither supplies identity nor chooses planning priority.
 
+### Cost class of a request set
+
+A request set shares one physical traversal, so its cost is set by its most
+expensive lane, not its cheapest. Lanes fall into two cost classes: ones that
+read metadata tables and custom-attribute constructor names, and ones that
+decode IL bodies. One body-decoding lane moves the whole set into the
+body-decode regime, because the shared traversal must open every method body
+the lane needs even when every other lane would have finished without it.
+
+Compose a request set within one cost class. A set whose bulk requires IL may
+include IL lanes freely. A small, nice-to-have body-decoding lane does not join
+a metadata-only set: it becomes its own request, an opt-in question, or a
+separate section, so the default answer keeps the cheaper class. The Library
+Info Switches row is the motivating case: its attribute half is metadata-only,
+and its AppContext half walks every method body, so the multi-question Count
+scorecard ([#9153](https://github.com/richlander/dotnet-inspect/issues/9153))
+excluded the row rather than let one slice set the cost of the set.
+
+Sharing within a class is bounded by the lanes' per-row work, not by the
+traversal. The Library Info scorecard measured a hand-fused one-pass fold at
+0.95× of three independent NLinq folds over metadata-only lanes, so a request
+set over such lanes cannot earn more than that ceiling; its value there is
+one shared plan and settlement, not shared reads.
+
 ### Two satisfaction paths
 
 Every valid request is satisfied in exactly one of two ways:

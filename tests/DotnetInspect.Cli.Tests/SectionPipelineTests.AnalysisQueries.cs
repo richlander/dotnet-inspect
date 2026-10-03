@@ -785,7 +785,7 @@ public partial class SectionPipelineTests
             context,
             trace.RecordQueryExecution);
 
-        Assert.IsType<ResourceTriageResult.Available>(
+        Assert.IsType<ResourceTriageResult.Incomplete>(
             results.Get(ResourceTriageQuery.Definition));
         Assert.IsType<TopLeverageResult.Available>(
             results.Get(TopLeverageQuery.Definition));
