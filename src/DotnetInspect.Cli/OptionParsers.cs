@@ -34,24 +34,6 @@ public static class OptionParsers
         };
     }
 
-    public static TipLevel ParseTipLevel(string? value, bool optionPresent)
-    {
-        if (!optionPresent)
-            return TipLevel.Quiet;
-
-        if (string.IsNullOrEmpty(value))
-            return TipLevel.Minimal;
-
-        var v = value.TrimStart(':').ToLowerInvariant();
-        return v switch
-        {
-            "q" or "quiet" => TipLevel.Quiet,
-            "m" or "minimal" => TipLevel.Minimal,
-            "d" or "detailed" => TipLevel.Detailed,
-            _ => TipLevel.Minimal
-        };
-    }
-
     public static HashSet<string>? ParseSectionList(string? value)
     {
         if (string.IsNullOrEmpty(value)) return null;

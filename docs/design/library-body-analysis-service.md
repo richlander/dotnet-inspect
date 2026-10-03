@@ -983,6 +983,22 @@ memory-safety tests preserve those contracts and verify that focused access
 does not materialize the compatibility index. The Release solution build is
 the full absence gate for the deleted strongly typed compatibility members.
 
+### Generated-framework property retirement for #8568
+
+Production ranking, optimization, implementation-profile, Research, CLI, and
+Browser/Wasm consumers obtain generated-framework type identities from their
+focused Analysis results. The residual Analysis and Research tests consume
+`LibraryOptimizationAnalysisResult.GeneratedFrameworkTypes`, preserving the
+same shared classifier and execution receipt. `LibraryBodyIndex` no longer
+publishes a duplicate generated-framework type set.
+
+This slice deletes a compatibility property after its production drain; it
+does not change generated-type authentication, structural classification,
+suppression, output, or work. Focused generated-framework classification tests
+remain the semantic gates, and the Release solution build is the full absence
+gate for the deleted property. No product terminal or performance claim
+changes.
+
 ### Production adoption for #8450
 
 The counted implementation path is:

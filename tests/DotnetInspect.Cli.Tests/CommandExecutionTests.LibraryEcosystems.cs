@@ -26,9 +26,7 @@ public partial class CommandExecutionTests
                 "library",
                 path,
                 "-S",
-                SectionNames.LibraryInfo,
-                "--tips",
-                "q");
+                SectionNames.LibraryInfo);
 
             Assert.True(
                 exit == 0,
@@ -66,9 +64,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 SectionNames.EcosystemDependencies,
-                "--table",
-                "--tips",
-                "q");
+                "--table");
 
             Assert.True(
                 exit == 0,
@@ -127,9 +123,7 @@ public partial class CommandExecutionTests
                 SectionNames.EcosystemDependencies,
                 "--json",
                 "-n",
-                "1",
-                "--tips",
-                "q");
+                "1");
             var (tailExit, tailOutput, tailError) = await RunAppAsync(
                 "library",
                 path,
@@ -138,9 +132,7 @@ public partial class CommandExecutionTests
                 "--json",
                 "-n",
                 "1",
-                "--tail",
-                "--tips",
-                "q");
+                "--tail");
 
             Assert.True(
                 headExit == 0,
@@ -205,9 +197,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 $"{SectionNames.LibraryInfo},{SectionNames.EcosystemDependencies}",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.True(
                 exit == 0,
@@ -240,9 +230,7 @@ public partial class CommandExecutionTests
             $"{SectionNames.LibraryInfo},{SectionNames.EcosystemDependencies}",
             "--json",
             "-n",
-            "1",
-            "--tips",
-            "q");
+            "1");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -265,9 +253,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "-S",
                 SectionNames.EcosystemDependencies,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -324,9 +310,7 @@ public partial class CommandExecutionTests
                 "all",
                 "-S",
                 SectionNames.EcosystemDependencies,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);

@@ -56,7 +56,7 @@ public static class FindOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(FindOptions Options, Verbosity Verbosity, TipLevel TipLevel) : FindParseResult;
+    public record Success(FindOptions Options, Verbosity Verbosity, CompanionOutput CompanionOutput) : FindParseResult;
 
     /// <summary>
     /// Parses find command options asynchronously (due to package prefix resolution).
@@ -183,9 +183,9 @@ public static class FindOptionsParser
             SourceOptions = sourceOptions
         };
 
-        var tipLevel = opts.ParseTipLevel(parseResult);
+        var companionOutput = opts.ParseCompanionOutput(parseResult);
 
-        return new Success(options, verbosity, tipLevel);
+        return new Success(options, verbosity, companionOutput);
     }
 
     private static bool TryParseEcosystems(

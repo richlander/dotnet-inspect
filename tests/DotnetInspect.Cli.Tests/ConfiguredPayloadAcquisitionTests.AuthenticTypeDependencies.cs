@@ -213,7 +213,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         "--tfm", "net8.0",
         "--source", source,
         envelope ? "--envelope" : "--json",
-        "--tips", "q",
     ];
 
     private static void ConfigureAuthenticDependencyFeed(

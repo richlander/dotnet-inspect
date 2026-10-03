@@ -249,7 +249,10 @@ public partial record ApiOptions : IProjectionOptions
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
     public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
         CloneCandidateQueryOptions.Default;
-    public TipLevel TipLevel { get; init; } = TipLevel.Quiet;
+    /// <summary>
+    /// Whether the explicit tip projection was requested.
+    /// </summary>
+    public CompanionOutput CompanionOutput { get; init; } = CompanionOutput.None;
 
     /// <summary>
     /// True when discovery (-D) should resolve and load the source to report only the

@@ -119,6 +119,8 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         int attempted = 0;
         int completed = 0;
         int count = 0;
+        TypeDefinitionHandle sourceType = default;
+        string sourceUnit = "(type source)";
 
         // An abort unwinds this loop; the counts observed so far still reach
         // the receipt, but the accumulator is never published.
@@ -126,6 +128,8 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         {
             foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
             {
+                sourceType = typeHandle;
+                sourceUnit = "(type source)";
                 TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
                 if (sourceGate is not null)
                 {
@@ -163,6 +167,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                         continue;
                 }
 
+                sourceUnit = "(method source)";
                 foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
                 {
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
@@ -207,6 +212,17 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                 }
             }
 
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            MethodDefinitionExecution.FailSource(
+                state,
+                MetadataTokens.GetToken(sourceType),
+                sourceUnit,
+                ex);
+            goto Done;
         }
         catch (ProducerAbortException)
         {
@@ -458,6 +474,8 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         int visited = 0;
         int attempted = 0;
         int completed = 0;
+        TypeDefinitionHandle sourceType = default;
+        string sourceUnit = "(type source)";
 
         // An abort unwinds this loop; the counts observed so far still reach
         // the receipt, but the accumulator is never published.
@@ -465,6 +483,8 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         {
             foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
             {
+                sourceType = typeHandle;
+                sourceUnit = "(type source)";
                 TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
                 try
                 {
@@ -484,6 +504,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                     goto Done;
                 }
 
+                sourceUnit = "(method source)";
                 foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
                 {
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
@@ -529,9 +550,20 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                         state.IsActive = false;
                         goto Done;
                     }
-                }
+                 }
             }
 
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            MethodDefinitionExecution.FailSource(
+                state,
+                MetadataTokens.GetToken(sourceType),
+                sourceUnit,
+                ex);
+            goto Done;
         }
         catch (ProducerAbortException)
         {

@@ -1992,9 +1992,7 @@ public class E2EFixtureTests
             "Performance:*",
             "--top",
             "1",
-            "--jsonl",
-            "--tips",
-            "q");
+            "--jsonl");
         Assert.Equal(0, produced.ExitCode);
         Assert.Empty(produced.Error);
         using (var row = JsonDocument.Parse(produced.Output))
