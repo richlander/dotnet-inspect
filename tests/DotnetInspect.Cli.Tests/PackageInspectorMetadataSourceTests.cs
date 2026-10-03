@@ -303,6 +303,78 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task InspectAsync_DisagreeingWrapperSettingsRemainIncomplete()
+    {
+        string wrapperRoot = Path.Combine(_root, "ambiguous-wrapper");
+        string wrapperTools = Path.Combine(wrapperRoot, "tools");
+        string nestedWrapperTools = Path.Combine(wrapperTools, "net10.0");
+        Directory.CreateDirectory(nestedWrapperTools);
+        await File.WriteAllTextAsync(
+            Path.Combine(wrapperTools, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="linux-x64" Id="Wrapper.First" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(nestedWrapperTools, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="win-x64" Id="Wrapper.Second" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """,
+            TestContext.Current.CancellationToken);
+
+        string payloadRoot = Path.Combine(_root, "ambiguous-wrapper-payload");
+        Directory.CreateDirectory(payloadRoot);
+        var resolution = new PackageExtractionResult(
+            payloadRoot,
+            TempDir: null,
+            PackageName: "Wrapper.First",
+            Version: "1.0.0")
+        {
+            ToolWrapperChain =
+            [
+                new ToolWrapperPackage(
+                    wrapperRoot,
+                    "Wrapper.Package",
+                    "1.0.0",
+                    ProducerKey: "wrapper-source")
+            ]
+        };
+        NuspecData payloadNuspec = Assert.IsType<NuspecData>(
+            NuspecParser.ParseContent(
+                """
+                <package>
+                  <metadata>
+                    <id>Wrapper.First</id>
+                    <version>1.0.0</version>
+                  </metadata>
+                </package>
+                """));
+
+        using var client = new HttpClient();
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            "Wrapper.First",
+            "1.0.0",
+            isLocalFile: false,
+            localFilePath: null,
+            payloadNuspec,
+            client,
+            new VerboseLogger(enabled: false));
+
+        Assert.False(result.ToolSettingsProjectionComplete);
+        Assert.Null(result.ToolFormat);
+        Assert.Null(result.RuntimeIdentifierPackages);
+    }
+
+    [Fact]
     public async Task InspectAsync_OversizedWrapperNuspecUsesBoundedProbe()
     {
         string wrapperRoot = Path.Combine(_root, "oversized-wrapper");

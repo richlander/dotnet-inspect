@@ -2202,7 +2202,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         // The bare request is bound to the product's own prior: no discovery,
         // no warning, and the entry is untouched.
         Assert.True(exit == 0, error);
-        Assert.Contains("| Version | 1.0.0 |", output);
+        Assert.Contains($"{packageName} 1.0.0", output);
         Assert.DoesNotContain("Warning:", error);
         Assert.Equal("1.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
     }
@@ -2220,7 +2220,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ["package", packageName, "--source", feed]);
 
         Assert.True(exit == 0, error);
-        Assert.Contains("| Version | 2.0.0 |", output);
+        Assert.Contains($"{packageName} 2.0.0", output);
         Assert.DoesNotContain("Warning:", error);
         Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
     }
@@ -2265,7 +2265,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ["package", packageName, "--source", feed]);
 
         Assert.True(second.Exit == 0, second.Error);
-        Assert.Contains("| Version | 2.0.0 |", second.Output);
+        Assert.Contains($"{packageName} 2.0.0", second.Output);
         Assert.DoesNotContain("Warning:", second.Error);
         Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
     }
@@ -2283,7 +2283,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ["package", $"{packageName}@latest", "--source", feed]);
 
         Assert.True(exit == 0, error);
-        Assert.Contains("| Version | 2.0.0 |", output);
+        Assert.Contains($"{packageName} 2.0.0", output);
         Assert.DoesNotContain("Warning:", error);
         Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
     }
@@ -2319,7 +2319,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ["package", packageName, "--source", SecondSource]);
 
         Assert.True(exit == 0, error);
-        Assert.Contains("| Version | 1.0.0 |", output);
+        Assert.Contains($"{packageName} 1.0.0", output);
         Assert.Single(
             error.Split('\n', StringSplitOptions.RemoveEmptyEntries),
             line => line.StartsWith("Warning: 1 package was served from a prior version settlement", StringComparison.Ordinal));

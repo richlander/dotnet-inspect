@@ -155,6 +155,20 @@ public sealed class BrowserMemberDeclarationTests
                 Version,
                 Framework);
         using JsonDocument loadDocument = JsonDocument.Parse(loadJson);
+        JsonElement packageChildren = loadDocument.RootElement
+            .GetProperty("packageChildren")
+            .GetProperty("content");
+        JsonElement packageLibrary = Assert.Single(
+            packageChildren.GetProperty("libraries").EnumerateArray());
+        Assert.EndsWith(
+            AssemblyFileName,
+            packageLibrary.GetProperty("assetId").GetString(),
+            StringComparison.Ordinal);
+        Assert.True(
+            packageLibrary
+                .GetProperty("publicTypeDeclarations")
+                .GetInt32()
+                > 0);
         string surfaceJson = loadDocument.RootElement
             .GetProperty("surface")
             .GetRawText();

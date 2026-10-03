@@ -124,7 +124,13 @@ public sealed class NuspecHardeningTests : IDisposable
             """);
 
         var (markdownExit, markdown, markdownError) =
-            await RunAppAsync("package", package, "--tips", "q");
+            await RunAppAsync(
+                "package",
+                package,
+                "-S",
+                "Package Info",
+                "--tips",
+                "q");
 
         Assert.Equal(0, markdownExit);
         Assert.Empty(markdownError);
@@ -139,7 +145,14 @@ public sealed class NuspecHardeningTests : IDisposable
         Assert.True(rawBidiIndex < 0, $"Raw bidi scalar at output index {rawBidiIndex}.");
 
         var (jsonExit, json, jsonError) =
-            await RunAppAsync("package", package, "--json", "--tips", "q");
+            await RunAppAsync(
+                "package",
+                package,
+                "-S",
+                "Package Info",
+                "--json",
+                "--tips",
+                "q");
 
         Assert.Equal(0, jsonExit);
         Assert.Empty(jsonError);

@@ -714,14 +714,17 @@ public partial class PackageCommand
             options.IncludeSections is { Count: 1 }
             && options.IncludeSections.Contains(
                 PackageSections.DependencyHierarchy);
+        bool packageChildrenProjection =
+            options.IncludeSections is not { Count: > 0 };
 
-        if (!dependencyHierarchyProjection)
+        if (!dependencyHierarchyProjection
+            && !packageChildrenProjection)
         {
             CommandError.Write(
                 options.IncludeSections is { Count: 1 }
                 && options.IncludeSections.Contains(PackageSections.Dependencies)
                     ? "Dependencies is direct evidence and cannot be rendered as a hierarchy. Use '-S \"Dependency Hierarchy\" --tree'."
-                    : "--tree requires exactly '-S \"Dependency Hierarchy\"'.");
+                    : "--tree without a section renders Package children; a selected section must be exactly '-S \"Dependency Hierarchy\"'.");
             return false;
         }
 

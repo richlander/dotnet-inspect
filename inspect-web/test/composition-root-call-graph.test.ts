@@ -1540,9 +1540,9 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderLibraryComposition,
     /displayName: library\?\.name \?\? "All libraries"/);
   assert.match(renderLibraryComposition,
-    /libraries\.reduce\(\(sum, candidate\) => sum \+ candidate\.types, 0\)/);
+    /aggregateKnownPackageLibraryCount\(\s*libraries,\s*pkg\.packageChildren\?\.content\.isComplete \?\? true,\s*candidate => candidate\.types\)/);
   assert.match(renderLibraryComposition,
-    /libraries\.reduce\(\(sum, candidate\) => sum \+ candidate\.members, 0\)/);
+    /aggregateKnownPackageLibraryCount\(\s*libraries,\s*pkg\.packageChildren\?\.content\.isComplete \?\? true,\s*candidate => candidate\.members\)/);
   assert.match(renderLibraryOverview,
     /aggregateLibrarySubjectIsActive\(\)[\s\S]*renderLibraryCompositionOverview\(currentPackage\(\), null\)/);
   assert.match(renderLibraryOverview,

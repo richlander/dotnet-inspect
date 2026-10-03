@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
+  BrowserPackageChildrenInspection,
   BrowserPackageSurface,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -301,6 +302,7 @@ interface PackageLoadingFixture {
   failVersionOnce?: string;
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
+  packageChildren?: BrowserPackageChildrenInspection;
 }
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
@@ -768,10 +770,13 @@ async function installFacades(
         return result;
       }
       export async function queryPackage(id, version, framework) {
-        const surface = surfaceFor(id);
+        document.documentElement.dataset.packageQueryRequest =
+          JSON.stringify([id, version, framework]);
+        const defaultSurface = surfaceFor(id);
+        const surface = surfaceFor(id, version, framework);
         if (packageLoading.deferInitial || (packageLoading.deferChanges
-          && (id !== surfaces[0].package || version !== surface.version
-            || framework !== surface.activeFramework))) {
+          && (id !== surfaces[0].package || version !== defaultSurface.version
+            || framework !== defaultSurface.activeFramework))) {
           document.documentElement.dataset.packageQueryPending =
             JSON.stringify([id, version, framework]);
           await new Promise(resolve => document.addEventListener(
@@ -837,6 +842,39 @@ async function installFacades(
               fullUrl: null,
               packet: null,
               path: "package-info-measurements/share",
+              reason: "No canonical Workspace share projection.",
+            },
+            diagnostics: [],
+          },
+          packageChildren: packageLoading.packageChildren ?? {
+            content: {
+              kind: "Libraries",
+              status: surface.compileLibrary.status === "NoCompileAssets"
+                ? "NoCompileAssets"
+                : surface.compileLibrary.status === "EmptyCompileGroup"
+                  ? "SelectedEmpty"
+                  : "Available",
+              packageId: id,
+              packageVersion: selectedVersion,
+              targetFramework: framework || surface.activeFramework,
+              libraries: surface.assemblies.map(assembly => ({
+                assetId: assembly.id,
+                assetPath: assembly.asset,
+                assemblyName: assembly.name,
+                role: "Compile",
+                publicTypeDeclarations: assembly.publicTypes,
+                countStatus: "Counted",
+                detail: null,
+              })),
+              runtimeIdentifierPackages: [],
+              detail: null,
+              isComplete: true,
+            },
+            share: {
+              kind: "NonProjectable",
+              fullUrl: null,
+              packet: null,
+              path: "package-children/share",
               reason: "No canonical Workspace share projection.",
             },
             diagnostics: [],

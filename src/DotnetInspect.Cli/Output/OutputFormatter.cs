@@ -595,11 +595,16 @@ public static class OutputFormatter
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
 
+        bool packageInfoSelected =
+            options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(
+                PackageSections.PackageInfo);
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
             IncludeDescription = options.Verbosity != Verbosity.Quiet
-                && options.IncludeSections is not { Count: > 0 }
+                && (options.IncludeSections is not { Count: > 0 }
+                    || packageInfoSelected)
                 && !selectInfo,
             Projection = BuildProjection(options.Columns, options.Fields)
         };

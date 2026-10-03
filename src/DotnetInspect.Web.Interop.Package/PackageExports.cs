@@ -67,7 +67,7 @@ public static partial class PackageExports
                 nameof(rootRequest));
         }
 
-        BrowserPackageSurface surface =
+        BrowserPackageRootLoadResult result =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 async deadline =>
                 {
@@ -81,15 +81,26 @@ public static partial class PackageExports
                                 [coordinate],
                                 deadline.Token).ConfigureAwait(false);
                     BrowserInspectionScope scope = scopeLease.Scope;
-                    return BrowserPackageWireProjection.Project(
-                        BrowserPackageSurfaceProjection.ProjectSurface(
-                            scope,
-                            scope.Coordinates[0]));
+                    InspectionEnvelope<PackageChildrenDocument>
+                        packageChildren =
+                            await PackageChildrenAsync(
+                                    scope,
+                                    scope.Coordinates[0],
+                                    deadline.Token)
+                                .ConfigureAwait(false);
+                    return new BrowserPackageRootLoadResult(
+                        BrowserPackageWireProjection.Project(
+                            packageChildren),
+                        BrowserPackageWireProjection.Project(
+                            BrowserPackageSurfaceProjection.ProjectSurface(
+                                scope,
+                                scope.Coordinates[0])));
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
-            surface,
-            BrowserPackageJsonContext.Default.BrowserPackageSurface);
+            result,
+            BrowserPackageJsonContext.Default
+                .BrowserPackageRootLoadResult);
     }
 
     static async Task<BrowserPackageLoadResult> PackageSurfaceAsync(
@@ -108,6 +119,7 @@ public static partial class PackageExports
                 BrowserPackageWireProjection.Project(
                     notSettled.VersionSettlement),
                 PackageInfo: null,
+                PackageChildren: null,
                 Surface: null);
         }
 
@@ -118,19 +130,323 @@ public static partial class PackageExports
                 realization,
                 CancellationToken.None);
         BrowserInspectionScope scope = scopeLease.Scope;
+        InspectionEnvelope<PackageChildrenDocument> packageChildren =
+            await PackageChildrenAsync(
+                    scope,
+                    scope.Coordinates[0],
+                    CancellationToken.None)
+                .ConfigureAwait(false);
         return new(
             BrowserPackageWireProjection.Project(
                 realization.VersionSettlement),
             BrowserPackageWireProjection.Project(
                 realization.PackageInfo),
+            BrowserPackageWireProjection.Project(packageChildren),
             BrowserPackageWireProjection.Project(
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
                     scope.Coordinates[0])));
     }
 
+    private static async ValueTask<
+        InspectionEnvelope<PackageChildrenDocument>>
+        PackageChildrenAsync(
+            BrowserInspectionScope scope,
+            BrowserPackageCoordinate coordinate,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(coordinate);
+        BrowserToolPackageProjection? tool =
+            await coordinate.Package.ProjectToolPackageAsync(
+                    string.IsNullOrWhiteSpace(coordinate.Framework)
+                        ? null
+                        : coordinate.Framework,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (tool is not null)
+        {
+            var toolSubject = new PackageChildrenSubject(
+                coordinate.PackageId,
+                coordinate.Version);
+            return await InspectToolPackageChildrenAsync(
+                    coordinate,
+                    toolSubject,
+                    tool,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        PackageCompileAssetSelection selection =
+            coordinate.Selection;
+        var subject = new PackageChildrenSubject(
+            coordinate.PackageId,
+            coordinate.Version,
+            selection.TargetFramework);
+        if (!selection.IsSelected)
+        {
+            (PackageChildrenStatus status, string detail, bool complete) =
+                selection.Status switch
+                {
+                    PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                        (
+                            PackageChildrenStatus.NoCompileAssets,
+                            "The Package contains no compile Libraries.",
+                            true),
+                    PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                        (
+                            PackageChildrenStatus.SelectedEmpty,
+                            "The selected compile group contains no Libraries.",
+                            true),
+                    PackageCompileAssetSelectionStatus
+                        .NoMatchingTargetFramework =>
+                        (
+                            PackageChildrenStatus.NoApplicableTarget,
+                            selection.Message
+                                ?? "No compile Library target matches the request.",
+                            false),
+                    PackageCompileAssetSelectionStatus
+                        .InvalidImplementationAssets =>
+                        (
+                            PackageChildrenStatus.InvalidSelection,
+                            selection.Message
+                                ?? "The selected compile Libraries have invalid implementation correspondence.",
+                            false),
+                    _ =>
+                        (
+                            PackageChildrenStatus.Unavailable,
+                            selection.Message
+                                ?? "The compile Library population is unavailable.",
+                            false),
+                };
+            return PackageChildrenEnvelope(
+                PackageChildrenDocument.LibrariesWithoutRows(
+                    subject,
+                    status,
+                    detail,
+                    complete));
+        }
+
+        Dictionary<string, BrowserWorkspaceParticipant> participants =
+            scope.SurfaceParticipants
+                .Where(participant =>
+                    ReferenceEquals(
+                        participant.Coordinate.Root.Identity,
+                        coordinate.Root.Identity))
+                .ToDictionary(
+                    static participant => participant.Asset.Id,
+                    StringComparer.Ordinal);
+        PackageLibraryInspectionTarget[] targets =
+            scope.UseSurface<PackageLibraryInspectionTarget[]>(group =>
+            [
+                .. selection.Assets.Select(asset =>
+                    participants.TryGetValue(
+                        asset.Id,
+                        out BrowserWorkspaceParticipant? participant)
+                            ? new PackageLibraryInspectionTarget(
+                                asset.Id,
+                                asset.Path,
+                                PackageLibraryChildRole.Compile,
+                                group,
+                                participant.Participant)
+                            : PackageLibraryInspectionTarget
+                                .CreateUnavailable(
+                                    asset.Id,
+                                    asset.Path,
+                                    asset.AssemblyName,
+                                    PackageLibraryChildRole.Compile,
+                                    PackageLibraryChildUnavailableReason
+                                        .AssemblyUnavailable,
+                                    "The selected compile Library was not "
+                                        + "realized in the browser Workspace.")),
+            ]);
+        return await PackageChildrenInspection.ExecuteLibrariesAsync(
+                subject,
+                targets,
+                new()
+                {
+                    MaxLibraries =
+                        BrowserInspectionScope.MaxAssembliesPerRole,
+                    Materialization = new(
+                        BrowserInspectionScope.MaxRetainedImageBytes,
+                        BrowserInspectionScope.MaxRetainedImageBytes),
+                    Extraction =
+                        BrowserApiSurfacePolicy.ExtractionBounds,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    static async ValueTask<InspectionEnvelope<PackageChildrenDocument>>
+        InspectToolPackageChildrenAsync(
+            BrowserPackageCoordinate coordinate,
+            PackageChildrenSubject subject,
+            BrowserToolPackageProjection projection,
+            CancellationToken cancellationToken)
+    {
+        if (projection.Settings.Status
+            != BrowserToolSettingsProjectionStatus.Available
+            || projection.Settings.Settings is not { } settings)
+        {
+            return PackageChildrenEnvelope(
+                PackageChildrenDocument.UnavailableLibraries(
+                    subject,
+                    PackageChildrenStatus.Unavailable,
+                    projection.Settings.Detail));
+        }
+
+        if (settings is
+            {
+                IsRidSpecificPointerPackage: true,
+                RuntimeIdentifierPackages: { Count: > 0 } ridPackages,
+            })
+        {
+            return PackageChildrenEnvelope(
+                PackageChildrenDocument.FromRuntimeIdentifierPackages(
+                    subject,
+                    ridPackages.Select(
+                        static package =>
+                            new PackageRuntimeIdentifierChild(
+                                package.RuntimeIdentifier,
+                                package.PackageId))));
+        }
+
+        return projection.Measurement switch
+        {
+            PackageToolSliceMeasurementOutcome.Measured measured =>
+                await InspectToolLibrariesAsync(
+                        coordinate,
+                        subject,
+                        measured.Measurements,
+                        settings,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            PackageToolSliceMeasurementOutcome.SelectedEmpty selectedEmpty =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.NoManagedLibraries(
+                        SubjectWithTargetFramework(
+                            subject,
+                            selectedEmpty.Measurements
+                                .SelectedTargetFramework),
+                        "The selected tool payload contains no managed Libraries.")),
+            PackageToolSliceMeasurementOutcome.NoToolSlices =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.NoManagedLibraries(
+                        subject,
+                        "The declared tool Package contains no managed tool Library slices.")),
+            PackageToolSliceMeasurementOutcome.NoApplicableSlice =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.UnavailableLibraries(
+                        subject,
+                        PackageChildrenStatus.NoApplicableTarget,
+                        "No tool Library slice matches the requested target framework.")),
+            PackageToolSliceMeasurementOutcome.InvalidSelection invalid =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.UnavailableLibraries(
+                        subject,
+                        PackageChildrenStatus.InvalidSelection,
+                        invalid.Reason)),
+            PackageToolSliceMeasurementOutcome.Unavailable unavailable =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.UnavailableLibraries(
+                        subject,
+                        PackageChildrenStatus.Unavailable,
+                        $"Tool Package measurement is unavailable: {unavailable.Reason}.")),
+            _ => throw new InvalidOperationException(
+                "Unknown tool Package measurement outcome."),
+        };
+    }
+
+    static ValueTask<InspectionEnvelope<PackageChildrenDocument>>
+        InspectToolLibrariesAsync(
+            BrowserPackageCoordinate coordinate,
+            PackageChildrenSubject subject,
+            PackageToolSliceMeasurements measurements,
+            DotnetToolSettingsData settings,
+            CancellationToken cancellationToken)
+    {
+        HashSet<string> entryPoints =
+        [
+            .. settings.CommandEntries?
+                .Select(static command => command.EntryPoint)
+                .Where(static entryPoint =>
+                    !string.IsNullOrWhiteSpace(entryPoint))
+                .Select(static entryPoint =>
+                    Path.GetFileName(entryPoint!))
+                ?? [],
+        ];
+        PackageLibraryInspectionCandidate[] candidates =
+        [
+            .. measurements.SelectedEntries
+                .Select(path =>
+                {
+                    string fileName = Path.GetFileName(path);
+                    return new PackageLibraryInspectionCandidate(
+                        path,
+                        path,
+                        Path.GetFileNameWithoutExtension(path),
+                        measurements.SelectedTargetFramework,
+                        entryPoints.Contains(fileName)
+                            ? PackageLibraryChildRole.ToolEntryPoint
+                            : PackageLibraryChildRole.ToolLibrary);
+                })
+                .OrderBy(static candidate =>
+                    candidate.Role
+                        == PackageLibraryChildRole.ToolEntryPoint
+                            ? 0
+                            : 1)
+                .ThenBy(
+                    static candidate => candidate.AssetPath,
+                    StringComparer.Ordinal),
+        ];
+        return PackageChildrenInspection.ExecutePackageEntriesAsync(
+            SubjectWithTargetFramework(
+                subject,
+                measurements.SelectedTargetFramework),
+            coordinate.CreateInspectionInput(),
+            candidates,
+            new()
+            {
+                MaxAssembliesPerRole =
+                    BrowserInspectionScope.MaxAssembliesPerRole,
+                MaxAggregateRetainedImageBytes =
+                    BrowserInspectionScope.MaxRetainedImageBytes,
+                MaxAssemblyEntryBytes =
+                    BrowserInspectionScope.MaxRetainedImageBytes,
+                RequireDeclaredEntryLengths = true,
+            },
+            new()
+            {
+                MaxLibraries = BrowserInspectionScope.MaxAssembliesPerRole,
+                Materialization = new(
+                    BrowserInspectionScope.MaxRetainedImageBytes,
+                    BrowserInspectionScope.MaxRetainedImageBytes),
+                Extraction = BrowserApiSurfacePolicy.ExtractionBounds,
+            },
+            cancellationToken);
+    }
+
+    static PackageChildrenSubject SubjectWithTargetFramework(
+        PackageChildrenSubject subject,
+        string targetFramework) =>
+        new(
+            subject.PackageId,
+            subject.PackageVersion,
+            new InertText.InertString(
+                InertText.TextPolicy.Field,
+                targetFramework));
+
+    private static InspectionEnvelope<PackageChildrenDocument>
+        PackageChildrenEnvelope(PackageChildrenDocument document) =>
+        new(
+            document,
+            new InspectionShare.NonProjectable(
+                "package-children/share",
+                "Package children do not yet have a canonical Workspace "
+                    + "Share projection."));
+
     /// <summary>
-    /// Bounded public API summary for one exact package compile asset.
+    /// Bounded public API summary for one exact Package Library child.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryLibraryApi(
@@ -167,12 +483,19 @@ public static partial class PackageExports
                 targetFramework);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-        var request = new ExactLibraryApiInspectionRequest(
-            packageId,
-            version,
-            targetFramework,
-            assemblyId,
-            ExactLibraryApiSelectionKind.AssetId);
+        ExactLibraryApiInspectionRequest request =
+            targetFramework.Length == 0
+                ? ExactLibraryApiInspectionRequest.ForOwnerDefaultTarget(
+                    packageId,
+                    version,
+                    assemblyId,
+                    ExactLibraryApiSelectionKind.AssetId)
+                : new(
+                    packageId,
+                    version,
+                    targetFramework,
+                    assemblyId,
+                    ExactLibraryApiSelectionKind.AssetId);
         ExactLibraryApiInspectionExecution execution =
             scope.UsePackageAssemblyRoles(
             coordinate,
@@ -182,6 +505,64 @@ public static partial class PackageExports
                     realization,
                     request,
                     BrowserApiSurfacePolicy.Limits));
+        ExactLibraryApiInspectionResult compileResult =
+            execution.Inspection.Content;
+        if (compileResult.IsAvailable
+            || (compileResult.Outcome
+                    != ExactLibraryApiInspectionOutcome.NotFound
+                && !compileResult.Failures.Any(failure =>
+                    failure.Kind
+                        == ExactLibraryApiInspectionFailureKind
+                            .CompileSelectionUnavailable)))
+        {
+            return execution.Inspection;
+        }
+
+        BrowserToolPackageProjection? tool =
+            await coordinate.Package.ProjectToolPackageAsync(
+                    string.IsNullOrWhiteSpace(coordinate.Framework)
+                        ? null
+                        : coordinate.Framework,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        if (tool is
+            {
+                Settings:
+                {
+                    Status: BrowserToolSettingsProjectionStatus.Available,
+                    Settings: { } settings,
+                },
+                Measurement:
+                    PackageToolSliceMeasurementOutcome.Measured measured,
+            }
+            && !(settings.IsRidSpecificPointerPackage
+                && settings.RuntimeIdentifierPackages is { Count: > 0 })
+            && measured.Measurements.SelectedEntries.Contains(
+                assemblyId,
+                StringComparer.Ordinal))
+        {
+            ExactLibraryApiInspectionExecution toolExecution =
+                await ExactLibraryApiInspectionOperation
+                    .ExecuteToolEntryAsync(
+                        coordinate.CreateInspectionInput(),
+                        request,
+                        measured.Measurements.SelectedTargetFramework,
+                        new()
+                        {
+                            MaxAssembliesPerRole =
+                                BrowserInspectionScope.MaxAssembliesPerRole,
+                            MaxAggregateRetainedImageBytes =
+                                BrowserInspectionScope
+                                    .MaxRetainedImageBytes,
+                            MaxAssemblyEntryBytes =
+                                BrowserInspectionScope
+                                    .MaxRetainedImageBytes,
+                            RequireDeclaredEntryLengths = true,
+                        },
+                        BrowserApiSurfacePolicy.Limits)
+                    .ConfigureAwait(false);
+            return toolExecution.Inspection;
+        }
         return execution.Inspection;
     }
 

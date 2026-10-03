@@ -696,6 +696,37 @@ dotnet-inspect package System.Text.Json \
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
+Bare `package ID[@VERSION]` output and bare `--tree` render the Package's
+native children Tree. Ordinary packages list every Library in the selected
+compile population with its public Type-declaration Count, including
+forwarders. `--tfm` selects an explicit target; otherwise the Package selection
+default chooses the target. Tool pointer packages list their RID packages,
+managed tool payloads list the entry-point Library before their dependencies,
+and native tool payloads state that they contain no managed Libraries. Minimal
+implicit Tree output may collapse a managed tool's dependency Libraries into
+one counted branch that names `-v:n` as the full-inventory gesture. Normal,
+Detailed, and explicit output formats list every Library.
+
+Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
+all consume that same Package children document. JSON carries subject,
+completion, total and selected Counts, and typed child rows. Row formats expose
+the exact asset ID, asset path, child role, declaration Count outcome, and a
+copyable, shell-quoted `selector` for the same Library occurrence or RID
+Package. Library selectors retain the selected target and replayable
+source/configuration options; a local tool pointer's RID selectors retain its
+adjacent Package directory as a local source. Output fails visibly when replay
+context cannot be disclosed safely. Package children output does not run the
+unrelated all-binary Signals scan. `--rows` windows children before realizing
+or inspecting the selected Libraries, `--count` counts the owner-issued child
+population without opening Libraries for Signals or declaration inspection,
+and `--fields` or `--columns` projects child-row columns. Windows retain the
+complete population Count and original child ordinals; a window selecting no
+rows from a non-empty Package does not claim that the Package has no Libraries.
+
+Select `Package Info` explicitly for Package facts. A bare Package Tree is
+distinct from the dependency graph: select `Dependency Hierarchy` together
+with `--tree` for rooted transitive dependencies.
+
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
 in the packet's selected context, independently of its focused tab, and reuses
 the exact Package Root and target admitted during Workspace restoration.

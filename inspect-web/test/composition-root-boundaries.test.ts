@@ -255,7 +255,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /if \(!workspaceOccurrenceViewIsVisible\(\)\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
   assert.match(
     appSource,
-    /function packageLibraryInventory\(\)[\s\S]*state\.package\.assemblies\.map\(assembly =>/);
+    /function packageLibraryInventory\(\)[\s\S]*packageLibrariesForModel\(state\.package\)/);
   assert.match(
     appSource,
     /function packageLibraries\(\) \{\s*return packageLibraryInventory\(\);\s*\}/);

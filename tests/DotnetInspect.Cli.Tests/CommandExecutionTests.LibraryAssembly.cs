@@ -119,7 +119,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
             Assert.Contains(
-                "--tree requires exactly '-S \"Dependency Hierarchy\"'",
+                "selected section must be exactly '-S \"Dependency Hierarchy\"'",
                 packageError);
         }
         finally

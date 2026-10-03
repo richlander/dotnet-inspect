@@ -266,17 +266,25 @@ public static class PackageCommandDefinitions
                 bool hasPopulationGesture =
                     hasPluralVersionSelector
                     || (isRange && result.GetValue(opts.Count));
-                if (!hasPopulationGesture
-                    || (!isRange && !isOrdinaryListing))
+                bool isPackageChildrenEnvelope =
+                    packageReferences is [_]
+                    && !hasPopulationGesture
+                    && !isRange
+                    && !result.GetValue(opts.Count);
+                if (!isPackageChildrenEnvelope
+                    && (!hasPopulationGesture
+                        || (!isRange && !isOrdinaryListing)))
                 {
                     result.AddError(
                         "--envelope on package requires one unversioned package "
                         + "with --versions or --versions-with-feed, or one "
                         + "Package@A..B range with --versions, "
-                        + "--versions-with-feed, or --count.");
+                        + "--versions-with-feed, or --count, or one exact "
+                        + "Package without a population gesture.");
                 }
 
-                if (!result.GetValue(opts.Count))
+                if (!result.GetValue(opts.Count)
+                    && !isPackageChildrenEnvelope)
                 {
                     foreach (Option option in new Option[]
                     {
