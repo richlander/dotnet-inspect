@@ -94,7 +94,6 @@ public static class LibrarySections
                     AssemblyReferencesQuery.Definition,
                     MethodClassificationDemand.LibraryInfo,
                     CustomAttributesQuery.Definition,
-                    ExtensionMethodsQuery.Definition,
                     ResourcesQuery.Definition,
                     TypeForwardersQuery.Definition,
                 ])

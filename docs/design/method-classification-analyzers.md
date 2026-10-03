@@ -338,7 +338,8 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   them. Rows are requested only by the Finding and the row
   sections. The merged rows, in legacy order, and the Finding inspection built
   from them come only when the Finding is requested. Signals and LibraryInfo
-  counts get Count closings, matching what each shows today:
+  counts get Count closings, matching what each shows today; LibraryInfo asks
+  the async and extension Counts and no longer demands the extension row scan:
   `AuditSignalBuilder` shows counts for pointer and P/Invoke. Count closings
   declare no `IdentityText`, so they spend no identity budget. The Async Kind
   signal is not a consumer. It reads
