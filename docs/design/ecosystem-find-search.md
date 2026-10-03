@@ -76,7 +76,8 @@ row window, no `Aspire.*` package enumeration starts.
 | --- | --- |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Canonical Ecosystem identity, product order, core packages, platform populations, and ordered package-prefix declarations |
 | [Find Workspace scope](find-workspace-scope.md) | Explicit Ecosystem selection, bounded named-population realization, and the rule that prefix populations are a separate operation |
-| [Find type-search service](find-search-service.md) and [Find member-name search service](find-member-search-service.md) | Owner-issued pattern grammar, Direct/Glob/namespace/Member classification, candidate rows, source-local failures, and result limits |
+| [Find semantic evaluation](find-semantic-evaluation.md) | Normalized Type and Member questions, reusable source evaluations, semantic blocks, exact source/declaration associations, source coverage, and result limits |
+| [Find type-search service](find-search-service.md) and [Find member-name search service](find-member-search-service.md) | Existing CLI source authorization, compatibility behavior, diagnostics, and presentation during shared-evaluator adoption |
 | [Type Find population selection](type-find-population-selection.md) | First-nonempty Prefix, Substring, and Partial settlement over each complete ordered bounded Type population while retaining exact source associations |
 | [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Pull-driven package candidates, source order, paging, cancellation, and source completion |
 | PlatformHouse and PackageHouse | Exact source settlement, realization, provenance, and visible failure |
@@ -109,16 +110,17 @@ mutable "start prefixes" side channel loses the exact request, bound, and
 completion association. One owner-issued one-shot capability preserves those
 facts without adding another matcher, scheduler, or result vocabulary.
 
-Type population-level settlement now has a host-neutral selector. Source
-realization and inventory, source-local Direct/Glob and Member matching, and
-CLI/Browser plan lowering remain adoption prerequisites rather than
-responsibilities absorbed here. An adopter supplies typed boundaries that:
+Find semantic evaluation supplies the normalized question, reusable
+source-evaluation, and completed block contracts. Source realization and
+inventory plus CLI/Browser plan lowering remain adoption prerequisites rather
+than responsibilities absorbed here. An adopter supplies typed boundaries
+that:
 
 1. realize and inventory one source into immutable source-local facts;
-2. match one normalized question against those facts without reading the
+2. evaluate one normalized question against those facts without reading the
    source again; and
-3. apply the Type selector, or another Find-owner-issued population contract,
-   to references from one bounded source group or one exact prefix package.
+3. reduce reusable source evaluations into one bounded source group or one
+   exact prefix-package block.
 
 This operation schedules and associates those results; it never reconstructs
 a candidate from display text.
@@ -135,7 +137,8 @@ EcosystemFindSearchRequest
   MaximumPrefixPackages
 ```
 
-`FindQuestion` is an owner-issued Type or Member Find plan. It carries parsed
+`FindQuestion` is the Type-or-Member plan issued by
+[Find semantic evaluation](find-semantic-evaluation.md). It carries parsed
 patterns, visibility, and evaluator-owned semantic row limits. This operation
 does not parse a leading dot, commas, globs, generic notation, or exact member
 selectors.
