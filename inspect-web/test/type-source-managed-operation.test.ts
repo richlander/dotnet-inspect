@@ -64,6 +64,7 @@ function fixture() {
       diagnostics.push(diagnostic);
       return undefined;
     },
+    reportMemberSourceDiagnostic: () => undefined,
     describeError: error => error instanceof Error ? error.message : String(error),
     render: () => {},
     renderPreservingMemberFocus: () => ({

@@ -226,13 +226,19 @@ test.describe("published authored Source comparison transport", () => {
           body.memberName,
           body.selectorKey,
           body.token,
+          0,
           "[]",
           "source",
         );
+        if (result.value === null) {
+          throw new Error(
+            result.error ?? "System.Text.Json member source inspection failed.",
+          );
+        }
         return {
           framework: surface.activeFramework,
           member: body.memberName,
-          result,
+          result: result.value,
         };
       });
       const partText = (
@@ -510,10 +516,13 @@ test.describe("published authored Source comparison transport", () => {
         const selected = await memberRequest(targetPage, name, version, typeName);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
-          return source.queryMemberSource(
+          const result = await source.queryMemberSource(
             request.packageId, request.beforeVersion, request.framework,
             request.assembly, request.typeIdentity, request.memberName,
-            request.selectorKey, request.metadataToken, "[]", request.view);
+            request.selectorKey, request.metadataToken, 0, "[]", request.view);
+          if (result.value === null)
+            throw new Error(result.error ?? "Member source inspection failed.");
+          return result.value;
         }, { ...selected, view });
       }
 
