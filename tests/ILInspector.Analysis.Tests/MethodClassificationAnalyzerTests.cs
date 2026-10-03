@@ -523,4 +523,47 @@ public sealed class MethodClassificationAnalyzerTests
     {
         public readonly bool Test(scoped MethodDefinitionView view) => true;
     }
+
+    [Fact]
+    public void ExtensionAnalyzer_CountsPublicStaticExtensionMethodsOnStaticExtensionTypes()
+    {
+        GateFixtureImage builder = new();
+        MemberReferenceHandle extension = builder.AttributeConstructor(builder.TypeRef(
+            "System.Runtime.CompilerServices", "ExtensionAttribute"));
+        builder.Type("N", "Extensions")
+            .Attributes(extension)
+            .Method("Visible", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .Method("NotExtension", PointerParameter(), PublicStatic)
+            .Method("Instance", PointerParameter(), MethodAttributes.Public, attributeConstructors: extension)
+            .Method("Internal", PointerParameter(), MethodAttributes.Assembly | MethodAttributes.Static, attributeConstructors: extension);
+        builder.Type("N", "NotExtensionType")
+            .Method("Stray", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        ImmutableArray<byte> image = builder.Build();
+
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
+        ImmutableArray<ClassifiedMethodRow> rows = Rows(image, ExtensionMethodAnalyzer.Instance);
+
+        Assert.Equal(1, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+        Assert.Equal(["Visible"], rows.Select(static row => row.MethodName.ToString()));
+        Assert.Equal(MethodClassification.Extension, Assert.Single(rows).Classification);
+    }
+
+    [Theory]
+    [InlineData(typeof(System.Text.Json.JsonSerializer))]
+    [InlineData(typeof(Enumerable))]
+    public void ExtensionAnalyzer_CountEqualsTheLegacyScanOnARealAssembly(Type anchor)
+    {
+        ImmutableArray<byte> image = [.. File.ReadAllBytes(anchor.Assembly.Location)];
+        int legacy;
+        using (var legacyReader = new PEReader(image))
+        {
+            legacy = ExtensionMethodScanner.FindAllExtensions(legacyReader, includeAll: false)
+                .Count(static member => member.Kind == "method");
+        }
+
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
+
+        Assert.True(legacy > 0);
+        Assert.Equal(legacy, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+    }
 }

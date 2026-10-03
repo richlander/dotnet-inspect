@@ -103,6 +103,8 @@ internal sealed class GateFixtureImage
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(nextMethod));
             typeHandles[type] = handle;
+            foreach (EntityHandle constructor in type.AttributeConstructors)
+                _metadata.AddCustomAttribute(handle, constructor, default);
             if (type.Enclosing is { } enclosing)
                 _metadata.AddNestedType(handle, typeHandles[enclosing]);
 
@@ -298,6 +300,14 @@ internal sealed class GateFixtureImage
         public FixtureType? Enclosing { get; } = enclosing;
         public StringHandle? NamespaceOverride { get; init; }
         public List<FixtureMethod> Methods { get; } = [];
+        public List<EntityHandle> AttributeConstructors { get; } = [];
+
+        /// <summary>Attaches custom attributes to the type itself.</summary>
+        public FixtureType Attributes(params EntityHandle[] attributeConstructors)
+        {
+            AttributeConstructors.AddRange(attributeConstructors);
+            return this;
+        }
 
         public FixtureType Method(
             string name,

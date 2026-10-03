@@ -83,6 +83,21 @@ This owner does not define:
 | Runtime async | `Other` | the runtime-async implementation flag, `0x2000` | `Flags`, and `IdentityText` for rows |
 | Compiler async | `Other` | no runtime-async flag, and a custom attribute whose type is `System.Runtime.CompilerServices.AsyncStateMachineAttribute` or `AsyncIteratorStateMachineAttribute`, matched in place | `Flags`, `AttributeTypeMatch`, and `IdentityText` for rows |
 | Pointer signature | `Other` | a pointer in the return or a parameter type | `SignatureShape`, and `IdentityText` for rows |
+| Extension | `Extension`, from the extension scope | none: the class is the test | `Flags`, `AttributeTypeMatch`, `HiddenAttribute`, and `IdentityText` for rows |
+
+The extension analyzer uses its own gate classifier, the **extension scope**,
+not the classification scope. Its type scope is a static (sealed abstract)
+type carrying `[Extension]` and not hidden; its one class, `Extension`, is a
+public static method carrying `[Extension]` and not hidden. That is the
+method half of `ExtensionMethodScanner.FindAllExtensions(includeAll: false)`,
+which the Library Info Extension Methods row counts; extension properties
+from C# 14 extension blocks are a different population over nested marker
+types and are not this analyzer's rows. The legacy scan also decodes each
+candidate's signature and skips a method with no parameters. Roslyn never
+emits a parameterless `[Extension]` method and never fails that decode, so
+under the [fidelity policy](#fidelity-policy) the analyzer omits the decode:
+equal on Roslyn-produced assemblies, wrong but contained elsewhere. Its rows
+are not merged into the classified-method Finding.
 
 For classification, the gate applies the legacy scope. It then classifies each
 in-scope row as `PInvoke`, by the `PinvokeImpl` flag, or `Other`. Rows outside
@@ -145,6 +160,17 @@ Each Tier 1 test must equal the legacy test on every input:
   defined in the image or referenced, nested, or reached through a
   `TypeSpecification` parent. Compiler async therefore equals legacy's
   attribute test wherever legacy's test completes.
+- **Extension scope** reads the type's `Sealed` and `Abstract` flags and the
+  method's `Public` and `Static` flags, matches `[Extension]` on the type and
+  on the method through the same in-place attribute type match and memo as
+  compiler async, and applies the legacy hidden test (`EditorBrowsable(Never)`,
+  or an `Obsolete` that is not Roslyn's compiler-compatibility marker)
+  through Metadata's `AttributeReader.HasHiddenAttribute`, the function the
+  legacy scan calls, so the answer equals legacy's on every input. The hidden
+  test materializes attribute type names, which Tier 1 otherwise avoids; it is
+  declared as its own `HiddenAttribute` field, and the scope reads it only
+  for types and rows that passed the in-place tests. Hardening that shared
+  path is [#8780](https://github.com/richlander/dotnet-inspect/issues/8780).
 - **Pointer signature** in legacy walks the signature with a detector that
   charges the shared scan work budget. Every composite and `TypeSpec` visit is
   charged, because a wide `GENERICINST` repeated across methods is the known
@@ -252,8 +278,8 @@ Below the budget, the analyzers handle recoverable failures as follows:
 The queries live in host-neutral `DotnetInspector.Queries`, beside
 `UnsafeEvidencePresenceQuery`:
 
-- **One query per analyzer:** P/Invoke, runtime async, compiler async, and
-  pointer signature. Each is parameterized by its closing (Rows, Head(N),
+- **One query per analyzer:** P/Invoke, runtime async, compiler async,
+  pointer signature, and extension. Each is parameterized by its closing (Rows, Head(N),
   Count, or Exists) and returns a typed result for that closing, or the typed
   critical failure.
 - **Async is one producer,** not a composition of the two. Its test is the
