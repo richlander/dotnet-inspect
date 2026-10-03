@@ -142,7 +142,8 @@ internal static class MemberGroupDocumentOutput
                             plan,
                             documentation,
                             cancellationToken),
-                    cancellationToken);
+                    includeCompiledDocumentation: true,
+                    cancellationToken: cancellationToken);
         if (inspection is null)
             return 1;
 

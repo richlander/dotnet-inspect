@@ -904,12 +904,15 @@ hosts do not reconstruct it from display signatures, names, or digests.
 Composition validates that the SourceHouse result corresponds to the same
 request and Library assembly identity.
 
-The CLI resolves its API-projected `Name~digest` through the selected API
-Member and passes its Metadata-issued MethodDef token to the document
-selector. The exact detail displays that selected Member's API digest so
-copying it round-trips through the CLI selector; it is not a Metadata
-fingerprint. An explicit `--row` for an exact Member source part still selects
-the single Source Locations row and rejects any other row number.
+The CLI resolves its API-projected `Name:N` or `Name~digest` through the
+selected API Member and passes its Metadata-issued MethodDef token to the
+document selector. Display-order overload ordinals are never reinterpreted as
+Metadata baseline ordinals. The exact detail displays that selected Member's
+API digest so copying it round-trips through the CLI selector; it is not a
+Metadata fingerprint. An explicit `--row` for an exact Member source part
+still selects the single Source Locations row and rejects any other row
+number. A source-only request neither requests nor materializes compiled
+documentation; the two attachments settle independently.
 
 When a Browser package view is backed by a reference assembly, the host sends
 the Metadata-issued baseline ordinal from that surface population. Web Core

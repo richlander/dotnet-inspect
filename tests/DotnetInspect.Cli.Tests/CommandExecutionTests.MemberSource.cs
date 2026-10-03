@@ -252,7 +252,9 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Member_SourceParts_ApiDigestResolvesMetadataExactMember()
     {
-        var (assemblyPath, _, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        var (assemblyPath, _, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly(
+                stringOverloadFirst: true);
         try
         {
             using var stream = File.OpenRead(assemblyPath);
@@ -282,6 +284,36 @@ public partial class CommandExecutionTests
             Assert.Equal(0, ordinal.Exit);
             Assert.Equal(ordinal, selected);
             Assert.Contains("Overloaded(int value)", selected.Output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceParts_DoesNotReadUnrequestedCompiledDocumentation()
+    {
+        var (assemblyPath, _, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            await using (FileStream documentation = File.Create(
+                Path.ChangeExtension(assemblyPath, ".xml")))
+            {
+                documentation.SetLength(9 * 1024 * 1024);
+            }
+
+            var result = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink",
+                "Overloaded:1", "--library", assemblyPath,
+                "--print", "--part", "signature", "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "Overloaded(int value)", result.Output);
+            Assert.Empty(result.Error);
         }
         finally
         {

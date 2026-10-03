@@ -134,49 +134,43 @@ internal static class MemberDocumentOutput
             ?? throw new InvalidOperationException(
                 "The native Member route requires one unambiguous ordinary "
                     + "method name.");
-        MemberDocumentSelector selector;
-        if (options.OverloadIndex is { } ordinal)
+        var resolution = MemberTargetResolver.Resolve(
+            type,
+            new MemberTargetSelector(
+                memberName,
+                memberName,
+                options.OverloadIndex,
+                options.MemberDigest));
+        if (resolution.Diagnostic is { } selectionDiagnostic)
         {
-            selector = new(baselineOrdinal: ordinal);
+            CommandError.Write(
+                selectionDiagnostic.Message,
+                [.. selectionDiagnostic.CandidateDetails()]);
+            return 1;
         }
-        else
+        if (resolution.Target?.ApiMember.Member.MetadataToken
+            is not { } token)
         {
-            var resolution = MemberTargetResolver.Resolve(
-                type,
-                new MemberTargetSelector(
-                    memberName,
-                    memberName,
-                    DigestPrefix: options.MemberDigest));
-            if (resolution.Diagnostic is { } diagnostic)
-            {
-                CommandError.Write(
-                    diagnostic.Message,
-                    [.. diagnostic.CandidateDetails()]);
-                return 1;
-            }
-            if (resolution.Target?.ApiMember.Member.MetadataToken
-                is not { } token)
-            {
-                CommandError.Write(
-                    "The selected Member has no exact Metadata token.");
-                return 1;
-            }
-            selector = new(metadataToken: token);
+            CommandError.Write(
+                "The selected Member has no exact Metadata token.");
+            return 1;
         }
+        var selector = new MemberDocumentSelector(metadataToken: token);
+        MemberSourceAttachmentRequest? sourceDemand =
+            options.SourceParts || options.SourcePart is not null
+                ? new(
+                    includeAuthoredParts: true,
+                    allowDecompiledFallback: false)
+                : null;
         var plan = new MemberDocumentInspectionPlan(
             new MemberGroupSubject(definition, memberName),
             selector,
             s_bounds,
             documentation:
-                options.ShowDocs
+                sourceDemand is null && options.ShowDocs
                     ? new(DocumentationDemand.CompiledXml)
                     : null,
-            source:
-                options.SourceParts || options.SourcePart is not null
-                    ? new(
-                        includeAuthoredParts: true,
-                        allowDecompiledFallback: false)
-                    : null);
+            source: sourceDemand);
         MemberSourceAttachmentProvider? sourceProvider =
             plan.Source is null
                 ? null
@@ -236,7 +230,9 @@ internal static class MemberDocumentOutput
                             plan,
                             sourceProvider,
                             cancellationToken),
-                    cancellationToken);
+                    includeCompiledDocumentation:
+                        plan.Documentation is not null,
+                    cancellationToken: cancellationToken);
         if (inspection is null)
             return 1;
 

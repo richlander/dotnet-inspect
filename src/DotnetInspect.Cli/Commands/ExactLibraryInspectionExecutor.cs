@@ -299,6 +299,7 @@ internal static class ExactLibraryInspectionExecutor
         string assemblyPath,
         string provenanceLabel,
         Func<ExactLibraryInspectionSession, ValueTask<T?>> inspect,
+        bool includeCompiledDocumentation,
         CancellationToken cancellationToken,
         AssemblyContextLibraryRole role =
             AssemblyContextLibraryRole.ApiOnly)
@@ -328,7 +329,9 @@ internal static class ExactLibraryInspectionExecutor
         }
 
         AssemblyContextLibraryCompiledXml? compiledXml =
-            ReadCompiledXml(assemblyPath);
+            includeCompiledDocumentation
+                ? ReadCompiledXml(assemblyPath)
+                : null;
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
         AssemblyContextLibraryInspectionRun<T>? run = null;
