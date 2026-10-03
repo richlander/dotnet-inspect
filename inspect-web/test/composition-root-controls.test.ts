@@ -788,7 +788,8 @@ test("typed library controls own library and Platform picker bindings", () => {
     ?? "";
   assert.match(
     libraryControlsSource,
-    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+  assert.doesNotMatch(libraryControlsSource, /\[data-access-chip\]/);
   for (const lens of ["analysis", "metadata"]) {
     assert.match(
       libraryControlsSource,
@@ -803,9 +804,6 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.doesNotMatch(
     wrapper,
     /\bquerySelector(?:All)?\b|\baddEventListener\b/);
-  assert.match(
-    binding,
-    /onAccessibilityChipSelect: accessibility => \{[\s\S]*toggleAccessibilityChip\(accessibility\);[\s\S]*afterLibraryScopeChange\(\)/);
   assert.match(
     binding,
     /onLibraryChipSelect: library => \{\s*if \(library && selectLibrarySubject\(library\)\) render\(\);/);
@@ -829,27 +827,27 @@ test("typed library controls own library and Platform picker bindings", () => {
     /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*state\.analysisMode === "opportunities"[\s\S]*loadPackageLibraryMetrics\(\)/);
   assert.doesNotMatch(
     workspaceBinding,
-    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
+    /\[data-(?:library-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(
     appSource,
     /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
 });
 
-test("type accessibility controls offer an all-access selection", () => {
-  const toggle =
-    appSource.match(/function toggleAccessibilityChip\([\s\S]*?\n}(?=\n\n\/\/ The accessibility selector)/)?.[0]
+test("type accessibility selector offers a single bucket or all", () => {
+  const select =
+    appSource.match(/function selectTypeAccessibility\([\s\S]*?\n}/)?.[0]
     ?? "";
-  const control =
-    appSource.match(/function accessibilityControl\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Options for the namespace picker)/)?.[0]
+  const options =
+    appSource.match(/function typeAccessibilityOptions\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
 
   assert.match(
-    toggle,
-    /if \(!bucket\) \{[\s\S]*new Set\(accessibilityBuckets\(\)\.map\(descriptor => descriptor\.id\)\);[\s\S]*return;/);
+    select,
+    /accessibility\s*\?\s*new Set\(\[accessibility\]\)\s*:\s*new Set\(accessibilityBuckets\(\)\.map\(descriptor => descriptor\.id\)\)/);
   assert.match(
-    control,
-    /const allOn = buckets\.every\([\s\S]*data-access-chip="">all access<\/button>/);
+    options,
+    /value: "",\s*label: "all",\s*count: definitions\.length \+ forwarders\.length/);
 });
 
 test("typed shell controls own workbench, home, and load-error bindings", () => {
@@ -1225,7 +1223,7 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.doesNotMatch(clearFilters, /focusFilter/);
   assert.match(
     clearFilters,
-    /state\.accessibilityFilter = defaultAccessibilityFilter\(state\.package\)/);
+    /setTypeAccessibilityFilter\(\s*defaultAccessibilityFilter\(state\.package\),\s*"exact",\s*\)/);
   assert.match(
     clearFilters,
     /state\.typeLeverageFilter = ""/);
@@ -1256,7 +1254,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /function bindEvents\(\) \{\s*packageControls\.bind\(document\);\s*bindWorkspaceSubjectEvents\(\);\s*bindTypePanelEvents\(\);/);
   assert.match(
     typePanelSource,
-    /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
+    /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-type-kind-filter\][\s\S]*\[data-type-access-filter\][\s\S]*\[data-type-trait-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
   assert.match(
     typePanelSource,
     /\[data-member-kind-filter\][\s\S]*\[data-member-access-filter\][\s\S]*\[data-member-trait-filter\][\s\S]*#clear-member-filter[\s\S]*#member-filter/);

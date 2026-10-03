@@ -458,14 +458,17 @@ import {
   renderGraphMemberPending,
   renderMemberNav,
   memberSourceText,
+  normalizeTypeAccessibilityFilter,
   renderSourcePageActions,
   renderSourceResult,
+  shouldRestoreTypeAccessibilitySelection,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
   TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
   type MemberNavEntry,
   type SourceTextRange,
+  type TypeAccessibilitySelectionMode,
   typeMetadataSignature,
   typeSourceSignature,
   typeCodeViewText,
@@ -1466,10 +1469,13 @@ const initialState = {
   typeFilter: "",
   namespaceFilter: "",
   kindFilter: "",
+  typeTraitFilter: "",
   libraryScope: null,
   platformRecent: loadPlatformRecent(),
   recentPackages: loadRecentPackages(),
   accessibilityFilter: new Set<string>(),
+  typeAccessibilitySelectionMode: "exact" as TypeAccessibilitySelectionMode,
+  typeAccessibilitySelectionGeneration: 0,
   spotlightOpen: false,
   spotlightQuery: "",
   spotlightIndex: 0,
@@ -5075,7 +5081,9 @@ function filteredTypes() {
     return typeMatchesFilterText(item, needle)
       && (selectedNamespaceFilter() === null
         || item.namespace === selectedNamespaceFilter())
-      && (!state.kindFilter || typeKind(item.kind) === state.kindFilter)
+      && (!state.kindFilter || item.kindFacetId === state.kindFilter)
+      && (!state.typeTraitFilter
+        || item.traitFacetIds.includes(state.typeTraitFilter))
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
       && state.accessibilityFilter.has(item.accessibilityId)
       && typeLeverageMatchesFilter(
@@ -5237,6 +5245,8 @@ function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow>
   const leverage = currentTypeLeveragePresentation();
   const leverageFilter = leverage ? state.typeLeverageFilter : "";
   const forwarders = typeLeverageMatchesFilter(undefined, leverageFilter)
+    && !state.typeTraitFilter
+    && typeAccessibilityIncludesForwarders()
     ? filterForwardedTypes(
       currentPlatformForwarderView()?.forwarders ?? [],
       {
@@ -5270,9 +5280,11 @@ function retainPlatformForwarderSurface(view: BrowserPlatformForwarderView) {
   const existing = runtimePackageForTarget({
     tfm: selected.activeFramework, version: selected.version,
   });
+  const accessibilitySelection = captureTypeAccessibilitySelection();
   const pkg = existing
     ? mergeRuntimePackageSurface(existing, view.surface)
     : selected;
+  restoreTypeAccessibilitySelection(accessibilitySelection, pkg);
   platformPackages.set(platformTargetKey({
     tfm: pkg.activeFramework, version: pkg.version,
   }), pkg);
@@ -5397,6 +5409,7 @@ async function activatePlatformForwarder(row: BrowserPlatformForwarderRow) {
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.typeTraitFilter = "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
@@ -5444,8 +5457,8 @@ function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
   // No type within the active library scope passes the current accessibility filter -- e.g.
   // an internal-only platform library (zero public types) reached via a link with no explicit
   // type. Prefer a type still within the requested scope over an unrelated package-wide type,
-  // so the caller's accessibility-widening reconciliation (see reconcileAccessibilityFilter)
-  // can admit it without losing the library scope that was the actual target of the restore.
+  // so the caller's accessibility reconciliation (see reconcileAccessibilityFilter) can
+  // select its exact bucket without losing the library scope that was the actual target.
   const libraryScope = state.libraryScope;
   if (libraryScope) {
     const scoped = pkg.types.find(item => libraryScope.has(libraryKey(item)));
@@ -5454,7 +5467,7 @@ function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
   return pkg.types[0]?.id || "";
 }
 
-// Widen state.accessibilityFilter, if necessary, so it admits the given type. Every
+// Reconcile state.accessibilityFilter, if necessary, so it admits the given type. Every
 // defaultVisibleTypeId caller must invoke this immediately after assigning
 // state.selectedTypeId so a package/library where every type falls outside the current
 // filter (e.g. one with zero public types) doesn't leave the type list empty while the pane
@@ -5463,11 +5476,8 @@ function reconcileAccessibilityFilter(
   type: InspectedTypeSurface | null | undefined,
 ) {
   if (!type) return;
-  if (!state.accessibilityFilter.has(type.accessibilityId)) {
-    const next = new Set(state.accessibilityFilter);
-    next.add(type.accessibilityId);
-    state.accessibilityFilter = next;
-  }
+  if (!typeAccessibilitySelectsAll())
+    selectTypeAccessibility(type.accessibilityId);
 }
 
 
@@ -5654,6 +5664,7 @@ function selectLibrarySubject(
     if (!options.preserveLens) state.libraryLens = "overview";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.typeTraitFilter = "";
     state.typeFilter = "";
     normalizeLibrarySelection();
   }
@@ -5681,6 +5692,7 @@ function selectAggregateLibrarySubject(
     if (!options.preserveLens) state.libraryLens = "overview";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.typeTraitFilter = "";
     state.typeFilter = "";
     normalizeLibrarySelection();
   }
@@ -5734,20 +5746,6 @@ function normalizeLibrarySelection() {
   resetMemberFilters();
 }
 
-function afterLibraryScopeChange() {
-  normalizeLibrarySelection();
-  renderPreservingMemberFocus();
-  loadCurrentSelectionData("Loading the selected Library Type");
-}
-
-function namespaces() {
-  if (!state.package) return [];
-  return [...new Set([...state.package.types
-    .filter(item => state.accessibilityFilter.has(item.accessibilityId))
-    .map(item => item.namespace),
-  ...(currentPlatformForwarderView()?.forwarders.map(item => item.namespace) ?? [])])];
-}
-
 function accessibilityBuckets() {
   return state.package?.accessibility ?? [];
 }
@@ -5758,18 +5756,41 @@ function defaultAccessibilityFilter(pkg: AppPackage | null | undefined): Set<str
     .map(descriptor => descriptor.id));
 }
 
+function setTypeAccessibilityFilter(
+  filter: ReadonlySet<string>,
+  mode: TypeAccessibilitySelectionMode,
+) {
+  state.accessibilityFilter = new Set(filter);
+  state.typeAccessibilitySelectionMode = mode;
+  state.typeAccessibilitySelectionGeneration++;
+}
+
+function includeTypeAccessibility(
+  type: AppTypeSurface | null | undefined,
+) {
+  if (!type?.accessibilityId
+    || state.accessibilityFilter.has(type.accessibilityId)) {
+    return;
+  }
+  setTypeAccessibilityFilter(
+    accessibilityFilterIncludingType(state.accessibilityFilter, type),
+    "exact",
+  );
+}
+
 function revealTypeInFilters(type: AppTypeSurface | null | undefined) {
   if (!type) return;
-  state.accessibilityFilter = accessibilityFilterIncludingType(
-    state.accessibilityFilter,
-    type);
+  includeTypeAccessibility(type);
   if (!typeMatchesFilterText(type, state.typeFilter.toLowerCase()))
     state.typeFilter = "";
   if (selectedNamespaceFilter() !== null
     && type.namespace !== selectedNamespaceFilter())
     state.namespaceFilter = "";
-  if (state.kindFilter && typeKind(type.kind) !== state.kindFilter)
+  if (state.kindFilter && type.kindFacetId !== state.kindFilter)
     state.kindFilter = "";
+  if (state.typeTraitFilter
+    && !type.traitFacetIds.includes(state.typeTraitFilter))
+    state.typeTraitFilter = "";
   if (state.libraryScope && !state.libraryScope.has(libraryKey(type)))
     state.libraryScope = new Set([libraryKey(type)]);
 }
@@ -5930,6 +5951,7 @@ function resetLocationFilters() {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   state.typeLeverageFilter = "";
   state.libraryScope = null;
   state.typeCursor = 0;
@@ -5965,6 +5987,7 @@ function selectWorkspacePackage(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   if (packageModel.isRuntimePack) {
     const firstLibrary = packageLibraries()[0];
     state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
@@ -6169,8 +6192,9 @@ function activatePackage(
     state.memberBrowseTypeId = "";
     resetMemberFilters();
   }
-  if (pkg && (changed || resetAccessibility || state.accessibilityFilter.size === 0))
-    state.accessibilityFilter = defaultAccessibilityFilter(pkg);
+  if (pkg && (changed || resetAccessibility || state.accessibilityFilter.size === 0)) {
+    setTypeAccessibilityFilter(defaultAccessibilityFilter(pkg), "exact");
+  }
   return changed;
 }
 
@@ -6179,38 +6203,73 @@ function isDefaultAccessibility(type: InspectedTypeSurface) {
     descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
 }
 
-// Multi-select chip toggle for the accessibility filter. An empty bucket
-// selects every bucket; otherwise, an empty result falls back to the "public"
-// default so the type list is never blanked out.
-function toggleAccessibilityChip(bucket: string) {
-  if (!bucket) {
-    state.accessibilityFilter =
-      new Set(accessibilityBuckets().map(descriptor => descriptor.id));
-    return;
-  }
-  const next = new Set(state.accessibilityFilter);
-  if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
-  if (next.size === 0) {
-    for (const id of defaultAccessibilityFilter(state.package)) next.add(id);
-  }
-  state.accessibilityFilter = next;
+function selectedTypeAccessibility() {
+  const buckets = accessibilityBuckets();
+  if (typeAccessibilitySelectsAll())
+    return "";
+  return buckets.find(bucket =>
+    state.accessibilityFilter.has(bucket.id))?.id ?? "";
 }
 
-// The accessibility selector for the type nav pane: a multi-select chip row
-// (public on by default) that surfaces the package's non-public types on demand.
-// Rendered only when the package carries more than the public bucket.
-function accessibilityControl() {
-  const buckets = accessibilityBuckets();
-  if (buckets.length <= 1) return "";
-  const allOn = buckets.every(
-    bucket => state.accessibilityFilter.has(bucket.id));
-  const chips = buckets
-    .map(bucket => `<button class="${state.accessibilityFilter.has(bucket.id) ? "active" : ""}" data-access-chip="${escapeHtml(bucket.id)}">${escapeHtml(bucket.label)}</button>`)
-    .join("");
-  return `<div class="namespace-chips access-chips" aria-label="Accessibility filters">
-    <button class="${allOn ? "active" : ""}" data-access-chip="">all access</button>
-    ${chips}
-  </div>`;
+function typeAccessibilitySelectsAll() {
+  return state.typeAccessibilitySelectionMode === "all";
+}
+
+function reconcileTypeAccessibilityVocabulary() {
+  const normalized = normalizeTypeAccessibilityFilter(
+    state.accessibilityFilter,
+    accessibilityBuckets().map(bucket => bucket.id),
+    state.typeAccessibilitySelectionMode,
+  );
+  if (normalized.size === state.accessibilityFilter.size
+    && [...normalized].every(id => state.accessibilityFilter.has(id))) {
+    return;
+  }
+  state.accessibilityFilter = normalized;
+}
+
+function captureTypeAccessibilitySelection() {
+  return {
+    package: state.package,
+    mode: state.typeAccessibilitySelectionMode,
+    generation: state.typeAccessibilitySelectionGeneration,
+  };
+}
+
+function restoreTypeAccessibilitySelection(
+  previous: ReturnType<typeof captureTypeAccessibilitySelection>,
+  pkg: AppPackage | null,
+) {
+  if (shouldRestoreTypeAccessibilitySelection(
+    previous.mode,
+    previous.generation,
+    state.typeAccessibilitySelectionGeneration)
+    && previous.package
+    && pkg
+    && state.package
+    && packageIdentityEquals(pkg, previous.package)
+    && packageIdentityEquals(state.package, previous.package)) {
+    state.accessibilityFilter = normalizeTypeAccessibilityFilter(
+      state.accessibilityFilter,
+      pkg.accessibility.map(descriptor => descriptor.id),
+      previous.mode,
+    );
+  }
+}
+
+function selectTypeAccessibility(accessibility: string) {
+  setTypeAccessibilityFilter(
+    accessibility
+      ? new Set([accessibility])
+      : new Set(accessibilityBuckets().map(descriptor => descriptor.id)),
+    accessibility ? "exact" : "all",
+  );
+}
+
+function typeAccessibilityIncludesForwarders() {
+  const selected = selectedTypeAccessibility();
+  return !selected || accessibilityBuckets().some(
+    descriptor => descriptor.id === selected && descriptor.isDefault);
 }
 
 function typeLeverageControl() {
@@ -6263,20 +6322,21 @@ function typeLeverageControl() {
 }
 
 function typeFilterSummary() {
-  const buckets = accessibilityBuckets();
-  const activeAccessibility =
-    buckets.filter(bucket => state.accessibilityFilter.has(bucket.id));
-  const accessibilitySummary = activeAccessibility.length === buckets.length
-    ? ""
-    : activeAccessibility
-      .map(bucket => bucket.label.toLowerCase())
-      .join(", ");
+  const accessibility = selectedTypeAccessibility();
+  const accessibilitySummary = accessibilityBuckets().find(
+    bucket => bucket.id === accessibility)?.label.toLowerCase() ?? "";
+  const kindSummary = state.package?.typeKinds.find(
+    kind => kind.id === state.kindFilter)?.singularLabel
+    ?? (state.kindFilter === "forwarded" ? "forwarded" : "");
+  const traitSummary = state.package?.typeTraits.find(
+    trait => trait.id === state.typeTraitFilter)?.singularLabel ?? "";
   return [
     state.typeFilter,
     state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
       ? "(global namespace)"
       : state.namespaceFilter,
-    state.kindFilter,
+    kindSummary,
+    traitSummary,
     currentTypeLeveragePresentation() && state.typeLeverageFilter
       ? state.typeLeverageFilter.replace("-", " ")
       : "",
@@ -6284,18 +6344,111 @@ function typeFilterSummary() {
   ].filter(Boolean).join(" · ") || "All types";
 }
 
-// Options for the namespace picker dropdown: every namespace in the active
-// package (honoring the library + accessibility filters), sorted, with its type
-// count.
+function typeSelectorDefinitions() {
+  const definitions = state.package?.types.filter(item =>
+    !state.libraryScope || state.libraryScope.has(libraryKey(item))) ?? [];
+  const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
+  return { definitions, forwarders };
+}
+
+function accessibilityScopedTypeSelectorDefinitions() {
+  const { definitions, forwarders } = typeSelectorDefinitions();
+  const accessibility = selectedTypeAccessibility();
+  return {
+    definitions: accessibility
+      ? definitions.filter(type => type.accessibilityId === accessibility)
+      : definitions,
+    forwarders: typeAccessibilityIncludesForwarders() ? forwarders : [],
+  };
+}
+
+function reconcileTypeNamespaceFilter(accessibility: string) {
+  const selectedNamespace = selectedNamespaceFilter();
+  if (selectedNamespace === null) return;
+  const { definitions, forwarders } = typeSelectorDefinitions();
+  const scopedDefinitions = accessibility
+    ? definitions.filter(type => type.accessibilityId === accessibility)
+    : definitions;
+  const includesForwarders = !accessibility
+    || accessibilityBuckets().some(
+      descriptor => descriptor.id === accessibility && descriptor.isDefault);
+  if (!scopedDefinitions.some(type => type.namespace === selectedNamespace)
+    && (!includesForwarders
+      || !forwarders.some(type => type.namespace === selectedNamespace)))
+    state.namespaceFilter = "";
+}
+
+function typeAccessibilityOptions() {
+  const { definitions, forwarders } = typeSelectorDefinitions();
+  const options = accessibilityBuckets().map(bucket => ({
+    value: bucket.id,
+    label: bucket.label.toLowerCase(),
+    count: definitions.filter(type => type.accessibilityId === bucket.id).length
+      + (bucket.isDefault ? forwarders.length : 0),
+  }));
+  return [
+    {
+      value: "",
+      label: "all",
+      count: definitions.length + forwarders.length,
+    },
+    ...options,
+  ];
+}
+
+function typeKindOptions() {
+  const { definitions, forwarders } =
+    accessibilityScopedTypeSelectorDefinitions();
+  const options = (state.package?.typeKinds ?? []).map(kind => ({
+    value: kind.id,
+    label: kind.singularLabel,
+    count: definitions.filter(type => type.kindFacetId === kind.id).length,
+  }));
+  if (forwarders.length > 0 || state.kindFilter === "forwarded") {
+    options.push({
+      value: "forwarded",
+      label: "forwarded",
+      count: forwarders.length,
+    });
+  }
+  return [
+    {
+      value: "",
+      label: "all",
+      count: definitions.length + forwarders.length,
+    },
+    ...options,
+  ];
+}
+
+function typeTraitOptions() {
+  const { definitions, forwarders } =
+    accessibilityScopedTypeSelectorDefinitions();
+  return [
+    {
+      value: "",
+      label: "all",
+      count: definitions.length + forwarders.length,
+    },
+    ...(state.package?.typeTraits ?? []).map(trait => ({
+      value: trait.id,
+      label: trait.singularLabel,
+      count: definitions.filter(type =>
+        type.traitFacetIds.includes(trait.id)).length,
+    })),
+  ];
+}
+
+// Options for the namespace picker dropdown: every namespace in the selected
+// accessibility population, sorted, with its declaration count.
 function namespaceOptions() {
-  if (!state.package) return "";
+  const { definitions, forwarders } =
+    accessibilityScopedTypeSelectorDefinitions();
   const counts = new Map<string, number>();
-  for (const item of state.package.types) {
-    if (state.libraryScope && !state.libraryScope.has(libraryKey(item))) continue;
-    if (!state.accessibilityFilter.has(item.accessibilityId)) continue;
+  for (const item of definitions) {
     counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
   }
-  for (const item of currentPlatformForwarderView()?.forwarders ?? []) {
+  for (const item of forwarders) {
     counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
   }
   return [...counts.keys()]
@@ -6317,39 +6470,6 @@ function selectedNamespaceFilter(): string | null {
   if (state.namespaceFilter === GLOBAL_NAMESPACE_FILTER) return "";
   return state.namespaceFilter || null;
 }
-
-// Collapse a raw kind string ("sealed class", "readonly struct", "enum", …) to a
-// primary bucket used by the kind filter chips.
-type TypeKind = "class" | "struct" | "interface" | "enum" | "delegate";
-
-function typeKind(kind: string): TypeKind {
-  const value = (kind || "").toLowerCase();
-  if (value.includes("interface")) return "interface";
-  if (value.includes("delegate")) return "delegate";
-  if (value.includes("enum")) return "enum";
-  if (value.includes("struct")) return "struct";
-  return "class";
-}
-
-const KIND_ORDER: readonly TypeKind[] =
-  ["class", "struct", "interface", "enum", "delegate"];
-
-// Kind buckets present in the current package, honoring the active namespace filter
-// (but not the kind filter itself, so chips stay stable while one is selected).
-function typeKinds() {
-  if (!state.package) return [];
-  const present = new Set(state.package.types
-    .filter(item => selectedNamespaceFilter() === null
-      || item.namespace === selectedNamespaceFilter())
-    .filter(item => !state.libraryScope || state.libraryScope.has(libraryKey(item)))
-    .filter(item => state.accessibilityFilter.has(item.accessibilityId))
-    .map(item => typeKind(item.kind)));
-  return [
-    ...KIND_ORDER.filter(kind => present.has(kind)),
-    ...(currentPlatformForwarderView()?.forwarders.length ? ["forwarded"] : []),
-  ];
-}
-
 
 function typeGroups() {
   const groups = new Map<string, TypeInventoryRow[]>();
@@ -8191,6 +8311,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
 function renderCore(options: { synchronizeUrl?: boolean }) {
   sourceInspection.cancelHiddenRequest();
+  reconcileTypeAccessibilityVocabulary();
   reconcilePlatformForwarderView();
   libraryApiDiff.reconcile(currentLibraryApiDiffSelection());
   compareClone.reconcile(currentCompareCloneTarget());
@@ -9076,6 +9197,8 @@ function renderTypeNavPane(
   visible: readonly TypeInventoryRow[],
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
+  const { definitions, forwarders } =
+    accessibilityScopedTypeSelectorDefinitions();
   const leveragePresentation = currentTypeLeveragePresentation();
   return renderTypeNav({
     current: selectedForwarder() ?? current ?? null,
@@ -9084,11 +9207,14 @@ function renderTypeNavPane(
     typeFilter: state.typeFilter,
     namespaceFilter: state.namespaceFilter,
     kindFilter: state.kindFilter,
-    namespaceCount: namespaces().length,
+    accessibilityFilter: selectedTypeAccessibility(),
+    traitFilter: state.typeTraitFilter,
+    namespaceCount: definitions.length + forwarders.length,
     namespaceOptionsHtml: namespaceOptions(),
     namespaceSelectionValue: namespaceFilterValue,
-    kindFilters: typeKinds(),
-    accessibilityControlHtml: accessibilityControl(),
+    kindOptions: typeKindOptions(),
+    accessibilityOptions: typeAccessibilityOptions(),
+    traitOptions: typeTraitOptions(),
     leverageControlHtml: typeLeverageControl(),
     library: activeLibrarySubjectName(),
     parentSubject: state.atLibraryRoot
@@ -10837,22 +10963,16 @@ function renderLibraryCompositionOverview(
   library: ReturnType<typeof packageLibraries>[number] | null,
 ) {
   const libraries = packageLibraries();
-  const kindPlural: Record<TypeKind, string> = {
-    class: "classes",
-    struct: "structs",
-    interface: "interfaces",
-    enum: "enums",
-    delegate: "delegates",
-  };
-  const kinds = new Map<TypeKind, number>();
+  const kinds = new Map<string, number>();
   const nsCounts = new Map<string, number>();
   for (const type of pkg.types) {
     if (!isDefaultAccessibility(type)
       || (library && libraryKey(type) !== library.id)) {
       continue;
     }
-    const kind = typeKind(type.kind);
-    kinds.set(kind, (kinds.get(kind) || 0) + 1);
+    kinds.set(
+      type.kindFacetId,
+      (kinds.get(type.kindFacetId) || 0) + 1);
     const ns = type.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
   }
@@ -10867,9 +10987,13 @@ function renderLibraryCompositionOverview(
         row => platformLibraryMatchesDescriptor(row, descriptor))
     : null;
   const role = catalogRow?.kind === "facade" ? "Facade assembly" : null;
-  const kindChips = KIND_ORDER
-    .filter(kind => kinds.has(kind))
-    .map(kind => `<button class="type-chip" data-kind-jump="${kind}"><span class="ns-count">${kinds.get(kind)}</span>${kindPlural[kind]}</button>`)
+  const kindChips = pkg.typeKinds
+    .filter(kind => kinds.has(kind.id))
+    .map(kind => {
+      const count = kinds.get(kind.id) ?? 0;
+      const label = count === 1 ? kind.singularLabel : kind.pluralLabel;
+      return `<button class="type-chip" data-kind-jump="${escapeHtml(kind.id)}"><span class="ns-count">${count}</span>${escapeHtml(label)}</button>`;
+    })
     .join("")
     + (forwarders.length
       ? `<button class="type-chip" data-kind-jump="forwarded"><span class="ns-count">${forwarders.length}</span>Forwarded</button>`
@@ -10953,7 +11077,7 @@ function renderLibraryOverview() {
 
   const kindChips = [...inventory.typeKinds]
     .sort((left, right) => left.weight - right.weight)
-    .map(kind => `<button class="type-chip" data-kind-jump="${escapeHtml(kind.singularLabel)}"><span class="ns-count">${kind.count}</span>${escapeHtml(kind.count === 1 ? kind.singularLabel : kind.pluralLabel)}</button>`)
+    .map(kind => `<button class="type-chip" data-kind-jump="${escapeHtml(kind.id)}"><span class="ns-count">${kind.count}</span>${escapeHtml(kind.count === 1 ? kind.singularLabel : kind.pluralLabel)}</button>`)
     .join("");
   const namespaceChips = [...inventory.namespaces]
     .sort((left, right) =>
@@ -11752,6 +11876,7 @@ const packageViewActions: PackageViewBindingActions = {
     state.atPackageRoot = false;
     state.atLibraryRoot = false;
     state.kindFilter = kind;
+    state.typeTraitFilter = "";
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
@@ -11769,6 +11894,7 @@ const packageViewActions: PackageViewBindingActions = {
     if (kind) {
       state.atLibraryRoot = false;
       state.kindFilter = kind;
+      state.typeTraitFilter = "";
     }
     showContentDetailAfterRender();
     render();
@@ -11778,6 +11904,7 @@ const packageViewActions: PackageViewBindingActions = {
     state.atLibraryRoot = false;
     state.namespaceFilter = namespace;
     state.kindFilter = "";
+    state.typeTraitFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
@@ -11803,10 +11930,6 @@ interface NoticeRetryState {
 }
 
 const libraryControlActions: LibraryControlBindingActions = {
-  onAccessibilityChipSelect: accessibility => {
-    toggleAccessibilityChip(accessibility);
-    afterLibraryScopeChange();
-  },
   onLibraryApiRetry: () => {
     const pkg = state.package;
     const library = selectedLibrary();
@@ -11938,6 +12061,7 @@ async function openPlatformLensLibrary(
   state.namespaceFilter = "";
   state.typeFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   normalizeLibrarySelection();
   if (lens === "analysis") {
     if (state.analysisMode === "performance") await loadPackagePerformance();
@@ -12002,8 +12126,12 @@ function bindTypePanelEvents() {
       state.typeFilter = "";
       state.namespaceFilter = "";
       state.kindFilter = "";
+      state.typeTraitFilter = "";
       state.typeLeverageFilter = "";
-      state.accessibilityFilter = defaultAccessibilityFilter(state.package);
+      setTypeAccessibilityFilter(
+        defaultAccessibilityFilter(state.package),
+        "exact",
+      );
       renderPreservingMemberFocus();
     },
     onCopyAnchor: anchor => {
@@ -12109,6 +12237,19 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
+      renderPreservingMemberFocus();
+      loadCurrentSelectionData("Loading the selected Type");
+    },
+    onTypeAccessibilitySelect: accessibility => {
+      selectTypeAccessibility(accessibility);
+      reconcileTypeNamespaceFilter(accessibility);
+      normalizeLibrarySelection();
+      renderPreservingMemberFocus();
+      loadCurrentSelectionData("Loading the selected Type");
+    },
+    onTypeTraitSelect: trait => {
+      state.typeTraitFilter = trait;
+      normalizeLibrarySelection();
       renderPreservingMemberFocus();
       loadCurrentSelectionData("Loading the selected Type");
     },
@@ -14038,6 +14179,7 @@ async function switchPlatformVersion(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   const firstLibrary = packageLibraries()[0];
   state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
   state.selectedTypeId = defaultVisibleTypeId(loaded);
@@ -14505,6 +14647,7 @@ async function openPlatformLibrary(
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.kindFilter = "";
+    state.typeTraitFilter = "";
     state.selectedTypeId = filteredTypeRows()[0]?.id ?? "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
@@ -14658,6 +14801,7 @@ async function pickSpotlightMember(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   resetMemberSectionState();
   state.typeCursor = filteredTypeRows().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
@@ -14708,6 +14852,7 @@ async function pickSpotlight(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   state.typeCursor = filteredTypeRows().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
@@ -15058,6 +15203,7 @@ function installManagedSpotlightType(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   state.typeCursor = filteredTypeRows().findIndex(
     candidate => candidate.id === state.selectedTypeId,
   );
@@ -15104,6 +15250,7 @@ function executeCommand(
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.typeTraitFilter = "";
   } else if (verb === "find" || verb === "types") {
     state.typeFilter = argument.replace(/^public\s*/, "");
   } else if (verb === "share") {
@@ -15726,6 +15873,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   state.memberSource = { status: "idle" };
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
@@ -15761,7 +15909,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   // aligned, while preserving the package-backed aggregate Library scope.
   const selected = pkg.types.find(item => item.id === state.selectedTypeId);
   if (selected) {
-    reconcileAccessibilityFilter(selected);
+    selectTypeAccessibility(selected.accessibilityId);
     if (!state.atPackageRoot
       && !state.atLibraryRoot
       && (state.rootKind === "platform" || state.libraryScope !== null)) {
@@ -20368,6 +20516,7 @@ function switchToPackageForDependencies(packageKey: string) {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   const firstLibrary = packageLibraries()[0];
   state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
   state.selectedTypeId = defaultVisibleTypeId(target);
@@ -21863,9 +22012,7 @@ function navigateToRuntimeMember(
   activatePackage(pack);
   const targetLibrary = libraryKey(type);
   state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
-  state.accessibilityFilter = accessibilityFilterIncludingType(
-    state.accessibilityFilter,
-    type);
+  includeTypeAccessibility(type);
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.lens = "api";
@@ -21878,6 +22025,7 @@ function navigateToRuntimeMember(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
@@ -22238,6 +22386,7 @@ async function openUploadedLibraryFile(
     state.libraryLens = "overview";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.typeTraitFilter = "";
     state.typeFilter = "";
     state.selectedTypeId = "";
     state.selectedMemberKey = "";
@@ -22391,9 +22540,8 @@ function navigateToMember(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  state.accessibilityFilter = accessibilityFilterIncludingType(
-    state.accessibilityFilter,
-    type);
+  state.typeTraitFilter = "";
+  includeTypeAccessibility(type);
   enterTypeSubject(type, { preserveAggregate });
   resetMemberFilters();
   state.selectedMemberKey = group.key;
@@ -22553,8 +22701,12 @@ async function loadPackage(
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.typeTraitFilter = "";
     state.libraryScope = null;
-    state.accessibilityFilter = defaultAccessibilityFilter(packageModel);
+    setTypeAccessibilityFilter(
+      defaultAccessibilityFilter(packageModel),
+      "exact",
+    );
     const deep = options.location;
     if (deep) {
       const libraryFailure = applyLoadedPackageLibraryScope(
@@ -22805,10 +22957,14 @@ async function loadRuntimePack(
   isCurrent: () => boolean = () => true,
   platformVersion = "",
 ): Promise<RuntimeLoadResult> {
+  const accessibilitySelection = captureTypeAccessibilitySelection();
   const result = await packageAcquisition.loadRuntimePack(
     framework,
     isCurrent,
     platformVersion);
+  restoreTypeAccessibilitySelection(
+    accessibilitySelection,
+    result.packageModel);
   return {
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
@@ -22823,6 +22979,7 @@ async function loadRuntimePackAssembly(
   platformVersion = "",
   assetFileName = assemblyFileName,
 ): Promise<RuntimeLoadResult> {
+  const accessibilitySelection = captureTypeAccessibilitySelection();
   const result = await packageAcquisition.loadRuntimePackAssembly(
     framework,
     assemblyFileName,
@@ -22830,6 +22987,9 @@ async function loadRuntimePackAssembly(
     isCurrent,
     platformVersion,
     assetFileName);
+  restoreTypeAccessibilitySelection(
+    accessibilitySelection,
+    result.packageModel);
   return {
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
@@ -23012,6 +23172,7 @@ function applyProductHomeDemoSelection(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeTraitFilter = "";
   state.libraryScope = new Set([libraryKey(type)]);
   revealTypeInFilters(type);
   state.selectedTypeId = type.id;

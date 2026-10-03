@@ -46,6 +46,8 @@ internal static partial class BrowserCatalogWireProjection
             Project(surface.CompileLibrary),
             [.. surface.Assemblies.Select(Project)],
             [.. surface.Types.Select(Project)],
+            [.. surface.TypeKinds.Select(Project)],
+            [.. surface.TypeTraits.Select(Project)],
             [.. surface.Accessibility.Select(Project)],
             surface.TotalMembers,
             Project(surface.Documents),
@@ -74,6 +76,16 @@ internal static partial class BrowserCatalogWireProjection
             accessibility.IsDefault,
             accessibility.Count);
 
+    internal static BrowserApiFacetDescriptor Project(
+        BrowserApiFacetInfo facet) =>
+        new(
+            facet.Id,
+            facet.SingularLabel,
+            facet.PluralLabel,
+            facet.Weight,
+            facet.Count,
+            facet.IsDefault);
+
     internal static BrowserTypeSurface Project(BrowserTypeSurfaceInfo type) =>
         new(
             type.Id,
@@ -84,6 +96,8 @@ internal static partial class BrowserCatalogWireProjection
             type.DisplayName,
             type.Namespace,
             type.Kind,
+            type.KindFacetId,
+            type.TraitFacetIds,
             type.Accessibility,
             type.AccessibilityId,
             type.Assembly,
