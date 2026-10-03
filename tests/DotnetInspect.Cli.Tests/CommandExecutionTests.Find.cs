@@ -337,6 +337,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Search pattern required.", error);
+        Assert.Contains("Tips:", error);
         Assert.Contains(
             "package query 'Newtonsoft.*'",
             error);

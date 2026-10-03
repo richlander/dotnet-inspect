@@ -8,7 +8,7 @@ public class TipsView
     [MarkoutIgnore]
     public List<TipRow> Commands { get; set; } = [];
 
-    [MarkoutPropertyName("Tips")]
+    [MarkoutSection(Headless = true)]
     [MarkoutIgnoreInTable]
     public List<string> FormattedCommands
     {
