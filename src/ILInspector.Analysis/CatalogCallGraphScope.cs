@@ -1870,20 +1870,31 @@ public sealed class CatalogCallGraphScope : IDisposable
 
         static IOrderedEnumerable<int> OrderReverseEdges(
             IEnumerable<int> edgeIndexes,
-            ImmutableArray<StoredEdge> edges) =>
-            CallTreeOrdering.OrderCallers(
-                    edgeIndexes,
+            ImmutableArray<StoredEdge> edges,
+            IReadOnlyDictionary<GraphNodeIdentity, int> callerOrder) =>
+            edgeIndexes
+                .OrderBy(
                     index => edges[index].Caller.Participant
                         .Assembly.Identity.Name,
+                    StringComparer.Ordinal)
+                .ThenBy(
                     index => edges[index].Caller.Member
                         .ToQualifiedDisplayString(),
+                    StringComparer.Ordinal)
+                .ThenBy(
                     index => edges[index].Caller.Member
-                        .ParameterTypes.Length,
+                        .ParameterTypes.Length)
+                .ThenBy(
                     index => edges[index].Caller.Evidence.Storage
-                        .ModuleVersionId,
+                        .ModuleVersionId)
+                .ThenBy(
                     index => edges[index].Caller.Evidence.Storage
-                        .MethodToken,
-                    index => edges[index].Callee.Evidence.Storage
+                        .MethodToken)
+                .ThenBy(
+                    index => callerOrder[
+                        edges[index].Caller.Evidence.Identity])
+                .ThenBy(
+                    index => edges[index].Caller.Evidence.Storage
                         .ILOffset);
 
         sealed class StoredReverseEdgeIndex
@@ -1904,9 +1915,14 @@ public sealed class CatalogCallGraphScope : IDisposable
             {
                 var reverse =
                     new Dictionary<GraphNodeIdentity, List<int>>();
+                var callerOrder =
+                    new Dictionary<GraphNodeIdentity, int>();
                 for (int index = 0; index < edges.Length; index++)
                 {
                     StoredEdge edge = edges[index];
+                    callerOrder.TryAdd(
+                        edge.Caller.Evidence.Identity,
+                        callerOrder.Count);
                     Add(
                         reverse,
                         edge.Callee.Evidence.Identity,
@@ -1917,7 +1933,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                     StoredEdge[] reverseEdges,
                     Dictionary<GraphNodeIdentity, EdgeRange>
                         reverseRanges) =
-                    Freeze(edges, reverse);
+                    Freeze(edges, reverse, callerOrder);
                 return new(reverseEdges, reverseRanges);
             }
 
@@ -1959,7 +1975,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 Dictionary<GraphNodeIdentity, EdgeRange> Ranges)
                 Freeze(
                     ImmutableArray<StoredEdge> edges,
-                    Dictionary<GraphNodeIdentity, List<int>> index)
+                    Dictionary<GraphNodeIdentity, List<int>> index,
+                    IReadOnlyDictionary<GraphNodeIdentity, int> callerOrder)
             {
                 var indexedEdges = new StoredEdge[edges.Length];
                 var ranges =
@@ -1972,15 +1989,21 @@ public sealed class CatalogCallGraphScope : IDisposable
                 {
                     int edgeStart = start;
                     int groupCount = 0;
-                    foreach (IGrouping<GraphNodeIdentity, int> callerGroup
-                        in OrderReverseEdges(group, edges)
-                            .GroupBy(index =>
-                                edges[index].Caller.Evidence.Identity))
+                    GraphNodeIdentity? previousGroup = null;
+                    foreach (int edgeIndex
+                        in OrderReverseEdges(
+                            group,
+                            edges,
+                            callerOrder))
                     {
-                        groupCount++;
-                        foreach (int edgeIndex in callerGroup)
+                        StoredEdge edge = edges[edgeIndex];
+                        indexedEdges[start++] = edge;
+                        GraphNodeIdentity secondary =
+                            edge.Caller.Evidence.Identity;
+                        if (!secondary.Equals(previousGroup))
                         {
-                            indexedEdges[start++] = edges[edgeIndex];
+                            previousGroup = secondary;
+                            groupCount++;
                         }
                     }
                     ranges.Add(
