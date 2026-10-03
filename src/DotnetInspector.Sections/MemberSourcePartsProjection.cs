@@ -6,6 +6,7 @@ namespace DotnetInspector.Sections;
 
 public enum MemberSourcePartKind
 {
+    Declaration,
     Member,
     XmlDocs,
     Attributes,
@@ -21,7 +22,10 @@ public static class MemberSourcePartsProjection
 {
     public static IReadOnlyList<MemberSourcePart> CreateCatalog(MemberTextParts parts)
     {
-        List<MemberSourcePart> result = [new(MemberSourcePartKind.Member, [parts.Member])];
+        List<MemberSourcePart> result = [];
+        if (parts.Declaration != parts.Member)
+            result.Add(new(MemberSourcePartKind.Declaration, [parts.Declaration]));
+        result.Add(new(MemberSourcePartKind.Member, [parts.Member]));
         if (!parts.XmlDocumentation.IsEmpty)
             result.Add(new(MemberSourcePartKind.XmlDocs, parts.XmlDocumentation));
         if (!parts.Attributes.IsEmpty)
@@ -54,6 +58,7 @@ public static class MemberSourcePartsProjection
 
     public static string Name(MemberSourcePartKind kind) => kind switch
     {
+        MemberSourcePartKind.Declaration => "declaration",
         MemberSourcePartKind.Member => "member",
         MemberSourcePartKind.XmlDocs => "xml-docs",
         MemberSourcePartKind.Attributes => "attributes",
