@@ -12,8 +12,8 @@ public class OverviewCostCollection;
 
 /// <summary>
 /// The overview cost gate (docs/design/progressive-disclosure.md#overview-cost):
-/// a library overview reads metadata only, so it reads no method body and opens
-/// no body session. The fixture calls <c>AppContext.TryGetSwitch</c>, so an
+/// a library or type overview reads metadata only, so it reads no method body
+/// and opens no body session. The fixture calls <c>AppContext.TryGetSwitch</c>, so an
 /// overview that inventories call sites fails here.
 /// </summary>
 [Collection("OverviewCost")]
@@ -28,6 +28,23 @@ public class OverviewCostTests
     public async Task LibraryOverview_ReadsNoMethodBody(params string[] gesture)
     {
         var (exit, error) = await RunCountingAsync(["library", Fixture, .. gesture]);
+
+        Assert.True(exit == 0, error);
+        Assert.Equal(0, MethodBodySource.ReadCountForTests);
+        Assert.Equal(0, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    public static TheoryData<string[]> TypeOverviews => new()
+    {
+        new[] { "type", typeof(AppContextSwitchFixture).FullName!, "--library", Fixture },
+        new[] { "type", "System.Text.StringBuilder", "--platform", "System.Runtime" },
+    };
+
+    [Theory]
+    [MemberData(nameof(TypeOverviews))]
+    public async Task TypeOverview_ReadsNoMethodBody(string[] gesture)
+    {
+        var (exit, error) = await RunCountingAsync(gesture);
 
         Assert.True(exit == 0, error);
         Assert.Equal(0, MethodBodySource.ReadCountForTests);
