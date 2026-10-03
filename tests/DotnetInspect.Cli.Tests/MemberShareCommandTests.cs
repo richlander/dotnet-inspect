@@ -19,9 +19,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net6.0",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -57,8 +55,6 @@ public partial class CommandExecutionTests
             "net9.0",
             "--share",
             "packet",
-            "--tips",
-            "q",
         ];
 
         var normal = await RunAppAsync(common);
@@ -102,7 +98,6 @@ public partial class CommandExecutionTests
         };
         if (format is not null)
             arguments.Add(format);
-        arguments.AddRange(["--tips", "q"]);
 
         var result = await RunAppAsync([.. arguments]);
 
@@ -130,9 +125,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net6.0",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
         var second = await RunAppAsync(
             "member",
             "JsonConvert",
@@ -142,9 +135,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net6.0",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(0, first.Exit);
         Assert.Equal(0, second.Exit);
@@ -169,9 +160,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -234,9 +223,7 @@ public partial class CommandExecutionTests
                 "--tfm",
                 "net8.0",
                 "--share",
-                "packet",
-                "--tips",
-                "q");
+                "packet");
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
@@ -279,9 +266,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "netcoreapp3.0",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -300,9 +285,7 @@ public partial class CommandExecutionTests
             "Missing.Package",
             "Missing",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -324,9 +307,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "Equals:1",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -349,9 +330,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "Equals:1",
                 "--share",
-                "packet",
-                "--tips",
-                "q");
+                "packet");
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -383,8 +362,6 @@ public partial class CommandExecutionTests
                 "Missing:1",
                 "--share",
                 "packet",
-                "--tips",
-                "q",
                 .. conflicting,
             ]);
 
@@ -410,9 +387,7 @@ public partial class CommandExecutionTests
             "--share",
             "--tail",
             "-n",
-            "0",
-            "--tips",
-            "q");
+            "0");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);

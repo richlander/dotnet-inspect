@@ -591,8 +591,8 @@ public static class PackageOptionsParser
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
-        var tipLevel = opts.ParseTipLevel(parseResult);
-        options = options with { TipLevel = tipLevel };
+        var companionOutput = opts.ParseCompanionOutput(parseResult);
+        options = options with { CompanionOutput = companionOutput };
 
         return new Success(options, verbosity);
     }
