@@ -146,6 +146,115 @@ public sealed class ExtensionAttachmentNameBoundaryTests
                 && member.Name == "AsMemory");
     }
 
+    [Fact]
+    public void DeclarationSurface_KeepsExtensionsOnTheirPhysicalDeclaringTypes()
+    {
+        using var stream = File.OpenRead(typeof(string).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.ExtractDeclarations(peReader);
+
+        ApiType memoryExtensions = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "System"
+                && type.Name == "MemoryExtensions");
+        Assert.Contains(
+            memoryExtensions.Members,
+            member => member.Kind == "method"
+                && member.Name == "AsMemory"
+                && member.IsExtension);
+    }
+
+    [Fact]
+    public void DeclarationSurface_DoesNotAttachExtensionsToLocalReceivers()
+    {
+        using var peReader = new PEReader(ImmutableArray.Create(BuildImage()));
+
+        ApiSurface surface = ApiSurfaceExtractor.ExtractDeclarations(
+            peReader,
+            includeAll: true);
+
+        ApiType widget = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "Ns`1" && type.Name == "Widget");
+        Assert.DoesNotContain(
+            widget.Members,
+            member => member.Kind == "extension-method");
+        Assert.Contains(
+            surface.Types.SelectMany(type => type.Members),
+            member => member.Kind == "method"
+                && member.Name == "Extend"
+                && member.IsExtension);
+    }
+
+    [Fact]
+    public void BoundedDeclarationSurface_DoesNotChargeContextualRows()
+    {
+        byte[] image = BuildImage();
+        using var declarationsReader =
+            new PEReader(ImmutableArray.Create(image));
+        ApiSurface declarations =
+            ApiSurfaceExtractor.ExtractDeclarations(
+                declarationsReader,
+                includeAll: true);
+        int declarationMemberCount =
+            declarations.Types.Sum(type => type.Members.Count);
+        var bounds = new ApiSurfaceExtractionBounds(
+            declarations.Types.Count,
+            declarationMemberCount,
+            declarations.InspectionFailures.Count,
+            declarations.TypeForwarders.Count,
+            int.MaxValue,
+            int.MaxValue);
+
+        using var boundedDeclarationsReader =
+            new PEReader(ImmutableArray.Create(image));
+        var extracted = Assert.IsType<
+            ApiSurfaceExtractionResult.Extracted>(
+                ApiSurfaceExtractor.ExtractDeclarationsBounded(
+                    boundedDeclarationsReader,
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    bounds));
+        Assert.Equal(
+            declarationMemberCount,
+            extracted.Surface.Types.Sum(type => type.Members.Count));
+
+        using var compatibilityReader =
+            new PEReader(ImmutableArray.Create(image));
+        var exceeded = Assert.IsType<
+            ApiSurfaceExtractionResult.Exceeded>(
+                ApiSurfaceExtractor.ExtractBounded(
+                    compatibilityReader,
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    bounds));
+        Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
+    }
+
+    [Fact]
+    public void ExtractUntil_ReturnsDeclarationMembersOnly()
+    {
+        using var peReader = new PEReader(ImmutableArray.Create(BuildImage()));
+
+        ApiSurface surface = ApiSurfaceExtractor.ExtractUntil(
+            peReader,
+            includeAll: true,
+            typesOnly: false,
+            type => type.Name == "Extensions.WithDot");
+
+        ApiType widget = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "Ns`1" && type.Name == "Widget");
+        Assert.DoesNotContain(
+            widget.Members,
+            member => member.Kind == "extension-method");
+        Assert.Contains(
+            surface.Types.SelectMany(type => type.Members),
+            member => member.Kind == "method"
+                && member.Name == "Extend"
+                && member.IsExtension);
+    }
+
     public static TheoryData<PrimitiveTypeCode, string> LocalPrimitiveDefinitions =>
         new()
         {

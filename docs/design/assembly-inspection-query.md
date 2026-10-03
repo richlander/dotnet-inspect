@@ -813,6 +813,35 @@ through this path. The CLI still owns endpoint-range parsing, compatibility filt
 ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
 extraction directories.
 
+**Declaration and contextual Member populations.** Assembly Inspection can
+publish a completed declaration-only `ApiSurface` through
+`ApiSurfaceExtractor.ExtractDeclarations`, its bounded peer, and the
+`AssemblyInspectionSession` declaration peers. Each `ApiType.Members`
+population contains only records physically owned by that Type. A physical
+extension declaration remains on its declaring Type with its metadata identity
+and extension facts; the declaration surface never appends an
+`extension-method` row to a receiver Type. Extraction completes the surface
+before publication, and no later session call augments it. Declaration and
+compatibility modes share one image walk; neither mode builds the other surface
+and filters it afterward.
+
+`ExtractUntil` is always declaration-only. A prefix walk cannot soundly project
+an extension declared after its stopping point, and its initial production
+consumer is the natural-order Type inventory used by finite Find terminals.
+The existing full, bounded, resolved, and compact-summary compatibility entry
+points continue to add same-image extension projections before publication
+while their consumers migrate under #9183. They do not discover cross-assembly
+extensions. #9192 introduces the declaration lane without claiming compile-time
+immutability for the compatibility DTO graph; retiring the compatibility
+projection remains part of #9183.
+
+`DeclarationSurface_KeepsExtensionsOnTheirPhysicalDeclaringTypes`,
+`DeclarationSurface_DoesNotAttachExtensionsToLocalReceivers`,
+`BoundedDeclarationSurface_DoesNotChargeContextualRows`, and
+`ExtractUntil_ReturnsDeclarationMembersOnly` gate the population boundary and
+bounded behavior. Existing extension-attachment tests gate compatibility entry
+points until their retirement.
+
 **Cross-assembly constraint bridge.** Type/member extraction, assembly-set diff endpoints,
 wide platform type browse, and direct Research API comparison use the Metadata-owned
 type-resolution catalog when API extraction encounters a named generic
