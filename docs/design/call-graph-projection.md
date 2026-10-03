@@ -502,6 +502,21 @@ group-owned release, including disposal of the catalog scope.
 single-policy-evaluation, shared-storage, duplicate-artifact, and
 incomplete-evidence contracts.
 
+The shared physical graph retains one canonical edge population. Directional
+caller and callee traversal uses ordered ranges over that population rather
+than independently owned edge payloads. A reverse range may retain derived
+cardinality such as distinct incoming callers when that value is defined by
+the same physical edge population. The representation may change construction
+and lookup cost, but never edge identity, physical occurrence order, graph
+diagnostics, traversal bounds, or generation lifetime.
+
+`CatalogCallGraphScorecard` is the performance host for representation changes.
+It measures graph construction, caller batches, callee batches, and complete
+census projection over pinned real assemblies. A replacement representation
+must preserve the exact scorecard fingerprint and show no credible NativeAOT
+regression in any measured operation before the next product graph adopts the
+same shape.
+
 `DotnetInspector.ResearchQueries.AnnotatedMemberDocumentQuery` is the first
 non-rendering consumer of this progressive seam. It accepts an already-acquired
 view and an already-open `MetadataSource`, projects the graph once, and returns
