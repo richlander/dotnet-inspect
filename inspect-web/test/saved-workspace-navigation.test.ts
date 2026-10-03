@@ -155,7 +155,8 @@ const hostNames = new Set([
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
   "invalidateWorkspaceMembershipViews", "invalidateGraphMemberNavigation",
   "clearWorkspaceOccurrenceView", "clearWorkspacePackages",
-  "activatePackage", "defaultAccessibilityFilter", "resetMemberFilters",
+  "activatePackage", "defaultAccessibilityFilter",
+  "setTypeAccessibilityFilter", "resetMemberFilters",
 ]);
 const hostFunctions = app.program.body.filter(
   node => node.type === "FunctionDeclaration" && hostNames.has(node.id?.name ?? ""));
