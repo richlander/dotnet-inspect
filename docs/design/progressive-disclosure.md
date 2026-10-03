@@ -168,10 +168,10 @@ when the full fact is useful. The Library Info Switches row narrowed this way
 
 The enforcing gate is `OverviewCostTests`. It runs `library` at `-v:m`,
 `-v:q`, and `-S "Library Info"` over a fixture that calls
-`AppContext.TryGetSwitch`, and asserts that no method body is read and no body
+`AppContext.TryGetSwitch`, and `type` at `-v:m` for a type in that fixture and
+for a platform type. It asserts that no method body is read and no body
 session opens. Per-row signature and attribute-text materialization is not
-gated and is unverified. Type overviews adopt the rule in their own slice and
-are unverified until then.
+gated and is unverified.
 
 ## Categories
 
