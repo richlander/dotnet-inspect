@@ -213,40 +213,6 @@ public sealed class LibraryBodyIndex
             member,
             out operation);
 
-    static bool IsLinqMaterializer(
-        MemberRef member,
-        out string operation)
-        => RepeatedScanAnalysis.IsLinqMaterializer(
-            member,
-            out operation);
-
-    // System.String.Concat — the lowering of the `+` / `+=` string operators (and of simple
-    // interpolations like `$"{a}-{b}"`). Each call allocates a fresh string. Inside a loop,
-    // when the result is stored back into one of its own inputs, it is the StringBuilder
-    // anti-pattern: `s += …` repeatedly copies the growing accumulator (O(n^2)).
-    public static bool IsStringConcat(MemberRef member)
-        => RepeatedScanAnalysis.IsStringConcat(member);
-
-    // A GetEnumerator call that returns a reference-type enumerator — i.e. iterating the
-    // sequence allocates an enumerator object on the heap. `foreach` over a concrete type with a
-    // struct enumerator (List<T>.Enumerator, …) returns it by value and allocates nothing; only
-    // a foreach over an interface (IEnumerable/IEnumerable<T>) binds to GetEnumerator returning
-    // the framework IEnumerator/IEnumerator<T> interface, whose implementation is a heap object.
-    // The return type is matched by trusted-framework identity (#1708), not namespace+name, so a
-    // user type that merely reuses the IEnumerator namespace and name is not mistaken for it.
-    public static bool IsInterfaceEnumeratorAllocation(MemberRef member)
-        => RepeatedScanAnalysis.IsInterfaceEnumeratorAllocation(member);
-
-    // A lazy/deferred Enumerable operator (Where/Select/…): it returns an iterator without
-    // enumerating at the call site. A helper that returns such a query is itself a deferred
-    // linear scan — the scan runs when the caller enumerates the result.
-    static bool IsLinqLazyProducer(
-        MemberRef member,
-        out string operation)
-        => RepeatedScanAnalysis.IsLinqLazyProducer(
-            member,
-            out operation);
-
     readonly LibraryImplementationProfileAnalysisResult
         _implementationProfileAnalysis;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;

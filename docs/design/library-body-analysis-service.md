@@ -999,6 +999,24 @@ remain the semantic gates, and the Release solution build is the full absence
 gate for the deleted property. No product terminal or performance claim
 changes.
 
+### Optimization-classifier forwarder retirement for #8568
+
+`RepeatedScanAnalysis` owns LINQ, string-concatenation, and interface-enumerator
+classification. Allocation and optimization producers call that owner
+directly; no production or test consumer calls the duplicate
+`LibraryBodyIndex.IsStringConcat` or
+`LibraryBodyIndex.IsInterfaceEnumeratorAllocation` forwarders. The index also
+no longer carries unused private LINQ materializer and lazy-producer
+forwarders.
+
+This slice deletes only dead compatibility methods. It does not change
+classifier behavior, allocation occurrences, optimization opportunities,
+output, or work. Existing Release allocation and optimization tests preserve
+the semantic behavior, and the Release solution build is the full absence gate
+for the deleted public methods. The directly tested
+`LibraryBodyIndex.IsLinqMembershipScan` compatibility method remains for a
+later test-ownership slice. No product terminal or performance claim changes.
+
 ### Production adoption for #8450
 
 The counted implementation path is:
