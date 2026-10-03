@@ -350,7 +350,10 @@ public class DotnetToolSettingsParserTests
                 </DotNetCliTool>
                 """));
 
-        Assert.True(settings.IsEntryPoint("tools/net11.0/any/Test.Tool.dll"));
-        Assert.False(settings.IsEntryPoint("tools/net11.0/any/Other.dll"));
+        IReadOnlySet<string> entryPoints =
+            settings.CreateEntryPointFileNames();
+        Assert.Contains("Test.Tool.dll", entryPoints);
+        Assert.Contains("test.tool.dll", entryPoints);
+        Assert.DoesNotContain("Other.dll", entryPoints);
     }
 }

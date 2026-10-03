@@ -309,15 +309,17 @@ public partial class PackageCommand
                             + "Libraries."));
             }
 
-            DotnetToolSettingsData? toolSettings =
-                ToolSettings(extractPath);
+            IReadOnlySet<string>? entryPointFileNames =
+                ToolSettings(extractPath)?
+                    .CreateEntryPointFileNames();
             candidates =
             [
                 .. toolSelection.SelectedEntries
                     .Select(assetPath =>
                     {
                         bool entryPoint =
-                            toolSettings?.IsEntryPoint(assetPath) == true;
+                            entryPointFileNames?.Contains(
+                                Path.GetFileName(assetPath)) == true;
                         return new PackageChildCandidate(
                             assetPath,
                             assetPath,

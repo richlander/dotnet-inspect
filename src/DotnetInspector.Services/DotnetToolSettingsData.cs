@@ -22,16 +22,19 @@ public sealed record DotnetToolSettingsData(
 {
     public IReadOnlyList<DotnetToolCommand>? CommandEntries { get; init; }
 
-    public bool IsEntryPoint(string assetPath)
+    public IReadOnlySet<string> CreateEntryPointFileNames()
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(assetPath);
-        string assetFileName = FileName(assetPath);
-        return CommandEntries?.Any(command =>
-            command.EntryPoint is { } entryPoint
-            && string.Equals(
-                FileName(entryPoint),
-                assetFileName,
-                StringComparison.OrdinalIgnoreCase)) == true;
+        var entryPoints = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        if (CommandEntries is null)
+            return entryPoints;
+
+        foreach (DotnetToolCommand command in CommandEntries)
+        {
+            if (!string.IsNullOrWhiteSpace(command.EntryPoint))
+                entryPoints.Add(FileName(command.EntryPoint));
+        }
+        return entryPoints;
     }
 
     private static string FileName(string path) =>

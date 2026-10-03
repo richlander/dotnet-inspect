@@ -367,6 +367,8 @@ public static partial class PackageExports
             DotnetToolSettingsData settings,
             CancellationToken cancellationToken)
     {
+        IReadOnlySet<string> entryPointFileNames =
+            settings.CreateEntryPointFileNames();
         PackageLibraryInspectionCandidate[] candidates =
         [
             .. measurements.SelectedEntries
@@ -377,7 +379,8 @@ public static partial class PackageExports
                         path,
                         Path.GetFileNameWithoutExtension(path),
                         measurements.SelectedTargetFramework,
-                        settings.IsEntryPoint(path)
+                        entryPointFileNames.Contains(
+                            Path.GetFileName(path))
                             ? PackageLibraryChildRole.ToolEntryPoint
                             : PackageLibraryChildRole.ToolLibrary);
                 })
