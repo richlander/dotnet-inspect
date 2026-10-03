@@ -968,6 +968,7 @@ public partial class PackageCommand
             ProjectionRow = options.PrintRow,
             Rows = options.CloneCandidateRowSelection is null
                 && options.NameFamilyRowSelection is null
+                && options.DependencyStructureRowSelection is null
                 ? options.Rows
                 : null,
             CloneCandidateRowSelection =
@@ -980,6 +981,8 @@ public partial class PackageCommand
                 options.NameFamilyPopulation,
             NameFamilyRowSelection =
                 options.NameFamilyRowSelection,
+            DependencyStructureRowSelection =
+                options.DependencyStructureRowSelection,
             IntegrationQuery = options.IntegrationQuery,
             MetadataRoot = options.MetadataRoot,
             PerformanceTriage = options.PerformanceTriage,
