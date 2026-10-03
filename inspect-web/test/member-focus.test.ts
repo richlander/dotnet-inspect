@@ -216,9 +216,10 @@ test("a focused Type row survives an asynchronous replacement render", () => {
 
 test("focused Type filter controls survive replacement renders", () => {
   for (const [key, value] of [
-    ["kindFilter", "class"],
+    ["typeKindFilter", "api.type-kind.class"],
+    ["typeAccessFilter", "public"],
+    ["typeTraitFilter", "api.type-trait.object"],
     ["namespace", "System.Text.Json"],
-    ["accessChip", "public"],
     ["libraryChip", "System.Text.Json"],
   ] as const) {
     const { document, element } = createDocument();

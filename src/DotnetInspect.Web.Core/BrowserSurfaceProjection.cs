@@ -20,6 +20,15 @@ internal static class BrowserSurfaceProjection
     internal static BrowserAccessibilityInfo Descriptor(ApiAccessibilityBucket bucket) =>
         new(bucket.Id, bucket.Label, bucket.Order, bucket.IsDefault, bucket.Count);
 
+    internal static BrowserApiFacetInfo Descriptor(ApiFacetDescriptor facet) =>
+        new(
+            facet.Id,
+            facet.SingularLabel,
+            facet.PluralLabel,
+            facet.Weight,
+            facet.Count,
+            facet.IsDefault);
+
     internal sealed record Participant(
         AssemblyAcquisitionRegistration Registration,
         string Assembly,
@@ -39,6 +48,8 @@ internal static class BrowserSurfaceProjection
     internal sealed record Surface(
         BrowserAssemblySurfaceInfo[] Assemblies,
         BrowserTypeSurfaceInfo[] Types,
+        BrowserApiFacetInfo[] TypeKinds,
+        BrowserApiFacetInfo[] TypeTraits,
         BrowserAccessibilityInfo[] Accessibility,
         int TotalMembers,
         string[] InspectionErrors,
@@ -62,6 +73,7 @@ internal static class BrowserSurfaceProjection
 
         var assemblies = new List<BrowserAssemblySurfaceInfo>();
         var types = new List<BrowserTypeSurfaceInfo>();
+        var admittedTypes = new List<ApiType>();
         HashSet<TypeCollisionKey> duplicateTypeKeys =
         [
             .. surfaces.Assemblies.Assemblies
@@ -128,6 +140,7 @@ internal static class BrowserSurfaceProjection
                 break;
             }
 
+            admittedTypes.AddRange(available.Value.Surface.Types);
             BrowserTypeSurfaceInfo[] publicTypes =
             [
                 .. assemblyTypes.Where(type =>
@@ -167,9 +180,13 @@ internal static class BrowserSurfaceProjection
                 .OrderBy(type => type.Namespace, StringComparer.Ordinal)
                 .ThenBy(type => type.Name, StringComparer.Ordinal),
         ];
+        ApiTypeInventoryResult inventory = ApiInventoryQuery.Types(
+            new ApiSurface { Types = admittedTypes });
         return new Surface(
             [.. assemblies],
             identified,
+            [.. inventory.KindFacets.Select(Descriptor)],
+            [.. inventory.TraitFacets.Select(Descriptor)],
             [.. surfaces.Accessibility.Select(Descriptor)],
             identified
                 .Where(type => IsDefaultBucket(surfaces, type))
@@ -236,6 +253,11 @@ internal static class BrowserSurfaceProjection
                 .OrderBy(type => type.Namespace, StringComparer.Ordinal)
                 .ThenBy(type => type.Name, StringComparer.Ordinal),
         ];
+        ApiTypeInventoryResult inventory = ApiInventoryQuery.Types(
+            new ApiSurface
+            {
+                Types = truncation is null ? surface.Types : [],
+            });
         BrowserTypeSurfaceInfo[] publicTypes =
         [
             .. identified.Where(type => IsDefaultBucket(accessibility, type)),
@@ -264,6 +286,8 @@ internal static class BrowserSurfaceProjection
                 ]
                 : [],
             identified,
+            [.. inventory.KindFacets.Select(Descriptor)],
+            [.. inventory.TraitFacets.Select(Descriptor)],
             [.. accessibility.Select(Descriptor)],
             publicTypes.Sum(type => type.Members),
             noticeEntries,
@@ -317,6 +341,8 @@ internal static class BrowserSurfaceProjection
             displayName,
             type.Namespace ?? "",
             string.Join(' ', modifiers.Skip(1).SkipLast(1)),
+            ApiInventoryQuery.TypeKindFacetId(type),
+            [.. ApiInventoryQuery.TypeTraitFacetIds(type)],
             accessibility,
             bucket.Id,
             assembly,

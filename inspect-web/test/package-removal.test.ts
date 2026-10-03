@@ -167,7 +167,8 @@ const app = parseSync("dotnet-inspect.ts", appSource);
 const hostNames = new Set([
   "activateAfterPackageRemoval", "finishPackageRemoval", "activatePackage",
   "invalidateWorkspaceMembershipViews",
-  "packageIdentityEquals", "defaultAccessibilityFilter", "scope",
+  "packageIdentityEquals", "defaultAccessibilityFilter",
+  "setTypeAccessibilityFilter", "scope",
 ]);
 const hostDeclarations = app.program.body
   .filter(node => node.type === "FunctionDeclaration" && hostNames.has(node.id?.name ?? ""))

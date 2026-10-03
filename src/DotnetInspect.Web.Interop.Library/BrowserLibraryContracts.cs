@@ -41,6 +41,8 @@ public sealed record BrowserLibraryAssemblyReference(
 public sealed record BrowserUploadedLibrarySurface(
     BrowserLibraryAssemblySurface[] Assemblies,
     BrowserLibraryTypeSurface[] Types,
+    BrowserLibraryApiFacetDescriptor[] TypeKinds,
+    BrowserLibraryApiFacetDescriptor[] TypeTraits,
     BrowserLibraryAccessibilityDescriptor[] Accessibility,
     int TotalMembers,
     string[] InspectionErrors,
@@ -101,6 +103,14 @@ public sealed record BrowserLibraryAccessibilityDescriptor(
     bool IsDefault,
     int Count);
 
+public sealed record BrowserLibraryApiFacetDescriptor(
+    string Id,
+    string SingularLabel,
+    string PluralLabel,
+    int Weight,
+    int Count,
+    bool IsDefault);
+
 public sealed record BrowserLibraryAssemblySurface(
     string Id,
     string Name,
@@ -121,6 +131,8 @@ public sealed record BrowserLibraryTypeSurface(
     string DisplayName,
     string Namespace,
     string Kind,
+    string KindFacetId,
+    string[] TraitFacetIds,
     string Accessibility,
     string AccessibilityId,
     string Assembly,

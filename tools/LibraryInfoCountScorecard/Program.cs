@@ -11,11 +11,12 @@ using ILInspector.Analysis.Classification;
 // cell times a strategy for answering all three questions over one asset.
 //
 // QuerySpace is the three production calls as Library Info runs them at this
-// head: the Async Count terminal, and rows built then counted for Extension
-// Methods and Union Types. A candidate that changes a production path adds a
-// "QuerySpace (Base)" column from the base binary. LINQ ×3, NLinq ×3 (the
-// oracle), and NLinq fused apply the identical gate and predicates through
-// product-owned tests; only the read machinery differs. No column decodes IL.
+// head: the Async and Extension Count terminals, and rows built then counted
+// for Union Types. QuerySpace (Base) is the path this candidate replaces,
+// compiled into the same binary: Extension Methods as rows built then counted
+// through ExtensionMethodsQuery. LINQ ×3, NLinq ×3 (the oracle), and NLinq
+// fused apply the identical gate and predicates through product-owned tests;
+// only the read machinery differs. No column decodes IL.
 if (!ScorecardCommandLine.TryParse(args, out ScorecardOptions? options, out string? error))
 {
     Console.Error.WriteLine(error);
@@ -27,7 +28,8 @@ ScorecardClosing[] closings = [ScorecardClosing.Count];
 ScorecardColumn<LibraryInfoAsset, LaneCount> oracle = LibraryInfoCounts.NLinqColumn();
 ScorecardColumn<LibraryInfoAsset, LaneCount>[] columns =
 [
-    new("QuerySpace", (closing, asset) => LibraryInfoCounts.Answer(closing, ProductionCounts(asset))),
+    new("QuerySpace (Base)", (closing, asset) => LibraryInfoCounts.Answer(closing, ProductionCounts(asset, extensionTerminal: false))),
+    new("QuerySpace", (closing, asset) => LibraryInfoCounts.Answer(closing, ProductionCounts(asset, extensionTerminal: true))),
     LibraryInfoCounts.LinqColumn(),
     oracle,
     LibraryInfoCounts.FusedColumn(),
@@ -69,24 +71,26 @@ finally
 }
 
 /// <summary>
-/// The production calls as Library Info makes them, one per row: Async is a
-/// QuerySpace Count terminal; Extension Methods and Union Types build their
-/// rows and count them.
+/// The production calls as Library Info makes them, one per row. Async is a
+/// QuerySpace Count terminal at base and head. Extension Methods is the Count
+/// terminal at the head and rows built then counted at the base. Union Types
+/// builds its rows and counts them at both.
 /// </summary>
-static LaneCounts ProductionCounts(LibraryInfoAsset asset)
+static LaneCounts ProductionCounts(LibraryInfoAsset asset, bool extensionTerminal)
 {
-    var question = new ClassificationQuestion(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
-    int async = MethodClassificationQuery.Execute(asset.Session, [question]).AnswerTo(question) switch
-    {
-        ClassificationAnswer.Count count => count.Value,
-        ClassificationAnswer answer => throw new InvalidOperationException($"The Async Count terminal did not answer: {answer}"),
-    };
-    int extension = ExtensionMethodsQuery.Execute(asset.Session) switch
-    {
-        ExtensionMethodsResult.Available available => available.Methods.Count(static member => member.Kind == "method"),
-        ExtensionMethodsResult.Failed failed => throw new InvalidOperationException("Extension Methods failed.", failed.Error),
-        var other => throw new InvalidOperationException($"Unknown extension result: {other}"),
-    };
+    var asyncQuestion = new ClassificationQuestion(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
+    var extensionQuestion = new ClassificationQuestion(MethodClassificationAnalyzer.Extension, ClassificationClosing.Count);
+    ClassificationQuestion[] questions = extensionTerminal ? [asyncQuestion, extensionQuestion] : [asyncQuestion];
+    MethodClassificationResult classification = MethodClassificationQuery.Execute(asset.Session, questions);
+    int async = CountOf(classification, asyncQuestion);
+    int extension = extensionTerminal
+        ? CountOf(classification, extensionQuestion)
+        : ExtensionMethodsQuery.Execute(asset.Session) switch
+        {
+            ExtensionMethodsResult.Available available => available.Methods.Count(static member => member.Kind == "method"),
+            ExtensionMethodsResult.Failed failed => throw new InvalidOperationException("Extension Methods failed.", failed.Error),
+            var other => throw new InvalidOperationException($"Unknown extension result: {other}"),
+        };
     int union = UnionTypesQuery.Execute(asset.Session) switch
     {
         UnionTypesResult.Available available => available.Unions.Length,
@@ -95,6 +99,13 @@ static LaneCounts ProductionCounts(LibraryInfoAsset asset)
     };
     return new(async, extension, union);
 }
+
+static int CountOf(MethodClassificationResult result, ClassificationQuestion question) =>
+    result.AnswerTo(question) switch
+    {
+        ClassificationAnswer.Count count => count.Value,
+        ClassificationAnswer answer => throw new InvalidOperationException($"The {question.Analyzer} Count terminal did not answer: {answer}"),
+    };
 
 /// <summary>
 /// Bytes allocated on the current thread by one answer per column and asset,

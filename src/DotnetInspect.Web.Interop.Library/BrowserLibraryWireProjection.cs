@@ -264,6 +264,8 @@ internal static class BrowserLibraryWireProjection
         new(
             [.. surface.Assemblies.Select(Project)],
             [.. surface.Types.Select(Project)],
+            [.. surface.TypeKinds.Select(Project)],
+            [.. surface.TypeTraits.Select(Project)],
             [.. surface.Accessibility.Select(Project)],
             surface.TotalMembers,
             surface.InspectionErrors,
@@ -292,6 +294,16 @@ internal static class BrowserLibraryWireProjection
             accessibility.IsDefault,
             accessibility.Count);
 
+    static BrowserLibraryApiFacetDescriptor Project(
+        BrowserApiFacetInfo facet) =>
+        new(
+            facet.Id,
+            facet.SingularLabel,
+            facet.PluralLabel,
+            facet.Weight,
+            facet.Count,
+            facet.IsDefault);
+
     static BrowserLibraryTypeSurface Project(BrowserTypeSurfaceInfo type) =>
         new(
             type.Id,
@@ -302,6 +314,8 @@ internal static class BrowserLibraryWireProjection
             type.DisplayName,
             type.Namespace,
             type.Kind,
+            type.KindFacetId,
+            type.TraitFacetIds,
             type.Accessibility,
             type.AccessibilityId,
             type.Assembly,

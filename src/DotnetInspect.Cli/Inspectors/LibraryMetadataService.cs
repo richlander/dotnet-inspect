@@ -2970,6 +2970,9 @@ internal static class LibraryMetadataService
                     case MethodClassificationAnalyzer.PointerSignature:
                         inspection.UnsafeMethodCount = count.Value;
                         break;
+                    case MethodClassificationAnalyzer.Extension:
+                        inspection.ExtensionMethodCount = count.Value;
+                        break;
                     default:
                         throw new InvalidOperationException(
                             $"No consumer asks for the {question.Analyzer} count.");
