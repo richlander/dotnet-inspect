@@ -512,6 +512,29 @@ executable over a compiled fixture library under `fixtures/research/`:
 - `LibraryDependencyStructure_BoundsExplanationWithExactRemainder`: an edge
   with seven contributing type edges retains five in the specified order and a
   remainder of two.
+
+The QuerySpace adoption is gated in the Release
+`DotnetInspector.Queries.Tests` executable:
+
+- `QuerySpace_DeclaresEveryIssuedRowFamily`: the query declares all eight
+  owner-issued node, edge, and cycle row families with Rows and Count
+  terminals.
+- `Execute_PreservesFocusedAnalysisAvailability`: the query consumes the
+  focused Analysis result and preserves typed Research unavailability.
+- `Select_ProjectsEveryRowSetAfterBuildingTheDocument`: each row family is
+  selected from the already completed document without changing another row
+  family or rebuilding topology.
+- `Select_FiltersRanksLimitsAndCountsIssuedRows`: predicates, named ranking,
+  limits, and Count execute through QuerySpace while the carried document
+  remains complete.
+- `Select_CycleMembershipRetainsDocumentCycleIndex`: cycle selection retains
+  the exact index used by namespace rows.
+- `Select_RejectsInvalidRequestsAndReportsSemanticBounds`: unknown row-set
+  requests are rejected and out-of-range selection remains a typed semantic
+  failure.
+- `SharedAnalysisFeedsMetricsAndDependencyStructure`: one
+  `LibraryBodyAnalysisExecution` supplies both Library Metrics and Library
+  Dependency Structure.
 - `LibraryDependencyStructure_ExternalKeysNeverCollideAcrossSeparators`:
   length-prefixed external identity components keep distinct
   `(assembly, namespace)` pairs distinct even when untrusted metadata contains
@@ -539,12 +562,15 @@ cache.
    [Imported evidence](#analysis-prerequisite-same-module-callee-resolution),
    owned by
    [Library body analysis service](library-body-analysis-service.md).
-1. **Research:** the document, typed outcome, and fixture gates.
+1. **Research (complete):** #9145 supplies the document, typed outcome, and
+   fixture gates.
 2. **Query:** a Research-backed query in `DotnetInspector.ResearchQueries`
    carries the completed document without rendering it. It shares the Analysis
    execution with `LibraryMetricsQuery` when both are selected, consumes only
    focused Analysis results, and exposes the issued rows through QuerySpace
-   (see [Modern infrastructure only](#modern-infrastructure-only)).
+   (see [Modern infrastructure only](#modern-infrastructure-only)). Each
+   request selects one row family; multiple selections reuse the same completed
+   document rather than rebuilding its graph.
 3. **CLI:** an exact-name-only `library` section, `Dependency Structure`,
    outside the default `-v:m` view. It uses Markout for tables and the Mermaid
    graph lowering, and `--envelope` carries the complete Content with Share
