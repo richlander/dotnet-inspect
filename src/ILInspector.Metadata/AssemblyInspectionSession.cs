@@ -464,8 +464,21 @@ public sealed class AssemblyInspectionSession :
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
 
     /// <summary>
-    /// Reads API Types in metadata order and stops before the Type after
-    /// <paramref name="stopAfterType"/> first returns <see langword="true"/>.
+    /// The public (or, with <paramref name="includeAll"/>, full) declarations
+    /// physically owned by each API Type.
+    /// </summary>
+    public ApiSurface DeclarationApiSurface(
+        bool includeAll = false,
+        bool typesOnly = false)
+        => ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            includeAll,
+            typesOnly);
+
+    /// <summary>
+    /// Reads declaration-only API Types in metadata order and stops before the
+    /// Type after <paramref name="stopAfterType"/> first returns
+    /// <see langword="true"/>.
     /// </summary>
     public ApiSurface ApiSurfaceUntil(
         bool includeAll,
@@ -548,6 +561,18 @@ public sealed class AssemblyInspectionSession :
         => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
 
     /// <summary>
+    /// The declarations physically owned by each API Type at one explicit
+    /// extraction scope.
+    /// </summary>
+    public ApiSurface DeclarationApiSurface(
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false)
+        => ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            scope,
+            typesOnly);
+
+    /// <summary>
     /// The API surface at one explicit extraction scope under hard retention bounds. An image
     /// that does not fit is abandoned before it is materialized, and reported as
     /// <see cref="ApiSurfaceExtractionResult.Exceeded"/> rather than returned shortened.
@@ -558,6 +583,22 @@ public sealed class AssemblyInspectionSession :
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
         => ApiSurfaceExtractor.ExtractBounded(
+            _image.PEReader,
+            scope,
+            bounds,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// The declarations physically owned by each API Type under hard retention
+    /// bounds.
+    /// </summary>
+    public ApiSurfaceExtractionResult BoundedDeclarationApiSurface(
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ApiSurfaceExtractor.ExtractDeclarationsBounded(
             _image.PEReader,
             scope,
             bounds,
