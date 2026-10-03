@@ -47,8 +47,9 @@ public sealed partial class MethodBodySource
         Read(methodToken, int.MaxValue);
 
     /// <summary>
-    /// Method bodies read through any source in this process. The overview cost
-    /// gate asserts an overview reads none (docs/design/progressive-disclosure.md#overview-cost).
+    /// Method bodies read through any source in this process, by
+    /// <see cref="Read(int, int)"/> or <see cref="ReadBounded"/>. The overview
+    /// cost gate asserts an overview reads none (docs/design/progressive-disclosure.md#overview-cost).
     /// </summary>
     internal static int ReadCountForTests;
 

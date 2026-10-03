@@ -54,6 +54,27 @@ public class OverviewCostTests
         Assert.Contains("DotnetInspector.Fixtures.AppContextOnly", output);
     }
 
+    [Fact]
+    public async Task BareDiscovery_ListsSwitchesForAnAppContextOnlyAssembly()
+    {
+        // Plain -D is not an overview: it still reads call sites to decide
+        // whether the Switches section has data. The fixture declares no
+        // switch and calls AppContext.TryGetSwitch; System.Runtime does neither.
+        string switchFree = Path.Combine(
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+            "System.Runtime.dll");
+
+        var (exit, output, error) = await RunAppAsync("library", Fixture, "-D", "--tips", "q");
+        var (contrastExit, contrastOutput, contrastError) =
+            await RunAppAsync("library", switchFree, "-D", "--tips", "q");
+
+        Assert.True(exit == 0, error);
+        Assert.Contains("| Switches | section |", output);
+        Assert.True(contrastExit == 0, contrastError);
+        Assert.Contains("| Library Info | section |", contrastOutput);
+        Assert.DoesNotContain("| Switches |", contrastOutput);
+    }
+
     static async Task<(int Exit, string Error)> RunCountingAsync(string[] args)
     {
         MethodBodySource.ReadCountForTests = 0;
