@@ -2043,6 +2043,48 @@ test("member source visual alignment collapses only indentation shared by every 
   assert.match(html, /<code class="language-csharp"> {8}\/\/\/ &lt;inheritdoc/);
 });
 
+test("decompiled source is visually left-aligned without flattening nested indentation", () => {
+  const text =
+    "        public void M()\n"
+    + "        {\n"
+    + "            if (value)\n"
+    + "            {\n"
+    + "                return;\n"
+    + "            }\n"
+    + "        }";
+  let receivedRanges: readonly { start: number; length: number }[] | undefined;
+
+  renderSourceResult({
+    source: {
+      provider: "decompiled",
+      provenance: inertStringFixture("decompiled"),
+      url: null,
+      pdbSourceLimitation: null,
+      text,
+    },
+    escapeHtml,
+    highlightCSharp: (value, collapsedRanges) => {
+      assert.equal(value, text);
+      receivedRanges = collapsedRanges;
+      return escapeHtml(value);
+    },
+  });
+
+  assert.deepEqual(
+    receivedRanges,
+    [
+      { start: 0, length: 8 },
+      { start: 24, length: 8 },
+      { start: 34, length: 8 },
+      { start: 57, length: 8 },
+      { start: 71, length: 8 },
+      { start: 95, length: 8 },
+      { start: 109, length: 8 },
+    ]);
+  assert.equal(text.split("\n")[2]?.startsWith("            "), true);
+  assert.equal(text.split("\n")[4]?.startsWith("                "), true);
+});
+
 test("member source visual alignment retains less-indented multiline literal text", () => {
   const text =
     "    public string Text() => @\"first\n"

@@ -1206,7 +1206,10 @@ export function renderSourceResult(options: RenderSourceResultOptions): string {
     highlightCSharp,
   } = options;
   return `<section class="source-result" aria-label="Source">
-      ${renderSourceCode(text, highlightCSharp, leftJustify)}
+      ${renderSourceCode(
+        text,
+        highlightCSharp,
+        leftJustify || source.provider === "decompiled")}
       <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
     </section>`;
 }

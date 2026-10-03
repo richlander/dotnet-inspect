@@ -82,6 +82,10 @@ The Browser retains the user's requested origin separately from that settled
 display: automatic fallback affects only the current member, while an explicit
 choice also becomes the request applied to the next member.
 Decompiler output has no authored part catalog, so the part selector is absent.
+Every Decompiled source view visually collapses only the whitespace prefix
+shared by every nonblank line. Its left-most source character therefore starts
+in the first column without changing the source or Copy text or flattening
+relative indentation inside the declaration and body.
 The labels describe the presented source rather than one authored acquisition
 mechanism: authored text may come from SourceLink, an embedded PDB, or verified
 local source.
