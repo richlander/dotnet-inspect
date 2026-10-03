@@ -71,6 +71,7 @@ public static partial class ApiSurfaceExtractor
             var surface = new ApiSurface();
             CountSummaryMembers(
                 reader,
+                handle,
                 reader.GetTypeDefinition(handle),
                 apiType: null,
                 surface,
@@ -97,6 +98,7 @@ public static partial class ApiSurfaceExtractor
 
     private static void CountSummaryMembers(
         MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition typeDef,
         ApiType? apiType,
         ApiSurface surface,
@@ -113,10 +115,12 @@ public static partial class ApiSurfaceExtractor
             extensionReceiverDefinitions);
         ClassifyDeclaredMembers(
             reader,
+            typeHandle,
             typeDef,
             MetadataMemberSpelling.CSharp,
             publicOnly: true,
             extensionContainer: isExtensionClass,
+            classifyLogicalMethodKinds: false,
             ref sink);
     }
 

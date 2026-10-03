@@ -18,6 +18,11 @@ public enum MetadataMemberSpelling
 internal enum ClassifiedMemberKind
 {
     Method,
+    Constructor,
+    Operator,
+    Finalizer,
+    ExplicitInterfaceImplementation,
+    ExtensionMethod,
     Property,
     Field,
     Event,
@@ -34,7 +39,9 @@ internal readonly record struct ClassifiedMember(
     MethodAttributes Access,
     bool IsHidden,
     MetadataMethodReceiver Receiver,
-    bool IsAttached);
+    bool IsAttached,
+    bool IsVirtual,
+    bool IsExplicitInterfaceImplementation);
 
 internal interface IClassifiedMemberSink
 {
@@ -120,10 +127,12 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     internal static void ClassifyDeclaredMembers<TSink>(
         MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition typeDef,
         MetadataMemberSpelling spelling,
         bool publicOnly,
         bool extensionContainer,
+        bool classifyLogicalMethodKinds,
         ref TSink sink)
         where TSink : struct, IClassifiedMemberSink
     {
@@ -135,6 +144,10 @@ public static partial class ApiSurfaceExtractor
             ? GetInterfaceImplementations(reader, typeDef)
             : [];
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+        HashSet<MethodDefinitionHandle> objectFinalizeOverrides =
+            csharp && classifyLogicalMethodKinds
+                ? GetObjectFinalizeOverrides(reader, typeDef)
+                : [];
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -155,7 +168,14 @@ public static partial class ApiSurfaceExtractor
             }
 
             sink.Add(new ClassifiedMember(
-                ClassifiedMemberKind.Method,
+                MethodKind(
+                    reader,
+                    typeHandle,
+                    methodHandle,
+                    method,
+                    csharp && classifyLogicalMethodKinds,
+                    objectFinalizeOverrides,
+                    explicitImplementationBodies.Contains(methodHandle)),
                 methodHandle,
                 access,
                 IsHiddenMethod(
@@ -163,7 +183,11 @@ public static partial class ApiSurfaceExtractor
                     method.GetCustomAttributes(),
                     explicitImplementationBodies.Contains(methodHandle)),
                 MethodReceiver(reader, method, extensionContainer),
-                IsAttached: false));
+                IsAttached: false,
+                IsVirtual:
+                    (method.Attributes & MethodAttributes.Virtual) != 0,
+                IsExplicitInterfaceImplementation:
+                    explicitImplementationBodies.Contains(methodHandle)));
         }
 
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -188,7 +212,15 @@ public static partial class ApiSurfaceExtractor
                     accessors.Getter,
                     accessors.Setter),
                 AccessorReceiver(reader, accessor),
-                IsAttached: false));
+                IsAttached: false,
+                IsVirtual: IsVirtualAccessorOwner(
+                    reader,
+                    accessors.Getter,
+                    accessors.Setter),
+                IsExplicitInterfaceImplementation:
+                    explicitImplementationBodies.Contains(accessors.Getter)
+                    || explicitImplementationBodies.Contains(
+                        accessors.Setter)));
         }
 
         bool isEnum = IsEnum(reader, typeDef);
@@ -249,7 +281,9 @@ public static partial class ApiSurfaceExtractor
                 (field.Attributes & FieldAttributes.Static) != 0
                     ? MetadataMethodReceiver.Static
                     : MetadataMethodReceiver.This,
-                IsAttached: false));
+                IsAttached: false,
+                IsVirtual: false,
+                IsExplicitInterfaceImplementation: false));
         }
 
         foreach (var eventHandle in typeDef.GetEvents())
@@ -273,7 +307,15 @@ public static partial class ApiSurfaceExtractor
                     accessors.Adder,
                     accessors.Remover),
                 AccessorReceiver(reader, accessors.Adder),
-                IsAttached: false));
+                IsAttached: false,
+                IsVirtual: IsVirtualAccessorOwner(
+                    reader,
+                    accessors.Adder,
+                    accessors.Remover),
+                IsExplicitInterfaceImplementation:
+                    explicitImplementationBodies.Contains(accessors.Adder)
+                    || explicitImplementationBodies.Contains(
+                        accessors.Remover)));
         }
     }
 
@@ -339,7 +381,7 @@ public static partial class ApiSurfaceExtractor
                 sink.Add(
                     receiver,
                     new ClassifiedMember(
-                        ClassifiedMemberKind.Method,
+                        ClassifiedMemberKind.ExtensionMethod,
                         methodHandle,
                         access,
                         declaringHidden
@@ -348,10 +390,54 @@ public static partial class ApiSurfaceExtractor
                                 method.GetCustomAttributes(),
                                 isExplicitImplementation: false),
                         MetadataMethodReceiver.Extension,
-                        IsAttached: true));
+                        IsAttached: true,
+                        IsVirtual: false,
+                        IsExplicitInterfaceImplementation: false));
             }
         }
     }
+
+    static ClassifiedMemberKind MethodKind(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        bool csharp,
+        HashSet<MethodDefinitionHandle> objectFinalizeOverrides,
+        bool isExplicitInterfaceImplementation)
+    {
+        if (!csharp)
+            return ClassifiedMemberKind.Method;
+        if (reader.StringComparer.Equals(method.Name, ".ctor"))
+            return ClassifiedMemberKind.Constructor;
+        if (reader.StringComparer.StartsWith(method.Name, "op_"))
+            return ClassifiedMemberKind.Operator;
+        if (method.GetGenericParameters().Count == 0
+            && (objectFinalizeOverrides.Contains(methodHandle)
+                || IsImplicitObjectFinalizeOverride(
+                    reader,
+                    typeHandle,
+                    method)))
+        {
+            return ClassifiedMemberKind.Finalizer;
+        }
+        return isExplicitInterfaceImplementation
+            ? ClassifiedMemberKind.ExplicitInterfaceImplementation
+            : ClassifiedMemberKind.Method;
+    }
+
+    static bool IsVirtualAccessorOwner(
+        MetadataReader reader,
+        MethodDefinitionHandle first,
+        MethodDefinitionHandle second) =>
+        IsVirtual(reader, first) || IsVirtual(reader, second);
+
+    static bool IsVirtual(
+        MetadataReader reader,
+        MethodDefinitionHandle handle) =>
+        !handle.IsNil
+        && (reader.GetMethodDefinition(handle).Attributes
+            & MethodAttributes.Virtual) != 0;
 
     /// <summary>
     /// A C# extension container: a static (sealed abstract) class carrying
