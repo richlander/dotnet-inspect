@@ -75,6 +75,15 @@ beside each request's independent result, outcome, source completion, and
 Producer Planning receipt. Incompatible or sparse requests remain separate;
 sharing is never required for acceptance.
 
+Method Classification is the first mixed-terminal production adopter. Its
+session-backed query lowers independent analyzer Rows, Count, Exists, and Head
+requests into the Method request set, while its PEReader overload remains the
+direct reference. CLI effective discovery uses exact Exists for Async Methods
+and P/Invoke Methods instead of projecting their rows. This metadata-only
+adoption does not shrink the temporary Library Body Analysis remainder; the
+unsafe-evidence-plus-live-body-producer adoption below remains required before
+claiming `LibraryBodyIndex` reduction.
+
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
 vocabulary supplies a default Top ranking. A future richer capability may
@@ -1101,12 +1110,15 @@ Implementation proceeds as focused owner adoptions:
    per-request result contract in this owner.
 15. Implement the host-neutral reference request-set planner and let the Method
    source consume one request-set plan without changing Producer Planning.
-16. Move one mixed CLI library operation through the plan, shrinking the
-   temporary Library Body Analysis remainder and recording exact terminal
-   evidence.
-17. Move one Browser/Wasm Analysis operation through the same host-neutral
+16. Move Method Classification as the first mixed-terminal CLI library
+   operation, retaining its direct PEReader path as the reference and using
+   exact Exists for section applicability.
+17. Compose unsafe-evidence presence with one still-live body producer,
+   shrinking the temporary Library Body Analysis remainder and recording exact
+   terminal evidence.
+18. Move one Browser/Wasm Analysis operation through the same host-neutral
    result without adding a TypeScript planner.
-18. Adopt one non-Analysis row source to prove that request collapse remains a
+19. Adopt one non-Analysis row source to prove that request collapse remains a
    general Query Space capability.
 
 Each step names one adopting owner and retains every other owner's contract.

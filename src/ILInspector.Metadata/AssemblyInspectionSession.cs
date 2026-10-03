@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
@@ -464,8 +465,21 @@ public sealed class AssemblyInspectionSession :
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
 
     /// <summary>
-    /// Reads API Types in metadata order and stops before the Type after
-    /// <paramref name="stopAfterType"/> first returns <see langword="true"/>.
+    /// The public (or, with <paramref name="includeAll"/>, full) declarations
+    /// physically owned by each API Type.
+    /// </summary>
+    public ApiSurface DeclarationApiSurface(
+        bool includeAll = false,
+        bool typesOnly = false)
+        => ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            includeAll,
+            typesOnly);
+
+    /// <summary>
+    /// Reads declaration-only API Types in metadata order and stops before the
+    /// Type after <paramref name="stopAfterType"/> first returns
+    /// <see langword="true"/>.
     /// </summary>
     public ApiSurface ApiSurfaceUntil(
         bool includeAll,
@@ -548,6 +562,18 @@ public sealed class AssemblyInspectionSession :
         => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
 
     /// <summary>
+    /// The declarations physically owned by each API Type at one explicit
+    /// extraction scope.
+    /// </summary>
+    public ApiSurface DeclarationApiSurface(
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false)
+        => ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            scope,
+            typesOnly);
+
+    /// <summary>
     /// The API surface at one explicit extraction scope under hard retention bounds. An image
     /// that does not fit is abandoned before it is materialized, and reported as
     /// <see cref="ApiSurfaceExtractionResult.Exceeded"/> rather than returned shortened.
@@ -558,6 +584,22 @@ public sealed class AssemblyInspectionSession :
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
         => ApiSurfaceExtractor.ExtractBounded(
+            _image.PEReader,
+            scope,
+            bounds,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// The declarations physically owned by each API Type under hard retention
+    /// bounds.
+    /// </summary>
+    public ApiSurfaceExtractionResult BoundedDeclarationApiSurface(
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ApiSurfaceExtractor.ExtractDeclarationsBounded(
             _image.PEReader,
             scope,
             bounds,
@@ -843,6 +885,55 @@ public sealed class AssemblyInspectionSession :
     {
         _image.EnsureAlive();
         return _declarationIndex.Value.Probe(name);
+    }
+
+    /// <summary>
+    /// Reports whether one exact MethodDef carries the supplied metadata-owned
+    /// member identity in this immutable assembly image.
+    /// </summary>
+    public bool MethodAnchorMatches(
+        MetadataTypeDefinitionName declaringType,
+        int methodDefinitionToken,
+        MemberAnchor anchor)
+    {
+        ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentNullException.ThrowIfNull(anchor);
+        _image.EnsureAlive();
+
+        int row = methodDefinitionToken & 0x00FFFFFF;
+        MetadataReader reader = _image.GetMetadataReader();
+        if ((methodDefinitionToken & unchecked((int)0xFF000000))
+                != 0x06000000
+            || row == 0
+            || row > reader.MethodDefinitions.Count
+            || _declarationIndex.Value.Probe(declaringType)
+                is not TypeDeclarationResult.Defined defined)
+        {
+            return false;
+        }
+
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                MetadataTokens.MethodDefinitionHandle(row));
+        if (MetadataTokens.GetToken(method.GetDeclaringType())
+            != defined.Definition.Value)
+        {
+            return false;
+        }
+
+        MemberAnchor ordinary =
+            ApiMemberIdentity.CreateMethodAnchor(
+                reader,
+                method.GetDeclaringType(),
+                method,
+                isExtensionMethod: false);
+        return ordinary == anchor
+            || ApiMemberIdentity.CreateMethodAnchor(
+                    reader,
+                    method.GetDeclaringType(),
+                    method,
+                    isExtensionMethod: true)
+                == anchor;
     }
 
     /// <summary>

@@ -231,6 +231,10 @@ public static partial class SourceHouse
         }
 
         ApiSurface surface;
+        (
+            ApiType Type,
+            ApiMember? Member,
+            bool RequiresAccessorProjection)? target;
         try
         {
             using AssemblyInspectionSession session =
@@ -265,7 +269,12 @@ public static partial class SourceHouse
             surface =
                 ((ApiSurfaceExtractionResult.Extracted)extraction)
                     .Surface;
-            if (!TargetExists(surface, request.Target)
+            target =
+                ResolveDecompilationTarget(
+                    session,
+                    surface,
+                    request.Target);
+            if (target is null
                 && RequiresCompilerGeneratedSurface(request.Target))
             {
                 extraction = ExtractTargetSurface(
@@ -280,6 +289,11 @@ public static partial class SourceHouse
                 surface =
                     ((ApiSurfaceExtractionResult.Extracted)extraction)
                         .Surface;
+                target =
+                    ResolveDecompilationTarget(
+                        session,
+                        surface,
+                        request.Target);
             }
         }
         catch (Exception exception) when (IsInspectionFailure(exception))
@@ -293,11 +307,6 @@ public static partial class SourceHouse
                 detail);
         }
 
-        (
-            ApiType Type,
-            ApiMember? Member,
-            bool RequiresAccessorProjection)? target =
-            ResolveDecompilationTarget(surface, request.Target);
         if (target is null)
         {
             if (CreateTargetInspectionFailure(
@@ -532,13 +541,17 @@ public static partial class SourceHouse
         ApiMember? Member,
         bool RequiresAccessorProjection)?
         ResolveDecompilationTarget(
+            AssemblyInspectionSession session,
             ApiSurface surface,
             SourceHouseTarget target)
     {
         if (target is SourceHouseTarget.MemberTarget member)
         {
             (ApiType Type, ApiMember Member, bool RequiresAccessorProjection)?
-                resolved = ResolveMemberTarget(surface, member);
+                resolved = ResolveMemberTarget(
+                    session,
+                    surface,
+                    member);
             return resolved is { } exact
                 ? (exact.Type, exact.Member, exact.RequiresAccessorProjection)
                 : null;

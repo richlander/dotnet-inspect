@@ -3478,6 +3478,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.member,
         request.selectorKey,
         request.metadataToken,
+        request.documentBaselineOrdinal,
         request.taste,
         request.view)
     : inspectPlatformMemberSource(
@@ -3489,6 +3490,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.member,
         request.selectorKey,
         request.metadataToken,
+        request.documentBaselineOrdinal,
         request.taste,
         request.view,
         request.contextId),
@@ -3535,6 +3537,10 @@ const sourceInspection = createSourceInspectionCoordinator({
   },
   reportOperationDiagnostic: diagnostic => {
     console.error("Source operation authority failure.", diagnostic);
+    return undefined;
+  },
+  reportMemberSourceDiagnostic: diagnostic => {
+    console.warn("Member source inspection diagnostic.", diagnostic);
     return undefined;
   },
   describeError: errorMessage,
@@ -20267,6 +20273,18 @@ async function loadSelectedMemberSource() {
     // correspondence handles differing ref/lib row numbers.
     metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+    documentBaselineOrdinal:
+      member.kind === "method"
+        && !overload.graphOnly
+        && state.selectedBodyTarget === null
+        ? overload.baselineOrdinal
+          ?? (state.selectedOverloadIndex === null
+            ? null
+            : memberDocumentOrdinalForOverload(
+                member,
+                state.selectedOverloadIndex))
+          ?? 0
+        : 0,
     taste: JSON.stringify(state.taste),
     view,
     isCurrent: () => state.memberSourceView === view

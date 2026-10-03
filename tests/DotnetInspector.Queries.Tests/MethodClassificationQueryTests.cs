@@ -218,22 +218,38 @@ public sealed class MethodClassificationQueryTests
     }
 
     [Fact]
-    public void Combined_RowsCountAndExistsForOneAnalyzerExecuteIndependentlyAndAgree()
+    public void SessionRequestSet_RowsCountAndExistsShareSourceAndEqualDirectReference()
     {
         string path = FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
         ClassificationQuestion rows = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows, ClassifiedRowOrder.Display);
         ClassificationQuestion count = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
         ClassificationQuestion exists = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Exists);
 
-        using var peReader = new PEReader(File.OpenRead(path));
-        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [rows, count, exists]);
+        MethodClassificationResult direct;
+        using (var peReader = new PEReader(File.OpenRead(path)))
+        {
+            direct = MethodClassificationQuery.Execute(
+                peReader,
+                [rows, count, exists]);
+        }
+
+        using var session = AssemblyInspectionSession.Open(path);
+        MethodClassificationResult result = MethodClassificationQuery.Execute(
+            session,
+            [rows, count, exists]);
 
         var listed = Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(rows));
         Assert.NotEmpty(listed.Methods);
         Assert.Equal(new ClassificationAnswer.Count(listed.Methods.Length), result.AnswerTo(count));
         Assert.Equal(new ClassificationAnswer.Exists(true), result.AnswerTo(exists));
+        Assert.Equal(
+            Assert.IsType<ClassificationAnswer.Rows>(
+                direct.AnswerTo(rows)).Methods.ToArray(),
+            listed.Methods.ToArray());
+        Assert.Equal(direct.AnswerTo(count), result.AnswerTo(count));
+        Assert.Equal(direct.AnswerTo(exists), result.AnswerTo(exists));
 
-        // One execution per closing; Count and Exists read no identity text.
+        // One lane per closing; Count and Exists read no identity text.
         Assert.Equal(
             [
                 new ClassificationExecution(ClassificationClosing.Rows),
@@ -260,6 +276,196 @@ public sealed class MethodClassificationQueryTests
             result.ReceiptOf(
                 new ClassificationExecution(
                     ClassificationClosing.Count)).IdentityWorkCharged);
+
+        MethodDefinitionSourceGroupReceipt source =
+            Assert.Single(result.SourceGroups);
+        Assert.Equal(3, source.LaneReceipts.Length);
+        Assert.Equal(
+            result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Rows)).UnitsVisited,
+            source.PhysicalCoverage.MethodsSelected.Count);
+        Assert.True(
+            source.PhysicalCoverage.MethodsSelected.Count
+            < direct.Receipts.Sum(
+                static receipt => receipt.Receipt.UnitsVisited));
+        Assert.True(direct.SourceGroups.IsDefault);
+    }
+
+    [Fact]
+    public void SessionRequestSet_ExtensionCountMatchesDirectReference()
+    {
+        string path = typeof(Enumerable).Assembly.Location;
+        ClassificationQuestion count = new(
+            MethodClassificationAnalyzer.Extension,
+            ClassificationClosing.Count);
+
+        MethodClassificationResult direct;
+        using (var peReader = new PEReader(File.OpenRead(path)))
+        {
+            direct = MethodClassificationQuery.Execute(
+                peReader,
+                [count]);
+        }
+
+        using var session = AssemblyInspectionSession.Open(path);
+        MethodClassificationResult result =
+            MethodClassificationQuery.Execute(session, [count]);
+
+        ClassificationAnswer.Count directCount =
+            Assert.IsType<ClassificationAnswer.Count>(
+                direct.AnswerTo(count));
+        Assert.True(directCount.Value > 0);
+        Assert.Equal(directCount, result.AnswerTo(count));
+        Assert.False(
+            result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Count))
+            .IdentityBudgetArmed);
+        Assert.Single(
+            Assert.Single(result.SourceGroups).LaneReceipts);
+    }
+
+    [Fact]
+    public void PreparedRequestSet_ReusesPlanningAcrossSessionExecutions()
+    {
+        string path = FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
+        ClassificationQuestion rows = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Rows);
+        ClassificationQuestion count = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Count);
+        ClassificationQuestion exists = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Exists);
+        using var session = AssemblyInspectionSession.Open(path);
+        PreparedMethodClassificationQuery prepared =
+            MethodClassificationQuery.Prepare(
+                session,
+                [rows, count, exists]);
+        MethodClassificationResult first =
+            MethodClassificationQuery.Execute(prepared);
+        MethodClassificationResult second =
+            MethodClassificationQuery.Execute(prepared);
+
+        foreach (ClassificationQuestion question
+            in prepared.Questions)
+        {
+            ClassificationAnswer firstAnswer =
+                first.AnswerTo(question);
+            ClassificationAnswer secondAnswer =
+                second.AnswerTo(question);
+            if (firstAnswer is ClassificationAnswer.Rows firstRows)
+            {
+                Assert.Equal(
+                    firstRows.Methods.ToArray(),
+                    Assert.IsType<ClassificationAnswer.Rows>(
+                        secondAnswer)
+                    .Methods.ToArray());
+            }
+            else
+            {
+                Assert.Equal(firstAnswer, secondAnswer);
+            }
+        }
+
+        Assert.Equal(
+            first.Receipts.Select(
+                static receipt =>
+                    (
+                        receipt.Execution,
+                        receipt.Receipt.UnitsVisited,
+                        receipt.Receipt.Critical)),
+            second.Receipts.Select(
+                static receipt =>
+                    (
+                        receipt.Execution,
+                        receipt.Receipt.UnitsVisited,
+                        receipt.Receipt.Critical)));
+        Assert.Equal(3, first.AssociationReceipts.Length);
+        Assert.Equal(
+            first.AssociationReceipts.Select(
+                static receipt =>
+                    (
+                        receipt.Execution,
+                        receipt.Analyzer,
+                        receipt.Receipt.UnitsVisited,
+                        receipt.Receipt.Critical)),
+            second.AssociationReceipts.Select(
+                static receipt =>
+                    (
+                        receipt.Execution,
+                        receipt.Analyzer,
+                        receipt.Receipt.UnitsVisited,
+                        receipt.Receipt.Critical)));
+        Assert.Equal(
+            [
+                ClassificationClosing.Rows,
+                ClassificationClosing.Count,
+                ClassificationClosing.Exists,
+            ],
+            first.AssociationReceipts
+                .Select(static receipt =>
+                    receipt.Execution.Closing)
+                .Order());
+
+        session.Dispose();
+        Assert.Throws<ObjectDisposedException>(
+            () => MethodClassificationQuery.Execute(
+                prepared));
+    }
+
+    [Fact]
+    public void SessionRequestSet_MultiAnalyzerCriticalIsPubliclyReceipted()
+    {
+        byte[] image = AsyncImage(
+            runtimeAsync: true,
+            hostileAttribute: true);
+        ClassificationQuestion pinvoke = new(
+            MethodClassificationAnalyzer.PInvoke,
+            ClassificationClosing.Count);
+        ClassificationQuestion async = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Count);
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+        PreparedMethodClassificationQuery prepared =
+            MethodClassificationQuery.Prepare(
+                session,
+                [pinvoke, async]);
+        MethodClassificationResult result =
+            MethodClassificationQuery.Execute(prepared);
+
+        Assert.Equal(
+            new ClassificationAnswer.Count(0),
+            result.AnswerTo(pinvoke));
+        ClassificationAnswer.Aborted aborted =
+            Assert.IsType<ClassificationAnswer.Aborted>(
+                result.AnswerTo(async));
+        Assert.Same(aborted.Critical, result.Critical);
+        Assert.Equal(2, result.AssociationReceipts.Length);
+        ClassificationAssociationReceipt asyncReceipt =
+            Assert.Single(
+                result.AssociationReceipts,
+                static receipt =>
+                    receipt.Analyzer
+                    == MethodClassificationAnalyzer.Async);
+        Assert.Same(
+            aborted.Critical,
+            asyncReceipt.Receipt.Critical);
+        WorkReceipt aggregate = result.ReceiptOf(
+            new ClassificationExecution(
+                ClassificationClosing.Count));
+        Assert.Same(aborted.Critical, aggregate.Critical);
+        Assert.Equal(
+            [
+                PInvokeAnalyzer.Instance.Identity,
+                AsyncAnalyzer.Instance.Identity,
+            ],
+            aggregate.Producers.Select(
+                static participation =>
+                    participation.Producer));
     }
 
     [Fact]

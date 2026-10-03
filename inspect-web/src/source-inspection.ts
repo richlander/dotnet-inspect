@@ -6,6 +6,8 @@ import {
 } from "./data.ts";
 import type {
   BrowserMemberSource,
+  BrowserMemberSourceDiagnostic,
+  BrowserMemberSourceResult,
   BrowserSource,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
@@ -33,6 +35,7 @@ interface MemberSourceSelection {
   member: string;
   selectorKey: string;
   metadataToken: number;
+  documentBaselineOrdinal: number;
   taste: string;
   view: MemberSourceView;
 }
@@ -218,7 +221,7 @@ export interface SourceInspectionState
 export interface SourceInspectionDependencies {
   state: SourceInspectionState;
   operationAuthority: OperationAuthorityPage;
-  queryMemberSource(request: MemberSourceQuery): Promise<BrowserMemberSource>;
+  queryMemberSource(request: MemberSourceQuery): Promise<BrowserMemberSourceResult>;
   queryTypeSource(
     operationId: OperationId,
     request: TypeSourceQuery,
@@ -235,6 +238,9 @@ export interface SourceInspectionDependencies {
   ): void;
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
+  ) => undefined;
+  readonly reportMemberSourceDiagnostic: (
+    diagnostic: BrowserMemberSourceDiagnostic,
   ) => undefined;
   describeError(error: unknown): string;
   render(): void;
@@ -534,10 +540,23 @@ export function createSourceInspectionCoordinator(
           state.memberSource = { status: "idle" };
           return;
         }
+        for (const diagnostic of result.diagnostics)
+          dependencies.reportMemberSourceDiagnostic(diagnostic);
+        if (result.value === null) {
+          if (result.error === null)
+            throw new Error("Member source result has no source or failure.");
+          state.memberSource = {
+            status: "failed",
+            signature: request.signature,
+            error: result.error,
+          };
+          dependencies.renderPreservingMemberFocus(preservedFocus);
+          return;
+        }
         state.memberSource = {
           status: "ready",
           signature: request.signature,
-          source: result,
+          source: result.value,
         };
         dependencies.renderPreservingMemberFocus(preservedFocus);
       } catch (error) {
