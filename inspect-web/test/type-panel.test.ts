@@ -305,6 +305,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onMemberSourcePartSelect: part => {
       calls.push(`member-source-part:${part}`);
     },
+    onMemberSourceViewSelect: view => {
+      calls.push(`member-source-view:${view}`);
+    },
     onCopySignature: () => {
       calls.push("copy-signature");
     },
@@ -601,6 +604,15 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const copyMemberSource = root.add("#copy-source", new FakeElement());
   const memberSourcePart =
     root.add("#member-source-part", new FakeElement());
+  const authoredSource =
+    new FakeElement({ memberSourceView: "source" });
+  const decompiledSource =
+    new FakeElement({ memberSourceView: "decompiler-source" });
+  root.addAll(
+    "[data-member-source-view]",
+    authoredSource,
+    decompiledSource,
+  );
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
   const exploreSource = root.add("#explore-source", new FakeElement());
   const calls: string[] = [];
@@ -625,6 +637,8 @@ test("type panel bindings dispatch member composition and detail controls", () =
   copyMemberSource.dispatch("click");
   memberSourcePart.value = "Body";
   memberSourcePart.dispatch("change");
+  authoredSource.dispatch("click");
+  decompiledSource.dispatch("click");
   copyTypeSource.dispatch("click");
   exploreSource.dispatch("click");
 
@@ -645,6 +659,8 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "copy-anchor:undefined",
     "copy-member-source",
     "member-source-part:Body",
+    "member-source-view:source",
+    "member-source-view:decompiler-source",
     "copy-type-source",
     "explore-source",
   ]);
@@ -1764,7 +1780,7 @@ test("source page actions render copy, open, and Explore for the page-owned grou
     /class="shell-action-link" href="https:\/\/example\.test\/source\.cs\?x=1&amp;y=2" target="_blank" rel="noreferrer">Open<\/a>/);
   assert.match(
     html,
-    /id="explore-source"[^>]*title="Explore source options"[^>]*>Explore<\/button>/);
+    /id="explore-source"[^>]*title="Explore type source"[^>]*>Explore<\/button>/);
   assert.match(html, /value="decompiler-source">Decompiler source<\/option>/);
 });
 
@@ -1804,10 +1820,15 @@ test("decompiler source renders its dedicated loading state", () => {
 test("source page actions disable copy until source is available", () => {
   const html = renderSourcePageActions({
     source: null,
+    memberView: "decompiler-source",
     copyButtonId: "copy-source",
     escapeHtml,
   });
 
+  assert.match(html, /aria-label="Source origin"/);
+  assert.match(
+    html,
+    /data-member-source-view="decompiler-source"\s+aria-pressed="true"/);
   assert.match(html, /id="copy-source"[^>]* disabled>Copy<\/button>/);
   assert.doesNotMatch(html, /shell-action-link/);
   assert.match(html, /id="explore-source"[^>]*>Explore<\/button>/);
@@ -1827,6 +1848,7 @@ test("authored member source actions expose only available parts", () => {
   assert.match(
     html,
     /id="member-source-part" aria-label="Select member source part"/);
+  assert.match(html, />Declaration<\/option>/);
   assert.match(html, />Member<\/option>/);
   assert.match(html, />XML docs<\/option>/);
   assert.match(
@@ -1834,6 +1856,9 @@ test("authored member source actions expose only available parts", () => {
     /value="Attributes" selected>Attributes<\/option>/);
   assert.match(html, />Signature<\/option>/);
   assert.match(html, />Body<\/option>/);
+  assert.match(
+    html,
+    /id="explore-source"[^>]*title="Explore annotated source"/);
 });
 
 test("member source selection lowers every original fragment for display and copy", () => {
@@ -1842,6 +1867,9 @@ test("member source selection lowers every original fragment for display and cop
   assert.equal(
     memberSourceText(source, "XmlDocumentation"),
     "/// first\n/// second");
+  assert.equal(
+    memberSourceText(source, "Declaration"),
+    "[First]\r\n[Second]\r\npublic void M()\r\n{\r\n    return;\r\n}");
   assert.equal(
     memberSourceText(source, "Attributes"),
     "[First]\n[Second]");
@@ -2040,14 +2068,18 @@ test("member source part selection resets across request signatures and absent p
   const selector = createMemberSourcePartSelector();
   const authored = memberSourceFixture();
 
-  assert.equal(selector.current("first", authored), "Member");
+  assert.equal(selector.current("first", authored), "Declaration");
+  assert.equal(
+    selector.current("first", { ...authored, parts: [] }),
+    "Declaration");
+  assert.equal(selector.current("first", authored), "Declaration");
   assert.equal(selector.select("first", authored, "Body"), true);
   assert.equal(selector.current("first", authored), "Body");
-  assert.equal(selector.current("second", authored), "Member");
+  assert.equal(selector.current("second", authored), "Declaration");
   assert.equal(selector.select("second", authored, "Body"), true);
   assert.equal(
     selector.current("second", { ...authored, parts: authored.parts.slice(0, 4) }),
-    "Member");
+    "Declaration");
   assert.equal(selector.select("second", authored, "Body"), true);
   assert.equal(selector.select("second", authored, "Attributes"), true);
 });
@@ -2149,8 +2181,8 @@ test("type source renders a settled fallback for an empty failure", () => {
 function memberSourceFixture(): BrowserMemberSource {
   const text =
     "/// first\r\n"
-    + "[First]\r\n"
     + "/// second\n"
+    + "[First]\r\n"
     + "[Second]\r\n"
     + "public void M()\r\n"
     + "{\r\n"
@@ -2172,6 +2204,7 @@ function memberSourceFixture(): BrowserMemberSource {
       end: start + fragment.length,
     };
   };
+  const declarationStart = text.indexOf("[First]");
   const secondDocumentationStart = text.indexOf("/// second");
   return {
     source: {
@@ -2182,6 +2215,17 @@ function memberSourceFixture(): BrowserMemberSource {
       text,
     },
     parts: [
+      {
+        kind: "Declaration",
+        spans: [{
+          start: declarationStart,
+          length: text.length - declarationStart,
+          startLine: 3,
+          endLine: 8,
+          leadingIndentation: "",
+          end: text.length,
+        }],
+      },
       {
         kind: "Member",
         spans: [{
@@ -2197,13 +2241,13 @@ function memberSourceFixture(): BrowserMemberSource {
         kind: "XmlDocumentation",
         spans: [
           span("/// first", 1),
-          span("/// second", 3, secondDocumentationStart),
+          span("/// second", 2, secondDocumentationStart),
         ],
       },
       {
         kind: "Attributes",
         spans: [
-          span("[First]", 2),
+          span("[First]", 3),
           span("[Second]", 4),
         ],
       },

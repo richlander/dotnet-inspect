@@ -223,6 +223,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("cancelMemberSourceComparison"),
     queryMemberFindingCensus: () =>
       unexpected("queryMemberFindingCensus"),
+    queryPlatformMemberFindingCensus: () =>
+      unexpected("queryPlatformMemberFindingCensus"),
   },
   callGraph: {
     queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
@@ -1589,6 +1591,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "selector",
     0x06000001,
     "[]",
+    "source",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
     "Example",
@@ -1611,6 +1614,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "Clone()",
     0x06000001,
     "[]",
+    "source",
     "platform-context",
   );
   await state.environment.flushAsync();
@@ -2272,6 +2276,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "cancelMethodBodyComparison",
       "cancelSourceQuery",
       "queryMemberFindingCensus",
+      "queryPlatformMemberFindingCensus",
       "queryMemberSource",
       "queryMemberSourceComparison",
       "queryMethodBodyComparison",
@@ -2326,7 +2331,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 104);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 105);
 
   const state = fixture();
   const groups = [

@@ -29,6 +29,7 @@ public sealed record BrowserSource(
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberSourcePartKind>))]
 public enum BrowserMemberSourcePartKind
 {
+    Declaration,
     Member,
     XmlDocumentation,
     Attributes,

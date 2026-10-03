@@ -85,7 +85,6 @@ public sealed class LibraryBodyIndex
         FieldStores = analysis.Methods.FieldStores;
         FieldLoads = analysis.Methods.FieldLoads;
         ReturnFlows = analysis.Methods.ReturnFlows;
-        _localThrows = analysis.Methods.LocalThrows;
         UnsafeEvidence = analysis.Safety.Evidence;
         Diagnostics = analysis.Diagnostics;
         bool hasFullScope =
@@ -151,21 +150,6 @@ public sealed class LibraryBodyIndex
     /// anything else?" fails closed.
     /// </summary>
     public ImmutableArray<MethodReturnFlow> ReturnFlows { get; }
-    readonly ImmutableArray<MethodLocalThrowEvidence> _localThrows;
-
-    /// <summary>
-    /// Physical local-throw evidence, including unresolved sites and unavailable
-    /// bodies. No kickoff or enclosing-source attribution is applied.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// The local-throw producer was not requested.
-    /// </exception>
-    public ImmutableArray<MethodLocalThrowEvidence> LocalThrows
-        => (Features & LibraryBodyAnalysisFeatures.LocalThrows) != 0
-            ? _localThrows
-            : throw new InvalidOperationException(
-                "Local throws were not requested for this body index.");
-
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>

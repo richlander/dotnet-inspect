@@ -65,6 +65,22 @@ public sealed class BrowserMemberSourceTests
             StringComparison.Ordinal);
         Assert.Collection(
             browser.Parts,
+            declaration =>
+            {
+                Assert.Equal(
+                    BrowserMemberSourcePartKind.Declaration,
+                    declaration.Kind);
+                BrowserMemberSourceSpan span = Assert.Single(declaration.Spans);
+                Assert.Contains(
+                    "public static string? ExtractMemberText(",
+                    memberText.Substring(span.Start, span.Length),
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "/// <summary>",
+                    memberText.Substring(span.Start, span.Length),
+                    StringComparison.Ordinal);
+                Assert.Equal("    ", span.LeadingIndentation);
+            },
             member =>
             {
                 Assert.Equal(BrowserMemberSourcePartKind.Member, member.Kind);
@@ -116,7 +132,7 @@ public sealed class BrowserMemberSourceTests
             memberText,
             root.GetProperty("source").GetProperty("text").GetString());
         Assert.False(root.GetProperty("source").TryGetProperty("parts", out _));
-        JsonElement memberSpan = root.GetProperty("parts")[0]
+        JsonElement memberSpan = root.GetProperty("parts")[1]
             .GetProperty("spans")[0];
         Assert.Equal(0, memberSpan.GetProperty("start").GetInt32());
         Assert.Equal(memberText.Length, memberSpan.GetProperty("end").GetInt32());
@@ -175,6 +191,18 @@ public sealed class BrowserMemberSourceTests
         Assert.Equal(0, memberSpan.Start);
         Assert.Equal(memberText.Length, memberSpan.Length);
         Assert.Equal("    ", memberSpan.LeadingIndentation);
+
+        BrowserMemberSourcePart declaration = Assert.Single(
+            browser.Parts,
+            part => part.Kind == BrowserMemberSourcePartKind.Declaration);
+        BrowserMemberSourceSpan declarationSpan =
+            Assert.Single(declaration.Spans);
+        Assert.StartsWith(
+            "public bool WriteHeading(",
+            memberText.Substring(
+                declarationSpan.Start,
+                declarationSpan.Length),
+            StringComparison.Ordinal);
 
         BrowserMemberSourcePart documentation = Assert.Single(
             browser.Parts,
@@ -261,6 +289,11 @@ public sealed class BrowserMemberSourceTests
             native);
 
         Assert.Equal(member, browser.Source.Text);
+        AssertExactFragments(
+            document,
+            member,
+            [native.Declaration],
+            BrowserPart(BrowserMemberSourcePartKind.Declaration));
         AssertExactFragments(
             document,
             member,

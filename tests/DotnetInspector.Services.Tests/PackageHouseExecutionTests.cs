@@ -2754,10 +2754,10 @@ public sealed partial class PackageHouseExecutionTests
             failure =>
                 failure
                     is PackageHouseFailure.Authority
-                    {
-                        Failure.Timeout.Kind:
+                {
+                    Failure.Timeout.Kind:
                             PackageSourceTimeoutKind.Operation,
-                    } authority
+                } authority
                 && authority.Failure.Timeout.Duration
                     == request.Operation.OperationTimeout);
         Assert.IsType<PackageHouseFailure.Timeout>(
@@ -3078,7 +3078,12 @@ public sealed partial class PackageHouseExecutionTests
             Task>? BeforeVersions = null,
         IReadOnlyList<string>? PayloadEntries = null,
         IReadOnlyList<(string EntryPath, byte[] Content)>?
-            PayloadContentEntries = null);
+            PayloadContentEntries = null,
+        IReadOnlyDictionary<
+            string,
+            IReadOnlyList<(string EntryPath, byte[] Content)>>?
+            PayloadContentEntriesByPackageId = null,
+        bool IncludeManifest = false);
 
     private sealed class HouseEnvironment : IAsyncDisposable
     {
@@ -3207,6 +3212,13 @@ public sealed partial class PackageHouseExecutionTests
                 getStore is null
                     ? null
                     : new PackagePayloadAcquisitionPlan(getStore));
+
+        public PackageHouse CreateContentHouse(
+            PackageStoreProvider getStore) =>
+            new(
+                Authorization,
+                PackagePayloadAcquisitionPlan.ForContentQueries(
+                    getStore));
 
         public PackageSourceOperationLease IssueOperation(
             PackageHouseRequest request,
@@ -3348,7 +3360,10 @@ public sealed partial class PackageHouseExecutionTests
 
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.VersionEnumeration
-            | PackageSourceCapabilities.PackagePayload;
+            | PackageSourceCapabilities.PackagePayload
+            | (behavior.IncludeManifest
+                ? PackageSourceCapabilities.Manifest
+                : PackageSourceCapabilities.None);
 
         public int VersionRequests { get; private set; }
 
@@ -3426,7 +3441,36 @@ public sealed partial class PackageHouseExecutionTests
                         PackageSourceFailureKind.NotFound));
             }
 
-            byte[] archive = behavior.PayloadContentEntries is { } content
+            IReadOnlyList<(string EntryPath, byte[] Content)>? content =
+                behavior.PayloadContentEntriesByPackageId is { } byPackage
+                && byPackage.TryGetValue(
+                    packageId,
+                    out IReadOnlyList<
+                        (string EntryPath, byte[] Content)>? packageContent)
+                    ? packageContent
+                    : behavior.PayloadContentEntries;
+            if (behavior.IncludeManifest)
+            {
+                content =
+                [
+                    (
+                        $"{packageId}.nuspec",
+                        System.Text.Encoding.UTF8.GetBytes(
+                            $"""
+                            <package>
+                              <metadata>
+                                <id>{packageId}</id>
+                                <version>{version}</version>
+                                <dependencies>
+                                  <group targetFramework="net11.0" />
+                                </dependencies>
+                              </metadata>
+                            </package>
+                            """)),
+                    .. content ?? [],
+                ];
+            }
+            byte[] archive = content is not null
                 ? TestPackageArchive.Create([.. content])
                 : TestPackageArchive.Create(
                     [.. (behavior.PayloadEntries
@@ -3442,6 +3486,12 @@ public sealed partial class PackageHouseExecutionTests
                 factory.SucceededPackage(
                     coordinate,
                     payload));
+        }
+
+        public void ResetPayloadTracking()
+        {
+            PayloadRequests = 0;
+            PayloadPackageIds.Clear();
         }
 
         public Task<PackageSourceOperationResult<PackageSearchResult>>
@@ -3467,8 +3517,42 @@ public sealed partial class PackageHouseExecutionTests
             string packageId,
             string version,
             CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null) =>
-            throw new NotSupportedException();
+            NuGetOperationContext? operationContext = null)
+        {
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(packageId, version);
+            if (!behavior.IncludeManifest)
+                throw new NotSupportedException();
+            if (!behavior.Versions.Contains(
+                    version,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(
+                    factory.FailedManifest(
+                        coordinate,
+                        PackageSourceFailureKind.NotFound));
+            }
+
+            ReadOnlyMemory<byte> content =
+                System.Text.Encoding.UTF8.GetBytes(
+                    $"""
+                    <package>
+                      <metadata>
+                        <id>{packageId}</id>
+                        <version>{version}</version>
+                        <dependencies>
+                          <group targetFramework="net11.0" />
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """);
+            return Task.FromResult(
+                factory.SucceededManifest(
+                    coordinate,
+                    factory.Manifest(
+                        coordinate,
+                        content)));
+        }
 
         public Task<PackageSourceOperationResult<PackageSourcePayload>>
             TryGetSymbolsAsync(
