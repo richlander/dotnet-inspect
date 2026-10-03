@@ -12680,8 +12680,8 @@ function bindTypePanelEvents() {
     onMethodLeverageRetry: () => retryTypeMethodLeverage(),
     onMemberOverloadOpen: selector => {
       const member = selectedMember(selectedType());
-      if (completeMemberGroupUsesLegacyOverloadRoute(member)) {
-        openOverload(selector);
+      if (member && completeMemberGroupUsesLegacyOverloadRoute(member)) {
+        openOverload(memberNavOverloadSourceIndex(member, selector));
       } else {
         openMemberDocument(selector);
       }

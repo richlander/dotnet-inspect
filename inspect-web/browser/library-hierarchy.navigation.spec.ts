@@ -851,6 +851,16 @@ test("filtered non-public overload navigation retains its established detail rou
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface"))
     .toContainText("void Example.Widget.Hidden(int value3)");
+
+  await page.locator("[data-nav-member]").filter({ hasText: "Hidden" }).click();
+  const pickerRows = page.locator(".member-surface-list .overload-row");
+  await expect(pickerRows).toHaveCount(2);
+  await expect(pickerRows.nth(1)).toContainText("value3");
+  await pickerRows.nth(1).click();
+  await expect(page.locator('[data-nav-overload="2"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".member-surface"))
+    .toContainText("void Example.Widget.Hidden(int value3)");
 });
 
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
