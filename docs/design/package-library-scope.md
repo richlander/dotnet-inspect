@@ -273,7 +273,10 @@ tool measurements. A tool population requires an available
 `DotnetToolSettings.xml` projection; missing, invalid, or ambiguous settings
 produce a typed unavailable child document in both hosts. The settings owner
 matches an entry-point filename case-insensitively, and both hosts consume that
-correspondence when assigning `ToolEntryPoint` or `ToolLibrary`.
+correspondence when assigning `ToolEntryPoint` or `ToolLibrary`. A durable
+Package-index generation produced before those validations cannot authorize
+current tool children; the adopting CLI invalidates that generation rather
+than inferring settings availability from its cached display facts.
 
 The Package child producer applies
 [QuerySpace producer capabilities](query-space-producer-capabilities.md) below
