@@ -2255,6 +2255,7 @@ async function installFacades(
         selector,
         token,
         taste,
+        view,
         contextId
       ) {
         document.documentElement.dataset.platformMemberSourceRequest =
@@ -2268,6 +2269,7 @@ async function installFacades(
             selector,
             token,
             taste,
+            view,
             contextId,
           ]);
         return {

@@ -13,6 +13,12 @@ internal readonly record struct ReferenceAssignmentTargets(
         => CoercionRendering.IsProvenReference(target, shapes)
             && (AnyReference || Types.Contains(target));
 
+    internal static bool CanAssignNullLiteralTo(
+        IrExpression value,
+        TypeRef target,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => value is Constant { Value: null } && Any.Contains(target, shapes);
+
     internal static ReferenceAssignmentTargets ForArms(
         Conditional conditional, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {

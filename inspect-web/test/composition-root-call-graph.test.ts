@@ -542,7 +542,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -1334,7 +1334,8 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
     ?? "";
   const renderMember =
-    appSource.match(/function renderMember\([\s\S]*?\n}\n\n\/\/ The annotated section/)?.[0]
+    appSource.match(
+      /function renderMember\([\s\S]*?\n}\n\nfunction memberReceiverPrefix/)?.[0]
     ?? "";
   const memberOverview =
     renderMember.match(/if \(state\.memberSection === "overview"\) \{[\s\S]*?\n  \} else if \(state\.memberSection === "call-graph"\)/)?.[0]

@@ -14,11 +14,13 @@ document, mapping, parts, and settlement. [CSharpText](member-text-parts.md)
 owns the ranges. This projection changes neither acquisition nor lexical
 association and does not strengthen physical-declaration provenance.
 
-The shared catalog names `member`, `xml-docs`, `attributes`, `signature`, and
-`body`. Absent optional parts are omitted. The complete member includes its
-attached documentation and attributes. A selected part preserves each original
-text fragment; multiple discontiguous fragments are joined with LF for display
-or copying, without normalization within a fragment.
+The shared catalog names `declaration`, `member`, `xml-docs`, `attributes`,
+`signature`, and `body`. Absent optional parts are omitted. `declaration`
+excludes attached XML documentation while retaining attributes, signature, and
+body. `member` remains the complete member, including attached documentation
+and attributes. A selected part preserves each original text fragment;
+multiple discontiguous fragments are joined with LF for display or copying,
+without normalization within a fragment.
 
 Human text rendering restores the first physical line's original leading
 indentation before each exact fragment. Token spans omit that indentation on
@@ -67,13 +69,27 @@ indentation. Selection and Copy prepend that whitespace to the same selected
 text without another acquisition. The Source viewer visually collapses only
 the whitespace prefix shared by every nonblank selected line, left-aligning the
 ordinary member shape without changing DOM text, copied text, or less-indented
-multiline literal content. The default is the complete Member, including
-attached documentation, attributes, signature, and body. Decompiled fallback
-remains ordinary Source, with no authored part catalog. This host deliberately
-reuses its escaped DOM code viewer rather than Markout: the structured catalog
-reaches the viewer boundary, and selection changes an existing code display and
-Copy action rather than generating a new multi-format document. Type Source's
-existing flat wire contract is unchanged.
+multiline literal content. The default is Declaration when that distinct part is available, with Member
+remaining the explicit complete-text choice. When Declaration and Member are
+identical, the duplicate Declaration option is omitted and Member is the
+fallback.
+
+Member Source also exposes an **Authored / Decompiled** segmented choice.
+Authored performs the existing authored-first acquisition and may visibly
+settle as Decompiled when verified authored source is unavailable. Decompiled
+explicitly runs the member decompiler even when authored source is available.
+The Browser retains the user's requested origin separately from that settled
+display: automatic fallback affects only the current member, while an explicit
+choice also becomes the request applied to the next member.
+Decompiler output has no authored part catalog, so the part selector is absent.
+The labels describe the presented source rather than one authored acquisition
+mechanism: authored text may come from SourceLink, an embedded PDB, or verified
+local source.
+
+This host deliberately reuses its escaped DOM code viewer rather than Markout:
+the structured catalog reaches the viewer boundary, and selection changes an
+existing code display and Copy action rather than generating a new multi-format
+document. Type Source's existing flat wire contract is unchanged.
 
 ## Failure and evidence
 
@@ -89,6 +105,17 @@ The motivating asset is `richlander/dotnet-inspect` at
 metadata-only default, shared completed acquisition, exact selection, absent
 parts, checksum failure, and neighboring whole-document/decompiled behavior.
 Frontend cases gate selected rendering, Copy, and stale-result handling.
+
+The Browser pathological case is
+`System.Text.Json@11.0.0-preview.7.26381.103`,
+`System.Text.Json.JsonDocument.TryParseValue`. Its large attached XML block is
+excluded from Declaration while `[NotNullWhen(true)]`, the signature, and the
+body remain; Member retains the complete authored text. The parameter attribute
+is part of Signature rather than a standalone member-level Attributes part.
+The published Browser/Wasm gate acquires the immutable package, portable PDB,
+and exact SourceLink revision for that real member, while the cataloged
+`InspectWeb.SourceComparisonFixture` case supplies deterministic neighboring
+coverage for selection, Copy, explicit decompilation, and modal Explore.
 
 The local-PDB/no-SourceLink checksum theory
 `Member_SourceParts_LocalPdbNeedsNoMapAndRejectsMismatchedText` inherits
@@ -107,6 +134,11 @@ indentation correction. Its four XML-doc lines must retain equal indentation
 in human CLI output and Browser DOM text/Copy while structured JSON remains
 token-exact. The Browser visually left-aligns the common member indentation;
 `System.Text.Json@11.0.0-preview.7.26381.103`
-`System.Text.Json.JsonDocument.Dispose()` is the motivating production case.
+`System.Text.Json.JsonDocument.TryParseValue(...)` is the motivating
+XML-heavy production case: Declaration removes its large XML block while
+retaining the `[NotNullWhen(true)]` parameter attribute. The package's
+`JsonSerializer.Serialize<TValue>(...)` overloads independently demonstrate
+member-level attributes. `JsonDocument.Dispose()` remains the indentation
+case.
 The focused presentation and host cases also preserve tabs, line terminators,
 discontiguous fragments, and multiline literal contents.
