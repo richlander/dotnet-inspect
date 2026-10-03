@@ -154,7 +154,6 @@ public sealed class HttpClientFactoryTests : IDisposable
         Assert.Equal(
             "https://example.test/source.cs?REDACTED",
             observation.Url!.Value.ToString());
-        Assert.True(observation.IsAllowedByPolicy);
 
         ActivityEvent activityEvent = Assert.Single(activity!.Events);
         Dictionary<string, object?> tags = activityEvent.Tags.ToDictionary(
@@ -165,8 +164,12 @@ public sealed class HttpClientFactoryTests : IDisposable
             tags["url.full"]);
     }
 
-    [Fact]
-    public async Task NetworkPolicyBlocksUnapprovedTrafficAfterObservation()
+    [Theory]
+    [InlineData(NetworkTrafficKind.VulnerabilityData)]
+    [InlineData(NetworkTrafficKind.AdvisoryData)]
+    [InlineData(NetworkTrafficKind.SymbolDownload)]
+    public async Task NetworkTelemetryObservesEveryTrafficKindWithoutBlocking(
+        NetworkTrafficKind trafficKind)
     {
         var transport = new StubHttpMessageHandler();
         var observer = new RecordingObserver();
@@ -174,30 +177,7 @@ public sealed class HttpClientFactoryTests : IDisposable
         using var client = new HttpClient(new NetworkTelemetryHandler(
             transport,
             NetworkClientKinds.Shared));
-        using IDisposable traffic =
-            NetworkTelemetry.Scope(NetworkTrafficKind.VulnerabilityData);
-
-        await Assert.ThrowsAsync<NetworkPolicyException>(
-            () => client.GetAsync(
-                "https://api.nuget.org/v3/vulnerabilities/index.json",
-                TestContext.Current.CancellationToken));
-
-        NetworkRequestObservation observation = Assert.Single(observer.Observations);
-        Assert.False(observation.IsAllowedByPolicy);
-        Assert.Equal(0, transport.RequestCount);
-    }
-
-    [Fact]
-    public async Task NetworkPolicyAllowsAuthorizedTraffic()
-    {
-        var transport = new StubHttpMessageHandler();
-        using var client = new HttpClient(new NetworkTelemetryHandler(
-            transport,
-            NetworkClientKinds.Shared));
-        using IDisposable allowance =
-            NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData);
-        using IDisposable traffic =
-            NetworkTelemetry.Scope(NetworkTrafficKind.VulnerabilityData);
+        using IDisposable traffic = NetworkTelemetry.Scope(trafficKind);
 
         using HttpResponseMessage response = await client.GetAsync(
             "https://api.nuget.org/v3/vulnerabilities/index.json",
@@ -205,6 +185,8 @@ public sealed class HttpClientFactoryTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(1, transport.RequestCount);
+        NetworkRequestObservation observation = Assert.Single(observer.Observations);
+        Assert.Equal(trafficKind, observation.TrafficKind);
     }
 
     private sealed class RecordingObserver :

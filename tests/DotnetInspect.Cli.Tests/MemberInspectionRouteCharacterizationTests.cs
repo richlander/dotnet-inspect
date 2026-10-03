@@ -189,11 +189,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     packageDiscoveryDemand),
                 packagePipeline,
                 packageSections,
-                "focus:vulnerability-traffic="
-                    + PackageCommand.AllowsVulnerabilityTraffic(packageOptions)
-                    + ";discovery:vulnerability-traffic="
-                    + PackageCommand.AllowsVulnerabilityTraffic(
-                        packageProducerOptions)),
+                "focus:package-metadata="
+                    + PackageCommand.RequiresPackageMetadata(
+                        packageOptions,
+                        packagePipeline)
+                    + ";discovery:package-metadata="
+                    + PackageCommand.RequiresPackageMetadata(
+                        packageProducerOptions,
+                        packagePipeline)),
             Observe(
                 "package-single-library",
                 await ObservePackageLibraryDiscoveryAsync(),
@@ -260,8 +263,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "Package[schema:61:4FD76B6F9943]",
                 "focus=SourceLink: Availability->SourceLink availability;"
                     + "discovery=none",
-                "focus:vulnerability-traffic=True;"
-                    + "discovery:vulnerability-traffic=False"),
+                "focus:package-metadata=True;"
+                    + "discovery:package-metadata=False"),
             new(
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
