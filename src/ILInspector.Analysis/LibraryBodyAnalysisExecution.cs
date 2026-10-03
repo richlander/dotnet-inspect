@@ -328,6 +328,9 @@ public sealed class LibraryBodyAnalysisExecution
             Receipt,
             _moduleName,
             analysis);
+        LocalThrows = new(
+            Receipt,
+            analysis.Methods.LocalThrows);
         JsonWireContracts = new(
             Receipt,
             CallGraph,
@@ -523,6 +526,9 @@ public sealed class LibraryBodyAnalysisExecution
 
     /// <summary>Focused local call-graph result.</summary>
     public LibraryCallGraphAnalysisResult CallGraph { get; }
+
+    /// <summary>Focused physical local-throw evidence.</summary>
+    public LibraryLocalThrowAnalysisResult LocalThrows { get; }
 
     /// <summary>Focused JSON wire-contract call and value-flow evidence.</summary>
     public LibraryJsonWireContractAnalysisResult JsonWireContracts { get; }

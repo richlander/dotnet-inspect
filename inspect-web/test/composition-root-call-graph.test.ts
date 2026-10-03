@@ -542,7 +542,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -1335,7 +1335,8 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
     ?? "";
   const renderMember =
-    appSource.match(/function renderMember\([\s\S]*?\n}\n\n\/\/ The annotated section/)?.[0]
+    appSource.match(
+      /function renderMember\([\s\S]*?\n}\n\nfunction memberReceiverPrefix/)?.[0]
     ?? "";
   const memberOverview =
     renderMember.match(/if \(state\.memberSection === "overview"\) \{[\s\S]*?\n  \} else if \(state\.memberSection === "call-graph"\)/)?.[0]
@@ -1575,7 +1576,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metrics"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml: metadataLibraryControl[\s\S]*?package-metadata-controls/);
@@ -1599,16 +1600,16 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
 });
 
-test("library Metrics uses the full-area analysis working surface", () => {
+test("all Library Analysis modes use one full-area working surface", () => {
   assert.match(
     appSource,
-    /const libraryMetricsWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "metrics"/);
+    /const libraryAnalysisWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "analysis"/);
   assert.match(
     appSource,
-    /libraryAnalysisWorkingSurface \|\| libraryMetricsWorkingSurface \? " library-analysis-working-surface" : ""/);
+    /libraryAnalysisWorkingSurface \? " library-analysis-working-surface" : ""/);
   assert.match(
     appSource,
-    /contentNavigationIntegrated =[\s\S]*\|\| libraryMetricsWorkingSurface[\s\S]*?;/);
+    /contentNavigationIntegrated =[\s\S]*\|\| libraryAnalysisWorkingSurface[\s\S]*?;/);
 });
 
 test("package dependencies use compact coordinates in a full-area working surface", () => {

@@ -1400,8 +1400,6 @@ public sealed partial class CSharpPrinter
 
     bool CanAssignTo(IrExpression value, TypeRef target)
     {
-        if (value is Constant { Value: null })
-            return IsReferenceLike(target);
         if (value is Conditional conditional)
             return CanRenderValueConditionalForTarget(conditional, target)
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));

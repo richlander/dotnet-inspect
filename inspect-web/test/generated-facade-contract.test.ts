@@ -52,9 +52,13 @@ test("source facade separates member parts from flat source", () => {
     "export interface BrowserMemberSource {",
   ));
   assert.ok(sourceDeclarations.includes(
+    "export type BrowserMemberSourcePartKind = \"Declaration\" | \"Member\"",
+  ));
+  assert.ok(sourceDeclarations.includes(
     "queryMemberSource(packageId: string, version: string, targetFramework: string, "
     + "assemblyName: string, typeIdentity: string, memberName: string, "
-    + "selectorKey: string, metadataToken: number, styleOptionsJson: string): "
+    + "selectorKey: string, metadataToken: number, styleOptionsJson: string, "
+    + "view: string): "
     + "Promise<BrowserMemberSource>;",
   ));
   assert.ok(sourceDeclarations.includes(

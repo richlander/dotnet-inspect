@@ -444,7 +444,9 @@ public static class LibrarySections
             new Inspector.Findings.FindingSubject(
                 Path.GetFullPath(context.AssemblyPath),
                 Path.GetFileName(context.AssemblyPath)));
-        if (result is ResourceTriageResult.Available)
+        if (result
+            is ResourceTriageResult.Available
+                or ResourceTriageResult.Incomplete)
             _ = context.DrillMap();
         return result;
     }

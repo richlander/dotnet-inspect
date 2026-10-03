@@ -39,11 +39,9 @@ export const packageLenses = [
 
 export const libraryLenses = [
   ["overview", "Overview"],
-  ["compare", "Compare"],
   ["references", "References"],
-  ["integrations", "Integrations"],
+  ["compare", "Compare"],
   ["analysis", "Analysis"],
-  ["metrics", "Metrics"],
   ["metadata", "Metadata"]
 ] as const;
 
@@ -70,7 +68,6 @@ export const memberSectionDefinitions = [
   ["call-graph", "Call graph"],
   ["facts", "Facts"],
   ["source", "Source"],
-  ["annotated", "Annotated source"],
   ["compare", "Compare"],
 ] as const;
 
@@ -1630,8 +1627,7 @@ export function sourceReloadKind(
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && (state.memberSection === "annotated"
-      || state.memberSection === "facts")
+    && state.memberSection === "facts"
     && memberSourceHasConcreteOverload) {
     return "annotated";
   }
@@ -1660,7 +1656,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "annotated", "compare"]);
+  new Set<MemberSection>(["facts", "compare"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,

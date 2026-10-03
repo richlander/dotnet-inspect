@@ -5,8 +5,7 @@ Status: proposed, merge-blocking design for
 External-opening adoption is tracked by
 [#8439](https://github.com/richlander/dotnet-inspect/issues/8439).
 
-**Owner:** interaction inside the embedded Annotated Source reader and the
-modal Annotated Source viewer.
+**Owner:** interaction inside the transient full-bleed Annotated Source viewer.
 
 This document owns the viewer's disclosure, action vocabulary, selection,
 annotation, media, detail, Escape, and focus behavior. It consumes rather than
@@ -45,17 +44,16 @@ exception from this design.
 
 ## Experience
 
-Annotated Source presents the same product-owned document through two levels
-of disclosure:
+Annotated Source presents one product-owned document in a transient modal. It
+is the full-bleed viewer defined by
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md), not a
+durable workspace lens or Member inspector. Member Source **Explore** is its
+primary entry. Exact Findings in Member Facts and exact body destinations in
+Type Explorer may open the same viewer with an initial selection.
 
-1. The **embedded reader** shows the complete C# declaration, C# body, and
-   default visible Finding annotations. A reader can inspect a Finding without
-   entering the modal. **Explore** opens the modal viewer.
-2. The **modal viewer** adds IL, offsets, annotation controls, source-node
-   selection, a persistent inspector, and explicit destination actions. It is
-   the full-bleed modal defined by
-   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md), not a
-   durable workspace lens.
+The Member Source working surface remains ordinary source presentation. It
+does not embed a reduced Annotated Source reader or duplicate the viewer's IL,
+annotation, Finding, and destination controls.
 
 Every gesture belongs to one stage:
 
@@ -83,29 +81,28 @@ not use chip styling.
   detail for one physical source occurrence. It does not navigate.
 - A **destination action** names the destination, such as **Member** or
   **Source**. A generic **Navigate** action is prohibited.
-- **Explore** opens the modal. **Close** dismisses it.
+- Source **Explore** opens the modal. **Close** dismisses it.
 - A copy action names what it copies. Copying annotated source copies the
   source document, never annotation labels or inspector chrome.
 
 One pill treatment must not make toggles, selections, Finding detail, and
 destinations appear interchangeable.
 
-| Affordance | Embedded | Modal | Activation |
-| --- | --- | --- | --- |
-| Ordinary source text | Yes | Yes | Native text selection only |
-| Addressable source span | No action | Yes | Selects the tightest product-issued node |
-| Invocation-like source span | No action | Yes | Selects the tightest invocation-like node; does not navigate |
-| Finding annotation chip | Default rendered Findings | Rendered Findings | Makes that Finding primary and opens detail |
-| Finding toggle chip | No | Every annotatable Finding | Adds or removes one active annotation |
-| Finding inspector action | No | Every Finding | Makes that Finding primary and opens detail |
-| Relationship call site | No | Every projected physical call | Opens the exact `call.edge` Finding detail without changing annotations |
-| Relationship target destination | No | Typed target capability | Requests **Member** or **Source** for that exact target |
-| Node selection chip | No | Selected/related nodes | Selects or focuses that exact node |
-| Medium toggle | No | Each document-supported medium | Shows or hides that medium; rejects hiding the last visible medium |
-| Coordinate toggle | No | Product coordinates available | Shows or hides offsets and source ranges |
-| Named destination | No | Product capability only | Requests that exact destination |
-| **Explore** | Yes | No | Opens a fresh modal session |
-| **Close** | No | Yes | Dismisses the modal and any viewer detail |
+| Affordance | Modal availability | Activation |
+| --- | --- | --- |
+| Ordinary source text | Always | Native text selection only |
+| Addressable source span | Product-issued span | Selects the tightest product-issued node |
+| Invocation-like source span | Product-issued span | Selects the tightest invocation-like node; does not navigate |
+| Finding annotation chip | Rendered Findings | Makes that Finding primary and opens detail |
+| Finding toggle chip | Every annotatable Finding | Adds or removes one active annotation |
+| Finding inspector action | Every Finding | Makes that Finding primary and opens detail |
+| Relationship call site | Every projected physical call | Opens the exact `call.edge` Finding detail without changing annotations |
+| Relationship target destination | Typed target capability | Requests **Member** or **Source** for that exact target |
+| Node selection chip | Selected/related nodes | Selects or focuses that exact node |
+| Medium toggle | Each document-supported medium | Shows or hides that medium; rejects hiding the last visible medium |
+| Coordinate toggle | Product coordinates available | Shows or hides offsets and source ranges |
+| Named destination | Product capability only | Requests that exact destination |
+| **Close** | Always | Dismisses the modal and any viewer detail |
 
 Pointer and keyboard activation have the same semantic result. Pointer
 movement that becomes a text drag remains native text selection and does not
@@ -166,33 +163,29 @@ heading and, for an eligible transferred Finding, its persistent inspector
 action as the current-selection focus choice; exact shell focus composition
 remains outside this viewer owner.
 
-The embedded reader can produce a primary only from a default rendered C# chip,
-so every representable embedded primary is eligible to transfer into the fresh
-modal. Unanchored, IL-only, and non-default Findings have no embedded action and
-cannot become embedded primary. Embedded detail never transfers: the modal has
-different controls and therefore cannot truthfully retain an embedded opener.
+Member Source **Explore** supplies no initial primary. A Facts or Type Explorer
+request may supply one exact initial Finding through its typed identity. No
+selection, detail, or annotation state is inferred from the ordinary source
+text or transferred from a hidden reader.
 
-Modal dismissal destroys modal-local state. For an embedded-reader open, it
-derives the embedded primary from the modal primary using the same
-default-and-C# eligibility rule, closes detail, and leaves the embedded reader
-at its fixed presentation. A later open starts fresh; it does not resurrect
-the dismissed modal's annotation, media, coordinate,
+Modal dismissal destroys modal-local state. A later open starts fresh; it does
+not resurrect the dismissed modal's annotation, media, coordinate,
 relationship-presentation, node, or detail state.
 
 The modal is opened and dismissed through
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Those
 operations do not push or replace browser-history entries. Ordinary dismissal
-applies the open request's shell-owned dismissal focus effect. For an
-embedded-reader open, that effect focuses the stable **Explore** control.
-Browser Back or Forward first dismisses the modal without applying ordinary
-focus return and then
+applies the open request's shell-owned dismissal focus effect. A Member Source
+open returns to the stable **Explore** control; a Facts open returns to its
+exact Finding action while that action remains current. Browser Back or
+Forward first dismisses the modal without applying ordinary focus return and
+then
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) performs
 the history navigation.
 
-### External opening
+### Opening
 
-An inspection surface may request the existing modal without rendering an
-embedded Annotated Source reader. The request supplies:
+An inspection surface may request the modal. The request supplies:
 
 - one settled Annotated Source result associated with one exact
   product-issued member/body destination; and
@@ -205,17 +198,17 @@ text, or DOM position. Destination construction, acquisition, and validation
 remain with their product owners; the external caller does not receive a
 second viewer-specific identity.
 
-An admitted external request starts the same fresh modal session as
-**Explore**, except that there is no embedded primary to transfer. Initial
-focus therefore uses the shell-permitted modal heading target. External
-opening does not add a second Annotated Source interaction mode, retain caller
-presentation inside viewer state, or change annotation, media, relationship,
-detail, Escape, or destination behavior.
+An admitted request starts a fresh modal session. Source **Explore** uses the
+shell-permitted modal heading target. A caller with an exact Finding may select
+that Finding and focus its detail heading. Opening does not add a second
+Annotated Source interaction mode, retain caller presentation inside viewer
+state, or change annotation, media, relationship, detail, Escape, or
+destination behavior.
 
 Unsupported, missing, ambiguous, stale, or failed destination acquisition
 does not open the modal. The caller keeps its current surface, presents the
 typed failure, and retains useful focus. The viewer never substitutes another
-body or overload and never falls back to an embedded reader.
+body or overload.
 
 Ordinary **Close**, backdrop activation, or final layered Escape dismissal
 applies the caller-issued focus effect. While the issuing renderer remains
@@ -232,27 +225,20 @@ than an element reference. This owner does not claim exact-opener restoration
 across full renderer replacement.
 
 Browser Back or Forward and committed destination navigation dismiss without
-ordinary focus return, as they do for embedded opening. A viewer-local refusal
-before navigation commitment retains the modal, reports the reason there, and
-keeps its original dismissal focus effect. Once navigation is committed, every
-returned typed outcome follows Shell Interaction and Navigation Consumer: the
-modal remains closed, successful navigation focuses its destination, and a
-non-applied outcome focuses the surviving logical invoker or retained surface
-heading without reopening the modal. Opening a replacement modal closes the
-prior modal without returning focus, then admits the replacement request under
-the shell's one-modal rule.
+ordinary focus return. A viewer-local refusal before navigation commitment
+retains the modal, reports the reason there, and keeps its original dismissal
+focus effect. Once navigation is committed, every returned typed outcome
+follows Shell Interaction and Navigation Consumer: the modal remains closed,
+successful navigation focuses its destination, and a non-applied outcome
+focuses the surviving logical invoker or retained surface heading without
+reopening the modal. Opening a replacement modal closes the prior modal without
+returning focus, then admits the replacement request under the shell's
+one-modal rule.
 
-[#8083](https://github.com/richlander/dotnet-inspect/issues/8083) owns the
-production path. This focused adoption establishes the Annotated Source
-capability first. A later Type Explorer consumer slice supplies one exact
-body-bearing destination and stable declaration opener, then proves production
-drill-down and dismissal return with the pinned `System.Text.Json` package.
-That consumer either preserves its destination renderer lifetime while the
-modal is open or separately adopts a Navigation Consumer change before
-claiming exact-opener return across replacement. It also supplies the
-caller-owned same-lifetime effect that falls back from a removed exact opener
-to the current Type Explorer heading. This owner does not define that caller's
-projection, availability UI, route state, or replacement policy.
+The production consumers are Member Source **Explore**, exact Member Facts
+Finding actions, and Type Explorer body destinations. Each supplies its own
+typed destination and dismissal focus effect. This owner does not define those
+callers' projections, availability UI, route state, or replacement policy.
 
 ## Annotation sets
 
@@ -382,8 +368,7 @@ offsets, and retains focus when activated. It changes no annotation, medium,
 primary, or detail state. Annotation-set and medium controls preserve
 coordinate visibility. Dismissal destroys the preference, so a later modal
 session starts with coordinates hidden. The toggle's label names the
-coordinate system; unexplained hexadecimal values do not appear in the
-embedded reader.
+coordinate system.
 
 ## Finding detail and focus
 
@@ -477,19 +462,11 @@ Escape is layered inside the viewer:
    focus as above.
 2. If no transient layer remains and the modal is open, dismiss the modal
    through the shell owner.
-3. In the embedded reader with no transient layer, leave viewer state and
-   focus unchanged and return Escape unhandled to the workspace.
-
-Embedded viewer-local Escape is eligible only while the embedded reader is the
-active workspace surface and no shell overlay owns focus. Opening Spotlight or
-another shell overlay leaves embedded detail state intact, but that hidden
-detail cannot consume Escape or receive restored focus through the overlay.
 
 Pointer activation of **Close** may dismiss the whole modal even while detail
 is open. It is not the keyboard Escape transition. The shell then restores
-focus through the current open request's ordinary-dismissal effect: **Explore**
-for an embedded-reader open, or the caller-issued focus effect for an
-external open.
+focus through the current open request's ordinary-dismissal effect: Source
+**Explore**, an exact Facts Finding, or the caller-issued Type Explorer effect.
 
 Focus is trapped inside the open modal by
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Successful
@@ -532,8 +509,8 @@ The portable document is validated before rendering. A rejected document
 remains a visible failure at the shell boundary; it does not abort the global
 render or become an empty success. A rejected modal remains dismissible and
 inside the shell-owned modal focus contract. Dismissal does not require
-revalidating the rejected document; when the embedded **Explore** control is
-unavailable, focus moves to the embedded rejection heading instead.
+revalidating the rejected document; focus returns through the opening
+surface's dismissal effect.
 
 ## Adjacent integrations
 
@@ -593,11 +570,17 @@ bounded executable design model for viewer-local interaction. It checks:
   and
 - annotation and presentation preservation across Finding and node selection.
 
+The model predates retirement of the production embedded reader and retains
+that larger state space as component-level evidence. Those embedded states do
+not authorize a Browser working surface. Host conformance requires the modal
+subset plus a composition gate proving that Member navigation has no Annotated
+Source inspector or embedded reader.
+
 The model deliberately omits shell history, modal stacking outside this
 viewer, asynchronous navigation authority, packet state, declaration
-construction, Finding census construction, document production, and external
-dismissal-target resolution. External opening reuses the modeled fresh modal
-session with no eligible embedded primary; shell-composition gates own its
+construction, Finding census construction, document production, and caller
+dismissal-target resolution. Production opening reuses the modeled fresh modal
+session with no embedded-primary transfer; shell-composition gates own its
 admission and focus-return behavior. The model's finite bounds, TLC result,
 mutation evidence, and non-claims are recorded in the
 [model README](models/annotated-source-viewer/README.md).
@@ -610,19 +593,17 @@ Conformance requires:
   documented mutation counterexamples;
 - action-matrix tests proving every chip-shaped element is a button with one
   documented verb and equivalent pointer/keyboard activation, plus exact set
-  equality for enabled embedded and modal annotation chips, persistent
+  equality for enabled modal annotation chips, persistent
   inspector actions, annotatable-Finding toggles, and supported-medium toggles,
   plus exact availability of selectable nodes and fixed controls, with an
   unanchored inspector witness and pointer **Close** exercised while detail is
   open;
-- modal-session tests proving fresh initialization, eligible primary transfer,
-  independently derived transfer eligibility, embedded-detail destruction on
-  opening, shell-permitted heading or current-selection focus, state
-  destruction on dismissal, and no detail transfer;
-- external-opening tests proving exact destination/result association,
-  fresh-state parity with no embedded-primary transfer, heading initial focus,
-  typed failure without modal opening, and no overload, body, embedded-reader,
-  or display-text fallback;
+- modal-session tests proving fresh initialization, typed initial Finding
+  selection, shell-permitted heading or current-selection focus, and state
+  destruction on dismissal;
+- opening tests proving exact destination/result association,
+  fresh-state parity, heading initial focus, typed failure without modal
+  opening, and no overload, body, hidden-reader, or display-text fallback;
 - active-versus-rendered tests covering C#-only, IL-only, dual-target, and
   unanchored Findings plus a non-Finding structural annotation, with rendered
   targets derived directly from owning-annotation membership and visible media;
@@ -642,8 +623,7 @@ Conformance requires:
 - primary tests proving Finding and node transitions are explicit and toggles
   do not select;
 - detail-open and close tests proving exact opener identity, including two
-  same-medium targets and embedded-chip activation, historical eligible-primary
-  transfer on modal opening, and preservation of surface, primary selection,
+  same-medium targets, and preservation of surface, primary selection,
   annotation membership, media, and coordinates on direct close;
 - detail-content tests using valid product-issued fixtures, proving chip and
   persistent-inspector paths render the same non-empty content, preserve every
@@ -653,9 +633,9 @@ Conformance requires:
 - Finding- and node-selection tests beginning from non-default annotation,
   media, and coordinate state and proving those orthogonal states are
   preserved;
-- layered Escape tests distinguishing detail closure, modal dismissal, and
-  embedded fall-through, with an independent before/after oracle for every
-  viewer-owned state field and focus;
+- layered Escape tests distinguishing detail closure from modal dismissal,
+  with an independent before/after oracle for every viewer-owned state field
+  and focus;
 - focus tests for direct close, including pointer Close while detail is open,
   annotation-set controls, annotation, media, and coordinate toggles,
   viewer-local destination refusal, returned typed navigation failure, and
@@ -674,12 +654,12 @@ Conformance requires:
 - source-copy tests proving annotations and chrome are excluded;
 - replacement-render tests proving stable addressable-source focus, plus shell
   containment tests proving rejected documents remain visible, dismissible
-  without revalidation, and focused at the embedded rejection after dismissal;
-- real-browser tests proving embedded and modal Finding annotation chips open
-  focused detail without changing the current source scroll position;
+  without revalidation, and returned to the opening surface after dismissal;
+- real-browser tests proving modal Finding annotation chips open focused detail
+  without changing the current source scroll position;
 - real-browser tests proving source-node selection and detail-close focus
   reveal their exact targets within the relevant source or inspector viewport;
-- a real-browser external open with no embedded reader, proving modal
+- real-browser Source and Facts opens with no embedded reader, proving modal
   containment and exact ordinary-dismissal focus restoration;
 - a style gate rejecting persistent source-text underlines; and
 - a CI-integrated real-browser gate for pointer hit testing, focus, Escape,

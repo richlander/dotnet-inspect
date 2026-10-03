@@ -1696,7 +1696,8 @@ public class LibraryInspectionView
     private IEnumerable<ResourceTriageSummary> ResourceTriageSummaries()
     {
         if (_data.ResourceTriageQueryResult
-            is ResourceTriageResult.Available)
+            is ResourceTriageResult.Available
+                or ResourceTriageResult.Incomplete)
         {
             var drillByToken = _data.ResourceTriageDrillMap
                 ?? throw new InvalidOperationException(
