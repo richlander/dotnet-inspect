@@ -298,33 +298,6 @@ public sealed class LibraryBodyIndex
     /// <summary>Offset-keyed allocation occurrences, grouped by containing method token.</summary>
     public IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> GetAllocationOccurrences() => _allocationOccurrences;
 
-    /// <summary>
-    /// Exact <see cref="TypeRef"/> identities of types recognized as protobuf/gRPC
-    /// generated implementation detail, detected structurally (no attributes are
-    /// emitted on this code). Keys are definition identities, not qualified display
-    /// strings: namespace <c>N.A</c> plus root <c>B</c> is distinct from namespace
-    /// <c>N</c> plus nested <c>A+B</c>. A type qualifies when
-    /// any of its methods bootstraps protobuf generated infrastructure — calling
-    /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
-    /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
-    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — where the bootstrap type
-    /// comes from the real <c>Google.Protobuf</c> assembly (a user assembly can declare
-    /// <c>Google.Protobuf.*</c> lookalikes, so namespace/name alone is not sufficient,
-    /// #1580) — or is a gRPC stub that both
-    /// declares infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
-    /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>) <em>and</em> calls into
-    /// <c>Grpc.Core</c> (the binding/marshalling APIs a generated stub uses). A generated
-    /// member name alone is not sufficient — an ordinary user type can declare a
-    /// <c>__Helper_*</c> method — so the structural <c>Grpc.Core</c> tie is required to avoid
-    /// classifying user lookalikes as generated. gRPC binding calls
-    /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are still not a signal on their own,
-    /// since hand-written registration uses them without the generated members. These signals
-    /// appear in generated protobuf/gRPC code, so perf triage can mark them in Top Leverage and
-    /// suppress them from Performance Triage like other generated detail.
-    /// </summary>
-    public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
-        => _optimization.GeneratedFrameworkTypes;
-
     public static LibraryBodyIndex Open(string path)
         => LibraryBodyAnalysisService.AnalyzePath(
             path,
