@@ -332,7 +332,7 @@ public partial class PackageCommand
         && sections.Contains(PackageSections.EcosystemDependencies)
         && !sections.Contains(PackageSections.PackageInfo);
 
-    private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
+    private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, CompanionOutput companionOutput)
     {
         string searchPath;
         string relativeBase;
@@ -428,11 +428,11 @@ public partial class PackageCommand
         }
 
         PackageOutputFormatter.WriteFileTree([.. visibleResults]);
-        WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
+        WriteFileLayoutTips(extractPath, options, packageName, companionOutput, isLayout: true);
         return 0;
     }
 
-    internal static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel, bool isLayout)
+    internal static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, CompanionOutput companionOutput, bool isLayout)
     {
         // Tips are not shown for --layout mode
     }

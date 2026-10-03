@@ -2682,6 +2682,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.Evidence.IsDefault);
         Assert.True(
             execution.Safety.WasRequested);
+        Assert.Equal(
+            execution.CallGraph.DeclaredMethods.Length,
+            execution.Safety.UnsafeModes.Total);
         Assert.False(
             execution.Allocations.WasRequested);
         Assert.Empty(
@@ -2747,6 +2750,11 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.Evidence);
         Assert.Empty(
             execution.Safety.Occurrences);
+        Assert.Throws<InvalidOperationException>(
+            () => execution.Safety.UnsafeModes);
+        Assert.IsType<
+            ILInspector.Metadata.MemorySafetyRulesResult.Available>(
+            execution.Safety.MemorySafetyRules);
         Assert.False(
             execution.Allocations.WasRequested);
         Assert.Empty(
@@ -3007,10 +3015,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.ImplementationProfiles
                 .OverloadRelationships,
             index.OverloadRelationships());
-        Assert.True(
-            execution.ImplementationProfiles
-                .GeneratedFrameworkTypes.SetEquals(
-                    index.GeneratedFrameworkTypes));
     }
 
     static ImmutableArray<int> ManagedMethodTokens(
@@ -3310,9 +3314,5 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Optimization
                 .AllocationFanoutOpportunities,
             index.AllocationFanoutOpportunities);
-        Assert.True(
-            execution.Optimization
-                .GeneratedFrameworkTypes.SetEquals(
-                    index.GeneratedFrameworkTypes));
     }
 }

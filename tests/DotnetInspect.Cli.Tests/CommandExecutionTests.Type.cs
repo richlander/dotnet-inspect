@@ -26,7 +26,7 @@ public partial class CommandExecutionTests
                         ? "System.Text.Json"
                         : "System.Private.CoreLib",
                     "-S", "Classes,Structs",
-                    "--count", "--tree", "--tips", "q"]);
+                    "--count", "--tree"]);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -61,9 +61,7 @@ public partial class CommandExecutionTests
             "--library",
             TestAssemblyPath,
             "-S",
-            "Decompiled Source",
-            "--tips",
-            "q");
+            "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -100,16 +98,12 @@ public partial class CommandExecutionTests
                 "type",
                 "N.Widget",
                 "--library",
-                path,
-                "--tips",
-                "q");
+                path);
             var memberResult = await RunAppAsync(
                 "member",
                 "N.Widget",
                 "--library",
-                path,
-                "--tips",
-                "q");
+                path);
 
             Assert.Empty(typeResult.Error);
             Assert.Empty(memberResult.Error);
@@ -129,7 +123,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Coll", "--platform", "System.Private.CoreLib",
-            "--tips", "q", "-S", SectionNames.ApiInfo);
+            "-S", SectionNames.ApiInfo);
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
@@ -141,7 +135,7 @@ public partial class CommandExecutionTests
         // The single-type overview is not renderable here, so selecting it must fail loudly and
         // point at the section that answers the same question for this view.
         var (staleExit, _, staleError) = await RunAppAsync(
-            "type", "System.Coll", "--platform", "System.Private.CoreLib", "--tips", "q",
+            "type", "System.Coll", "--platform", "System.Private.CoreLib",
             "-S", SectionNames.TypeInfo);
 
         Assert.Equal(1, staleExit);
@@ -177,8 +171,6 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--tail",
-            "--tips",
-            "q",
         ];
 
         var markdown = await RunAppAsync(args);
@@ -244,9 +236,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--tail",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -271,8 +261,6 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "--json",
-            "--tips",
-            "q",
         ];
         var window = await RunAppAsync(
             [.. args, "--rows", "1..1"]);
@@ -313,9 +301,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "--rows",
             "9999..9999",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -397,8 +383,6 @@ public partial class CommandExecutionTests
                 "-n",
                 "1",
                 "--json",
-                "--tips",
-                "q",
             ]);
 
         Assert.Equal(1, exit);
@@ -418,9 +402,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-t",
             "2",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -527,7 +509,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_NormalVerbosity_StaysShapeAndExpandsOverloads()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-v:n", "--tips", "q");
+            "type", "System.Text.Json.JsonSerializer", "-v:n");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -636,7 +618,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_MarkdownUsesLfThroughout()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-v:n", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-v:n");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -648,7 +630,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-v:q", "--tips", "q");
+            "type", "System.Text.Json.JsonSerializer", "-v:q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -660,7 +642,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_MarkdownQuiet_RendersCompactSectionView()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "--markdown", "-v:q", "--tips", "q");
+            "type", "System.Text.Json.JsonSerializer", "--markdown", "-v:q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -674,7 +656,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_MarkdownMinimal_IncludesLibraryContext()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.FrozenDictionary", "--markdown", "--tips", "q");
+            "type", "System.Collections.FrozenDictionary", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -693,7 +675,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Text.Json.JsonSerializer", "--plaintext",
-            $"-v:{verbosity}", "--tips", "q");
+            $"-v:{verbosity}");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -711,7 +693,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Runtime.CompilerService", "--table", "--tips", "q");
+            "type", "System.Runtime.CompilerService", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error);
@@ -723,7 +705,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text", "--table", "--tips", "q");
+            "type", "System.Text", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort platform prefix matches", error);
@@ -738,11 +720,11 @@ public partial class CommandExecutionTests
     {
         var found = await RunAppAsync(
             "type", "System.IO.Compression.ZipF",
-            "--count", "--tips", "q");
+            "--count");
         var explicitClasses = await RunAppAsync(
             "type", "System.IO.Compression.ZipF",
             "-S", SectionNames.Classes,
-            "--count", "--tips", "q");
+            "--count");
 
         Assert.Equal(0, found.Exit);
         Assert.Equal(0, explicitClasses.Exit);
@@ -762,7 +744,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_WildcardNote_DoesNotDoubleStar()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text*", "--table", "--tips", "q");
+            "type", "System.Text*", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.StringBuilder", output);
@@ -774,7 +756,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_AllMissProjection_ReportsCleanError()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text", "--table", "--columns", "Library", "--tips", "q");
+            "type", "System.Text", "--table", "--columns", "Library");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -786,7 +768,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_PartialProjection_WarnsForMissingColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text", "--table", "--columns", "Type,Library,Members", "--tips", "q");
+            "type", "System.Text", "--table", "--columns", "Type,Library,Members");
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.StringBuilder", output);
@@ -797,7 +779,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Regex", "--markdown", "--tips", "q");
+            "type", "Regex", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
@@ -809,12 +791,12 @@ public partial class CommandExecutionTests
     public async Task Type_BareCount_SimpleTypeMiss_CountsResolvedMembers()
     {
         var found = await RunAppAsync(
-            "type", "Regex", "--count", "--tips", "q");
+            "type", "Regex", "--count");
         var direct = await RunAppAsync(
             "type", "Regex",
             "--platform", "System.Text.RegularExpressions",
             "-S", SectionNames.MemberIndex,
-            "--count", "--tips", "q");
+            "--count");
 
         Assert.Equal(0, found.Exit);
         Assert.Equal(0, direct.Exit);
@@ -843,9 +825,7 @@ public partial class CommandExecutionTests
             typeName,
             "--platform",
             "System.Private.CoreLib",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(expectedMember, output);
@@ -860,9 +840,7 @@ public partial class CommandExecutionTests
             "OrderedDictionary<TKey,TValue>.*Collection",
             "--platform",
             "System.Collections",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("KeyCollection", output);
@@ -881,9 +859,7 @@ public partial class CommandExecutionTests
             "System.Collections.Generic.List<T U?>",
             "-S",
             "Classes",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("0", output.Trim());
@@ -899,7 +875,7 @@ public partial class CommandExecutionTests
         string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", target, "--markdown", "--tips", "q");
+            "type", target, "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -917,9 +893,7 @@ public partial class CommandExecutionTests
             "System.Action<T>",
             "-S",
             "Delegates",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -936,9 +910,7 @@ public partial class CommandExecutionTests
             target,
             "--package",
             "System.Collections.Concurrent@4.3.0",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -952,7 +924,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "MemoryExtensions", "--platform", "System.Memory",
-            "-m", selector, "--table", "--tips", "q");
+            "-m", selector, "--table");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -963,7 +935,7 @@ public partial class CommandExecutionTests
     public async Task Type_OperatorMemberFilter_NormalizesOperatorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "DateTime", "-m", "operator+", "--table", "--tips", "q");
+            "type", "DateTime", "-m", "operator+", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("operator +", output);
@@ -974,7 +946,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareSimpleTypeMiss_PrefersPlatformTypeOverSameNamedPackage()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "JsonSerializer", "--markdown", "--tips", "q");
+            "type", "JsonSerializer", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.Json.JsonSerializer", output);
@@ -987,7 +959,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareSimpleTypeMiss_PrefersExactNonGenericMatch()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "FrozenDictionary", "--markdown", "--tips", "q");
+            "type", "FrozenDictionary", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
@@ -1001,7 +973,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareCoreLibSimpleName_PrefersNonGenericExactMatch()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Task", "--markdown", "--tips", "q");
+            "type", "Task", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1013,7 +985,7 @@ public partial class CommandExecutionTests
     public async Task Type_ExactPlatformAssembly_DoesNotUseWidePlatformPrefixBrowse()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections", "--table", "--tips", "q");
+            "type", "System.Collections", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1026,7 +998,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_NarrowSourceMissFallsBackToWidePlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.Frozen", "--table", "--tips", "q");
+            "type", "System.Collections.Frozen", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort platform prefix matches", error);
@@ -1039,7 +1011,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ExplicitPlatformNamespace_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.Serialization", "--platform", "System.Text.Json", "--table", "--tips", "q");
+            "type", "System.Text.Json.Serialization", "--platform", "System.Text.Json", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error);
@@ -1051,7 +1023,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ExplicitLibraryNamespace_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "DotnetInspect.Cli.Tests.Sample", "--library", TestAssemblyPath, "--table", "--tips", "q");
+            "type", "DotnetInspect.Cli.Tests.Sample", "--library", TestAssemblyPath, "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error);
@@ -1068,7 +1040,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "type", "DotnetInspect.Cli.Tests.Sample", "--package", packagePath,
-                "--library", "Test.Primary.dll", "--table", "--tips", "q");
+                "--library", "Test.Primary.dll", "--table");
 
             Assert.Equal(0, exit);
             Assert.Contains("best-effort prefix matches", error);
@@ -1096,7 +1068,7 @@ public partial class CommandExecutionTests
             "System.Runtime is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
-            "type", "--platform", "System.Runtime", "--tips", "q");
+            "type", "--platform", "System.Runtime");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -1116,7 +1088,7 @@ public partial class CommandExecutionTests
         Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "--tips", "q");
+            "type", "--platform", "System.Text.Json");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);

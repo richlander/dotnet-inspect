@@ -5,6 +5,10 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Analysis.Planning;
 
+internal readonly record struct MethodDefinitionSharedExecution(
+    ImmutableArray<MethodDefinitionExecution> Lanes,
+    MethodDefinitionSourceCoverage PhysicalCoverage);
+
 /// <summary>
 /// The interim serial reference executor for method-definition units. It runs
 /// a work description's passes over type definitions in metadata order and
@@ -20,6 +24,8 @@ public sealed class MethodDefinitionExecution
     readonly ProducerState[] _states;
     readonly MethodDefinitionSourceBreadth _breadth;
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
+    MethodRowGate? _gate;
+    LibraryMethodAnalysisRunner? _lookup;
     CriticalFailure? _critical;
 
     /// <summary>
@@ -50,6 +56,14 @@ public sealed class MethodDefinitionExecution
 
     internal MethodDefinitionSourceCoverageBuilder SourceCoverageBuilder =>
         _sourceCoverage;
+
+    internal MethodRowGate Gate =>
+        _gate ?? throw new InvalidOperationException(
+            "The Method-source gate has not been bound.");
+
+    internal LibraryMethodAnalysisRunner? Lookup => _lookup;
+
+    internal int CurrentOrdinal { get; private set; } = -1;
 
     /// <summary>
     /// Executes <paramref name="description"/> over the module in
@@ -91,39 +105,11 @@ public sealed class MethodDefinitionExecution
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(breadth);
 
-        var execution = new MethodDefinitionExecution(
-            description,
-            breadth,
-            tracksSourceCoverage);
-        ImmutableArray<ProducerDeclaration> producers = description.Producers;
-        for (int i = 0; i < producers.Length; i++)
-        {
-            if (producers[i] is not IMethodDefinitionProducer declaration)
-            {
-                throw new ProducerContractException(
-                    $"Producer '{producers[i].Identity}' is not a "
-                    + "method-definition producer.");
-            }
-
-            execution._states[i] = declaration.CreateState(
-                execution,
-                description.TerminalByIndex[i],
-                description.RowLimitAtIndex(i),
-                description.DependencyIndices[i],
-                description.FactRetention[i]);
-        }
-
-        // Each dependent reads its dependencies' states directly, aligned
-        // with its declared dependencies, so a same-unit read needs no lookup.
-        foreach (ProducerState state in execution._states)
-        {
-            var dependencies = new ProducerState[state.Dependencies.Length];
-            for (int j = 0; j < dependencies.Length; j++)
-                dependencies[j] = execution._states[state.Dependencies[j]];
-            state.DependencyStates = dependencies;
-            execution.BindScopeGuards(state);
-        }
-
+        MethodDefinitionExecution execution =
+            CreateExecution(
+                description,
+                breadth,
+                tracksSourceCoverage);
         if (!peReader.HasMetadata)
         {
             execution.CompleteWithoutUnits();
@@ -137,24 +123,21 @@ public sealed class MethodDefinitionExecution
             return execution;
         }
 
-        // The gate is part of the source. Its identity budget is armed only
-        // when the plan declares identity text, so a plan of counts and
-        // existence checks spends none.
-        var gate = new MethodRowGate(
+        execution._gate = new MethodRowGate(
             peReader,
             reader,
             (FieldsRead(description) & MethodDefinitionLayers.IdentityText) != 0);
 
-        // The module lookup is execution-scoped and costly to build, so it
-        // exists only when a planned producer declared it.
         bool lookupDeclared = false;
         foreach (ProducerState state in execution._states)
             lookupDeclared |= state.HasLookupLayer;
         using LibraryBodyAnalysisBuilder? builder = lookupDeclared
             ? new LibraryBodyAnalysisBuilder(sourceName, reader, peReader)
             : null;
-        LibraryMethodAnalysisRunner? lookup =
+        execution._lookup =
             builder is null ? null : new LibraryMethodAnalysisRunner(builder);
+        MethodRowGate gate = execution.Gate;
+        LibraryMethodAnalysisRunner? lookup = execution.Lookup;
         int unitsVisited = 0;
 
         try
@@ -195,7 +178,6 @@ public sealed class MethodDefinitionExecution
                     passUnits = execution.VisitUnits(
                         reader,
                         peReader,
-                        lookup,
                         gate,
                         visiting);
                 }
@@ -209,9 +191,8 @@ public sealed class MethodDefinitionExecution
         }
         catch (ProducerAbortException abort)
         {
-            // A critical failure is never contained: the execution stops
-            // where it was raised, and no producer's result is published.
-            // Participation observed before the abort is kept.
+            // A kernel aborts outside a unit visit. Interpreted visits contain
+            // an abort at the request whose state raised it.
             execution.Abort(abort.Failure);
             execution.Receipt = execution.CreateReceipt(
                 Math.Max(unitsVisited, execution.PassUnitsVisited),
@@ -224,6 +205,347 @@ public sealed class MethodDefinitionExecution
         execution.Receipt = execution.CreateReceipt(unitsVisited, gate);
         execution.PublishSourceCoverage();
         return execution;
+    }
+
+    static MethodDefinitionExecution CreateExecution(
+        WorkDescription description,
+        MethodDefinitionSourceBreadth breadth,
+        bool tracksSourceCoverage)
+    {
+        var execution = new MethodDefinitionExecution(
+            description,
+            breadth,
+            tracksSourceCoverage);
+        ImmutableArray<ProducerDeclaration> producers = description.Producers;
+        for (int i = 0; i < producers.Length; i++)
+        {
+            if (producers[i] is not IMethodDefinitionProducer declaration)
+            {
+                throw new ProducerContractException(
+                    $"Producer '{producers[i].Identity}' is not a "
+                    + "method-definition producer.");
+            }
+
+            execution._states[i] = declaration.CreateState(
+                execution,
+                description.TerminalByIndex[i],
+                description.RowLimitAtIndex(i),
+                description.DependencyIndices[i],
+                description.FactRetention[i]);
+        }
+
+        // Each dependent reads its dependencies' states directly, aligned
+        // with its declared dependencies, so a same-unit read needs no lookup.
+        foreach (ProducerState state in execution._states)
+        {
+            var dependencies = new ProducerState[state.Dependencies.Length];
+            for (int j = 0; j < dependencies.Length; j++)
+                dependencies[j] = execution._states[state.Dependencies[j]];
+            state.DependencyStates = dependencies;
+            execution.BindScopeGuards(state);
+        }
+
+        return execution;
+    }
+
+    internal static MethodDefinitionSharedExecution ExecuteShared(
+        IReadOnlyList<WorkDescription> descriptions,
+        string sourceName,
+        PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(descriptions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentNullException.ThrowIfNull(peReader);
+        if (descriptions.Count < 2)
+        {
+            throw new ArgumentException(
+                "Shared Method-source execution requires at least two lanes.",
+                nameof(descriptions));
+        }
+
+        var executions =
+            ImmutableArray.CreateBuilder<MethodDefinitionExecution>(
+                descriptions.Count);
+        foreach (WorkDescription description in descriptions)
+        {
+            ArgumentNullException.ThrowIfNull(description);
+            if (description.PassCount != 1)
+            {
+                throw new ProducerContractException(
+                    "Shared Method-source execution currently accepts only "
+                    + "single-pass producer descriptions.");
+            }
+
+            executions.Add(
+                CreateExecution(
+                    description,
+                    MethodDefinitionSourceBreadth.AllDefinitions,
+                    tracksSourceCoverage: true));
+        }
+
+        ImmutableArray<MethodDefinitionExecution> lanes =
+            executions.MoveToImmutable();
+        if (!peReader.HasMetadata)
+        {
+            foreach (MethodDefinitionExecution lane in lanes)
+                lane.CompleteWithoutUnits();
+            return new(lanes, EmptySourceCoverage());
+        }
+
+        MetadataReader reader = peReader.GetMetadataReader();
+        var builders =
+            new LibraryBodyAnalysisBuilder?[lanes.Length];
+        try
+        {
+            var visiting = new ProducerState[lanes.Length][];
+            for (int laneIndex = 0; laneIndex < lanes.Length; laneIndex++)
+            {
+                MethodDefinitionExecution lane = lanes[laneIndex];
+                WorkDescription description = descriptions[laneIndex];
+                lane._gate = new MethodRowGate(
+                    peReader,
+                    reader,
+                    (FieldsRead(description)
+                        & MethodDefinitionLayers.IdentityText) != 0);
+
+                bool lookupDeclared = false;
+                foreach (ProducerState state in lane._states)
+                    lookupDeclared |= state.HasLookupLayer;
+                if (lookupDeclared)
+                {
+                    builders[laneIndex] =
+                        new LibraryBodyAnalysisBuilder(
+                            sourceName,
+                            reader,
+                            peReader);
+                    lane._lookup =
+                        new LibraryMethodAnalysisRunner(
+                            builders[laneIndex]!);
+                }
+
+                PlannedPass pass = description.Passes[0];
+                visiting[laneIndex] =
+                    new ProducerState[pass.Visits.Length];
+                for (int i = 0; i < pass.Visits.Length; i++)
+                {
+                    ProducerState state = lane._states[pass.Visits[i]];
+                    lane.FailIfPrerequisiteFailed(state);
+                    visiting[laneIndex][i] = state;
+                }
+            }
+
+            var physicalCoverage =
+                new MethodDefinitionSourceCoverageBuilder(enabled: true);
+            var unit = new MethodDefinitionUnit(
+                reader,
+                peReader,
+                physicalCoverage);
+            bool[] laneInScope = new bool[lanes.Length];
+
+            foreach (TypeDefinitionHandle typeHandle
+                in reader.TypeDefinitions)
+            {
+                TypeDefinition typeDefinition;
+                try
+                {
+                    typeDefinition =
+                        reader.GetTypeDefinition(typeHandle);
+                }
+                catch (Exception ex)
+                    when (LibraryMethodAnalysisRunner
+                        .IsRecoverableMethodFailure(ex))
+                {
+                    foreach (MethodDefinitionExecution lane in lanes)
+                    {
+                        lane.FailActiveSource(
+                            MetadataTokens.GetToken(typeHandle),
+                            "(type source)",
+                            ex);
+                    }
+                    continue;
+                }
+
+                bool anyLaneInScope = false;
+                for (int laneIndex = 0;
+                    laneIndex < lanes.Length;
+                    laneIndex++)
+                {
+                    MethodDefinitionExecution lane = lanes[laneIndex];
+                    bool laneActive = lane.PrepareType(
+                        reader,
+                        lane.Gate,
+                        visiting[laneIndex],
+                        typeHandle,
+                        typeDefinition,
+                        out bool anyInScope);
+                    laneInScope[laneIndex] =
+                        laneActive && anyInScope;
+                    anyLaneInScope |= laneInScope[laneIndex];
+                }
+
+                if (!anyLaneInScope)
+                {
+                    if (!AnyLaneActive(visiting))
+                        break;
+                    continue;
+                }
+
+                try
+                {
+                    foreach (MethodDefinitionHandle methodHandle
+                        in typeDefinition.GetMethods())
+                    {
+                        unit.MoveTo(
+                            typeHandle,
+                            typeDefinition,
+                            methodHandle);
+
+                        for (int laneIndex = 0;
+                            laneIndex < lanes.Length;
+                            laneIndex++)
+                        {
+                            if (!laneInScope[laneIndex]
+                                || !AnyActive(visiting[laneIndex]))
+                            {
+                                continue;
+                            }
+
+                            MethodDefinitionExecution lane = lanes[laneIndex];
+                            lane.SelectRequest(
+                                ref unit,
+                                methodHandle);
+                            lane.PassUnitsVisited =
+                                lane.CurrentOrdinal + 1;
+                            lane.VisitPreparedUnit(
+                                visiting[laneIndex],
+                                ref unit,
+                                methodHandle);
+                        }
+
+                        if (!AnyLaneActiveInScope(
+                                visiting,
+                                laneInScope))
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                    when (LibraryMethodAnalysisRunner
+                        .IsRecoverableMethodFailure(ex))
+                {
+                    for (int laneIndex = 0;
+                        laneIndex < lanes.Length;
+                        laneIndex++)
+                    {
+                        if (laneInScope[laneIndex])
+                        {
+                            lanes[laneIndex].FailActiveSource(
+                                MetadataTokens.GetToken(typeHandle),
+                                "(method source)",
+                                ex);
+                        }
+                    }
+                }
+
+                if (!AnyLaneActive(visiting))
+                    break;
+            }
+
+            foreach (MethodDefinitionExecution lane in lanes)
+            {
+                foreach (int completion
+                    in lane._description.Passes[0].Completions)
+                {
+                    lane.CompleteProducer(
+                        lane._states[completion]);
+                }
+                lane.PropagateFailures();
+                lane.Receipt = lane.CreateReceipt(
+                    lane.CurrentOrdinal + 1,
+                    lane.Gate);
+                lane.PublishSourceCoverage();
+            }
+
+            return new(lanes, physicalCoverage.Build());
+        }
+        finally
+        {
+            foreach (LibraryBodyAnalysisBuilder? builder in builders)
+                builder?.Dispose();
+        }
+    }
+
+    static MethodDefinitionSourceCoverage EmptySourceCoverage() =>
+        new(
+            MethodDefinitionHandleCoverage.Empty,
+            MethodDefinitionHandleCoverage.Empty,
+            MethodDefinitionHandleCoverage.Empty);
+
+    static bool AnyLaneActive(ProducerState[][] lanes)
+    {
+        foreach (ProducerState[] lane in lanes)
+        {
+            if (AnyActive(lane))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool AnyLaneActiveInScope(
+        ProducerState[][] lanes,
+        bool[] laneInScope)
+    {
+        for (int i = 0; i < lanes.Length; i++)
+        {
+            if (laneInScope[i] && AnyActive(lanes[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    void FailActiveSource(
+        int unit,
+        string label,
+        Exception error)
+    {
+        foreach (ProducerState state in _states)
+        {
+            if (!state.IsActive)
+                continue;
+
+            FailSource(state, unit, label, error);
+        }
+    }
+
+    void FailActiveSourceForCurrentType(
+        int unit,
+        Exception error)
+    {
+        foreach (ProducerState state in _states)
+        {
+            if (!state.IsActive
+                || !state.TypeInScopeNow)
+            {
+                continue;
+            }
+
+            FailSource(state, unit, "(method source)", error);
+        }
+    }
+
+    internal static void FailSource(
+        ProducerState state,
+        int unit,
+        string label,
+        Exception error)
+    {
+        string message = ProducerFailure.Describe(error);
+        state.Outcome = ProducerOutcome.Failed;
+        state.Failure = new ProducerFailure(unit, label, message);
+        state.SourceFailure =
+            new MethodDefinitionSourceFailure(unit, label, message);
+        state.IsActive = false;
     }
 
     /// <summary>
@@ -254,10 +576,25 @@ public sealed class MethodDefinitionExecution
         {
             state.Outcome = ProducerOutcome.Aborted;
             state.Failure = null;
+            state.SourceFailure = null;
             state.FailedPrerequisite = null;
             state.ClearResult();
             state.IsActive = false;
         }
+    }
+
+    internal MethodDefinitionSourceFailure? SourceFailureOf(
+        ProducerDeclaration producer)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
+        if (!_description.TryGetIndex(producer, out int index))
+        {
+            throw new ProducerContractException(
+                $"Producer '{producer.Identity}' is not in this work "
+                + "description.");
+        }
+
+        return _states[index].SourceFailure;
     }
 
     /// <summary>
@@ -365,15 +702,12 @@ public sealed class MethodDefinitionExecution
     int VisitUnits(
         MetadataReader reader,
         PEReader peReader,
-        LibraryMethodAnalysisRunner? lookup,
         MethodRowGate gate,
         ProducerState[] visiting)
     {
         var unit = new MethodDefinitionUnit(
             reader,
             peReader,
-            lookup,
-            gate,
             _sourceCoverage);
         int visited = 0;
         switch (_breadth.Kind)
@@ -382,18 +716,44 @@ public sealed class MethodDefinitionExecution
                 foreach (TypeDefinitionHandle typeHandle
                     in reader.TypeDefinitions)
                 {
-                    TypeDefinition typeDefinition =
-                        reader.GetTypeDefinition(typeHandle);
-                    if (!VisitType(
-                            reader,
-                            gate,
-                            visiting,
-                            ref unit,
-                            typeHandle,
-                            typeDefinition,
-                            ref visited))
+                    TypeDefinition typeDefinition;
+                    try
                     {
-                        return visited;
+                        typeDefinition =
+                            reader.GetTypeDefinition(typeHandle);
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        FailActiveSource(
+                            MetadataTokens.GetToken(typeHandle),
+                            "(type source)",
+                            ex);
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (!VisitType(
+                                reader,
+                                gate,
+                                visiting,
+                                ref unit,
+                                typeHandle,
+                                typeDefinition,
+                                ref visited))
+                        {
+                            return visited;
+                        }
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        FailActiveSourceForCurrentType(
+                            MetadataTokens.GetToken(typeHandle),
+                            ex);
                     }
                 }
                 break;
@@ -401,18 +761,44 @@ public sealed class MethodDefinitionExecution
                 foreach (TypeDefinitionHandle typeHandle
                     in _breadth.Types)
                 {
-                    TypeDefinition typeDefinition =
-                        reader.GetTypeDefinition(typeHandle);
-                    if (!VisitType(
-                            reader,
-                            gate,
-                            visiting,
-                            ref unit,
-                            typeHandle,
-                            typeDefinition,
-                            ref visited))
+                    TypeDefinition typeDefinition;
+                    try
                     {
-                        return visited;
+                        typeDefinition =
+                            reader.GetTypeDefinition(typeHandle);
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        FailActiveSource(
+                            MetadataTokens.GetToken(typeHandle),
+                            "(type source)",
+                            ex);
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (!VisitType(
+                                reader,
+                                gate,
+                                visiting,
+                                ref unit,
+                                typeHandle,
+                                typeDefinition,
+                                ref visited))
+                        {
+                            return visited;
+                        }
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        FailActiveSourceForCurrentType(
+                            MetadataTokens.GetToken(typeHandle),
+                            ex);
                     }
                 }
                 break;
@@ -446,9 +832,23 @@ public sealed class MethodDefinitionExecution
             if (!AnyActive(visiting))
                 return;
 
-            _sourceCoverage.RecordDefinitionExamined(methodHandle);
-            MethodDefinition methodDefinition =
-                reader.GetMethodDefinition(methodHandle);
+            MethodDefinition methodDefinition;
+            try
+            {
+                _sourceCoverage.RecordDefinitionExamined(methodHandle);
+                methodDefinition =
+                    reader.GetMethodDefinition(methodHandle);
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                FailActiveSource(
+                    MetadataTokens.GetToken(methodHandle),
+                    "(method source)",
+                    ex);
+                continue;
+            }
             TypeDefinitionHandle typeHandle =
                 methodDefinition.GetDeclaringType();
             if (typeHandle != currentTypeHandle)
@@ -476,6 +876,7 @@ public sealed class MethodDefinitionExecution
                 currentTypeDefinition,
                 methodHandle,
                 methodDefinition);
+            SelectRequest(ref unit, methodHandle);
             visited++;
             PassUnitsVisited = visited;
             if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
@@ -510,6 +911,7 @@ public sealed class MethodDefinitionExecution
             in typeDefinition.GetMethods())
         {
             unit.MoveTo(typeHandle, typeDefinition, methodHandle);
+            SelectRequest(ref unit, methodHandle);
             visited++;
             PassUnitsVisited = visited;
             if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
@@ -517,6 +919,20 @@ public sealed class MethodDefinitionExecution
         }
 
         return true;
+    }
+
+    void SelectRequest(
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionHandle methodHandle)
+    {
+        _sourceCoverage.RecordDefinitionExamined(methodHandle);
+        _sourceCoverage.RecordMethodSelected(methodHandle);
+        CurrentOrdinal++;
+        unit.SelectRequest(
+            Gate,
+            Lookup,
+            _sourceCoverage,
+            CurrentOrdinal);
     }
 
     bool PrepareType(
@@ -591,20 +1007,28 @@ public sealed class MethodDefinitionExecution
                 continue;
             }
 
-            if (state.SourceGate is { } sourceGate)
+            try
             {
-                bool? accepted =
-                    GateAccepts(ref unit, state, sourceGate);
-                if (accepted is null)
-                    continue;
-                if (!accepted.Value)
+                if (state.SourceGate is { } sourceGate)
                 {
-                    anyActive = true;
-                    continue;
+                    bool? accepted =
+                        GateAccepts(ref unit, state, sourceGate);
+                    if (accepted is null)
+                        continue;
+                    if (!accepted.Value)
+                    {
+                        anyActive = true;
+                        continue;
+                    }
                 }
-            }
 
-            VisitUnit(ref unit, state);
+                VisitUnit(ref unit, state);
+            }
+            catch (ProducerAbortException abort)
+            {
+                state.Execution.Abort(abort.Failure);
+                return false;
+            }
             anyActive |= state.IsActive;
         }
 
@@ -768,7 +1192,8 @@ public sealed class MethodDefinitionExecution
         // its completion prerequisites, so only a final outcome is skipped.
         if (state.Outcome is ProducerOutcome.Complete
             or ProducerOutcome.Failed
-            or ProducerOutcome.PrerequisiteFailed)
+            or ProducerOutcome.PrerequisiteFailed
+            or ProducerOutcome.Aborted)
         {
             return;
         }
@@ -780,6 +1205,7 @@ public sealed class MethodDefinitionExecution
             {
                 state.Outcome = ProducerOutcome.PrerequisiteFailed;
                 state.FailedPrerequisite = target.Producer.Identity;
+                state.SourceFailure = target.SourceFailure;
                 state.IsActive = false;
                 return;
             }
@@ -803,7 +1229,8 @@ public sealed class MethodDefinitionExecution
             foreach (ProducerState state in _states)
             {
                 if (state.Outcome is ProducerOutcome.Failed
-                    or ProducerOutcome.PrerequisiteFailed)
+                    or ProducerOutcome.PrerequisiteFailed
+                    or ProducerOutcome.Aborted)
                 {
                     continue;
                 }
@@ -816,6 +1243,7 @@ public sealed class MethodDefinitionExecution
                     {
                         state.Outcome = ProducerOutcome.PrerequisiteFailed;
                         state.FailedPrerequisite = target.Producer.Identity;
+                        state.SourceFailure = target.SourceFailure;
                         state.ClearResult();
                         state.IsActive = false;
                         changed = true;
@@ -1001,6 +1429,8 @@ public sealed class MethodDefinitionExecution
         public ProducerOutcome? Outcome { get; set; }
 
         public ProducerFailure? Failure { get; set; }
+
+        public MethodDefinitionSourceFailure? SourceFailure { get; set; }
 
         public string? FailedPrerequisite { get; set; }
 

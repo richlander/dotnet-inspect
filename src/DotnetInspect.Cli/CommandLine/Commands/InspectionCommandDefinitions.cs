@@ -379,11 +379,11 @@ public static class InspectionCommandDefinitions
                         if (options.Legend)
                             Hints.WriteDiffLegend();
 
-                        if (!options.FormatExplicitlySet)
-                        {
-                            var tips = DiffOptionsParser.BuildTips(options, options.TypeFilter);
-                            Hints.WriteTips(success.TipLevel, [.. tips]);
-                        }
+                        Hints.WriteTips(
+                            success.CompanionOutput,
+                            () => [.. DiffOptionsParser.BuildTips(
+                                options,
+                                options.TypeFilter)]);
                     }
 
                     return exitCode;

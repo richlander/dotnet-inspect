@@ -69,10 +69,49 @@ public static class CommandLineBuilder
 
     public static bool TryGetRemovedCommandError(
         string[] args,
-        out string? error) =>
-        ArgumentPreprocessor.TryGetRemovedCommandError(
+        out string? error)
+    {
+        if (!ArgumentPreprocessor.RequiresRemovedCommandOwnershipParse(args))
+        {
+            return ArgumentPreprocessor.TryGetRemovedCommandError(
+                args,
+                parseResult: null,
+                out error);
+        }
+
+        return TryGetRemovedCommandError(
             args,
+            CreateRootCommand(),
             out error);
+    }
+
+    internal static bool TryGetRemovedCommandError(
+        string[] args,
+        RootCommand rootCommand,
+        out string? error)
+    {
+        if (!ArgumentPreprocessor.RequiresRemovedCommandOwnershipParse(args))
+        {
+            return ArgumentPreprocessor.TryGetRemovedCommandError(
+                args,
+                parseResult: null,
+                out error);
+        }
+
+        bool isImplicitPackageCandidate =
+            ArgumentPreprocessor.IsImplicitPackageCandidate(
+                args,
+                UsesImplicitVersionDirectionPresence(
+                    args,
+                    rootCommand));
+        string[] ownershipArgs = isImplicitPackageCandidate
+            ? [PackageCommand.Name, .. args]
+            : args;
+        return ArgumentPreprocessor.TryGetRemovedCommandError(
+            args,
+            rootCommand.Parse(ownershipArgs),
+            out error);
+    }
 
     internal static bool TryGetCommandlessPackageVersionError(
         string[] args,
@@ -1232,9 +1271,9 @@ public static class CommandLineBuilder
             StringComparer.OrdinalIgnoreCase,
             OptionParsers.ValidVerbosityValues);
         rootCommand.Options.Add(rootVerbosityOption);
-        var rootTipsOption = new Option<string?>("--tips") { Description = "Show tips: m(inimal, default), d(etailed), q(uiet)", Arity = ArgumentArity.ZeroOrOne };
-        rootTipsOption.Aliases.Add("-T");
-        rootCommand.Options.Add(rootTipsOption);
+        Option<string?> rootCompanionOption =
+            SharedOptions.CreateCompanionOption();
+        rootCommand.Options.Add(rootCompanionOption);
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
         rootCommand.Options.Add(offlineOption);
         var httpTimeoutOption = new Option<int?>("--http-timeout") { Description = "Seconds to wait for a network request before giving up (1-3600, default 30)" };
@@ -1335,9 +1374,10 @@ public static class CommandLineBuilder
         {
             var hasVerbosity = parseResult.GetResult(rootVerbosityOption) != null;
             var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
-            var tipLevel = ParseTipLevel(
-                parseResult.GetValue(rootTipsOption),
-                parseResult.GetResult(rootTipsOption) != null);
+            CompanionOutput companionOutput =
+                parseResult.GetValue(rootCompanionOption) == ".tips"
+                    ? CompanionOutput.Tips
+                    : CompanionOutput.None;
 
             // -v flag present: show CLI tree view (like former `cli` command)
             if (hasVerbosity)
@@ -1347,12 +1387,12 @@ public static class CommandLineBuilder
                     commandFilter: null,
                     verbosity);
                 if (exitCode == 0)
-                    WriteRootTips(tipLevel);
+                    WriteRootTips(companionOutput);
                 return exitCode;
             }
 
             HelpWriter.WriteHelp(rootCommand);
-            WriteRootTips(tipLevel);
+            WriteRootTips(companionOutput);
             return 0;
         });
 
@@ -1360,23 +1400,24 @@ public static class CommandLineBuilder
         return rootCommand;
     }
 
-    private static void WriteRootTips(TipLevel tipLevel)
+    private static void WriteRootTips(CompanionOutput companionOutput)
     {
         Hints.WriteTips(
-            tipLevel,
-            new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
-            new Tip("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
-            new Tip("-T:d", "", "show more tips per command"),
-            new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
-            new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
-            new Tip(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
-            new Tip(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
-            new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
+            companionOutput,
+            static () =>
+            [
+                new(PackageCommand.Name, "<package>", "inspect a NuGet package"),
+                new("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
+                new(TypeCommand.Name, "--package <package>", "discover types in package"),
+                new(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
+                new(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
+                new(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
+                new(FindCommand.Name, "<pattern> --platform", "search platform libraries"),
+            ]);
     }
 
     // Parse helpers delegated to OptionParsers (for backward compatibility)
     public static Verbosity ParseVerbosity(string? value) => OptionParsers.ParseVerbosity(value);
-    public static TipLevel ParseTipLevel(string? value, bool optionPresent) => OptionParsers.ParseTipLevel(value, optionPresent);
     public static HashSet<string>? ParseSectionList(string? value) => OptionParsers.ParseSectionList(value);
     public static NuGetSourceOptions ParseNuGetSourceOptions(
         ParseResult parseResult, Option<string[]> sourceOption,

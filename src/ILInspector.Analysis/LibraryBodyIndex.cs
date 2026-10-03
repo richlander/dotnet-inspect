@@ -85,7 +85,6 @@ public sealed class LibraryBodyIndex
         FieldStores = analysis.Methods.FieldStores;
         FieldLoads = analysis.Methods.FieldLoads;
         ReturnFlows = analysis.Methods.ReturnFlows;
-        UnsafeEvidence = analysis.Safety.Evidence;
         Diagnostics = analysis.Diagnostics;
         bool hasFullScope =
             (features
@@ -94,10 +93,7 @@ public sealed class LibraryBodyIndex
         _callGraph = callGraph;
         _optimization = optimization;
         _implementationProfileAnalysis = implementationProfiles;
-        MemorySafetyRules = analysis.Safety.Rules;
-        UnsafeModes = analysis.Safety.Modes;
         _allocationOccurrences = analysis.Allocations.Occurrences;
-        _unsafetyOccurrences = analysis.Safety.Occurrences;
         Features = features;
         HasFullMethodEvidenceScope = hasFullScope;
     }
@@ -150,7 +146,6 @@ public sealed class LibraryBodyIndex
     /// anything else?" fails closed.
     /// </summary>
     public ImmutableArray<MethodReturnFlow> ReturnFlows { get; }
-    public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>
     public LibraryBodyAnalysisFeatures Features { get; }
@@ -163,8 +158,6 @@ public sealed class LibraryBodyIndex
 
     readonly LibraryOptimizationAnalysisResult _optimization;
     readonly LibraryCallGraphAnalysisResult _callGraph;
-    IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
-
     /// <summary>
     /// Source/IL optimization opportunities, each enriched with the containing method's
     /// <see cref="MethodLeverage.RootReach"/> so callers can prioritize the intersection
@@ -254,30 +247,9 @@ public sealed class LibraryBodyIndex
             member,
             out operation);
 
-    /// <summary>
-    /// The defining module's normalized memory-safety rules result.
-    /// </summary>
-    public MemorySafetyRulesResult MemorySafetyRules { get; }
-
-    /// <summary>
-    /// Whether the normalized module result selects the recognized updated
-    /// rules. False covers every other state; callers that need the distinction
-    /// consume <see cref="MemorySafetyRules"/>.
-    /// </summary>
-    public bool MemorySafetyRulesEnabled =>
-        MemorySafetyRules is MemorySafetyRulesResult.Available
-        {
-            State: MemorySafetyRulesState.Updated,
-        };
-
-    /// <summary>Per-<see cref="CallerUnsafeMode"/> method counts across the whole assembly.</summary>
-    public UnsafeModeBreakdown UnsafeModes { get; }
-
     readonly LibraryImplementationProfileAnalysisResult
         _implementationProfileAnalysis;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
-    readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
-
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
@@ -325,42 +297,6 @@ public sealed class LibraryBodyIndex
 
     /// <summary>Offset-keyed allocation occurrences, grouped by containing method token.</summary>
     public IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> GetAllocationOccurrences() => _allocationOccurrences;
-
-    public IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> GetUnsafetyOccurrences() => _unsafetyOccurrences;
-
-    public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> GetUnsafeEvidenceByMember()
-        => _unsafeEvidenceByMember ??= UnsafeEvidence
-            .GroupBy(evidence => evidence.Member.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
-
-    /// <summary>
-    /// Exact <see cref="TypeRef"/> identities of types recognized as protobuf/gRPC
-    /// generated implementation detail, detected structurally (no attributes are
-    /// emitted on this code). Keys are definition identities, not qualified display
-    /// strings: namespace <c>N.A</c> plus root <c>B</c> is distinct from namespace
-    /// <c>N</c> plus nested <c>A+B</c>. A type qualifies when
-    /// any of its methods bootstraps protobuf generated infrastructure — calling
-    /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
-    /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
-    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — where the bootstrap type
-    /// comes from the real <c>Google.Protobuf</c> assembly (a user assembly can declare
-    /// <c>Google.Protobuf.*</c> lookalikes, so namespace/name alone is not sufficient,
-    /// #1580) — or is a gRPC stub that both
-    /// declares infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
-    /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>) <em>and</em> calls into
-    /// <c>Grpc.Core</c> (the binding/marshalling APIs a generated stub uses). A generated
-    /// member name alone is not sufficient — an ordinary user type can declare a
-    /// <c>__Helper_*</c> method — so the structural <c>Grpc.Core</c> tie is required to avoid
-    /// classifying user lookalikes as generated. gRPC binding calls
-    /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are still not a signal on their own,
-    /// since hand-written registration uses them without the generated members. These signals
-    /// appear in generated protobuf/gRPC code, so perf triage can mark them in Top Leverage and
-    /// suppress them from Performance Triage like other generated detail.
-    /// </summary>
-    public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
-        => _optimization.GeneratedFrameworkTypes;
 
     public static LibraryBodyIndex Open(string path)
         => LibraryBodyAnalysisService.AnalyzePath(
@@ -457,21 +393,5 @@ public sealed class LibraryBodyIndex
                 bodyTypeScope),
             resolver);
     }
-
-    /// <summary>
-    /// Requires-unsafe methods whose signature carries no pointer — the unsafe
-    /// obligation is visible only via the attribute / <c>unsafe</c> modifier,
-    /// hidden from a caller reading the parameter and return types.
-    /// </summary>
-    public ImmutableArray<OpaqueUnsafeMethod> OpaqueUnsafeMethods()
-        => OpaqueUnsafe.Collect(Methods);
-
-    /// <summary>
-    /// Requires-unsafe methods whose body shows no directly-visible unsafe
-    /// operation — an absence claim (never "safe"): a pointer local optimized
-    /// away in Release erases the trace of a real dereference.
-    /// </summary>
-    public ImmutableArray<HollowUnsafeMethod> HollowUnsafeMethods()
-        => HollowUnsafe.Collect(Methods, UnsafeEvidence);
 
 }

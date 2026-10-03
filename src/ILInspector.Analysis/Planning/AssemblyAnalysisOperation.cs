@@ -50,6 +50,37 @@ public sealed class AssemblyAnalysisOperation<TResult>
         [AssemblyAnalysisSourceKind.MethodDefinitions];
 }
 
+/// <summary>
+/// Resource-free composition of one immutable QuerySpace request-set plan
+/// and the Method source that will execute its compatible groups.
+/// </summary>
+public sealed class AssemblyAnalysisRequestSetOperation
+{
+    AssemblyAnalysisRequestSetOperation(
+        string sourceName,
+        MethodDefinitionSourceRequestSetPlan methodDefinitions)
+    {
+        SourceName = sourceName;
+        MethodDefinitions = methodDefinitions;
+    }
+
+    public static AssemblyAnalysisRequestSetOperation Create(
+        string sourceName,
+        MethodDefinitionSourceRequestSetPlan methodDefinitions)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentNullException.ThrowIfNull(methodDefinitions);
+        return new(sourceName, methodDefinitions);
+    }
+
+    public string SourceName { get; }
+
+    public MethodDefinitionSourceRequestSetPlan MethodDefinitions { get; }
+
+    public ImmutableArray<AssemblyAnalysisSourceKind> SourceKinds =>
+        [AssemblyAnalysisSourceKind.MethodDefinitions];
+}
+
 /// <summary>Why assembly-operation execution was rejected before producer work.</summary>
 public enum AssemblyAnalysisRejectionKind
 {
@@ -74,6 +105,21 @@ public abstract record AssemblyAnalysisServiceResult<TResult>
     /// <summary>Execution was rejected before producer work began.</summary>
     public sealed record Rejected(AssemblyAnalysisRejectionKind Kind)
         : AssemblyAnalysisServiceResult<TResult>;
+}
+
+/// <summary>Result of binding and executing one request-set operation.</summary>
+public abstract record AssemblyAnalysisRequestSetServiceResult
+{
+    private AssemblyAnalysisRequestSetServiceResult()
+    {
+    }
+
+    public sealed record Completed(
+        MethodDefinitionSourceRequestSetExecution Execution)
+        : AssemblyAnalysisRequestSetServiceResult;
+
+    public sealed record Rejected(AssemblyAnalysisRejectionKind Kind)
+        : AssemblyAnalysisRequestSetServiceResult;
 }
 
 /// <summary>
@@ -158,6 +204,38 @@ public sealed class AssemblyAnalysisService
         AssemblyInspectionSubjectIdentity subject = access.Subject;
         return access.InspectImage(
             peReader => Execute(operation, subject, peReader));
+    }
+
+    /// <summary>
+    /// Executes one request-set operation through its exact stack-only access.
+    /// </summary>
+    public AssemblyAnalysisRequestSetServiceResult Execute(
+        AssemblyAnalysisRequestSetOperation operation,
+        scoped AssemblyInspectionOperationAccess<
+            AssemblyAnalysisRequestSetOperation> access)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (!ReferenceEquals(operation, access.Operation))
+        {
+            return new AssemblyAnalysisRequestSetServiceResult.Rejected(
+                AssemblyAnalysisRejectionKind.OperationAccessMismatch);
+        }
+
+        if (!access.HasMetadata)
+        {
+            return new AssemblyAnalysisRequestSetServiceResult.Rejected(
+                AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable);
+        }
+
+        AssemblyInspectionSubjectIdentity subject = access.Subject;
+        return access.InspectImage(
+            peReader =>
+                new AssemblyAnalysisRequestSetServiceResult.Completed(
+                    MethodQuerySource.Execute(
+                        operation.MethodDefinitions,
+                        subject,
+                        operation.SourceName,
+                        peReader)));
     }
 
     static AssemblyAnalysisServiceResult<TResult> Execute<TResult>(

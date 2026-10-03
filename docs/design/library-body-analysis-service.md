@@ -923,16 +923,14 @@ acquisition preserves its legacy overload-relationship result through a
 result-owned compatibility projection over the focused call graph; an
 unrequested focused implementation-profile result remains constant-cost and
 empty. Synthetic tests construct `LibraryBodyAnalysisExecution` and retain the
-focused result they exercise. The temporary `ILInspector.Analysis.App` harness
-likewise uses focused leverage for its unsafe ranking; its remaining
-compatibility-index reads are unrelated memory-safety summaries.
+focused result they exercise.
 
 The Release solution build is the full absence gate for the deleted strongly
 typed surface. No source-scanning gate is added: the compiler proves that no
 consumer can bind the removed members, while ordinary design review preserves
 ownership for future code. This retirement changes no supported product
-terminal and makes no performance claim. Safety summaries, allocation and
-optimization compatibility, and complete
+terminal and makes no performance claim. Allocation and optimization
+compatibility, and complete
 implementation-profile compatibility remain separately owned migration work
 under #7553 and #8568.
 
@@ -958,6 +956,48 @@ root-path semantics, output shape, or rendering. The Release
 `AssemblyContextResearchProjectionQueryTests` gates preserve those contracts;
 the Release solution build is the full absence gate for the deleted strongly
 typed compatibility accessor.
+
+### Safety-summary focused-result adoption for #7553 and #8568
+
+**Library Body Analysis Execution** publishes the Metadata-normalized module
+rules model and the whole-declaration caller-unsafe-mode breakdown on
+`LibrarySafetyAnalysisResult`, beside its existing unsafe evidence and
+occurrences. These summaries reuse producer-owned values; publication neither
+reinterprets the rules model nor introduces another census. `WasRequested`
+describes unsafe body-evidence and caller-mode-census participation. The
+normalized module rules remain available independently; reading
+`UnsafeModes` without that participation fails explicitly rather than
+presenting an unrequested census as complete zero counts.
+
+The temporary `ILInspector.Analysis.App` unsafe reporter consumes the focused
+safety, leverage, and call-graph results and invokes the existing
+`OpaqueUnsafe` and `HollowUnsafe` Analysis owners directly. `LibraryBodyIndex`
+no longer publishes memory-safety rules, the derived updated-rules Boolean,
+unsafe evidence or occurrences, unsafe-mode counts, or opaque/hollow
+projections. Callers inspect the typed rules state rather than replacing its
+unsupported, malformed, or conflicting outcomes with a Boolean.
+
+This slice changes evidence ownership, not rule normalization, caller-contract
+classification, counting, or reporter output. The Release Analysis
+memory-safety tests preserve those contracts and verify that focused access
+does not materialize the compatibility index. The Release solution build is
+the full absence gate for the deleted strongly typed compatibility members.
+
+### Generated-framework property retirement for #8568
+
+Production ranking, optimization, implementation-profile, Research, CLI, and
+Browser/Wasm consumers obtain generated-framework type identities from their
+focused Analysis results. The residual Analysis and Research tests consume
+`LibraryOptimizationAnalysisResult.GeneratedFrameworkTypes`, preserving the
+same shared classifier and execution receipt. `LibraryBodyIndex` no longer
+publishes a duplicate generated-framework type set.
+
+This slice deletes a compatibility property after its production drain; it
+does not change generated-type authentication, structural classification,
+suppression, output, or work. Focused generated-framework classification tests
+remain the semantic gates, and the Release solution build is the full absence
+gate for the deleted property. No product terminal or performance claim
+changes.
 
 ### Production adoption for #8450
 

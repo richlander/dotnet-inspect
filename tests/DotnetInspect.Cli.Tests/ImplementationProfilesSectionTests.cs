@@ -309,7 +309,7 @@ public class MetricSectionTests
                 IncludeSections =
                     [SectionNames.TypeMetrics],
                 IncludeAll = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
                 FormatExplicitlySet = true,
@@ -429,7 +429,7 @@ public class MetricSectionTests
                     ["Analyze"],
                 IncludeSections =
                     [SectionNames.MemberMetrics],
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
                 FormatExplicitlySet = true,
@@ -523,7 +523,7 @@ public class MetricSectionTests
             MemberFilter = ["Analyze"],
             IncludeSections = [SectionNames.MemberMetrics],
             DllPath = "/does/not/exist.dll",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
@@ -594,7 +594,7 @@ public class MetricSectionTests
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 MemberFilter = ["Analyze"],
                 Select = [SectionNames.TypeMetrics],
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(1, result.ExitCode);
@@ -613,7 +613,7 @@ public class MetricSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 Select = [SectionNames.MemberMetrics],
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(1, result.ExitCode);
@@ -633,7 +633,7 @@ public class MetricSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeAll = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Detailed,
                 MarkdownExplicitlySet = true,
                 FormatExplicitlySet = true,
@@ -679,7 +679,7 @@ public class MetricSectionTests
                 Select = ["*"],
                 JsonOutput = true,
                 FormatExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -710,7 +710,7 @@ public class MetricSectionTests
                 IncludeAll = true,
                 IncludeSections =
                     [SectionNames.MemberMetrics],
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
                 FormatExplicitlySet = true,
@@ -779,7 +779,7 @@ public class MetricSectionTests
                 IncludeAll = true,
                 IncludeSections =
                     [SectionNames.MemberMetrics],
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
                 FormatExplicitlySet = true,
@@ -805,7 +805,7 @@ public class MetricSectionTests
                 IncludeSections =
                     [SectionNames.TypeMetrics],
                 IncludeAll = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
                 FormatExplicitlySet = true,
@@ -843,7 +843,7 @@ public class MetricSectionTests
                 IncludeAll = true,
                 Jsonl = true,
                 Tabular = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
                 FormatExplicitlySet = true,
             }));
@@ -921,7 +921,7 @@ public class MetricSectionTests
                 IncludeSections =
                     [SectionNames.TypeMetrics],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(1, result.ExitCode);
