@@ -4179,8 +4179,9 @@ public partial class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v29: ReadyToRun applicability adds sections and a category door.
-    private const string EffectiveCategory = "effective-v29";
+    // Bumped to v30: Method Classification applicability now uses exact Exists
+    // instead of broad metadata-presence predicates.
+    private const string EffectiveCategory = "effective-v30";
 
     static LibraryCommand()
     {

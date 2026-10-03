@@ -1331,7 +1331,9 @@ public static class LibrarySections
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null
-               && (model.HasPInvokeMethods || model.HasPInvokeImports);
+               && (model.PInvokeMethodPresence
+                   ?? (model.HasPInvokeMethods
+                       || model.HasPInvokeImports));
     }
 
     public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
@@ -1341,8 +1343,10 @@ public static class LibrarySections
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null
-               && (model.HasAsyncMethods
-                   || model.HasRuntimeAsync || model.HasStateMachineAsync);
+               && (model.AsyncMethodPresence
+                   ?? (model.HasAsyncMethods
+                       || model.HasRuntimeAsync
+                       || model.HasStateMachineAsync));
     }
 
     public sealed class Resources : ISectionDescriptor<LibraryInspection>

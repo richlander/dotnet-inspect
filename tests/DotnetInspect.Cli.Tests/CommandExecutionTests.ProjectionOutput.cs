@@ -1218,10 +1218,10 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_BareEffective_IgnoresLegacyEffectiveCache()
+    public async Task Discover_BareEffective_IgnoresBroadApplicabilityCache()
     {
-        const string legacyCategory = "effective-v28";
-        const string currentCategory = "effective-v29";
+        const string legacyCategory = "effective-v29";
+        const string currentCategory = "effective-v30";
         string directory = Path.Combine(
             Path.GetTempPath(), $"effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -1241,7 +1241,11 @@ public partial class CommandExecutionTests
             await PersistentCache.RequestVersionedCategoryCleanupAsync();
             foreach (string key in keys)
             {
-                PersistentCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
+                PersistentCache.Set(
+                    legacyCategory,
+                    key,
+                    $"Library Info\n{SectionNames.PInvokeMethods}\n",
+                    extension: "tsv");
                 Assert.NotNull(PersistentCache.TryGet(legacyCategory, key, extension: "tsv"));
             }
 
@@ -1254,6 +1258,9 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains(SectionNames.References, output);
             Assert.Contains(SectionNames.UnsafeMembers, output);
+            Assert.DoesNotContain(
+                SectionNames.PInvokeMethods,
+                output);
         }
         finally
         {
