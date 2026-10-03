@@ -4,7 +4,7 @@ using QuerySpace.Rows;
 
 namespace DotnetInspector.PortableQueries.Tests;
 
-public sealed class QueryOperationInfrastructureGateTests
+public sealed partial class QueryOperationInfrastructureGateTests
 {
     private const string PopulationRole = "population";
     private const string SelectedSubjectRole = "selected-subject";

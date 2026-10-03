@@ -66,15 +66,25 @@ cardinalities without Rows, executes residual shaping only for sufficient row
 handoffs, and returns every source outcome without entering a residual cohort
 when any set is insufficient. Exact zero remains a first-class result.
 
+The immutable request-set reference planner now validates the complete set
+before acquisition, retains caller association and owner resource identities,
+and groups only exact owner-issued resource/source pairs. Method Query Source
+is the first source consumer: it issues compatible source bindings, preserves
+terminal-specialized lanes, and records one physical all-MethodDef traversal
+beside each request's independent result, outcome, source completion, and
+Producer Planning receipt. Incompatible or sparse requests remain separate;
+sharing is never required for acceptance.
+
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
 vocabulary supplies a default Top ranking. A future richer capability may
 represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
-operation-scope capabilities. Multiple row-intent associations, request-set
-collapse, source delegation planning, projection stages, continuation binding,
-the full structural-plan meaning record, and the remaining gates in
+operation-scope capabilities. Multiple row-intent associations, residual-over-
+covering-read request satisfaction, source delegation planning, projection
+stages, continuation binding, the full structural-plan meaning record, and the
+remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
 

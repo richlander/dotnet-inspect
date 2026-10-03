@@ -26,9 +26,17 @@ first sparse production consumer: it closes the unsafe-evidence producer with
 `Exists` over the selected TypeDef instead of rendering the ordinary section
 through a scoped `LibraryBodyIndex`. The source owns resource-free planning,
 exact subject binding, serial reference execution, source-receipt translation,
-and detached publication. Metadata-predicate breadth, generated-body
-expansion, body packets, exact source-failure classification, and collapsed
-request groups remain **unverified**.
+and detached publication.
+
+Compatible all-definition request sets now execute as one physical MethodDef
+traversal with independent terminal-specialized lanes. Each lane retains its
+own gate, optional module lookup, traversal ordinal, Producer Planning work,
+completion, and exact source coverage. A settled lane keeps its result when a
+later lane aborts or encounters source failure, and source failure reaches only
+active lanes whose type scope required the failed enumeration. Sparse breadth
+and incompatible requests remain separate groups. Metadata-predicate breadth,
+generated-body expansion, body packets, and collapsed sparse request groups
+remain **unverified**.
 
 ## Demo and pathological case
 
