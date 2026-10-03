@@ -93,11 +93,16 @@ method half of `ExtensionMethodScanner.FindAllExtensions(includeAll: false)`,
 which the Library Info Extension Methods row counts; extension properties
 from C# 14 extension blocks are a different population over nested marker
 types and are not this analyzer's rows. The legacy scan also decodes each
-candidate's signature and skips a method with no parameters. Roslyn never
-emits a parameterless `[Extension]` method and never fails that decode, so
-under the [fidelity policy](#fidelity-policy) the analyzer omits the decode:
-equal on Roslyn-produced assemblies, wrong but contained elsewhere. Its rows
-are not merged into the classified-method Finding.
+candidate's signature through the signature guard and skips a method with no
+parameters or a signature the guard rejects. Roslyn never emits a
+parameterless `[Extension]` method, and a Roslyn signature exceeds the guard
+only when a receiver nests more than 512 array or pointer levels, where the
+method is an extension method and the guard's rejection is containment, not
+fidelity. Under the [fidelity policy](#fidelity-policy) the analyzer omits
+the decode: on Roslyn-produced assemblies its Count equals the legacy count
+plus any such over-bound method legacy drops (gated by a 513-level fixture in
+`MethodClassificationAnalyzerTests`), and it is wrong but contained
+elsewhere. Its rows are not merged into the classified-method Finding.
 
 For classification, the gate applies the legacy scope. It then classifies each
 in-scope row as `PInvoke`, by the `PinvokeImpl` flag, or `Other`. Rows outside
@@ -164,13 +169,17 @@ Each Tier 1 test must equal the legacy test on every input:
   method's `Public` and `Static` flags, matches `[Extension]` on the type and
   on the method through the same in-place attribute type match and memo as
   compiler async, and applies the legacy hidden test (`EditorBrowsable(Never)`,
-  or an `Obsolete` that is not Roslyn's compiler-compatibility marker)
-  through Metadata's `AttributeReader.HasHiddenAttribute`, the function the
-  legacy scan calls, so the answer equals legacy's on every input. The hidden
-  test materializes attribute type names, which Tier 1 otherwise avoids; it is
-  declared as its own `HiddenAttribute` field, and the scope reads it only
-  for types and rows that passed the in-place tests. Hardening that shared
-  path is [#8780](https://github.com/richlander/dotnet-inspect/issues/8780).
+  or an `Obsolete` that is not Roslyn's compiler-compatibility marker) as
+  Metadata's `AttributeReader.HasHiddenAttribute` defines it, with the three
+  attribute types (`EditorBrowsable`, `Obsolete`, `CompilerFeatureRequired`)
+  matched through the same per-constructor memo and the values read in
+  place: one `int32` for the browsable state, and the fixed-argument string
+  compared byte for byte against the two compiler-compatibility messages and
+  feature names. No name or value is materialized, so the test stays inside
+  the Tier 1 work bound; it is declared as its own `HiddenAttribute` field,
+  and the scope reads it only for types and rows that passed the cheaper
+  in-place tests. Hardening the legacy scan's own path is
+  [#8780](https://github.com/richlander/dotnet-inspect/issues/8780).
 - **Pointer signature** in legacy walks the signature with a detector that
   charges the shared scan work budget. Every composite and `TypeSpec` visit is
   charged, because a wide `GENERICINST` repeated across methods is the known

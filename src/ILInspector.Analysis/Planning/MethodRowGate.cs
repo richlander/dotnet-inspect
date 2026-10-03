@@ -416,34 +416,128 @@ internal sealed class MethodRowGate
         AnyAttributeOfType(type.GetCustomAttributes(), target);
 
     /// <summary>
-    /// The legacy hidden test, through Metadata's <c>AttributeReader</c>, so
-    /// the answer equals <c>ExtensionMethodScanner</c>'s on every input. It
-    /// materializes attribute type names, which Tier 1 otherwise avoids; the
-    /// classifier that declares it reads it only for rows that passed its
-    /// in-place tests, and <c>#8780</c> owns hardening that shared path.
+    /// The legacy hidden test (<c>AttributeReader.HasHiddenAttribute</c>):
+    /// <c>EditorBrowsable(Never)</c>, or an <c>Obsolete</c> that is not
+    /// Roslyn's compiler-compatibility marker. The attribute types are matched
+    /// in place through the same per-constructor memo as
+    /// <see cref="HasAttributeOfType"/>, and the values are read in place:
+    /// one <c>int32</c> for the browsable state, and a fixed-arg string
+    /// compared byte for byte against the two compiler-compatibility messages
+    /// and feature names. No name or value is materialized.
     /// </summary>
-    internal bool IsHidden() =>
-        AttributeReader.HasHiddenAttribute(Reader, _methodDefinition.GetCustomAttributes());
+    internal bool IsHidden() => AnyHiddenAttribute(_methodDefinition.GetCustomAttributes());
 
-    internal bool TypeIsHidden(TypeDefinition type) =>
-        AttributeReader.HasHiddenAttribute(Reader, type.GetCustomAttributes());
+    internal bool TypeIsHidden(TypeDefinition type) => AnyHiddenAttribute(type.GetCustomAttributes());
+
+    static readonly MetadataTypeNameTarget EditorBrowsableAttribute = new("System.ComponentModel.EditorBrowsableAttribute");
+    static readonly MetadataTypeNameTarget ObsoleteAttribute = new("System.ObsoleteAttribute");
+    static readonly MetadataTypeNameTarget CompilerFeatureRequiredAttribute = new(KnownAttributeNames.CompilerFeatureRequiredAttribute);
+
+    // Roslyn stamps these [Obsolete] messages, paired with
+    // [CompilerFeatureRequired(<feature>)], purely to block older compilers;
+    // legacy does not treat them as hiding (AttributeReader.IsCompilerCompatibilityObsolete).
+    static ReadOnlySpan<byte> RequiredMembersObsoleteMessage =>
+        "Constructors of types with required members are not supported in this version of your compiler."u8;
+    static ReadOnlySpan<byte> RequiredMembersFeatureName => "RequiredMembers"u8;
+    static ReadOnlySpan<byte> RefStructsObsoleteMessage =>
+        "Types with embedded references are not supported in this version of your compiler."u8;
+    static ReadOnlySpan<byte> RefStructsFeatureName => "RefStructs"u8;
+
+    bool AnyHiddenAttribute(CustomAttributeHandleCollection attributes)
+    {
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = Reader.GetCustomAttribute(handle);
+            if (ConstructorMatches(attribute.Constructor, EditorBrowsableAttribute))
+            {
+                if (IsEditorBrowsableNever(attribute.Value))
+                    return true;
+            }
+            else if (ConstructorMatches(attribute.Constructor, ObsoleteAttribute))
+            {
+                if (!IsCompilerCompatibilityObsolete(attributes, attribute.Value))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Legacy's test: a value of at least six bytes whose fixed argument is <c>EditorBrowsableState.Never</c> (1).</summary>
+    bool IsEditorBrowsableNever(BlobHandle value)
+    {
+        BlobReader blob = Reader.GetBlobReader(value);
+        if (blob.Length < 6)
+            return false;
+        blob.ReadUInt16();
+        return blob.ReadInt32() == 1;
+    }
+
+    bool IsCompilerCompatibilityObsolete(CustomAttributeHandleCollection attributes, BlobHandle obsoleteValue) =>
+        (FixedStringArgumentEquals(obsoleteValue, RequiredMembersObsoleteMessage)
+            && HasCompilerFeatureRequired(attributes, RequiredMembersFeatureName))
+        || (FixedStringArgumentEquals(obsoleteValue, RefStructsObsoleteMessage)
+            && HasCompilerFeatureRequired(attributes, RefStructsFeatureName));
+
+    bool HasCompilerFeatureRequired(CustomAttributeHandleCollection attributes, ReadOnlySpan<byte> featureName)
+    {
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = Reader.GetCustomAttribute(handle);
+            if (ConstructorMatches(attribute.Constructor, CompilerFeatureRequiredAttribute)
+                && FixedStringArgumentEquals(attribute.Value, featureName))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the value's first fixed argument is exactly the expected UTF-8
+    /// string, read in place: prolog, compressed length, then at most
+    /// <c>expected.Length</c> bytes. Equals legacy's materialized comparison,
+    /// which also rejects a longer value and a null string.
+    /// </summary>
+    bool FixedStringArgumentEquals(BlobHandle value, ReadOnlySpan<byte> expected)
+    {
+        BlobReader blob = Reader.GetBlobReader(value);
+        if (blob.Length < 2)
+            return false;
+        blob.ReadUInt16();
+        if (!blob.TryReadCompressedInteger(out int length)
+            || length != expected.Length
+            || blob.RemainingBytes < length)
+            return false;
+        for (int i = 0; i < length; i++)
+        {
+            if (blob.ReadByte() != expected[i])
+                return false;
+        }
+
+        return true;
+    }
 
     bool AnyAttributeOfType(CustomAttributeHandleCollection attributes, MetadataTypeNameTarget target)
     {
         foreach (CustomAttributeHandle handle in attributes)
         {
-            EntityHandle constructor = Reader.GetCustomAttribute(handle).Constructor;
-            if (!_attributeConstructors.TryGetValue((constructor, target), out bool matches))
-            {
-                matches = ConstructorTypeMatches(constructor, target);
-                _attributeConstructors[(constructor, target)] = matches;
-            }
-
-            if (matches)
+            if (ConstructorMatches(Reader.GetCustomAttribute(handle).Constructor, target))
                 return true;
         }
 
         return false;
+    }
+
+    /// <summary>Whether the constructor's declaring type is the target, memoized per constructor.</summary>
+    bool ConstructorMatches(EntityHandle constructor, MetadataTypeNameTarget target)
+    {
+        if (!_attributeConstructors.TryGetValue((constructor, target), out bool matches))
+        {
+            matches = ConstructorTypeMatches(constructor, target);
+            _attributeConstructors[(constructor, target)] = matches;
+        }
+
+        return matches;
     }
 
     bool ConstructorTypeMatches(EntityHandle constructor, MetadataTypeNameTarget target) =>

@@ -54,9 +54,10 @@ public enum MethodDefinitionLayers
     /// <summary>
     /// Tier 1: the legacy hidden test on the method or its declaring type:
     /// <c>EditorBrowsable(Never)</c>, or an <c>Obsolete</c> that is not
-    /// Roslyn's compiler-compatibility marker, through
-    /// <c>AttributeReader.HasHiddenAttribute</c>. It materializes attribute
-    /// type names, so a classifier reads it only after its cheaper tests.
+    /// Roslyn's compiler-compatibility marker, as
+    /// <c>AttributeReader.HasHiddenAttribute</c> defines it, with the
+    /// attribute types matched through the <see cref="AttributeTypeMatch"/>
+    /// memo and the values read in place.
     /// </summary>
     HiddenAttribute = 256,
 }
