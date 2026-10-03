@@ -18,7 +18,8 @@ public static class ToolsAnalyzer
             DotnetToolSettingsParser.TryProject(
                 toolsDir,
                 out DotnetToolSettingsData? settings);
-        if (settings is not null)
+        result.ToolSettingsProjectionComplete &= settingsComplete;
+        if (settingsComplete && settings is not null)
         {
             ApplyToolSettings(settings, result);
         }

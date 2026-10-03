@@ -393,7 +393,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
 
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(overview.locator(
-    ".package-overview-summary .section-title h2"))
+    ".package-info-section > .section-title h2"))
     .toHaveText("Package Info");
 });
 
@@ -476,7 +476,7 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator(".comparison-target-policy"))
       .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
     await expect(overview.locator(
-      ".package-overview-summary .section-title h2"))
+      ".package-info-section > .section-title h2"))
       .toHaveText("Package Info");
     await expect(overview.locator(
       ".package-overview-resources .section-title h2"))

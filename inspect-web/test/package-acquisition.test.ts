@@ -11,6 +11,7 @@ import {
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
   mergeRuntimePackageSurface,
+  packageLibrariesForModel,
   PackageVersionSettlementError,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
@@ -22,7 +23,9 @@ import {
 import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
+  BrowserPackageChildrenInspection,
   BrowserPackageInfoMeasurementInspection,
+  BrowserPackageRootLoadResult,
   BrowserPackageSurface,
   BrowserPackageVersionSettlementInspection,
   BrowserTypeSurface,
@@ -265,6 +268,52 @@ function packageInfo(): BrowserPackageInfoMeasurementInspection {
   };
 }
 
+function packageChildren(
+  surface: BrowserPackageSurface,
+  counts: readonly (number | null)[] =
+    surface.assemblies.map(descriptor => descriptor.publicTypes),
+): BrowserPackageChildrenInspection {
+  return {
+    content: {
+      kind: "Libraries",
+      status: "Available",
+      packageId: surface.package,
+      packageVersion: surface.version,
+      targetFramework: surface.activeFramework,
+      libraries: surface.assemblies.map((descriptor, index) => ({
+        assetId: descriptor.id,
+        assetPath: descriptor.asset,
+        assemblyName: descriptor.name,
+        role: "Compile",
+        publicTypeDeclarations: counts[index] ?? null,
+        countStatus: counts[index] === null ? "Unavailable" : "Counted",
+        detail: null,
+      })),
+      runtimeIdentifierPackages: [],
+      detail: null,
+      isComplete: true,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "package-children/share",
+      reason: "No canonical Workspace share projection.",
+    },
+    diagnostics: [],
+  };
+}
+
+function packageRootLoad(
+  surface: BrowserPackageSurface,
+  counts?: number[],
+): BrowserPackageRootLoadResult {
+  return {
+    packageChildren: packageChildren(surface, counts),
+    surface,
+  };
+}
+
 function generatedPackageSurfaceRejectsMutation(
   surface: BrowserPackageSurface,
 ): void {
@@ -485,6 +534,130 @@ test("NuGet package models retain the shared Package Info envelope", () => {
   assert.equal(model.packageInfo, measurements);
 });
 
+test("Package children own Library declaration counts", () => {
+  const surface = packageSurface();
+  const children = packageChildren(surface, [17]);
+  const model = createNuGetPackageModel(
+    surface,
+    {
+      content: {
+        kind: "Settled",
+        result: {
+          request: { packageId: "example.package", version: "1.2.3" },
+          coordinate: { packageId: "example.package", version: "1.2.3" },
+          includePrerelease: false,
+          freshness: null,
+          listings: [],
+          sourceListings: [],
+        },
+        failure: null,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-version-settlement/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    packageInfo(),
+    children);
+
+  assert.equal(model.packageChildren, children);
+  assert.equal(model.assemblies[0]?.publicTypes, 17);
+  assert.equal(model.totalTypes, 17);
+  assert.equal(model.totalMembers, 6);
+});
+
+test("Package children retain navigable Libraries missing from the broad surface", () => {
+  const complete = packageSurface();
+  const children = packageChildren(complete, [17]);
+  const model = createNuGetPackageModel(
+    packageSurface({
+      assemblies: [],
+      types: [],
+      inspectionErrors: ["The broad surface was truncated."],
+      inspectionError: "The broad surface was truncated.",
+    }),
+    children);
+
+  const libraries = packageLibrariesForModel(model);
+  assert.equal(libraries.length, 1);
+  assert.equal(libraries[0]?.id, "example-core");
+  assert.equal(libraries[0]?.types, 17);
+  assert.equal(libraries[0]?.members, null);
+  assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(
+    libraries[0]?.unavailableDetail,
+    "Library surface details are unavailable.");
+  assert.equal(model.totalTypes, 17);
+  assert.equal(model.totalMembers, null);
+});
+
+test("Package totals become unknown when any owner-issued child Count is unknown", () => {
+  const complete = packageSurface({
+    assemblies: [
+      assembly("known", "Known", 3),
+      assembly("unknown", "Unknown", 5),
+    ],
+  });
+  const children = packageChildren(complete, [17, null]);
+  const model = createNuGetPackageModel(
+    packageSurface({
+      defaultAssemblyId: "known",
+      assemblies: [complete.assemblies[0]!],
+      types: [],
+    }),
+    children);
+
+  assert.deepEqual(
+    packageLibrariesForModel(model).map(library => library.types),
+    [17, null]);
+  assert.equal(model.totalTypes, null);
+  assert.equal(model.totalMembers, null);
+});
+
+test("Package totals distinguish incomplete children from complete emptiness", () => {
+  const surface = packageSurface();
+  const availableChildren = packageChildren(surface);
+  const incompleteChildren = {
+    ...availableChildren,
+    content: {
+      ...availableChildren.content,
+      status: "Unavailable",
+      libraries: [],
+      detail: "Package children are unavailable.",
+      isComplete: false,
+    },
+  } satisfies BrowserPackageChildrenInspection;
+
+  const incomplete = createNuGetPackageModel(
+    surface,
+    incompleteChildren);
+  assert.deepEqual(packageLibrariesForModel(incomplete), []);
+  assert.equal(incomplete.totalTypes, null);
+  assert.equal(incomplete.totalMembers, null);
+
+  const emptySurface = packageSurface({
+    defaultAssemblyId: "",
+    compileLibrary: {
+      status: "NoCompileAssets",
+      targetFramework: "net10.0",
+      message: "No compile Libraries.",
+    },
+    assemblies: [],
+    types: [],
+    totalMembers: 0,
+  });
+  const completeEmpty = createNuGetPackageModel(
+    emptySurface,
+    packageChildren(emptySurface));
+  assert.deepEqual(packageLibrariesForModel(completeEmpty), []);
+  assert.equal(completeEmpty.totalTypes, 0);
+  assert.equal(completeEmpty.totalMembers, 0);
+});
+
 test("Workspace occurrence activation preserves matching inspection envelopes", () => {
   const measurements = packageInfo();
   const versionSettlement = {
@@ -509,18 +682,23 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     },
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
+  const children = packageChildren(packageSurface(), [17]);
   const retained = createNuGetPackageModel(
     packageSurface(),
     versionSettlement,
-    measurements);
+    measurements,
+    children);
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ totalMembers: 12 }),
     retained,
     [retained]);
 
-  assert.equal(activated.totalMembers, 12);
+  assert.equal(activated.totalMembers, 6);
   assert.equal(activated.versionSettlement, versionSettlement);
   assert.equal(activated.packageInfo, measurements);
+  assert.equal(activated.packageChildren, children);
+  assert.equal(activated.assemblies[0]?.publicTypes, 17);
+  assert.equal(activated.totalTypes, 17);
 });
 
 test("Workspace occurrence activation does not copy envelopes across TFMs", () => {
@@ -702,6 +880,7 @@ function acquisitionDependencies(
         diagnostics: [],
       },
       packageInfo: packageInfo(),
+      packageChildren: packageChildren(packageSurface()),
       surface: packageSurface(),
     }),
     loadRuntimePack: async () => JSON.stringify(
@@ -738,13 +917,16 @@ function deferred<T>() {
 test("query results open through the exact opaque Root request", async () => {
   const rootRequest = "owner-issued-root-request";
   const opened: string[] = [];
+  const declarationCount = 9;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     queryPackage: async () => {
       assert.fail("Exact Root opening must not use display coordinates.");
     },
     queryPackageRoot: async request => {
       opened.push(request);
-      return packageSurface({ activeFramework: "net9.0" });
+      const surface =
+        packageSurface({ activeFramework: "net9.0" });
+      return packageRootLoad(surface, [declarationCount]);
     },
   }));
 
@@ -759,6 +941,7 @@ test("query results open through the exact opaque Root request", async () => {
   assert.equal(result?.id, "Example.Package");
   assert.equal(result?.version, "1.2.3");
   assert.equal(result?.activeFramework, "net9.0");
+  assert.equal(result?.assemblies[0]?.publicTypes, declarationCount);
 });
 
 test("missing exact Root capability never falls back to coordinate opening", async () => {
@@ -816,6 +999,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
     queryPackage: async () => ({
       versionSettlement,
       packageInfo: null,
+      packageChildren: null,
       surface: null,
     }),
   }));
@@ -853,7 +1037,7 @@ test("exact Root opening failure remains visible without coordinate retry", asyn
 });
 
 test("stale exact Root responses do not publish after navigation changes", async () => {
-  const response = deferred<BrowserPackageSurface>();
+  const response = deferred<BrowserPackageRootLoadResult>();
   const events: string[] = [];
   let current = true;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
@@ -874,7 +1058,7 @@ test("stale exact Root responses do not publish after navigation changes", async
     isCurrent: () => current,
   });
   current = false;
-  response.resolve(packageSurface());
+  response.resolve(packageRootLoad(packageSurface()));
 
   assert.equal(await request, null);
   assert.deepEqual(events, []);

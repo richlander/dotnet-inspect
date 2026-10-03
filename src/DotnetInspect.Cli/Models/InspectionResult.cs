@@ -18,6 +18,9 @@ public class InspectionResult
 
     public string? ManifestVersion { get; set; }
 
+    [JsonIgnore]
+    internal bool ToolSettingsProjectionComplete { get; set; } = true;
+
     public string Version { get; set; } = "";
 
     /// <summary>

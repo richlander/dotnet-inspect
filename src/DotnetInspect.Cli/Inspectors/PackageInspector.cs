@@ -29,6 +29,7 @@ internal static class PackageInspector
         bool fetchMetadata = false,
         bool requireIdentifierMetadata = false,
         bool verifyRidPackageAvailability = false,
+        bool scanBinarySignals = true,
         NuGetSourceOptions? sourceOptions = null)
     {
         string extractPath = resolution.ExtractPath;
@@ -203,12 +204,15 @@ internal static class PackageInspector
         ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
         PopulateLibraryFiles(extractPath, result);
-        PackageBinarySignalScan binaryScan =
-            await ScanBinarySignalsForCacheAsync(
-            extractPath, packageName, version, httpClient, logger,
-            acquirePdb: false, sourceOptions);
-        result.BinarySignals = binaryScan.Signals;
-        productionComplete &= binaryScan.IsComplete;
+        if (scanBinarySignals)
+        {
+            PackageBinarySignalScan binaryScan =
+                await ScanBinarySignalsForCacheAsync(
+                extractPath, packageName, version, httpClient, logger,
+                acquirePdb: false, sourceOptions);
+            result.BinarySignals = binaryScan.Signals;
+            productionComplete &= binaryScan.IsComplete;
+        }
 
         // Parse deps.json files (present in tool packages, typically in tools/{tfm}/{rid}/)
         if (hasToolsDir)
@@ -269,7 +273,7 @@ internal static class PackageInspector
         }
 
         // Cache the filesystem-derived result (before metadata overlay)
-        if (cacheSubject is not null)
+        if (cacheSubject is not null && scanBinarySignals)
         {
             PackageIndexProduction production = PackageIndexProduction.Create(
                 cacheSubject,
@@ -355,8 +359,11 @@ internal static class PackageInspector
             return;
 
         var wrapperTool = new InspectionResult();
-        ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, wrapperTool);
-        if (string.IsNullOrWhiteSpace(wrapperTool.ToolFormat))
+        bool wrapperSettingsComplete =
+            ToolsAnalyzer.AnalyzeToolsDirectory(toolsDir, wrapperTool);
+        result.ToolSettingsProjectionComplete &= wrapperSettingsComplete;
+        if (!wrapperSettingsComplete
+            || string.IsNullOrWhiteSpace(wrapperTool.ToolFormat))
             return;
 
         result.IsToolPackage = true;

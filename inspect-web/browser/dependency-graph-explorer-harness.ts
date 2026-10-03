@@ -213,6 +213,8 @@ async function render() {
     </main>`;
   bindGraphExplore(document, () => explorer.open(target()));
   bindPackageView(document, {
+    onPackageChildLibrarySelect() {},
+    onRuntimeIdentifierPackageLoad() {},
     onDependencyGroupSelect: index => { groupIndex = index; void patchGroup(); },
     onPruningEvaluate() {},
     onPruningFamilySelect() {},

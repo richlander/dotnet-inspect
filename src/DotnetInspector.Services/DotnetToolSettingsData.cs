@@ -5,6 +5,11 @@ namespace DotnetInspector.Services;
 /// </summary>
 public sealed record ToolRidPackage(string RuntimeIdentifier, string PackageId);
 
+public sealed record DotnetToolCommand(
+    string Name,
+    string? EntryPoint,
+    string? Runner);
+
 /// <summary>
 /// Parsed contents of a NuGet tool package's <c>DotnetToolSettings.xml</c> manifest.
 /// </summary>
@@ -13,4 +18,7 @@ public sealed record DotnetToolSettingsData(
     string? ToolFormat,
     bool IsRidSpecificPointerPackage,
     IReadOnlyList<string>? Commands,
-    IReadOnlyList<ToolRidPackage>? RuntimeIdentifierPackages);
+    IReadOnlyList<ToolRidPackage>? RuntimeIdentifierPackages)
+{
+    public IReadOnlyList<DotnetToolCommand>? CommandEntries { get; init; }
+}

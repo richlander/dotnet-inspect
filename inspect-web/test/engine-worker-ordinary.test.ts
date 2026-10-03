@@ -1517,6 +1517,27 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "NoCompileAssets",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: null,
+        libraries: [],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
     surface,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
@@ -1550,6 +1571,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       diagnostics: [],
     },
     packageInfo: null,
+    packageChildren: null,
     surface: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({

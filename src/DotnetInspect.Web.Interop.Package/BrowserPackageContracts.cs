@@ -69,7 +69,41 @@ public sealed record BrowserPackageSurface(
 public sealed record BrowserPackageLoadResult(
     BrowserPackageVersionSettlementInspection VersionSettlement,
     BrowserPackageInfoMeasurementInspection? PackageInfo,
+    BrowserPackageChildrenInspection? PackageChildren,
     BrowserPackageSurface? Surface);
+
+public sealed record BrowserPackageRootLoadResult(
+    BrowserPackageChildrenInspection PackageChildren,
+    BrowserPackageSurface Surface);
+
+public sealed record BrowserPackageChildrenInspection(
+    BrowserPackageChildren Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserPackageChildren(
+    string Kind,
+    string Status,
+    string PackageId,
+    string PackageVersion,
+    string? TargetFramework,
+    BrowserPackageLibraryChild[] Libraries,
+    BrowserPackageRuntimeIdentifierChild[] RuntimeIdentifierPackages,
+    string? Detail,
+    bool IsComplete);
+
+public sealed record BrowserPackageLibraryChild(
+    string AssetId,
+    string AssetPath,
+    string AssemblyName,
+    string Role,
+    int? PublicTypeDeclarations,
+    string? CountStatus,
+    string? Detail);
+
+public sealed record BrowserPackageRuntimeIdentifierChild(
+    string RuntimeIdentifier,
+    string PackageId);
 
 public sealed record BrowserPackageInfoMeasurementInspection(
     BrowserPackageInfoMeasurements Content,
@@ -857,6 +891,7 @@ public enum BrowserExactLibraryApiAssetKind
 {
     Reference,
     Library,
+    Tool,
 }
 
 public enum BrowserExactLibraryApiProjectionLimit
@@ -1323,6 +1358,7 @@ public sealed record BrowserPackageVersions(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageVersions))]
 [JsonSerializable(typeof(BrowserPackageLoadResult))]
+[JsonSerializable(typeof(BrowserPackageRootLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]

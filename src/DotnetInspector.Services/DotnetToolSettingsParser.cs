@@ -4,6 +4,23 @@ using UntrustedDocuments;
 
 namespace DotnetInspector.Services;
 
+public sealed record DotnetToolSettingsContent(
+    string Path,
+    string Content);
+
+public enum DotnetToolSettingsProjectionStatus
+{
+    Available,
+    Missing,
+    Invalid,
+    Ambiguous,
+}
+
+public sealed record DotnetToolSettingsProjection(
+    DotnetToolSettingsProjectionStatus Status,
+    DotnetToolSettingsData? Settings,
+    string Detail);
+
 /// <summary>
 /// Locates and parses a NuGet tool package's <c>DotnetToolSettings.xml</c> manifest.
 /// Sibling to <see cref="NuspecParser"/> / <c>DepsJsonParser</c>: the CLI orchestration
@@ -56,8 +73,7 @@ public static class DotnetToolSettingsParser
     /// <summary>
     /// Locates and projects every candidate manifest. Returns <see langword="true"/>
     /// for absence or one complete, agreeing projection; otherwise returns
-    /// <see langword="false"/> while preserving the first deterministic projection
-    /// in <paramref name="data"/> when one was readable.
+    /// <see langword="false"/> without publishing a partial projection.
     /// </summary>
     public static bool TryProject(
         string toolsDir,
@@ -79,7 +95,6 @@ public static class DotnetToolSettingsParser
                 DotnetToolSettingsData? candidate = Parse(candidates[i]);
                 if (!Equivalent(selected, candidate))
                 {
-                    data = selected;
                     return false;
                 }
             }
@@ -145,26 +160,48 @@ public static class DotnetToolSettingsParser
     private static DotnetToolSettingsData? ParseDocument(XDocument doc)
     {
         var root = doc.Root;
-        if (root?.Name != "DotNetCliTool")
+        if (root is null || root.Name != "DotNetCliTool")
             return null;
 
-        var version = root?.Attribute("Version")?.Value;
+        var version = root.Attribute("Version")?.Value;
 
+        List<DotnetToolCommand>? commands = ParseCommandEntries(root);
         return version switch
         {
-            "2" => new DotnetToolSettingsData(
-                version,
-                "DotNetCliTool Version=\"2\" (RID-specific)",
-                IsRidSpecificPointerPackage: true,
-                ParseCommands(root),
-                ParseRidPackages(root)),
+            "2" => ParseVersion2(root, version, commands),
             "1" or null => new DotnetToolSettingsData(
                 version,
                 "DotNetCliTool Version=\"1\" (portable)",
                 IsRidSpecificPointerPackage: false,
-                ParseCommands(root),
-                RuntimeIdentifierPackages: null),
+                commands?.Select(static command => command.Name).ToList(),
+                RuntimeIdentifierPackages: null)
+            {
+                CommandEntries = commands,
+            },
             _ => null,
+        };
+    }
+
+    private static DotnetToolSettingsData? ParseVersion2(
+        XElement root,
+        string version,
+        List<DotnetToolCommand>? commands)
+    {
+        if (!TryParseRidPackages(
+                root,
+                out List<ToolRidPackage>? ridPackages))
+        {
+            return null;
+        }
+
+        return new(
+            version,
+            "DotNetCliTool Version=\"2\" (RID-specific)",
+            IsRidSpecificPointerPackage: true,
+            commands?.Select(static command => command.Name).ToList(),
+            ridPackages)
+        {
+            CommandEntries = commands,
         };
     }
 
@@ -194,6 +231,61 @@ public static class DotnetToolSettingsParser
         return [.. candidates];
     }
 
+    public static DotnetToolSettingsProjection ProjectContents(
+        IEnumerable<DotnetToolSettingsContent> contents)
+    {
+        ArgumentNullException.ThrowIfNull(contents);
+        DotnetToolSettingsContent[] candidates = [.. contents];
+        if (candidates.Length == 0)
+        {
+            return new(
+                DotnetToolSettingsProjectionStatus.Missing,
+                null,
+                "The declared tool Package contains no DotnetToolSettings.xml manifest.");
+        }
+
+        DotnetToolSettingsData? projected = null;
+        foreach (DotnetToolSettingsContent candidate in candidates)
+        {
+            DotnetToolSettingsData? parsed;
+            try
+            {
+                parsed = ParseContentOrThrow(candidate.Content);
+            }
+            catch (System.Xml.XmlException exception)
+            {
+                return new(
+                    DotnetToolSettingsProjectionStatus.Invalid,
+                    null,
+                    $"The tool settings manifest '{candidate.Path}' is invalid: {exception.Message}");
+            }
+
+            if (parsed is null)
+            {
+                return new(
+                    DotnetToolSettingsProjectionStatus.Invalid,
+                    null,
+                    $"The tool settings manifest '{candidate.Path}' uses an unsupported shape.");
+            }
+
+            if (projected is not null
+                && !Equivalent(projected, parsed))
+            {
+                return new(
+                    DotnetToolSettingsProjectionStatus.Ambiguous,
+                    null,
+                    "The declared tool Package contains disagreeing DotnetToolSettings.xml manifests.");
+            }
+
+            projected = parsed;
+        }
+
+        return new(
+            DotnetToolSettingsProjectionStatus.Available,
+            projected,
+            "Tool settings are available.");
+    }
+
     private static bool Equivalent(
         DotnetToolSettingsData left,
         DotnetToolSettingsData? right)
@@ -203,6 +295,9 @@ public static class DotnetToolSettingsParser
             && left.IsRidSpecificPointerPackage
                 == right.IsRidSpecificPointerPackage
             && SequenceEqual(left.Commands, right.Commands)
+            && SequenceEqual(
+                left.CommandEntries,
+                right.CommandEntries)
             && SequenceEqual(
                 left.RuntimeIdentifierPackages,
                 right.RuntimeIdentifierPackages);
@@ -215,29 +310,53 @@ public static class DotnetToolSettingsParser
             ? right is null
             : right is not null && left.SequenceEqual(right);
 
-    private static List<string>? ParseCommands(XElement? root)
+    private static List<DotnetToolCommand>? ParseCommandEntries(
+        XElement? root)
     {
         var commands = root?.Element("Commands")?.Elements("Command");
         if (commands == null)
             return null;
 
         return commands
-            .Select(c => c.Attribute("Name")?.Value)
-            .Where(n => n != null)
-            .Cast<string>()
+            .Select(command => new DotnetToolCommand(
+                command.Attribute("Name")?.Value ?? "",
+                command.Attribute("EntryPoint")?.Value,
+                command.Attribute("Runner")?.Value))
+            .Where(static command =>
+                !string.IsNullOrWhiteSpace(command.Name))
             .ToList();
     }
 
-    private static List<ToolRidPackage>? ParseRidPackages(XElement? root)
+    private static bool TryParseRidPackages(
+        XElement root,
+        out List<ToolRidPackage>? packages)
     {
-        var ridPackages = root?.Element("RuntimeIdentifierPackages")?.Elements("RuntimeIdentifierPackage");
+        IEnumerable<XElement>? ridPackages = root
+            .Element("RuntimeIdentifierPackages")
+            ?.Elements("RuntimeIdentifierPackage");
         if (ridPackages == null)
-            return null;
+        {
+            packages = null;
+            return true;
+        }
 
-        return ridPackages
-            .Select(r => new ToolRidPackage(
-                r.Attribute("RuntimeIdentifier")?.Value ?? "",
-                r.Attribute("Id")?.Value ?? ""))
-            .ToList();
+        packages = [];
+        foreach (XElement ridPackage in ridPackages)
+        {
+            string runtimeIdentifier =
+                ridPackage.Attribute("RuntimeIdentifier")?.Value ?? "";
+            string packageId =
+                ridPackage.Attribute("Id")?.Value ?? "";
+            if (string.IsNullOrWhiteSpace(runtimeIdentifier)
+                || string.IsNullOrWhiteSpace(packageId))
+            {
+                packages = null;
+                return false;
+            }
+
+            packages.Add(new(runtimeIdentifier, packageId));
+        }
+
+        return true;
     }
 }
