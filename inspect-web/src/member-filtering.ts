@@ -138,6 +138,29 @@ export function memberOverloadSourceIndex(
   return sourceIndex;
 }
 
+export function memberOverloadVisibleIndex(
+  sourceGroups: readonly StableMemberGroup[],
+  group: StableMemberGroup,
+  sourceIndex: number,
+): number {
+  const sourceGroup = sourceGroups.find(candidate =>
+    candidate.key === group.key) ?? group;
+  const sourceOverload = sourceGroup.overloads[sourceIndex];
+  if (!sourceOverload) {
+    throw new Error(
+      `Member '${group.key}' has no source overload ${sourceIndex}.`);
+  }
+  const visibleIndex = group.overloads.findIndex(candidate =>
+    candidate === sourceOverload
+    || (Boolean(sourceOverload.stableSelector)
+      && candidate.stableSelector === sourceOverload.stableSelector));
+  if (visibleIndex < 0) {
+    throw new Error(
+      `Source overload ${sourceIndex} for member '${group.key}' is not visible.`);
+  }
+  return visibleIndex;
+}
+
 export function selectMemberFamilyParent(
   state: { selectedOverloadIndex: number | null },
   group: {

@@ -93,6 +93,7 @@ import {
   MEMBER_TRAITS,
   memberNavTargetIndex,
   memberOverloadSourceIndex,
+  memberOverloadVisibleIndex,
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
@@ -7839,6 +7840,22 @@ function memberNavOverloadSourceIndex(
     index);
 }
 
+function memberNavOverloadVisibleIndex(
+  group: {
+    readonly key: string;
+    readonly overloads: readonly {
+      readonly stableSelector?: string | null;
+    }[];
+  },
+  sourceIndex: number,
+) {
+  const type = selectedType();
+  return memberOverloadVisibleIndex(
+    type ? selectedMemberGroups(type) : [],
+    group,
+    sourceIndex);
+}
+
 function memberNavOverloadHeat(
   group: {
     readonly key: string;
@@ -8015,9 +8032,12 @@ function openMemberGroup(key: string) {
   const preserveSection =
     state.memberBrowseTypeId === type?.id && Boolean(state.selectedMemberKey);
   const group = memberGroupForCurrentFilters(type, key);
+  const sourceOverloadCount =
+    group?.sourceOverloadCount ?? group?.overloads.length ?? 0;
   const filteredDocumentOrdinal =
     Boolean(state.memberTraitFilter)
     && group?.overloads.length === 1
+    && sourceOverloadCount === 1
       ? memberDocumentOrdinalForOverload(group, 0)
       : null;
   const graphOnlyTarget =
@@ -11717,7 +11737,9 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     }
   }
   const selectedOverload = selectedMemberOverload(type, member);
-  const hasSelectedOverload = selectedOverload !== undefined;
+  const hasSelectedOverload =
+    state.selectedOverloadIndex != null
+    && selectedOverload !== undefined;
   if (member.kind === "method"
     && !hasSelectedOverload) {
     if (member.completeCountStatus === "available") {
@@ -12697,7 +12719,11 @@ function bindTypePanelEvents() {
       const group = selectedMember(selectedType());
       if (group) {
         showContentDetailAfterRender();
-        selectMemberNavEntry({ kind: "overload", group, index }, false);
+        const visibleIndex =
+          memberNavOverloadVisibleIndex(group, index);
+        selectMemberNavEntry(
+          { kind: "overload", group, index: visibleIndex },
+          false);
       }
     },
     onShowTypes: exitMemberScope,

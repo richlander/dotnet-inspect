@@ -13,6 +13,7 @@ import {
   memberGroupMatches,
   memberNavTargetIndex,
   memberOverloadSourceIndex,
+  memberOverloadVisibleIndex,
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
@@ -243,11 +244,15 @@ test("filtered member overloads retain their exact source index", () => {
   };
 
   assert.equal(memberOverloadSourceIndex(source, filtered, 0), 2);
+  assert.equal(memberOverloadVisibleIndex(source, filtered, 2), 0);
   assert.equal(
     selectedSourceOverload(source, filtered, 2),
     source[0]?.overloads[2],
   );
   assert.equal(selectedSourceOverload(source, filtered, null), undefined);
+  assert.throws(
+    () => memberOverloadVisibleIndex(source, filtered, 1),
+    /Source overload 1 .* is not visible/);
 });
 
 test("selecting a filtered source-family parent clears its exact child", () => {

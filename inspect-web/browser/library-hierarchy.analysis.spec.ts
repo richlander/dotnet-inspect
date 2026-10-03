@@ -285,6 +285,9 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   expect(await page.locator("html").getAttribute(
     "data-member-group-document-request",
   )).toBeNull();
+  await familyOverload.click();
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Runs the widget.");
 });
 
 test("ranked Analysis members replace sticky private Type population intent", async ({

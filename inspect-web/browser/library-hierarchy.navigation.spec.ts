@@ -813,6 +813,7 @@ test("non-public overload navigation retains its established detail route", asyn
     ...run,
     signature: `private void Hidden(int value${index})`,
     name: "Hidden",
+    isStatic: index === 2,
     accessibility: "private",
     stableSelector: `Hidden:${index}`,
     anchorDigest: `widget-hidden-${index}`,
@@ -839,6 +840,7 @@ test("non-public overload navigation retains its established detail route", asyn
     '#type-list [data-type="asset:core:Example.Widget"]').click();
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-access-filter]").selectOption("private");
+  await page.locator("[data-member-trait-filter]").selectOption("static");
   await chooseSubject(page, "member", "Member");
   await page.locator('[data-nav-overload="1"]').click();
 
