@@ -412,7 +412,7 @@ public sealed class BodySignalTargetComparisonTests
     static BodySignalAnalysisInput EmptyAnalysis(string path)
     {
         (AssemblyReferenceIdentity identity, Guid mvid) = ReadIdentity(path);
-        return BodySignalAnalysisTestInput.FromIndex(
+        return BodySignalAnalysisTestInput.FromExecution(
             BodyAnalysisTestExecution.FromEvidence(
                 [],
                 [],

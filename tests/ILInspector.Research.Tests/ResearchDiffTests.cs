@@ -1993,7 +1993,7 @@ public class ResearchDiffTests
                 BodySignalAnalyses =
                 [
                     .. oldIndexes.Select(
-                        BodySignalAnalysisTestInput.FromIndex),
+                        BodySignalAnalysisTestInput.FromExecution),
                 ],
             };
             newInput = newInput with
@@ -2001,7 +2001,7 @@ public class ResearchDiffTests
                 BodySignalAnalyses =
                 [
                     .. newIndexes.Select(
-                        BodySignalAnalysisTestInput.FromIndex),
+                        BodySignalAnalysisTestInput.FromExecution),
                 ],
             };
         }
@@ -2895,7 +2895,7 @@ public class ResearchDiffTests
         {
             BodySignalAnalyses =
             [
-                BodySignalAnalysisTestInput.FromIndex(index),
+                BodySignalAnalysisTestInput.FromExecution(index),
             ],
         };
 

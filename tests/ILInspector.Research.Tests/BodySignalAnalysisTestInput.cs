@@ -4,28 +4,28 @@ namespace ILInspector.Research.Tests;
 
 internal static class BodySignalAnalysisTestInput
 {
-    internal static BodySignalAnalysisInput FromIndex(
-        LibraryBodyAnalysisExecution index)
+    internal static BodySignalAnalysisInput FromExecution(
+        LibraryBodyAnalysisExecution execution)
     {
         var receipt = new LibraryBodyAnalysisReceipt(
-            index.Receipt.SourceName,
-            index.Receipt.ModuleIdentity,
+            execution.Receipt.SourceName,
+            execution.Receipt.ModuleIdentity,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.Allocations
                 | LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
             HasFullMethodEvidenceScope: true,
-            index.Receipt.Diagnostics);
+            execution.Receipt.Diagnostics);
         return new(
             receipt,
-            index.CallGraph,
-            index.CallGraph.Methods,
-            index.CompatibilityIndex().GeneratedFrameworkTypes,
-            index.CallGraph.MethodSignals,
-            index.Allocations.Occurrences,
-            index.CallGraph.DirectCallsByEvidenceMethod,
-            index.Safety.Occurrences,
-            index.Safety.GetEvidenceByMember(),
-            index.Optimization.Opportunities);
+            execution.CallGraph,
+            execution.CallGraph.Methods,
+            execution.Optimization.GeneratedFrameworkTypes,
+            execution.CallGraph.MethodSignals,
+            execution.Allocations.Occurrences,
+            execution.CallGraph.DirectCallsByEvidenceMethod,
+            execution.Safety.Occurrences,
+            execution.Safety.GetEvidenceByMember(),
+            execution.Optimization.Opportunities);
     }
 }

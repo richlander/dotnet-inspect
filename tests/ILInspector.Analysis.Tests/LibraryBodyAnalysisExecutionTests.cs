@@ -3015,10 +3015,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.ImplementationProfiles
                 .OverloadRelationships,
             index.OverloadRelationships());
-        Assert.True(
-            execution.ImplementationProfiles
-                .GeneratedFrameworkTypes.SetEquals(
-                    index.GeneratedFrameworkTypes));
     }
 
     static ImmutableArray<int> ManagedMethodTokens(
@@ -3318,9 +3314,5 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Optimization
                 .AllocationFanoutOpportunities,
             index.AllocationFanoutOpportunities);
-        Assert.True(
-            execution.Optimization
-                .GeneratedFrameworkTypes.SetEquals(
-                    index.GeneratedFrameworkTypes));
     }
 }

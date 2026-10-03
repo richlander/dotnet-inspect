@@ -1381,7 +1381,7 @@ public class ResearchComparisonAdmissionTests
         => new(PathlessAssembly(), new UnusedResolver(), BodySignalAnalysis());
 
     static BodySignalAnalysisInput BodySignalAnalysis()
-        => BodySignalAnalysisTestInput.FromIndex(
+        => BodySignalAnalysisTestInput.FromExecution(
             BodyAnalysisTestExecution.FromEvidence(
                 [],
                 [],

@@ -244,7 +244,7 @@ public partial class LibraryBodyIndexTests
     public void GeneratedFrameworkTypes_DetectsGrpcStub_AndRejectsUnauthenticProtobufSpoof()
     {
         var index = BodyAnalysisTestExecution.Open(typeof(FakeProtobufReflection).Assembly.Location);
-        var generated = index.CompatibilityIndex().GeneratedFrameworkTypes;
+        var generated = index.Optimization.GeneratedFrameworkTypes;
 
         // #1735: the bootstrap types are bound from an unsigned assembly literally named
         // Google.Protobuf (no real public-key-token), so these must NOT be classified as
@@ -268,6 +268,7 @@ public partial class LibraryBodyIndexTests
         Assert.Contains(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == nameof(GeneratedLookalike)
             && opportunity.Method.Name == nameof(GeneratedLookalike.MakesLocalArrayUnsuppressed));
+        Assert.False(index.HasMaterializedCompatibilityIndex);
     }
 
     // #1735: generated-code suppression must authenticate Google.Protobuf by public-key-token,
@@ -297,7 +298,7 @@ public partial class LibraryBodyIndexTests
         // protobuf generated-bootstrap predicates require real Google.Protobuf assembly
         // identity, so the calling product type must not be classified as generated (#1580).
         var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisLookalike.AssemblyPath());
-        var generated = index.CompatibilityIndex().GeneratedFrameworkTypes;
+        var generated = index.Optimization.GeneratedFrameworkTypes;
 
         Assert.DoesNotContain(
             generated,
@@ -308,6 +309,7 @@ public partial class LibraryBodyIndexTests
         Assert.Contains(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == "ProtobufBootstrapLookalike"
             && opportunity.Method.Name == "ShouldStillBeActionable");
+        Assert.False(index.HasMaterializedCompatibilityIndex);
     }
 
     [Fact]
@@ -322,7 +324,7 @@ public partial class LibraryBodyIndexTests
         {
             File.WriteAllBytes(path, EmitDisplayNameCollisionAssembly());
             var index = BodyAnalysisTestExecution.Open(path);
-            var generated = index.CompatibilityIndex().GeneratedFrameworkTypes;
+            var generated = index.Optimization.GeneratedFrameworkTypes;
 
             TypeRef namespaceLeaf = index.CallGraph.Methods
                 .First(method => method.DeclaringType.Namespace == "CollisionNs.A"
@@ -346,6 +348,7 @@ public partial class LibraryBodyIndexTests
                 GeneratedFrameworkTypeAnalysis.Contains(
                     generated,
                     nestedLeaf));
+            Assert.False(index.HasMaterializedCompatibilityIndex);
         }
         finally
         {
@@ -365,7 +368,7 @@ public partial class LibraryBodyIndexTests
         {
             File.WriteAllBytes(path, EmitDisplayNameCollisionAssembly());
             var index = BodyAnalysisTestExecution.Open(path);
-            var generated = index.CompatibilityIndex().GeneratedFrameworkTypes;
+            var generated = index.Optimization.GeneratedFrameworkTypes;
 
             TypeRef nestedGenerated = index.CallGraph.Methods
                 .First(method => method.DeclaringType.Namespace == "ReverseNs"
@@ -381,6 +384,7 @@ public partial class LibraryBodyIndexTests
                 namespaceLookalike.ToQualifiedDisplayString());
             Assert.Contains(generated, type => type.Equals(nestedGenerated));
             Assert.DoesNotContain(generated, type => type.Equals(namespaceLookalike));
+            Assert.False(index.HasMaterializedCompatibilityIndex);
         }
         finally
         {
@@ -459,7 +463,7 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(["GenStub+LiteralPlus"], literalPlus.Resolution!.Type.Segments);
 
             IReadOnlySet<TypeRef> generated =
-                index.CompatibilityIndex().GeneratedFrameworkTypes;
+                index.Optimization.GeneratedFrameworkTypes;
             Assert.Contains(generated, type => type.Equals(stub));
             Assert.True(
                 GeneratedFrameworkTypeAnalysis.Contains(
@@ -469,6 +473,7 @@ public partial class LibraryBodyIndexTests
                 GeneratedFrameworkTypeAnalysis.Contains(
                     generated,
                     literalPlus));
+            Assert.False(index.HasMaterializedCompatibilityIndex);
         }
         finally
         {

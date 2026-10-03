@@ -117,7 +117,7 @@ public partial class ResearchProducerSessionTests
                                             AssemblyResolutionProvenance.Local(
                                                 "producer session test")),
                                         new NullResolver(),
-                                        BodySignalAnalysisTestInput.FromIndex(bodyIndex)),
+                                        BodySignalAnalysisTestInput.FromExecution(bodyIndex)),
                                 ],
                                 []),
                         ]))).Population;

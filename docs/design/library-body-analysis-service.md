@@ -983,6 +983,23 @@ memory-safety tests preserve those contracts and verify that focused access
 does not materialize the compatibility index. The Release solution build is
 the full absence gate for the deleted strongly typed compatibility members.
 
+### Generated-framework compatibility retirement for #7553 and #8568
+
+**Library Body Analysis Execution** creates one lazy
+`GeneratedFrameworkTypeSet` from its focused call graph and shares that exact
+set with Optimization, Leverage, and Implementation Profiles. Their public
+focused results publish the structurally authenticated protobuf/gRPC type
+identities needed by each production consumer; `LibraryBodyIndex` no longer
+adapts the same set.
+
+The remaining Analysis and Research classification gates consume
+`LibraryOptimizationAnalysisResult.GeneratedFrameworkTypes` directly and
+verify that focused access does not materialize the compatibility index. This
+slice changes ownership only: generated-type recognition, lazy evaluation,
+identity, opportunity suppression, and every supported terminal remain
+unchanged. The Release solution build is the full absence gate for the deleted
+strongly typed compatibility property.
+
 ### Production adoption for #8450
 
 The counted implementation path is:

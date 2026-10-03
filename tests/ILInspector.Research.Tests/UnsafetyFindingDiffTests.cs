@@ -227,7 +227,7 @@ public class UnsafetyFindingDiffTests
             {
                 BodySignalAnalyses =
                 [
-                    BodySignalAnalysisTestInput.FromIndex(
+                    BodySignalAnalysisTestInput.FromExecution(
                         oldIndex),
                 ],
             },
@@ -235,7 +235,7 @@ public class UnsafetyFindingDiffTests
             {
                 BodySignalAnalyses =
                 [
-                    BodySignalAnalysisTestInput.FromIndex(
+                    BodySignalAnalysisTestInput.FromExecution(
                         newIndex),
                 ],
             },
