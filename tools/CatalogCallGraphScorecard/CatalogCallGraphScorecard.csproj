@@ -14,6 +14,8 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
+    <IsPublishable>true</IsPublishable>
+    <PublishAot>true</PublishAot>
     <AssemblyName>catalog-callgraph-scorecard</AssemblyName>
     <RootNamespace>CatalogCallGraphScorecard</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
