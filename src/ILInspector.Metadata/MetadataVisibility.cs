@@ -15,8 +15,191 @@ internal readonly record struct MetadataVisibilityClassification(
             MetadataTokens.GetRowNumber(handle)];
 }
 
+internal sealed class MetadataVisibilityGraphException(string message)
+    : BadImageFormatException(message);
+
+internal sealed class MetadataVisibilityResolver
+{
+    readonly int _typeCount;
+    readonly bool[] _resolved;
+    readonly bool[] _externallyVisible;
+    readonly bool[] _invalid;
+    readonly int[] _visitingGeneration;
+    readonly int[] _path;
+    int _generation;
+
+    internal MetadataVisibilityResolver(MetadataReader reader)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        _typeCount =
+            reader.GetTableRowCount(TableIndex.TypeDef);
+        _resolved = new bool[_typeCount + 1];
+        _externallyVisible = new bool[_typeCount + 1];
+        _invalid = new bool[_typeCount + 1];
+        _visitingGeneration = new int[_typeCount + 1];
+        _path = new int[_typeCount];
+    }
+
+    internal bool IsExternallyVisible(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        MetadataOperationContext operation)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(operation);
+        int start = MetadataTokens.GetRowNumber(handle);
+        if (start <= 0 || start > _typeCount)
+        {
+            throw new BadImageFormatException(
+                "A nested type has an invalid Type definition.");
+        }
+        if (_resolved[start])
+            return _externallyVisible[start];
+        if (_invalid[start])
+            throw CycleFailure();
+
+        int generation = NextGeneration();
+        int depth = 0;
+        int current = start;
+        bool visible;
+        while (true)
+        {
+            if (_resolved[current])
+            {
+                visible = _externallyVisible[current];
+                break;
+            }
+            if (_invalid[current]
+                || _visitingGeneration[current] == generation)
+            {
+                MarkInvalid(depth);
+                throw CycleFailure();
+            }
+
+            _visitingGeneration[current] = generation;
+            _path[depth++] = current;
+            TypeDefinition definition =
+                reader.GetTypeDefinition(
+                    MetadataTokens.TypeDefinitionHandle(current));
+            TypeAttributes access =
+                definition.Attributes
+                & TypeAttributes.VisibilityMask;
+            TypeDefinitionHandle declaringType =
+                definition.GetDeclaringType();
+            bool nested = access is not
+                (TypeAttributes.NotPublic
+                    or TypeAttributes.Public);
+            if (nested == declaringType.IsNil)
+            {
+                MarkInvalid(depth);
+                throw new MetadataVisibilityGraphException(
+                    nested
+                        ? "A nested type has no declaring type."
+                        : "A top-level type has a declaring type.");
+            }
+            if (!nested)
+            {
+                visible = access == TypeAttributes.Public;
+                break;
+            }
+
+            operation.Charge(
+                MetadataOperationDimension.RelationshipEdges);
+            int declaringRow =
+                MetadataTokens.GetRowNumber(declaringType);
+            if (declaringRow <= 0
+                || declaringRow > _typeCount)
+            {
+                MarkInvalid(depth);
+                throw new MetadataVisibilityGraphException(
+                    "A nested type has an invalid declaring type.");
+            }
+            if (access != TypeAttributes.NestedPublic)
+            {
+                visible = false;
+                break;
+            }
+            current = declaringRow;
+        }
+
+        while (depth != 0)
+        {
+            int row = _path[--depth];
+            _externallyVisible[row] = visible;
+            _resolved[row] = true;
+        }
+        return _externallyVisible[start];
+    }
+
+    int NextGeneration()
+    {
+        if (_generation == int.MaxValue)
+        {
+            Array.Clear(_visitingGeneration);
+            _generation = 0;
+        }
+        return ++_generation;
+    }
+
+    void MarkInvalid(int depth)
+    {
+        for (int index = 0; index < depth; index++)
+            _invalid[_path[index]] = true;
+    }
+
+    static MetadataVisibilityGraphException CycleFailure() =>
+        new("The nested type graph contains a cycle.");
+}
+
 internal static class MetadataVisibility
 {
+    internal static bool IsExternallyVisible(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        int remaining =
+            reader.GetTableRowCount(TableIndex.TypeDef);
+        TypeDefinitionHandle current = handle;
+        while (!current.IsNil)
+        {
+            if (remaining-- == 0)
+            {
+                throw new BadImageFormatException(
+                    "The nested type graph contains a cycle.");
+            }
+
+            TypeDefinition definition =
+                reader.GetTypeDefinition(current);
+            TypeAttributes access =
+                definition.Attributes
+                & TypeAttributes.VisibilityMask;
+            TypeDefinitionHandle declaringType =
+                definition.GetDeclaringType();
+            bool nested = access is not
+                (TypeAttributes.NotPublic
+                    or TypeAttributes.Public);
+            if (nested == declaringType.IsNil)
+            {
+                throw new BadImageFormatException(
+                    nested
+                        ? "A nested type has no declaring type."
+                        : "A top-level type has a declaring type.");
+            }
+            if (nested)
+            {
+                if (access != TypeAttributes.NestedPublic)
+                    return false;
+                current = declaringType;
+                continue;
+            }
+
+            return access == TypeAttributes.Public;
+        }
+
+        throw new BadImageFormatException(
+            "A Type definition has no visibility root.");
+    }
+
     internal static MetadataVisibilityClassification Classify(
         MetadataReader reader,
         int maximumTypeDefinitions)

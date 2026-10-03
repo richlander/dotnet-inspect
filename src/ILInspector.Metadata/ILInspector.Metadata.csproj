@@ -25,10 +25,12 @@
          answers. A public decode entry point would expose containment
          internals solely for test infrastructure. -->
     <InternalsVisibleTo Include="DotnetInspector.PerformanceOracles" />
-    <!-- This test assembly projects the same internal prepared source,
-         predicate, projector, and fold into LINQ, NLinq, and Planner. A public
-         raw-handle API would expose metadata-reader lifetime and containment
-         internals solely for test infrastructure. -->
+    <!-- This test assembly owns privileged Metadata performance projections.
+         Member-group columns share the internal prepared model; hierarchy
+         columns share only narrow decoding and containment primitives while
+         independently driving traversal and closing. A public raw-handle API
+         would expose metadata-reader lifetime and containment internals solely
+         for test infrastructure. -->
     <InternalsVisibleTo Include="ILInspector.Metadata.PerformanceOracles.Tests" />
     <!-- The renderer tests cross a subsystem boundary to build projection
          fixtures with the same containment policy the projector applies,

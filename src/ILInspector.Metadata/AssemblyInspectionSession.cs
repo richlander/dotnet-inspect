@@ -359,6 +359,65 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Selects incoming hierarchy occurrences by exact definition name without
+    /// decoding unrelated constructed target shapes.
+    /// </summary>
+    public MetadataHierarchyRelationAnalysisOutcome
+        AnalyzeHierarchyRelations(
+            MetadataHierarchyRelationAnalysisRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataHierarchyRelationAnalysisOutcome.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
+        return MetadataRelationInspection.ExecuteHierarchyAnalysis(
+            reader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Prepares a target-independent hierarchy census and reverse lookup over
+    /// this exact image.
+    /// </summary>
+    public MetadataHierarchyRelationIndexPreparation
+        PrepareHierarchyRelationIndex(
+            MetadataOperationPolicy? policy = null,
+            CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataHierarchyRelationIndexPreparation.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
+        return MetadataRelationInspection.PrepareHierarchyIndex(
+            this,
+            reader,
+            policy ?? new MetadataOperationPolicy(long.MaxValue),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds exact TypeDef names by one simple ASCII leaf name without
+    /// materializing unrelated declaration names.
+    /// </summary>
+    public MetadataTypeDefinitionNameSearchResult
+        FindTypeDefinitionsBySimpleName(string simpleName)
+    {
+        _image.EnsureAlive();
+        return MetadataTypeDefinitionName
+            .FindDefinitionsBySimpleName(
+                _image.GetMetadataReader(),
+                simpleName);
+    }
+
+    /// <summary>
     /// Produces one qualified whole-Library or exact-namespace Type-to-Type
     /// signature-use population for this exact image.
     /// </summary>

@@ -325,5 +325,6 @@
     <Project Path="tools/RoundTripCompilation/RoundTripCompilation.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
     <Project Path="tools/SourceCorpusCensus/SourceCorpusCensus.csproj" />
+    <Project Path="tools/SubjectRelationsScorecard/SubjectRelationsScorecard.csproj" />
   </Folder>
 </Solution>
