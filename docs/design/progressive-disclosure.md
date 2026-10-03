@@ -148,6 +148,28 @@ Automatic verbosity still uses only the route's base `@Member` union; selecting
 an exact domain category or exact section name is the gesture that enters the
 additional evidence.
 
+### Overview cost
+
+An overview is a cheap summary of one subject: a Library's `Library Info`
+section and its compact `-v:q` summary, and a Type's overview. It shows only
+facts read from metadata: table row counts, flags, names, and per-row reads
+that match a custom attribute's type or read a fixed-size attribute value in
+place. It does not read a method body, decode IL, or materialize per-row
+signature or attribute text. A fact that needs that work belongs to an
+on-demand section, and the overview does not count it.
+
+Cost decides membership before value. A row whose producer reads bodies leaves
+the overview, or narrows to the part of its fact that metadata declares, even
+when the full fact is useful. The Library Info Switches row narrowed this way
+(decided 2026-10-03).
+
+The enforcing gate is `OverviewCostTests`. It runs `library` at `-v:m`,
+`-v:q`, and `-S "Library Info"` over a fixture that calls
+`AppContext.TryGetSwitch`, and asserts that no method body is read and no body
+session opens. Per-row signature and attribute-text materialization is not
+gated and is unverified. Type overviews adopt the rule in their own slice and
+are unverified until then.
+
 ## Categories
 
 Base categories define ordinary command evidence. Domain categories are
