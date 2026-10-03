@@ -103,7 +103,7 @@ public sealed class DependencyStructureSectionTests
             "Alpha (1 type, level 1, cycle 0)",
             result.Output);
         Assert.Contains(
-            "|\"1 relationships (1 calls, 0 function references)\"|",
+            "|\"1 relationship (1 call, 0 function references)\"|",
             result.Output);
     }
 

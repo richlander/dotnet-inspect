@@ -82,11 +82,18 @@ internal static class LibraryDependencyStructureOutputAdapter
     private static string EdgeLabel(LibraryDependencyNamespaceEdge edge)
     {
         LibraryDependencyCounts counts = edge.Counts;
-        return $"{counts.Total} relationships "
-            + $"({counts.Invocations} calls, "
-            + $"{counts.FunctionReferences} function references)";
+        return $"{counts.Total} {Pluralize(counts.Total, "relationship")} "
+            + $"({counts.Invocations} "
+            + $"{Pluralize(counts.Invocations, "call")}, "
+            + $"{counts.FunctionReferences} "
+            + $"{Pluralize(
+                counts.FunctionReferences,
+                "function reference")})";
     }
 
     private static string Key(string @namespace) =>
         $"namespace:{@namespace}";
+
+    private static string Pluralize(int count, string singular) =>
+        count == 1 ? singular : singular + "s";
 }
