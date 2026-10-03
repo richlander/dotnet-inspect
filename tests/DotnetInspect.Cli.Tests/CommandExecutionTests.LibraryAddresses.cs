@@ -31,7 +31,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "--tips", "q");
+            "--platform", "System.Text.Json");
 
         Assert.Empty(error);
         Assert.Equal(0, exit);
@@ -59,9 +59,7 @@ public partial class CommandExecutionTests
             "address",
             coordinate,
             "--library",
-            TestAssemblyPath,
-            "--tips",
-            "q");
+            TestAssemblyPath);
 
         Assert.Empty(error);
         Assert.Equal(0, exit);
@@ -82,7 +80,6 @@ public partial class CommandExecutionTests
                     "library", "-n", "1", "address",
                     "0x06000001+0x0",
                     "--platform", "System.Text.Json",
-                    "--tips", "q",
                 ]
                 :
                 [
@@ -90,7 +87,6 @@ public partial class CommandExecutionTests
                     "0x06000001+0x0",
                     "--platform", "System.Text.Json",
                     "-n", "1",
-                    "--tips", "q",
                 ];
 
         var (exit, output, error) = await RunAppAsync(args);
@@ -117,7 +113,6 @@ public partial class CommandExecutionTests
                     "library", "-n", "1", "--lines", "address",
                     "0x06000001+0x0",
                     "--platform", "System.Text.Json",
-                    "--tips", "q",
                 ]
                 :
                 [
@@ -125,7 +120,6 @@ public partial class CommandExecutionTests
                     "0x06000001+0x0",
                     "--platform", "System.Text.Json",
                     "-n", "1", "--lines",
-                    "--tips", "q",
                 ];
 
         var (exit, output, error) = await RunAppAsync(args);
@@ -155,9 +149,7 @@ public partial class CommandExecutionTests
             "1..1",
             "-n",
             "1",
-            direction,
-            "--tips",
-            "q");
+            direction);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -203,9 +195,7 @@ public partial class CommandExecutionTests
                 "--library",
                 relativeLibraryPath,
                 "-S",
-                "Context: Member",
-                "--tips",
-                "q");
+                "Context: Member");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -222,9 +212,7 @@ public partial class CommandExecutionTests
                 relativeLibraryPath,
                 "-S",
                 "Context: Member",
-                "--count",
-                "--tips",
-                "q");
+                "--count");
             Assert.Equal(0, count.Exit);
             Assert.Empty(count.Error);
             Assert.Equal("1", count.Output.Trim());
@@ -241,9 +229,7 @@ public partial class CommandExecutionTests
                 "Context: Member",
                 "--fields",
                 "Member",
-                "--value",
-                "--tips",
-                "q");
+                "--value");
             Assert.Equal(0, value.Exit);
             Assert.Empty(value.Error);
             Assert.Contains(
@@ -260,9 +246,7 @@ public partial class CommandExecutionTests
                 relativeLibraryPath,
                 "-S",
                 "Context: Member",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
             Assert.Equal(0, json.Exit);
             Assert.Empty(json.Error);
             using var document = JsonDocument.Parse(json.Output);
@@ -291,9 +275,7 @@ public partial class CommandExecutionTests
                 relativeLibraryPath,
                 "-D",
                 "Context: Member",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
             Assert.Equal(0, discovery.Exit);
             Assert.Empty(discovery.Error);
             Assert.Contains("Member", discovery.Output);
@@ -349,9 +331,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net8.0/Target.dll",
                 "-S",
-                "Context: Member",
-                "--tips",
-                "q");
+                "Context: Member");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -401,9 +381,7 @@ public partial class CommandExecutionTests
                 "--library",
                 library,
                 "-S",
-                "Context: Member",
-                "--tips",
-                "q");
+                "Context: Member");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -453,9 +431,8 @@ public partial class CommandExecutionTests
                 "--library",
                 relativeLibraryPath,
                 "-S",
-                "Context: Member,Library Info",
-                "--tips",
-                "q");
+                "Context: Member,Library Info"
+                );
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -508,9 +485,7 @@ public partial class CommandExecutionTests
                 "--library",
                 library,
                 "-S",
-                "Context: Member",
-                "--tips",
-                "q");
+                "Context: Member");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -562,9 +537,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "runtimes/osx-arm64/lib/net11.0/Coordinate.Package.dll",
                 "-S",
-                "Context: Member",
-                "--tips",
-                "q");
+                "Context: Member");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -618,9 +591,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net11.0/Coordinate.Package.dll",
                 "-S",
-                "Context: Source Location",
-                "--tips",
-                "q");
+                "Context: Source Location");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -665,9 +636,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net11.0/Coordinate.Package.dll",
                 "-S",
-                "Context: Member",
-                "--tips",
-                "q");
+                "Context: Member");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -707,9 +676,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net11.0/Probe.dll",
                 "-S",
-                "Context: Member",
-                "--tips",
-                "q");
+                "Context: Member");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -766,9 +733,7 @@ public partial class CommandExecutionTests
                 "--tfm",
                 "net11.0",
                 "-S",
-                "Context: Member",
-                "--tips",
-                "q");
+                "Context: Member");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -796,9 +761,7 @@ public partial class CommandExecutionTests
             "address",
             "not-a-coordinate",
             "--library",
-            missingLibrary,
-            "--tips",
-            "q");
+            missingLibrary);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -821,9 +784,7 @@ public partial class CommandExecutionTests
             "--library",
             missingLibrary,
             "--metadata-root",
-            "not-a-root",
-            "--tips",
-            "q");
+            "not-a-root");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -845,9 +806,7 @@ public partial class CommandExecutionTests
             "--library",
             missingLibrary,
             "-S",
-            MetadataSectionNames.Image,
-            "--tips",
-            "q");
+            MetadataSectionNames.Image);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -863,9 +822,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library",
             "address",
-            "0x06000001+0x0",
-            "--tips",
-            "q");
+            "0x06000001+0x0");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -888,9 +845,7 @@ public partial class CommandExecutionTests
             "--package",
             missingPackage,
             "--tfm",
-            "all",
-            "--tips",
-            "q");
+            "all");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -909,9 +864,7 @@ public partial class CommandExecutionTests
             "address",
             "0x06000001+0x2",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
         var member = await RunAppAsync(
             "library",
             "address",
@@ -919,9 +872,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "Context: Member",
-            "--tips",
-            "q");
+            "Context: Member");
 
         Assert.Equal(1, bare.Exit);
         Assert.Empty(bare.Output);
@@ -948,9 +899,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-D",
             "@Context",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -968,9 +917,7 @@ public partial class CommandExecutionTests
             "0x06000001+0x0",
             "-D",
             "--schema",
-            "--tree",
-            "--tips",
-            "q");
+            "--tree");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -991,9 +938,7 @@ public partial class CommandExecutionTests
             "address",
             "0x06000001+0x0",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1012,9 +957,7 @@ public partial class CommandExecutionTests
             "address",
             "0x06000001+0x0",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1037,9 +980,7 @@ public partial class CommandExecutionTests
             "address",
             "0x06000001+0x0",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1064,9 +1005,7 @@ public partial class CommandExecutionTests
             "address",
             "0x06000001+0x0",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1086,9 +1025,7 @@ public partial class CommandExecutionTests
             "address",
             "0x06000001+0x0",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1110,9 +1047,7 @@ public partial class CommandExecutionTests
             "address",
             "0x06000001+0x0",
             "--library",
-            missingLibrary,
-            "--tips",
-            "q");
+            missingLibrary);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1155,9 +1090,7 @@ public partial class CommandExecutionTests
             "library",
             "address",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1183,9 +1116,7 @@ public partial class CommandExecutionTests
             "--file",
             missingCoordinates,
             "--library",
-            missingLibrary,
-            "--tips",
-            "q");
+            missingLibrary);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1223,9 +1154,7 @@ public partial class CommandExecutionTests
                 path,
                 "--library",
                 TestAssemblyPath,
-                format,
-                "--tips",
-                "q");
+                format);
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1284,9 +1213,7 @@ public partial class CommandExecutionTests
                 relativeLibraryPath,
                 "-n",
                 "1",
-                "--tail",
-                "--tips",
-                "q");
+                "--tail");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1320,9 +1247,7 @@ public partial class CommandExecutionTests
                 "--file",
                 coordinatePath,
                 "--platform",
-                "System.Text.Json",
-                "--tips",
-                "q");
+                "System.Text.Json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1357,9 +1282,7 @@ public partial class CommandExecutionTests
                 path,
                 "--library",
                 TestAssemblyPath,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(1, exit);
             Assert.Empty(error);
@@ -1408,8 +1331,6 @@ public partial class CommandExecutionTests
                 "-n",
                 "1",
                 "--jsonl",
-                "--tips",
-                "q",
             ];
             var head = await RunAppAsync(
                 [.. request, "--head"]);
@@ -1463,7 +1384,6 @@ public partial class CommandExecutionTests
                         "--file", path,
                         "--library", TestAssemblyPath,
                         "--jsonl",
-                        "--tips", "q",
                     ]
                     :
                     [
@@ -1472,7 +1392,6 @@ public partial class CommandExecutionTests
                         "--library", TestAssemblyPath,
                         "-n", "1",
                         "--jsonl",
-                        "--tips", "q",
                     ];
 
             var (exit, output, error) = await RunAppAsync(args);
@@ -1517,9 +1436,7 @@ public partial class CommandExecutionTests
                 "--file",
                 coordinatePath,
                 "--library",
-                missingLibrary,
-                "--tips",
-                "q");
+                missingLibrary);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1558,9 +1475,7 @@ public partial class CommandExecutionTests
             "--library",
             missingLibrary,
             "-D",
-            discovery,
-            "--tips",
-            "q");
+            discovery);
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
@@ -1585,9 +1500,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-D",
             "Context: Member",
-            "--effective",
-            "--tips",
-            "q");
+            "--effective");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1616,9 +1529,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json",
                 "-D",
                 "@Context",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1651,9 +1562,7 @@ public partial class CommandExecutionTests
             "--library",
             missingLibrary,
             "-D",
-            discovery,
-            "--tips",
-            "q");
+            discovery);
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
@@ -1686,9 +1595,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json",
                 "-D",
                 discovery,
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, exit);
             Assert.Contains(expected, output);
@@ -1742,9 +1649,7 @@ public partial class CommandExecutionTests
                 "lib/net11.0/Coordinate.Package.dll",
                 "-D",
                 "Context: Member,Context: Instruction",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, exit);
             Assert.Contains(
@@ -1795,7 +1700,6 @@ public partial class CommandExecutionTests
             ];
             if (effective)
                 args.Add("--effective");
-            args.AddRange(["--tips", "q"]);
 
             var (exit, output, error) =
                 await RunAppAsync([.. args]);
@@ -1834,9 +1738,7 @@ public partial class CommandExecutionTests
                     "System.Text.Json",
                     "-D",
                     "@Context",
-                    "--effective",
-                    "--tips",
-                    "q");
+                    "--effective");
 
             Assert.Equal(0, singleExit);
             Assert.Empty(singleError);
@@ -1859,9 +1761,7 @@ public partial class CommandExecutionTests
                     "System.Text.Json",
                     "-D",
                     "@Context",
-                    "--effective",
-                    "--tips",
-                    "q");
+                    "--effective");
 
             Assert.Equal(0, unionExit);
             Assert.Empty(unionError);
@@ -1897,9 +1797,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json",
                 "-D",
                 "@Context",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1934,9 +1832,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json",
                 "-D",
                 "@Context",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1977,9 +1873,7 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-D",
                 "Context: Instruction",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2019,9 +1913,7 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-D",
                 "Context: Exception",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, singleExit);
             Assert.Empty(singleError);
@@ -2040,9 +1932,7 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-D",
                 "Context: Exception",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, unionExit);
             Assert.Empty(unionError);
@@ -2083,9 +1973,7 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-D",
                 "Context: Member",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, singleExit);
             Assert.Empty(singleError);
@@ -2104,9 +1992,7 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-D",
                 "Context: Member",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, unionExit);
             Assert.Empty(unionError);
@@ -2125,9 +2011,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json",
                 "-D",
                 "Context: Source Location",
-                "--effective",
-                "--tips",
-                "q");
+                "--effective");
 
             Assert.Equal(0, sourceExit);
             Assert.Empty(sourceError);
@@ -2162,7 +2046,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--tips", "q");
+                "--library", TestAssemblyPath);
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2196,9 +2080,7 @@ public partial class CommandExecutionTests
             "--file",
             missingCoordinatesPath,
             "--library",
-            missingLibraryPath,
-            "--tips",
-            "q");
+            missingLibraryPath);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2233,9 +2115,7 @@ public partial class CommandExecutionTests
                 "--file",
                 coordinatesPath,
                 "--library",
-                malformedPath,
-                "--tips",
-                "q");
+                malformedPath);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -2286,9 +2166,7 @@ public partial class CommandExecutionTests
                 "--package",
                 packagePath,
                 "--library",
-                "Malformed.dll",
-                "--tips",
-                "q");
+                "Malformed.dll");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -2343,9 +2221,7 @@ public partial class CommandExecutionTests
                 "--framework",
                 "runtime",
                 "--version",
-                Version,
-                "--tips",
-                "q");
+                Version);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -2393,7 +2269,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--json", "--tips", "q");
+                "--library", TestAssemblyPath, "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2467,9 +2343,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--library",
                 "lib/net11.0/Coordinate.Package.dll",
-                "--tsv",
-                "--tips",
-                "q");
+                "--tsv");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2500,7 +2374,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--tips", "q");
+                "--library", TestAssemblyPath);
 
             Assert.Equal(1, exit);
             Assert.Empty(error);
@@ -2555,9 +2429,7 @@ public partial class CommandExecutionTests
                 "--package",
                 packagePath,
                 "--library",
-                "lib/net11.0/Coordinate.Package.dll",
-                "--tips",
-                "q");
+                "lib/net11.0/Coordinate.Package.dll");
 
             Assert.Equal(1, exit);
             Assert.Empty(error);
@@ -2581,7 +2453,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--json", "--tips", "q");
+                "--library", TestAssemblyPath, "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2603,7 +2475,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
             "--platform", "System.Text.Json",
-            "-S", "Context: Source Location", "--tips", "q");
+            "-S", "Context: Source Location");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2620,7 +2492,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "IL Offset", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "IL Offset");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2633,7 +2505,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "IL Offset", "--tips", "q");
+            "-S", "IL Offset");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2647,7 +2519,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Member Context,Library Info", "--tips", "q");
+            "-S", "Member Context,Library Info");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2661,7 +2533,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Context: Mem*,Library Info", "--tips", "q");
+            "-S", "Context: Mem*,Library Info");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Library Info", output);
@@ -2675,10 +2547,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetDiscovery_IsCoordinateScoped()
     {
         var (withoutExit, withoutOutput, withoutError) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json", "-D", "--table", "--tips", "q");
+            "library", "--platform", "System.Text.Json", "-D", "--table");
         var (withExit, withOutput, withError) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-D", "--table", "--tips", "q");
+            "--platform", "System.Text.Json", "-D", "--table");
 
         Assert.Equal(0, withoutExit);
         Assert.Equal(0, withExit);
@@ -2697,7 +2569,7 @@ public partial class CommandExecutionTests
 
         var (contextExit, contextOutput, contextError) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-D", "@Context", "--table", "--tips", "q");
+            "--platform", "System.Text.Json", "-D", "@Context", "--table");
         Assert.Equal(0, contextExit);
         Assert.Empty(contextError);
         Assert.Contains("Context: Source Location", contextOutput);
@@ -2710,7 +2582,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Member", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Member");
 
         Assert.Empty(error);
         Assert.Equal(0, exit);
@@ -2728,7 +2600,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Member", "--fields", "Type", "--value", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Member", "--fields", "Type", "--value");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2740,7 +2612,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Instruction");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2757,7 +2629,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--fields", "Opcode", "--value", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--fields", "Opcode", "--value");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2769,7 +2641,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x2",
-            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Instruction");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2781,7 +2653,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x2",
-            "--platform", "System.Text.Json", "--tips", "q");
+            "--platform", "System.Text.Json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2793,7 +2665,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x2",
-            "--platform", "System.Text.Json", "-S", "Context: Member", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Member");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2808,7 +2680,7 @@ public partial class CommandExecutionTests
         var token = typeof(ILOffsetFloatFixture).GetMethod(nameof(ILOffsetFloatFixture.FloatConstant))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", "address", $"0x{token:X}+0x0",
-            "--library", TestAssemblyPath, "-S", "Context: Instruction", "--fields", "Operand", "--value", "--tips", "q");
+            "--library", TestAssemblyPath, "-S", "Context: Instruction", "--fields", "Operand", "--value");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2821,7 +2693,7 @@ public partial class CommandExecutionTests
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", "address", $"0x{token:X}+0x1",
-            "--library", TestAssemblyPath, "-S", "Context: Exception", "--tips", "q");
+            "--library", TestAssemblyPath, "-S", "Context: Exception");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2837,7 +2709,7 @@ public partial class CommandExecutionTests
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", "address", $"0x{token:X}+0x1",
-            "--library", TestAssemblyPath, "-S", "Context: Exception", "--fields", "Clause", "--value", "--tips", "q");
+            "--library", TestAssemblyPath, "-S", "Context: Exception", "--fields", "Clause", "--value");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2849,7 +2721,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x1",
-            "--platform", "System.Text.Json", "-S", "Context: Callsite", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Callsite");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2866,7 +2738,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x1",
-            "--platform", "System.Text.Json", "-S", "Context: Callsite", "--fields", "Callee", "--value", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Callsite", "--fields", "Callee", "--value");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2878,7 +2750,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x6",
-            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Return Address");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2894,7 +2766,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x6",
-            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--fields", "Call Offset", "--value", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--fields", "Call Offset", "--value");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2906,7 +2778,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x2",
-            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Return Address");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2919,7 +2791,7 @@ public partial class CommandExecutionTests
         var token = typeof(ILOffsetFunctionPointerFixture).GetMethod(nameof(ILOffsetFunctionPointerFixture.CreateDelegate))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", "address", $"0x{token:X}+0x10",
-            "--library", TestAssemblyPath, "-S", "Context: Return Address", "--tips", "q");
+            "--library", TestAssemblyPath, "-S", "Context: Return Address");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2933,7 +2805,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--count", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2948,12 +2820,12 @@ public partial class CommandExecutionTests
             "--platform", "System.Text.Json",
             "-S", "Context: Member",
             "--fields", "Type", "--rows", "2..2",
-            "--count", "--tips", "q");
+            "--count");
         var map = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
             "--platform", "System.Text.Json",
             "-S", "Context: Member,Context: Instruction",
-            "--count", "--json", "--tips", "q");
+            "--count", "--json");
 
         Assert.Equal(0, scalar.Exit);
         Assert.Equal("0", scalar.Output.Trim());
@@ -2976,7 +2848,7 @@ public partial class CommandExecutionTests
             "--platform", "System.Text.Json",
             "-S", "Context: Member,Performance: Boxing",
             "--columns", "Member",
-            "--count", "--json", "--tips", "q");
+            "--count", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2998,7 +2870,7 @@ public partial class CommandExecutionTests
             "--platform", "System.Text.Json",
             "-S", "Context: Member",
             "--columns", "*",
-            "--count", "--tips", "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3024,13 +2896,13 @@ public partial class CommandExecutionTests
             "library", "address", coordinate,
             "--library", TestAssemblyPath,
             "-S", "Context: Exception",
-            "--count", "--tips", "q");
+            "--count");
         var windowed = await RunAppAsync(
             "library", "address", coordinate,
             "--library", TestAssemblyPath,
             "-S", "Context: Exception",
             "--rows", "2..2",
-            "--count", "--tips", "q");
+            "--count");
 
         Assert.Equal(0, scalar.Exit);
         Assert.Equal(
@@ -3048,7 +2920,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--fields", "Line", "--value", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--fields", "Line", "--value");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3060,7 +2932,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--print", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--print");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3073,7 +2945,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--print", "--json-array", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--print", "--json-array");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3088,7 +2960,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--count", "--print", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--count", "--print");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3126,7 +2998,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Context: Source Location", "--tips", "q");
+            "-S", "Context: Source Location");
 
         Assert.Equal(1, exit);
         Assert.Contains(
@@ -3142,7 +3014,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", selector, "--json", "--tips", "q");
+            "-S", selector, "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3156,7 +3028,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Context: Source Location:0x06000001+0x0", "--tips", "q");
+            "-S", "Context: Source Location:0x06000001+0x0");
 
         Assert.Equal(1, exit);
         Assert.Contains(
@@ -3169,7 +3041,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "*", "-n", "8", "--lines", "--tips", "q");
+            "-S", "*", "-n", "8", "--lines");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("IL coordinate sections require", error);
@@ -3181,7 +3053,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Library Info", "--tips", "q");
+            "--platform", "System.Text.Json", "-S", "Library Info");
 
         Assert.Equal(1, exit);
         Assert.Contains(

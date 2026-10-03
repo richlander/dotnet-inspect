@@ -420,7 +420,7 @@ RUNTIME=artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILIns
 inspect_member() {
   dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
     member "$1" "$2" --library "$3" \
-    -S "Decompiled Source" --tips q
+    -S "Decompiled Source"
 }
 ```
 
@@ -434,7 +434,7 @@ inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StackAllocGe
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
-  -S "Decompiled Source" --tips q
+  -S "Decompiled Source"
 ```
 
 Expected name observations:
@@ -521,7 +521,7 @@ inspect_member ILInspector.Decompiler.Tests.CfgSampleClass TuplePair "$CFG"
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
-  -S "Decompiled Source" --tips q
+  -S "Decompiled Source"
 ```
 
 Expected:
@@ -721,7 +721,7 @@ dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   RuntimeAsyncNoAwaitUnsafe \
   --library "$CFG" \
   --repo "$PWD" \
-  -S "PDB Source" --tips q
+  -S "PDB Source"
 ```
 
 Expected boundary: `Decompiled Source` preserves `value` but has no `pointer`
@@ -823,7 +823,7 @@ inspect_member \
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Decompiler.Tests.PrimaryCtorSample \
   --library "$CFG" \
-  -S "Decompiled Source" --tips q
+  -S "Decompiled Source"
 ```
 
 Current output maps `<Number>k__BackingField` to the property name `Number` and
@@ -1024,7 +1024,7 @@ dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   CSharpText.Tests.UnicodeIdentifierFixtures \
   CombiningMarkGenericParameter \
   --library "$CSHARP_TEXT" \
-  -S "Fidelity Causes; Decompiled Source" --tips q
+  -S "Fidelity Causes; Decompiled Source"
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   --filter-method '*FullGrammarGenericParameterName_ExposesCurrentNarrowAdmission*'

@@ -14,21 +14,18 @@ public partial class CommandExecutionTests
             "type", "VbImplementations",
             "--library", fixture,
             "--all",
-            "-k", "property",
-            "--tips", "q");
+            "-k", "property");
         var (explicitExit, explicitOutput, explicitError) = await RunAppAsync(
             "type", "VbImplementations",
             "--library", fixture,
             "--all",
-            "-k", "explicit-interface-implementation",
-            "--tips", "q");
+            "-k", "explicit-interface-implementation");
         var (decompiledExit, decompiledOutput, decompiledError) =
             await RunAppAsync(
                 "type", "VbImplementations",
                 "--library", fixture,
                 "--all",
-                "-S", "Decompiled Source",
-                "--tips", "q");
+                "-S", "Decompiled Source");
 
         Assert.Equal(0, propertyExit);
         Assert.Empty(propertyError);

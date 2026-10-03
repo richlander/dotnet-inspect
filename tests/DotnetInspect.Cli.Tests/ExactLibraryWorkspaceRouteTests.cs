@@ -38,7 +38,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = Library,
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -79,7 +79,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             Tfm = Framework,
             EnvelopeOutput = true,
             CompactJson = true,
-            TipLevel = TipLevel.Detailed,
+            CompanionOutput = CompanionOutput.Tips,
         };
 
         (int exitCode, string output, string error) =
@@ -106,6 +106,62 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "inspect type members",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IncompleteInspectionDoesNotEmitTips(bool jsonOutput)
+    {
+        byte[] libraryContent =
+            SourceForwarderResolutionTests.BuildTargetWithMalformedType(
+                requestedTypeIsMalformed: true);
+        var store = await CachedStoreAsync(libraryContent);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = Library,
+            Tfm = Framework,
+            JsonOutput = jsonOutput,
+            Format = jsonOutput
+                ? OutputFormat.Json
+                : OutputFormat.Markdown,
+            FormatExplicitlySet = jsonOutput,
+            CompanionOutput = CompanionOutput.Tips,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
+
+        Assert.Equal(1, exitCode);
+        if (jsonOutput)
+        {
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(
+                (int)ExactLibraryApiInspectionOutcome.Available,
+                document.RootElement.GetProperty("outcome").GetInt32());
+            Assert.Contains(
+                "MalformedMetadata",
+                error,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains("N.Other", output, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -242,8 +298,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "--json",
             "--compact",
             $"-v:{verbosity}",
-            "-T",
-            "q",
         ];
         var root = CommandLineBuilder.CreateRootCommand();
         string[] processed =
@@ -280,8 +334,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "--compact",
             "-n",
             "1",
-            "-T",
-            "q",
         ];
         var root = CommandLineBuilder.CreateRootCommand();
         string[] processed =
@@ -311,7 +363,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = Library,
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             CompactJson = true,
         };
         WorkspaceContextLoadOptions capabilities = new()
@@ -508,7 +560,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = "Missing.dll",
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -543,7 +595,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = "Missing.dll",
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             JsonOutput = true,
             Format = OutputFormat.Json,
             FormatExplicitlySet = true,
@@ -572,14 +624,16 @@ public sealed class ExactLibraryWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
-    static async Task<IPackageStore> CachedStoreAsync()
+    static async Task<IPackageStore> CachedStoreAsync(
+        byte[]? libraryContent = null)
     {
         var store = new InMemoryPackageStore();
         byte[] package = Archive(
             ($"ref/{Framework}/{Library}",
-                await File.ReadAllBytesAsync(
-                    typeof(ApiSurface).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
+                libraryContent
+                    ?? await File.ReadAllBytesAsync(
+                        typeof(ApiSurface).Assembly.Location,
+                        TestContext.Current.CancellationToken)));
         await store.CommitAsync(
             PackageId,
             Version,

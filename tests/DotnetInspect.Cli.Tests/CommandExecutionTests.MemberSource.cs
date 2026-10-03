@@ -26,7 +26,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", "-S", "Source Locations", "--rows", "6", "--tips", "q");
+            "-m", "Serialize", "-S", "Source Locations", "--rows", "6");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -43,7 +43,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "Serialize:1", "-S", "Source Locations", "--tips", "q");
+            "Serialize:1", "-S", "Source Locations");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -63,7 +63,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             [
                 "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-                "MaxDepth", "-S", "Source Locations", "--tips", "q",
+                "MaxDepth", "-S", "Source Locations",
                 .. print ? new[] { "--print", "--row", "first", "--json" } : [],
             ]);
 
@@ -96,7 +96,7 @@ public partial class CommandExecutionTests
         // property.
         var (getterExit, getterOutput, getterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "PDB Source", "--tips", "q");
+            "MaxDepth:1", "-S", "PDB Source");
 
         Assert.Equal(0, getterExit);
         Assert.Empty(getterError);
@@ -107,7 +107,7 @@ public partial class CommandExecutionTests
 
         var (setterExit, setterOutput, setterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "PDB Source", "--tips", "q");
+            "MaxDepth:2", "-S", "PDB Source");
 
         Assert.Equal(0, setterExit);
         Assert.Empty(setterError);
@@ -127,7 +127,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+            "MaxDepth:1", "-S", "Original Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -144,7 +144,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
                 "--library", assemblyPath,
-                "-S", "PDB Source", "--tips", "q");
+                "-S", "PDB Source");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -180,7 +180,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
                 "--library", assemblyPath,
-                "-S", "PDB Source", "--tips", "q");
+                "-S", "PDB Source");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -192,7 +192,7 @@ public partial class CommandExecutionTests
             var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
                 "--library", assemblyPath,
-                "-S", "PDB Source", "--json", "--print", "--tips", "q");
+                "-S", "PDB Source", "--json", "--print");
 
             Assert.Equal(0, jsonExit);
             Assert.Empty(jsonError);
@@ -219,7 +219,7 @@ public partial class CommandExecutionTests
 
             var locations = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
-                "--library", assemblyPath, "-S", "Source Locations", "--json", "--tips", "q");
+                "--library", assemblyPath, "-S", "Source Locations", "--json");
             Assert.Equal(0, locations.Exit);
             Assert.Empty(locations.Error);
             using var json = JsonDocument.Parse(locations.Output);
@@ -229,7 +229,7 @@ public partial class CommandExecutionTests
 
             var part = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
-                "--library", assemblyPath, "--print", "--part", "signature", "--tips", "q");
+                "--library", assemblyPath, "--print", "--part", "signature");
             if (mismatch)
             {
                 Assert.Equal(1, part.Exit);
@@ -275,11 +275,11 @@ public partial class CommandExecutionTests
             var ordinal = await RunAppAsync(
                 "member", type.FullName, "Overloaded:1",
                 "--library", assemblyPath,
-                "--print", "--part", "signature", "--tips", "q");
+                "--print", "--part", "signature");
             var selected = await RunAppAsync(
                 "member", type.FullName, $"Overloaded~{digest}",
                 "--library", assemblyPath,
-                "--print", "--part", "signature", "--tips", "q");
+                "--print", "--part", "signature");
 
             Assert.Equal(0, ordinal.Exit);
             Assert.Equal(ordinal, selected);
@@ -308,7 +308,7 @@ public partial class CommandExecutionTests
             var result = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink",
                 "Overloaded:1", "--library", assemblyPath,
-                "--print", "--part", "signature", "--tips", "q");
+                "--print", "--part", "signature");
 
             Assert.Equal(0, result.Exit);
             Assert.Contains(
@@ -337,7 +337,7 @@ public partial class CommandExecutionTests
                 "member", "DiscoveryFixtures.NoSourceLink",
                 "Overloaded:1", "--library", assemblyPath,
                 "--print", "--part", "signature",
-                "--row", row, "--tips", "q");
+                "--row", row);
             if (valid)
             {
                 Assert.Equal(0, result.Exit);
@@ -365,10 +365,10 @@ public partial class CommandExecutionTests
     {
         var canonical = await RunAppAsync(
             "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
-            ".ctor:1", "-S", "PDB Source", "--tips", "q");
+            ".ctor:1", "-S", "PDB Source");
         var caseVariant = await RunAppAsync(
             "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
-            ".Ctor:1", "-S", "PDB Source", "--tips", "q");
+            ".Ctor:1", "-S", "PDB Source");
 
         Assert.Equal(0, canonical.Exit);
         Assert.Empty(canonical.Error);
@@ -770,7 +770,7 @@ public partial class CommandExecutionTests
         ];
 
         var detailed = await RunAppAsync(
-            [.. target, "--json", "-v:d", "--tips", "q"]);
+            [.. target, "--json", "-v:d"]);
 
         Assert.Equal(0, detailed.Exit);
         Assert.Empty(detailed.Error);
@@ -782,7 +782,7 @@ public partial class CommandExecutionTests
         }
 
         var selected = await RunAppAsync(
-            [.. target, "-S", "PDB Source", "--json", "--tips", "q"]);
+            [.. target, "-S", "PDB Source", "--json"]);
 
         Assert.Equal(1, selected.Exit);
         Assert.Empty(selected.Output);
@@ -804,7 +804,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
             "--library", FixtureCatalog.DiffPair.OldAssemblyPath(), "--all",
-            "-S", selector, "--json", "--tips", "q");
+            "-S", selector, "--json");
 
         if (exact)
         {
@@ -987,7 +987,7 @@ public partial class CommandExecutionTests
         // and leaving the caller unable to tell success from silent failure (#3299).
         var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "PDB Source", "--tips", "q");
+            "Read", "-S", "PDB Source");
 
         Assert.Equal(0, abstractExit);
         Assert.Empty(abstractError);
@@ -997,7 +997,7 @@ public partial class CommandExecutionTests
         // An interface method is bodyless for a different metadata reason and gets the same answer.
         var (interfaceExit, interfaceOutput, interfaceError) = await RunAppAsync(
             "member", "IJsonOnDeserialized", "--platform", "System.Text.Json",
-            "OnDeserialized", "-S", "PDB Source", "--tips", "q");
+            "OnDeserialized", "-S", "PDB Source");
 
         Assert.Equal(0, interfaceExit);
         Assert.Empty(interfaceError);
@@ -1010,7 +1010,7 @@ public partial class CommandExecutionTests
         // too: it still renders the canonical name.
         var (forwardedExit, forwardedOutput, forwardedError) = await RunAppAsync(
             "member", "System.Collections.IEnumerator", "--framework", "runtime",
-            "MoveNext", "-S", "Original Source", "--tips", "q");
+            "MoveNext", "-S", "Original Source");
 
         Assert.Equal(0, forwardedExit);
         Assert.Empty(forwardedError);
@@ -1024,7 +1024,7 @@ public partial class CommandExecutionTests
             "member", typeof(SamplePInvokeClass).FullName!,
             nameof(SamplePInvokeClass.GetCurrentProcessId),
             "--library", TestAssemblyPath, "--all",
-            "-S", "PDB Source", "--tips", "q", "--verbose");
+            "-S", "PDB Source", "--verbose");
 
         Assert.Equal(0, pinvokeExit);
         Assert.Contains("has no IL body", pinvokeOutput);
@@ -1077,11 +1077,11 @@ public partial class CommandExecutionTests
             var native = await RunAppAsync(
                 "member", typeName, memberName,
                 "--library", suppliedPath, "--all",
-                "-S", section, "--tips", "q");
+                "-S", section);
             var count = await RunAppAsync(
                 "member", typeName, memberName,
                 "--library", suppliedPath, "--all",
-                "-S", section, "--count", "--tips", "q");
+                "-S", section, "--count");
 
             Assert.Equal(0, native.Exit);
             Assert.Empty(native.Error);
@@ -1117,7 +1117,7 @@ public partial class CommandExecutionTests
         // the bodyless explanation never displaces real source (#3299).
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "PDB Source", "--tips", "q");
+            "MaxDepth:1", "-S", "PDB Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1130,7 +1130,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "PDB Source,Source Diff", "--tips", "q");
+            "Read", "-S", "PDB Source,Source Diff");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1147,7 +1147,7 @@ public partial class CommandExecutionTests
         // report its "before" side unavailable rather than diffing the explanation (#3299).
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "Source Diff", "--tips", "q");
+            "Read", "-S", "Source Diff");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1165,7 +1165,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "Source Diff", outputOption, "--tips", "q");
+            "Read", "-S", "Source Diff", outputOption);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1183,7 +1183,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            ".ctor:3", "-S", "Source Diff", outputOption, "--tips", "q");
+            ".ctor:3", "-S", "Source Diff", outputOption);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1198,7 +1198,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "MaxDepth:2", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1222,8 +1222,6 @@ public partial class CommandExecutionTests
             "System.Collections",
             "Item:1",
             "--all",
-            "--tips",
-            "q",
         ];
         var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
             [.. command, "-S", SectionNames.AnnotatedSource]);
@@ -1263,7 +1261,7 @@ public partial class CommandExecutionTests
             "member",
             "System.Collections.Generic.Dictionary<TKey,TValue>",
             "--platform", "System.Collections",
-            "Item:1", "--all", "--tips", "q",
+            "Item:1", "--all",
         ];
         var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
             [.. command, "-S", SectionNames.AnnotatedSourceDocument, "--json"]);
@@ -1302,9 +1300,7 @@ public partial class CommandExecutionTests
             "--all",
             "-S",
             "Source Diff",
-            "-v:d",
-            "--tips",
-            "q");
+            "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1324,7 +1320,7 @@ public partial class CommandExecutionTests
             typeof(CommandExecutionReadonlySourceDiffFixture).FullName!,
             $"{typeof(ICommandExecutionReadonlyValue).FullName}.Value:{accessorOrdinal}",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1341,7 +1337,7 @@ public partial class CommandExecutionTests
             "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
             $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.Initial:2",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1361,7 +1357,7 @@ public partial class CommandExecutionTests
             "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
             $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{propertyName}:1",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1383,7 +1379,7 @@ public partial class CommandExecutionTests
             "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
             $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{propertyName}:{accessorOrdinal}",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1409,7 +1405,7 @@ public partial class CommandExecutionTests
             "member", typeof(SourceDiffIndexerFixture).FullName!,
             $"{typeof(ISourceDiffIndexerFixture).FullName}.Item:{accessorOrdinal}",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1455,11 +1451,11 @@ public partial class CommandExecutionTests
             var (ordinalExit, ordinalOutput, ordinalError) = await RunAppAsync(
                 "member", typeName, $"{interfaceName}.{memberName}:{accessorOrdinal}",
                 "--library", library, "--all",
-                "-S", "Source Diff", "-v:d", "--tips", "q");
+                "-S", "Source Diff", "-v:d");
             var (rawExit, rawOutput, rawError) = await RunAppAsync(
                 "member", typeName, $"explicit:{renamed}",
                 "--library", library, "--all",
-                "-S", "Source Diff", "-v:d", "--tips", "q");
+                "-S", "Source Diff", "-v:d");
 
             Assert.True(ordinalExit == 0, ordinalError);
             Assert.True(rawExit == 0, rawError);
@@ -1484,7 +1480,7 @@ public partial class CommandExecutionTests
             "member", typeof(BodyShapeFixture).FullName!,
             "DotnetInspector.Fixtures.IBodyShapeValue.Value:1",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1503,7 +1499,7 @@ public partial class CommandExecutionTests
             "member", "System.Collections.Generic.Stack",
             "System.Collections.ICollection.IsSynchronized:1",
             "--platform", "System.Collections",
-            "-S", "Decompiled Source", "--tips", "q");
+            "-S", "Decompiled Source");
 
         Assert.True(exit == 0, error);
         Assert.Empty(error);
@@ -1528,9 +1524,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             "Decompiled Source",
-            "--all",
-            "--tips",
-            "q");
+            "--all");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1551,7 +1545,7 @@ public partial class CommandExecutionTests
             "member", "System.Data.DataView",
             "--platform", "System.Data.Common",
             "System.ComponentModel.IBindingListView.Filter:2",
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1571,7 +1565,7 @@ public partial class CommandExecutionTests
             "member", typeof(BodyShapeFixture).FullName!,
             "DotnetInspector.Fixtures.IBodyShapeValue.Changed:1",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1594,7 +1588,7 @@ public partial class CommandExecutionTests
             "member", typeof(BodyShapeFixture).FullName!,
             $"explicit:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.{methodName}",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1617,7 +1611,7 @@ public partial class CommandExecutionTests
             "member", typeof(BodyShapeFixture).FullName!,
             $"DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.Value:{accessorOrdinal}",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1636,7 +1630,7 @@ public partial class CommandExecutionTests
             "member", nameof(BodyShapeFixture),
             nameof(BodyShapeFixtureExtensions.ProjectedCreation) + ":1",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "-S", "Source Diff", "-v:d", "--tips", "q");
+            "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1737,9 +1731,7 @@ public partial class CommandExecutionTests
             target.Assembly.Location,
             "-S",
             $"{SectionNames.Signature},{SectionCategoryNames.Source}",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain(
@@ -1758,8 +1750,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Source Diff", "--print", "--json",
-            "--tips", "q");
+            "MaxDepth:2", "-S", "Source Diff", "--print", "--json"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1775,7 +1767,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "SerializeObject:1", "-S", "Source Locations", "--urls", "--tips", "q");
+            "SerializeObject:1", "-S", "Source Locations", "--urls");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1790,7 +1782,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--urls");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1899,7 +1891,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--count", "--tips", "q");
+                "--library", TestAssemblyPath, "--count");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1938,7 +1930,7 @@ public partial class CommandExecutionTests
         {
             string[] head =
                 ["library", "address", "--file", path, "--library", TestAssemblyPath];
-            string[] tail = ["--tips", "q"];
+            string[] tail = [];
 
             var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--jsonl", .. tail]);
             var (countExit, counted, countError) = await RunAppAsync([.. head, .. window, "--count", .. tail]);
@@ -1983,11 +1975,11 @@ public partial class CommandExecutionTests
             var (headExit, headOut, _) = await RunAppAsync(
                 "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
-                "-n", "1", "--head", "--tips", "q");
+                "-n", "1", "--head");
             var (tailExit, tailOut, _) = await RunAppAsync(
                 "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
-                "-n", "1", "--tail", "--tips", "q");
+                "-n", "1", "--tail");
 
             Assert.Equal(0, headExit);
             Assert.Equal(0, tailExit);
@@ -2013,7 +2005,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--count", "--tips", "q");
+                "--library", TestAssemblyPath, "--count");
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("requires -S/--select", error);
@@ -2041,8 +2033,7 @@ public partial class CommandExecutionTests
                 "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
                 "-S", "References",
-                "--count",
-                "--tips", "q");
+                "--count");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -2065,7 +2056,7 @@ public partial class CommandExecutionTests
         {
             var (exit, _, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--value", "--tips", "q");
+                "--library", TestAssemblyPath, "--value");
 
             Assert.Equal(1, exit);
             Assert.Contains(
@@ -2085,7 +2076,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json",
-            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "6", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "6");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2100,7 +2091,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--row", "2", "--jsonl", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--row", "2", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2116,7 +2107,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--paths", "--row", "1", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--paths", "--row", "1");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2128,7 +2119,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", "-S", "Source Locations", "--fields", "Signature", "--value", "--row", "1", "--tips", "q");
+            "-m", "Serialize", "-S", "Source Locations", "--fields", "Signature", "--value", "--row", "1");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2142,7 +2133,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--print", "--row", "1", "--jsonl", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--print", "--row", "1", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2158,7 +2149,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2179,7 +2170,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--prefer-rendered-urls", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2192,7 +2183,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2205,7 +2196,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", "-D", "Source Locations", "--verbose", "--tips", "q");
+            "-m", "Serialize", "-D", "Source Locations", "--verbose");
 
         Assert.Equal(0, exit);
         Assert.Contains("| File | column |", output);
@@ -2358,9 +2349,7 @@ public partial class CommandExecutionTests
                     FullTypeDecompilationFixture
                         .InvokePrivateCore),
                 "-S",
-                "Decompiled Source",
-                "--tips",
-                "q");
+                "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2383,7 +2372,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(SampleKeywordParameterHost).FullName!, "--library", TestAssemblyPath,
-            nameof(SampleKeywordParameterHost.Instance), "-S", "Signature,Decompiled Source", "--tips", "q");
+            nameof(SampleKeywordParameterHost.Instance), "-S", "Signature,Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2397,7 +2386,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(SampleRefReadonlyReturnHost).FullName!, "--library", TestAssemblyPath,
-            nameof(SampleRefReadonlyReturnHost.ChooseReadonly), "-S", "Signature,Decompiled Source", "--tips", "q");
+            nameof(SampleRefReadonlyReturnHost.ChooseReadonly), "-S", "Signature,Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2433,7 +2422,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source Document", "--json", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source Document", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2589,7 +2578,7 @@ public partial class CommandExecutionTests
                 Select = [SectionNames.Methods],
                 IncludeSections = [SectionNames.AnnotatedSourceDocument],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2616,7 +2605,7 @@ public partial class CommandExecutionTests
                     SectionNames.Signature
                 ],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(1, result.ExitCode);
@@ -2639,7 +2628,7 @@ public partial class CommandExecutionTests
                 IncludeSections = [SectionNames.AnnotatedSourceDocument],
                 ExactIncludeSectionsOverride = [],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2666,7 +2655,7 @@ public partial class CommandExecutionTests
                 ],
                 ExactIncludeSectionsOverride = [],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2709,9 +2698,7 @@ public partial class CommandExecutionTests
                 methodName,
                 "-S",
                 "Annotated Source Document",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2746,7 +2733,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Signature,Annotated Source Document", "--json", "--tips", "q");
+            "Pump:1", "-S", "Signature,Annotated Source Document", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2759,7 +2746,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
             "Pump:1", "-S", "Annotated Source Document", "--json",
-            "--bin", Path.GetDirectoryName(TestAssemblyPath)!, "--tips", "q");
+            "--bin", Path.GetDirectoryName(TestAssemblyPath)!);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2774,7 +2761,7 @@ public partial class CommandExecutionTests
             "Pump:1",
             "-S", "Annotated Source Document",
             "-S", "annotated source document",
-            "--json", "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2856,7 +2843,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("## Annotated Source", output);
@@ -2872,7 +2859,7 @@ public partial class CommandExecutionTests
         // from an honest absence.
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source", "--focus", "alocation", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source", "--focus", "alocation");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("^^^^", output);
@@ -2885,7 +2872,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("matched no facts", error);
@@ -2896,7 +2883,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation");
 
         Assert.Equal(0, exit);
         var lines = output.ReplaceLineEndings("\n").Split('\n');
@@ -2953,7 +2940,7 @@ public partial class CommandExecutionTests
         // numbered caret, so a reader can tell which box is which.
         var (exit, output, _) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "DenseBoxes:1", "--index", "1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+            "DenseBoxes:1", "--index", "1", "-S", "Annotated Source", "--focus", "allocation");
 
         Assert.Equal(0, exit);
         var lines = output.ReplaceLineEndings("\n").Split('\n');
@@ -3149,7 +3136,6 @@ public partial class CommandExecutionTests
             "CreateOutput",
             "--all",
             "-S", "Source Diff",
-            "--tips", "q",
         ];
 
         var (normalExit, normalOutput, normalError) = await RunAppAsync(
@@ -3182,9 +3168,7 @@ public partial class CommandExecutionTests
             nameof(CommandExecutionSourceDiffFixture.AddOne),
             "-S",
             SectionNames.SourceDiff,
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3222,8 +3206,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", SectionNames.SourceDiff,
-            format,
-            "--tips", "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3264,7 +3247,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandExecutionSourceDiffFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CommandExecutionSourceDiffFixture.AddOne), "-S", "@Source", "--tips", "q");
+            nameof(CommandExecutionSourceDiffFixture.AddOne), "-S", "@Source");
 
         Assert.Equal(0, exit);
         Assert.Contains("Source provider:", error);
@@ -3281,7 +3264,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "Overloaded:2", "-S", "@Source", "--tips", "q");
+            "Overloaded:2", "-S", "@Source");
 
         Assert.Equal(0, exit);
         Assert.Contains("Source provider:", error);
@@ -3303,7 +3286,7 @@ public partial class CommandExecutionTests
             $"{nameof(FactsTableFixture.BoxInt)}:1",
         ];
         var (exit, output, error) = await RunAppAsync(
-            [.. command, "-S", "Finding Census", "--json", "--tips", "q"]);
+            [.. command, "-S", "Finding Census", "--json"]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3353,7 +3336,7 @@ public partial class CommandExecutionTests
         });
 
         var (documentExit, documentOutput, documentError) = await RunAppAsync(
-            [.. command, "-S", "Annotated Source Document", "--json", "--tips", "q"]);
+            [.. command, "-S", "Annotated Source Document", "--json"]);
         Assert.Equal(0, documentExit);
         Assert.Empty(documentError);
         using var document = JsonDocument.Parse(documentOutput);
@@ -3402,7 +3385,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "CallsInterfaceItem", "-S", "Decompiled Source", "--markdown", "--tips", "q");
+            "CallsInterfaceItem", "-S", "Decompiled Source", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3419,7 +3402,7 @@ public partial class CommandExecutionTests
         var rejected = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!,
             "CallsInterfaceItem", "--library", TestAssemblyPath,
-            "--raw", "--tips", "q");
+            "--raw");
         var help = await RunAppAsync("member", "--help");
 
         Assert.Equal(1, rejected.Exit);
@@ -3554,7 +3537,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Numerics.Vector<T>.operator<<",
-            "-S", SectionNames.Signature, "--count", "--tips", "q");
+            "-S", SectionNames.Signature, "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());

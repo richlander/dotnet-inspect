@@ -154,6 +154,7 @@ try
 
     if (CommandLineBuilder.TryGetRemovedCommandError(
             args,
+            rootCommand,
             out var removedCommandError))
     {
         CommandError.Write(removedCommandError!);

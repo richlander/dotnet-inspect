@@ -588,7 +588,6 @@ public sealed class ApiCoordinateMatchCommandTests
             "--source", "https://api.nuget.org/v3/index.json",
             "--match",
             "--compact",
-            "--tips", "q",
         ];
         var content = await Invoke([.. request, "--json"]);
         var envelope = await Invoke([.. request, "--envelope"]);
@@ -632,7 +631,7 @@ public sealed class ApiCoordinateMatchCommandTests
                 "--package", "Avalonia@11.3.14..11.3.14",
                 "--tfm", "net8.0",
                 "--source", "https://api.nuget.org/v3/index.json",
-                "--match", "--json", "--compact", "--tips", "q",
+                "--match", "--json", "--compact",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);

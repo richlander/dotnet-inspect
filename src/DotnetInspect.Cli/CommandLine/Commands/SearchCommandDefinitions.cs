@@ -188,15 +188,17 @@ public static class SearchCommandDefinitions
                         success.Options,
                         ct);
 
-                    if (execution.ExitCode == 0
-                        && !success.Options.FormatExplicitlySet
-                        && !success.Options.IsRawOutput)
+                    if (execution.ExitCode == 0)
                     {
-                        var tips = FindOptionsParser.BuildTips(
-                            success.Options,
-                            success.Options.Pattern,
-                            execution.RowCount);
-                        Hints.WriteTips(success.TipLevel, [.. tips]);
+                        Hints.WriteTips(
+                            success.CompanionOutput,
+                            () =>
+                            [
+                                .. FindOptionsParser.BuildTips(
+                                    success.Options,
+                                    success.Options.Pattern,
+                                    execution.RowCount),
+                            ]);
                     }
 
                     return execution.ExitCode;

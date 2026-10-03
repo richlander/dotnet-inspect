@@ -34,7 +34,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
                 "type", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
                 "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
                 "-S", "Source Files", "--print", "--row", row,
-                "--repo", repositoryRoot, "--tips", "q",
+                "--repo", repositoryRoot,
                 .. preferRenderedUrls ? new[] { "--prefer-rendered-urls" } : [],
             ]);
 
@@ -62,9 +62,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "first",
             "--repo",
             repositoryRoot,
-            "-v:n",
-            "--tips",
-            "q");
+            "-v:n");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -98,7 +96,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             .. commandless ? Array.Empty<string>() : ["type"],
             typeof(JsonNamingPolicy).FullName!,
             "--library", typeof(JsonNamingPolicy).Assembly.Location,
-            "-S", "Decompiled Source", "--print", "--tips", "q",
+            "-S", "Decompiled Source", "--print",
             .. tree ? new[] { "--tree" } : [],
             .. format is not null ? new[] { format } : [],
         ]);
@@ -138,9 +136,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
                 "--row",
                 "first",
                 "--repo",
-                FindRepositoryRoot(),
-                "--tips",
-                "q");
+                FindRepositoryRoot());
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
@@ -169,9 +165,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "first",
             "--repo",
             FindRepositoryRoot(),
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -201,7 +195,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
                 member,
                 "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
                 "-S", "Source Locations", "--print", "--row", "first",
-                "--repo", repositoryRoot, "--tips", "q",
+                "--repo", repositoryRoot,
                 .. preferRenderedUrls ? new[] { "--prefer-rendered-urls" } : [],
             ]);
 
@@ -229,8 +223,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--repo",
             FindRepositoryRoot(),
             "-v:n",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunCliAsync(["type", .. arguments]);
@@ -258,9 +250,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "Source Locations",
             "--print",
             "--row",
-            "first",
-            "--tips",
-            "q");
+            "first");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -288,9 +278,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--print",
             "--row",
             "first",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -310,7 +298,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
             "--repo", FindRepositoryRoot(), "-S", "Source Locations",
-            "--print", "-v:q", "--tips", "q");
+            "--print", "-v:q");
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -332,9 +320,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--repo",
             FindRepositoryRoot(),
             "-S",
-            "PDB Source",
-            "--tips",
-            "q");
+            "PDB Source");
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -366,9 +352,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--repo",
             FindRepositoryRoot(),
             "-S",
-            SectionNames.Source,
-            "--tips",
-            "q");
+            SectionNames.Source);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
@@ -396,9 +380,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--repo",
             FindRepositoryRoot(),
             "-S",
-            SectionNames.Source,
-            "--tips",
-            "q");
+            SectionNames.Source);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
@@ -420,9 +402,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--library",
             typeof(JsonElement).Assembly.Location,
             "-S",
-            SectionNames.Source,
-            "--tips",
-            "q");
+            SectionNames.Source);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains("public int GetArrayLength()", result.Output);
@@ -446,8 +426,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             typeof(JsonNamingPolicy).Assembly.Location,
             "-S",
             SectionNames.Source,
-            "--tips",
-            "q",
         ];
         var result = await RunCliAsync(arguments);
         var all = await RunCliAsync([.. arguments, "--all"]);
@@ -474,9 +452,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             typeof(JsonElement).Assembly.Location,
             "-S",
             SectionNames.Source,
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.True(result.Exit == 0, result.Error);
         using var document = JsonDocument.Parse(result.Output);
@@ -509,9 +485,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "-S",
             SectionNames.Source,
             "--print",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.True(result.Exit == 0, result.Error);
         using var document = JsonDocument.Parse(result.Output);
@@ -539,8 +513,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "-S",
             SectionNames.Source,
             "--print",
-            "--tips",
-            "q",
         ];
 
         var limited = await RunCliAsync(
@@ -570,9 +542,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             FindRepositoryRoot(),
             "-S",
             "Source,PDB Source,Decompiled Source",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains("## Source", result.Output);
@@ -592,9 +562,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             typeof(JsonElement).Assembly.Location,
             "--all",
             "-S",
-            SectionNames.Source,
-            "--tips",
-            "q");
+            SectionNames.Source);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -611,9 +579,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--library",
             typeof(JsonNamingPolicy).Assembly.Location,
             "-S",
-            SectionNames.Source,
-            "--tips",
-            "q");
+            SectionNames.Source);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
@@ -634,9 +600,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             FindRepositoryRoot(),
             "-S",
             SectionNames.Source,
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.True(result.Exit == 0, result.Error);
         using var document = JsonDocument.Parse(result.Output);
@@ -669,8 +633,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             SectionNames.Source,
             "--print",
             "--tree",
-            "--tips",
-            "q",
         ];
 
         var native = await RunCliAsync(arguments);
@@ -708,9 +670,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
                 typeof(JsonElement).Assembly.Location,
                 "-S",
                 SectionNames.Source,
-                "--print",
-                "--tips",
-                "q");
+                "--print");
 
             Assert.True(result.Exit == 0, result.Error);
             Assert.StartsWith("# Source", result.Output);
@@ -731,9 +691,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "type",
             typeof(JsonNamingPolicy).FullName!,
             "--library",
-            typeof(JsonNamingPolicy).Assembly.Location,
-            "--tips",
-            "q");
+            typeof(JsonNamingPolicy).Assembly.Location);
 
         Assert.Equal(0, result.Exit);
         Assert.DoesNotContain("Source provider:", result.Error);
@@ -753,9 +711,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--repo",
             FindRepositoryRoot(),
             "-S",
-            "Source Diff",
-            "--tips",
-            "q");
+            "Source Diff");
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -776,7 +732,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "-S", "Source Locations", "--json", "--tips", "q",
+            "-S", "Source Locations", "--json",
             .. includeParts ? new[] { "--source-parts", "--repo", FindRepositoryRoot() } : [],
         ]);
 
@@ -835,7 +791,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "--repo", FindRepositoryRoot(), "--print", "--part", partName, "--tips", "q",
+            "--repo", FindRepositoryRoot(), "--print", "--part", partName,
             .. markdown ? new[] { "--markdown" } : [],
         ]);
 
@@ -871,7 +827,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "--repo", FindRepositoryRoot(), "--print", "--part", "attributes", "--tips", "q",
+            "--repo", FindRepositoryRoot(), "--print", "--part", "attributes",
             .. markdown ? new[] { "--markdown" } : [],
         ]);
 
@@ -900,7 +856,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
                 "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
                 "--library", typeof(MemberTextSlicer).Assembly.Location,
                 "--repo", FindRepositoryRoot(),
-                "--print", "--part", "signature", "--tips", "q",
+                "--print", "--part", "signature",
                 .. format is not null ? new[] { format } : [],
             ]);
 
@@ -957,7 +913,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
             "--repo", FindRepositoryRoot(), "--print", "--part", "signature",
-            verbosity, "--tips", "q",
+            verbosity,
             .. format is not null ? new[] { format } : [],
         ]);
 
@@ -993,7 +949,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
             "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
             "-m", "Get*", "--repo", FindRepositoryRoot(),
-            "--print", "--part", "signature", "--row", "2", "--tips", "q",
+            "--print", "--part", "signature", "--row", "2",
         ];
         var structured = await RunCliAsync([.. arguments, "--json"]);
         var markdown = await RunCliAsync([.. arguments, "--markdown"]);
@@ -1017,7 +973,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
             "--repo", FindRepositoryRoot(), "--print", "--part", "member",
-            "--markdown", "--lines", "-n", "3", "--tips", "q");
+            "--markdown", "--lines", "-n", "3");
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -1031,7 +987,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         var result = await RunCliAsync(
             "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!, "HasPdb",
             "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
-            "--repo", FindRepositoryRoot(), "--print", "--part", "member", "--json", "--tips", "q");
+            "--repo", FindRepositoryRoot(), "--print", "--part", "member", "--json");
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -1052,7 +1008,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             typeof(MemberTextSlicer).FullName!,
             "--library", typeof(MemberTextSlicer).Assembly.Location,
             "-m", "ExtractMemberText:1", "--repo", FindRepositoryRoot(),
-            "--print", "--part", "signature", "--tips", "q",
+            "--print", "--part", "signature",
             .. markdown ? new[] { "--markdown" } : [],
         ];
         var direct = await RunCliAsync(["member", .. arguments]);
@@ -1073,7 +1029,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         var result = await RunCliAsync(
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "--print", "--part", "signature", format, "--tips", "q");
+            "--print", "--part", "signature", format);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -1094,7 +1050,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         var result = await RunCliAsync(
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "--source-parts", format, "--tips", "q");
+            "--source-parts", format);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1115,7 +1071,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "-S", section, "--json", "--tips", "q",
+            "-S", section, "--json",
             .. print ? new[] { "--print", "--part", "signature" } : new[] { "--source-parts" },
         ]);
 
@@ -1133,7 +1089,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "--print", "--part", "xml-docs", "--json", "--tips", "q",
+            "--print", "--part", "xml-docs", "--json",
         ];
         var raw = await RunCliAsync(arguments);
         var rendered = await RunCliAsync([.. arguments, "--prefer-rendered-urls"]);
@@ -1157,7 +1113,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
             "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
-            "-m", "Get*", "-S", "Source Locations", "--json", "--tips", "q",
+            "-m", "Get*", "-S", "Source Locations", "--json",
         ];
         var all = await RunCliAsync(arguments);
         var selected = await RunCliAsync([.. arguments, "--rows", "2..2"]);
