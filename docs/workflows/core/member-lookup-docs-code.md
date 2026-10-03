@@ -66,7 +66,7 @@ Tips:
 ### 1b. Quiet mode (heading only)
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command -v:q --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command -v:q
 ```
 
 ```expect
@@ -86,7 +86,7 @@ Tips:
 ### 1c. Detailed verbosity (full member tables)
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command -v:d --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command -v:d
 ```
 
 ```expect
@@ -138,7 +138,7 @@ SetAction
 ### 2b. Using `-m` flag with glob
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer -m 'Deseri*' -v:q --tips q
+dotnet-inspect member System.Text.Json JsonSerializer -m 'Deseri*' -v:q
 ```
 
 ```expect
@@ -167,7 +167,7 @@ Show me the source code for Command.Add in System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command Add:1 -S "Decompiled Source" -n 30 --lines --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command Add:1 -S "Decompiled Source" -n 30 --lines
 ```
 
 ```expect
@@ -182,7 +182,7 @@ Tips:
 ### 3b. Member with overloads (first overload)
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:1 -S "Decompiled Source" -n 30 --lines --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:1 -S "Decompiled Source" -n 30 --lines
 ```
 
 ```expect
@@ -204,7 +204,7 @@ Tips:
 ### 4a. Show member index
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory -S "Member Index" --rows 1..25 --tips q
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory -S "Member Index" --rows 1..25
 ```
 
 ```expect
@@ -217,7 +217,7 @@ dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFacto
 ### 4b. Select constructor overload
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory .ctor:1 -S "PDB Source" -n 30 --lines --tips q
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory .ctor:1 -S "PDB Source" -n 30 --lines
 ```
 
 ```expect
@@ -234,7 +234,7 @@ Tips:
 > Goal: Filter to constructors using `--ctor` shorthand.
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command --ctor -v:q --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command --ctor -v:q
 ```
 
 ```expect
@@ -255,7 +255,7 @@ Tips:
 ### 6a. List members
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer -v:q --tips q
+dotnet-inspect member System.Text.Json JsonSerializer -v:q
 ```
 
 ```expect
@@ -268,7 +268,7 @@ Methods:
 ### 6b. Filter to specific method
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize:1 -S "Decompiled Source" -n 50 --lines --tips q
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize:1 -S "Decompiled Source" -n 50 --lines
 ```
 
 ```expect
@@ -287,7 +287,7 @@ Tips:
 > (C# with hidden-fact comments and the IL interleaved beneath each statement).
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:2 -S "Annotated Source,IL" -n 80 --lines --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:2 -S "Annotated Source,IL" -n 80 --lines
 ```
 
 ```expect
@@ -316,7 +316,7 @@ Tips:
 
 ```bash
 dotnet-inspect member --package System.CommandLine@2.0.3 Command \
-  -S Methods --table --columns Name,Digest,Signature --rows 1..5 --tips q
+  -S Methods --table --columns Name,Digest,Signature --rows 1..5
 ```
 
 ```expect
@@ -337,7 +337,7 @@ Tips:
 ### 9a. Using backtick notation
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 'OptionsFactory`1' -v:q --tips q
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 'OptionsFactory`1' -v:q
 ```
 
 ```expect
@@ -351,7 +351,7 @@ Methods: 1
 ### 9b. Using quoted generic syntax
 
 ```bash
-dotnet-inspect member --package System.Collections@4.3.0 'HashSet<T>' -v:q --tips q
+dotnet-inspect member --package System.Collections@4.3.0 'HashSet<T>' -v:q
 ```
 
 ```expect
@@ -367,7 +367,7 @@ Type Parameters: T
 ### 10a. Nullable parameters in shape view
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --tree -n 10 --lines --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --tree -n 10 --lines
 ```
 
 ```expect
@@ -378,7 +378,7 @@ CommandLineAction? Action { get; set; }
 ### 10b. Nullable return types in member view
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize -n 10 --lines --tips q
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize -n 10 --lines
 ```
 
 ```expect
@@ -390,7 +390,7 @@ TValue?
 > Goal: Get columnar output suitable for piping to other tools.
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command --table --no-headers --rows 1..10 --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command --table --no-headers --rows 1..10
 ```
 
 ```expect

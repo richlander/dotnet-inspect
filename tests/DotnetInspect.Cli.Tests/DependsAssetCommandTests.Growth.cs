@@ -23,8 +23,6 @@ public partial class DependsAssetCommandTests
                 "-S",
                 DependsAssetSections.Dependencies,
                 "--count",
-                "--tips",
-                "q",
             ]);
 
         Assert.Equal(0, exitCode);
@@ -45,8 +43,6 @@ public partial class DependsAssetCommandTests
                 "-S",
                 DependsTypeSections.DependencyGraph,
                 "--count",
-                "--tips",
-                "q",
             ]);
 
         Assert.Equal(0, exitCode);
@@ -70,8 +66,6 @@ public partial class DependsAssetCommandTests
                 "--package",
                 packagePath,
                 "-v:n",
-                "--tips",
-                "q",
             ]);
 
         Assert.Equal(0, exitCode);

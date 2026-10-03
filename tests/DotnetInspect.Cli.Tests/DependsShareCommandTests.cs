@@ -23,9 +23,7 @@ public partial class CommandExecutionTests
             "net8.0",
             "--json",
             "--share",
-            "url",
-            "--tips",
-            "q");
+            "url");
 
         Assert.Equal(0, result.Exit);
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -57,9 +55,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net6.0",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -91,9 +87,7 @@ public partial class CommandExecutionTests
             "--source",
             "https://api.nuget.org/v3/index.json",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -123,7 +117,6 @@ public partial class CommandExecutionTests
         };
         if (format is not null)
             arguments.Add(format);
-        arguments.AddRange(["--tips", "q"]);
 
         var result = await RunAppAsync([.. arguments]);
 
@@ -200,8 +193,6 @@ public partial class CommandExecutionTests
             package,
             "--share",
             "packet",
-            "--tips",
-            "q",
         };
         if (framework is not null)
         {
@@ -227,9 +218,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net8.0",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -248,9 +237,7 @@ public partial class CommandExecutionTests
             "--source",
             "https://feed.example.test/v3/index.json",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -271,9 +258,7 @@ public partial class CommandExecutionTests
             "--source",
             "https://api.nuget.org/v3/index.json",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -357,9 +342,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "netcoreapp2.2",
             "--share",
-            "packet",
-            "--tips",
-            "q");
+            "packet");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -384,8 +367,6 @@ public partial class CommandExecutionTests
         [
             "--share",
             "packet",
-            "--tips",
-            "q",
         ]);
 
         var result = await RunAppAsync([.. arguments]);
@@ -425,8 +406,6 @@ public partial class CommandExecutionTests
                 "net8.0",
                 "--share",
                 "packet",
-                "--tips",
-                "q",
                 .. conflicting,
             ]);
 
@@ -452,8 +431,6 @@ public partial class CommandExecutionTests
                 "net8.0",
                 "--share",
                 "packet",
-                "--tips",
-                "q",
                 .. arguments.Split(' '),
             ]);
 

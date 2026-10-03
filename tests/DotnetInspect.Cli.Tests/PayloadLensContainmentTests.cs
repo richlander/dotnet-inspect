@@ -77,7 +77,7 @@ public class PayloadLensContainmentTests : IDisposable
     [Fact]
     public void ChildCli_UsesThePerTestCache()
     {
-        var (output, error) = RunCliCore(["cache", "--json", "-T:q"]);
+        var (output, error) = RunCliCore(["cache", "--json"]);
 
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
@@ -282,7 +282,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var second = HostilePackage.Create();
 
         var (output, _) = RunCli(
-            [first.Path, second.Path, "--path", "ENTRY*", format, "--tips", "q"]);
+            [first.Path, second.Path, "--path", "ENTRY*", format]);
 
         HostileOutputAssert.MarkersRendered(
             output,
@@ -301,7 +301,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var second = HostilePackage.Create();
 
         var (output, _) = RunCli(
-            [first.Path, second.Path, "-S", "Package Info", "--table", "--tips", "q"]);
+            [first.Path, second.Path, "-S", "Package Info", "--table"]);
 
         HostileOutputAssert.MarkersRendered(
             output,
@@ -317,7 +317,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var package = HostilePackage.Create();
 
         var (output, _) = RunCli(
-            [package.Path, "--path", "ENTRY*", "--jsonl", "--tips", "q"]);
+            [package.Path, "--path", "ENTRY*", "--jsonl"]);
 
         HostileOutputAssert.MarkersRendered(
             output,
@@ -333,7 +333,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var package = HostilePackage.Create();
 
         var (output, _) = RunCli(
-            [package.Path, "--path", "README.md", "--content", "--jsonl", "--tips", "q"]);
+            [package.Path, "--path", "README.md", "--content", "--jsonl"]);
 
         HostileOutputAssert.MarkersRendered(
             output,
@@ -355,7 +355,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var package = HostilePackage.Create();
 
         var (output, error) = RunCli(
-            [package.Path, "-S", "Package Info", "--fields", "Repository", "--value", "--tips", "q"]);
+            [package.Path, "-S", "Package Info", "--fields", "Repository", "--value"]);
 
         Assert.Empty(error);
         Assert.Contains("MARKERREPOSITORY", output, StringComparison.Ordinal);
@@ -370,7 +370,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var package = HostilePackage.Create();
 
         var (output, error) = RunCli(
-            [package.Path, "-S", "Package skill files", "--print", "--raw", "--tips", "q"]);
+            [package.Path, "-S", "Package skill files", "--print", "--raw"]);
 
         Assert.Empty(error);
         Assert.Equal("skill payload\n", output.ReplaceLineEndings("\n"));

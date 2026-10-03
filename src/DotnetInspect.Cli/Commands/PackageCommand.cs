@@ -1217,7 +1217,7 @@ public partial class PackageCommand
 
             // Handle --layout mode: show file tree and exit early
             if (options.ListLayout)
-                return ListPackageLayout(extractPath, options, packageName, options.TipLevel);
+                return ListPackageLayout(extractPath, options, packageName, options.CompanionOutput);
 
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)

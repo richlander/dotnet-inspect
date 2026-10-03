@@ -45,8 +45,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "-S",
                 PackageSections.Vulnerabilities,
                 "--count",
-                "--tips",
-                "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -85,8 +83,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "-S",
                 PackageSections.EcosystemDependencies,
                 "--count",
-                "--tips",
-                "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
