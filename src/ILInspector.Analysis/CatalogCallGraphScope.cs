@@ -1871,7 +1871,10 @@ public sealed class CatalogCallGraphScope : IDisposable
         static IOrderedEnumerable<int> OrderReverseEdges(
             IEnumerable<int> edgeIndexes,
             ImmutableArray<StoredEdge> edges,
-            IReadOnlyDictionary<GraphNodeIdentity, int> callerOrder) =>
+            GraphNodeIdentity callee,
+            IReadOnlyDictionary<
+                (GraphNodeIdentity Callee, GraphNodeIdentity Caller),
+                ReverseCallerGroupOrder> callerGroupOrder) =>
             edgeIndexes
                 .OrderBy(
                     index => edges[index].Caller.Participant
@@ -1891,10 +1894,17 @@ public sealed class CatalogCallGraphScope : IDisposable
                     index => edges[index].Caller.Evidence.Storage
                         .MethodToken)
                 .ThenBy(
-                    index => callerOrder[
-                        edges[index].Caller.Evidence.Identity])
+                    index => callerGroupOrder[(
+                        callee,
+                        edges[index].Caller.Evidence.Identity)]
+                        .FirstILOffset)
                 .ThenBy(
-                    index => edges[index].Caller.Evidence.Storage
+                    index => callerGroupOrder[(
+                        callee,
+                        edges[index].Caller.Evidence.Identity)]
+                        .FirstEdgeIndex)
+                .ThenBy(
+                    index => edges[index].Callee.Evidence.Storage
                         .ILOffset);
 
         sealed class StoredReverseEdgeIndex
@@ -1915,14 +1925,25 @@ public sealed class CatalogCallGraphScope : IDisposable
             {
                 var reverse =
                     new Dictionary<GraphNodeIdentity, List<int>>();
-                var callerOrder =
-                    new Dictionary<GraphNodeIdentity, int>();
+                var callerGroupOrder = new Dictionary<
+                    (GraphNodeIdentity Callee, GraphNodeIdentity Caller),
+                    ReverseCallerGroupOrder>();
                 for (int index = 0; index < edges.Length; index++)
                 {
                     StoredEdge edge = edges[index];
-                    callerOrder.TryAdd(
-                        edge.Caller.Evidence.Identity,
-                        callerOrder.Count);
+                    var callerGroup = (
+                        edge.Callee.Evidence.Identity,
+                        edge.Caller.Evidence.Identity);
+                    int ilOffset =
+                        edge.Callee.Evidence.Storage.ILOffset;
+                    if (!callerGroupOrder.TryGetValue(
+                            callerGroup,
+                            out ReverseCallerGroupOrder order)
+                        || ilOffset < order.FirstILOffset)
+                    {
+                        callerGroupOrder[callerGroup] =
+                            new(ilOffset, index);
+                    }
                     Add(
                         reverse,
                         edge.Callee.Evidence.Identity,
@@ -1933,7 +1954,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                     StoredEdge[] reverseEdges,
                     Dictionary<GraphNodeIdentity, EdgeRange>
                         reverseRanges) =
-                    Freeze(edges, reverse, callerOrder);
+                    Freeze(edges, reverse, callerGroupOrder);
                 return new(reverseEdges, reverseRanges);
             }
 
@@ -1976,7 +1997,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                 Freeze(
                     ImmutableArray<StoredEdge> edges,
                     Dictionary<GraphNodeIdentity, List<int>> index,
-                    IReadOnlyDictionary<GraphNodeIdentity, int> callerOrder)
+                    IReadOnlyDictionary<
+                        (GraphNodeIdentity Callee, GraphNodeIdentity Caller),
+                        ReverseCallerGroupOrder> callerGroupOrder)
             {
                 var indexedEdges = new StoredEdge[edges.Length];
                 var ranges =
@@ -1994,7 +2017,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         in OrderReverseEdges(
                             group,
                             edges,
-                            callerOrder))
+                            identity,
+                            callerGroupOrder))
                     {
                         StoredEdge edge = edges[edgeIndex];
                         indexedEdges[start++] = edge;
@@ -2021,6 +2045,10 @@ public sealed class CatalogCallGraphScope : IDisposable
                 int EdgeCount,
                 int GroupCount);
         }
+
+        readonly record struct ReverseCallerGroupOrder(
+            int FirstILOffset,
+            int FirstEdgeIndex);
 
         readonly struct StoredEdgeGroups
         {
