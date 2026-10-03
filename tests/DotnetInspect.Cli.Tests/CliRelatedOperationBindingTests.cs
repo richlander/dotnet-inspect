@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -159,6 +160,74 @@ public class CliRelatedOperationBindingTests
             ]);
 
         Assert.Equal($"member {expected}", command);
+    }
+
+    [Theory]
+    [InlineData(
+        false,
+        "@lib.dll",
+        "member @lib.dll")]
+    [InlineData(
+        true,
+        "@lib.dll",
+        "member '@lib.dll'")]
+    [InlineData(
+        true,
+        "Package@1.0.0",
+        "member Package@1.0.0")]
+    public void CommandRenderer_QuotesLeadingAtForPowerShellOnly(
+        bool usePowerShell,
+        string value,
+        string expected)
+    {
+        ShellCommandDialect dialect =
+            usePowerShell
+                ? ShellCommandDialect.PowerShell
+                : ShellCommandDialect.Posix;
+        string command = CliCommandText.Render(
+            [
+                CliCommandToken.Syntax("member"),
+                CliCommandToken.ValueToken(value),
+            ],
+            dialect);
+
+        Assert.Equal(expected, command);
+    }
+
+    [Fact]
+    public void MemberBindings_QuoteLeadingAtLibraryPathForPowerShell()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Probe",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                },
+            ],
+        };
+
+        Tip[] tips = MemberTipBindings.Resolve(
+            type,
+            platformAssembly: null,
+            packagePath: null,
+            assemblyPath: "@lib.dll",
+            packageName: null,
+            packageVersion: null,
+            dialect: ShellCommandDialect.PowerShell);
+
+        Assert.NotEmpty(tips);
+        Assert.All(
+            tips,
+            static tip =>
+                Assert.Contains(
+                    "--library '@lib.dll'",
+                    tip.CommandText,
+                    StringComparison.Ordinal));
     }
 
     private static RelatedOperationAffordance Affordance(

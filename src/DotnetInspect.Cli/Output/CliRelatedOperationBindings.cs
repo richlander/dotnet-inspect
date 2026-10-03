@@ -153,9 +153,20 @@ internal sealed class CliRelatedOperationBindingRegistry<TContext>
 
     internal Tip[] Resolve(
         IEnumerable<RelatedOperationAffordance> affordances,
-        TContext context)
+        TContext context) =>
+        Resolve(
+            affordances,
+            context,
+            ShellCommandText.CurrentDialect);
+
+    internal Tip[] Resolve(
+        IEnumerable<RelatedOperationAffordance> affordances,
+        TContext context,
+        ShellCommandDialect dialect)
     {
         ArgumentNullException.ThrowIfNull(affordances);
+        if (!Enum.IsDefined(dialect))
+            throw new ArgumentOutOfRangeException(nameof(dialect));
 
         var activeIds = new HashSet<RelatedOperationAffordanceId>();
         foreach (RelatedOperationAffordance affordance in affordances)
@@ -193,8 +204,10 @@ internal sealed class CliRelatedOperationBindingRegistry<TContext>
                 .ThenBy(
                     static gesture => gesture.Id.Value,
                     StringComparer.Ordinal)
-                .Select(static gesture => new Tip(
-                    CliCommandText.Render(gesture.Gesture.Command),
+                .Select(gesture => new Tip(
+                    CliCommandText.Render(
+                        gesture.Gesture.Command,
+                        dialect),
                     "",
                     gesture.Gesture.Purpose)),
         ];
@@ -205,19 +218,38 @@ internal static class CliCommandText
 {
     internal static string Render(
         ImmutableArray<CliCommandToken> command) =>
-        string.Join(
+        Render(command, ShellCommandText.CurrentDialect);
+
+    internal static string Render(
+        ImmutableArray<CliCommandToken> command,
+        ShellCommandDialect dialect)
+    {
+        if (!Enum.IsDefined(dialect))
+            throw new ArgumentOutOfRangeException(nameof(dialect));
+
+        return string.Join(
             " ",
-            command.Select(static token =>
+            command.Select(token =>
                 token.Kind == CliCommandTokenKind.Value
-                    ? RenderValue(token.Value)
+                    ? RenderValue(token.Value, dialect)
                     : token.Value));
+    }
 
-    private static string RenderValue(string value) =>
-        value.All(IsSafeUnquoted)
+    private static string RenderValue(
+        string value,
+        ShellCommandDialect dialect) =>
+        IsSafeUnquoted(value, dialect)
             ? value
-            : ShellCommandText.Quote(value);
+            : ShellCommandText.Quote(value, dialect);
 
-    private static bool IsSafeUnquoted(char value) =>
+    private static bool IsSafeUnquoted(
+        string value,
+        ShellCommandDialect dialect) =>
+        !(dialect == ShellCommandDialect.PowerShell
+            && value[0] == '@')
+        && value.All(IsSafeUnquotedCharacter);
+
+    private static bool IsSafeUnquotedCharacter(char value) =>
         value is >= 'a' and <= 'z'
             or >= 'A' and <= 'Z'
             or >= '0' and <= '9'

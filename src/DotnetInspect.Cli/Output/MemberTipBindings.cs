@@ -30,8 +30,27 @@ internal static class MemberTipBindings
         string? assemblyPath,
         string? packageName,
         string? packageVersion)
+        => Resolve(
+            type,
+            platformAssembly,
+            packagePath,
+            assemblyPath,
+            packageName,
+            packageVersion,
+            ShellCommandText.CurrentDialect);
+
+    internal static Tip[] Resolve(
+        ApiType type,
+        string? platformAssembly,
+        string? packagePath,
+        string? assemblyPath,
+        string? packageName,
+        string? packageVersion,
+        ShellCommandDialect dialect)
     {
         ArgumentNullException.ThrowIfNull(type);
+        if (!Enum.IsDefined(dialect))
+            throw new ArgumentOutOfRangeException(nameof(dialect));
 
         MemberTipContext context = CreateContext(
             type,
@@ -42,7 +61,8 @@ internal static class MemberTipBindings
             packageVersion);
         return Registry.Value.Resolve(
             MemberRelatedOperationAffordances.All,
-            context);
+            context,
+            dialect);
     }
 
     private static MemberTipContext CreateContext(
