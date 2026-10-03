@@ -1336,11 +1336,6 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline,
                     includeSignals: enrichesSignals);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
-                producerOptions)
-                ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
-                : null;
-
             var result = await PackageInspector.InspectAsync(
                 resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,

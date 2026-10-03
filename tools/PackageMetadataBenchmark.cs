@@ -39,7 +39,6 @@ if (counts.Any(n => n < 1 || n > coordinates.Length))
 const string Source = "https://api.nuget.org/v3/index.json";
 var sourceOptions = new NuGetSourceOptions { Sources = [Source] };
 DirectoryInfo cacheRoot = Directory.CreateTempSubdirectory("inspect-metadata-benchmark-");
-using var capability = NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData);
 Console.WriteLine(
     "timestampUtc\trevision\tos\tframework\ttrial\tcache\tn\treturned\tcompletion"
     + "\tfirstMs\tnthMs\tlastMs\tterminalMs\trequests\tdecodedBodyBytes\tprojectionSha256");

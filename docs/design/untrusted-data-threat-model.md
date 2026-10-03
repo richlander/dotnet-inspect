@@ -1788,11 +1788,11 @@ exceeding any one produces a visible rejection rather than a partial identity.
 
 ### Network and caches
 
-Network capability policy is enforced in the shared HTTP handler after the
-attempt is recorded for diagnostics and before it reaches the transport.
-Traffic families that require explicit authorization, currently vulnerability
-data, must run inside their matching `NetworkTelemetry.Allow` scope. Offline
-mode remains the broader prohibition over every traffic family.
+The shared HTTP handler records every request attempt for diagnostics before
+it reaches the transport; that observation never blocks a request. Offline
+mode is the only network prohibition and applies to every traffic family.
+Whether a view requests a traffic family, such as vulnerability data, is a
+disclosure decision owned by that view, not a network capability.
 
 Network access derived from inspected content must be explicit in the command
 surface, use the untrusted-fetch client, have a timeout, and retain provenance.
