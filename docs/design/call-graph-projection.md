@@ -511,6 +511,9 @@ validation slice; a later adopter can justify broadening the range shape after
 the reverse path has production evidence. The representation may change
 construction and lookup cost, but never edge identity, physical occurrence
 order, graph diagnostics, traversal bounds, or generation lifetime.
+`CallerTreeOrdersAttributedPhysicalSitesByIlOffset` gates physical occurrence
+order when one declared caller owns direct calls from multiple generated
+bodies.
 
 `CatalogCallGraphScorecard` is the performance host for representation changes.
 It measures graph construction, caller batches, callee batches, and complete
