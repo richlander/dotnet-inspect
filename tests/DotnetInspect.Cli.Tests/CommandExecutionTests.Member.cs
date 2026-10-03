@@ -40,8 +40,44 @@ public partial class CommandExecutionTests
         Assert.Empty(withoutTips.Error);
         Assert.Equal(withoutTips.Output, withTips.Output);
         Assert.Contains("Tips:", withTips.Error);
+        Assert.Contains(
+            CliCommandText.Render(
+            [
+                CliCommandToken.Syntax("--library"),
+                CliCommandToken.ValueToken(TestAssemblyPath),
+            ]),
+            withTips.Error);
+        Assert.Contains("view member detail (source, IL)", withTips.Error);
+        Assert.Contains("view type tree", withTips.Error);
+        Assert.Contains("dotted member syntax", withTips.Error);
         using var document = JsonDocument.Parse(withTips.Output);
         Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+    }
+
+    [Fact]
+    public async Task Member_PlatformTipsUseBoundOwnerAffordances()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-E",
+            ".tips");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Text.Json.JsonSerializer", output);
+        Assert.Contains("Tips:", error);
+        Assert.Contains(
+            "member JsonSerializer --platform System.Text.Json",
+            error);
+        Assert.Contains(
+            "member JsonSerializer --platform System.Text.Json -S 'Member Index'",
+            error);
+        Assert.Contains(
+            "type JsonSerializer --platform System.Text.Json --tree",
+            error);
+        Assert.DoesNotContain("dotted member syntax", error);
     }
 
     [Theory]

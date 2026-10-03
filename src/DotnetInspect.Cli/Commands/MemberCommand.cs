@@ -1402,40 +1402,15 @@ public static class MemberCommand
             if (effectiveOptions.CompanionOutput != CompanionOutput.None
                 && effectiveOptions.OverloadIndex == null)
             {
-                var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
-                    : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
-                    : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
-                    : "";
-
-                var simpleName = TypeMatcher.GetSimpleName(apiType.FullName);
-
-                var overloadGroups = apiType.Members
-                    .Where(ApiMemberSectionDescriptors.IsMethodLike)
-                    .GroupBy(m => m.Name)
-                    .OrderByDescending(g => g.Count())
-                    .ToList();
-                var exampleGroup = overloadGroups.FirstOrDefault();
-
-                List<Tip> tips = [];
-
-                if (exampleGroup != null)
-                {
-                    var memberName = exampleGroup.Key == ".ctor" ? ".ctor" : exampleGroup.Key;
-                    tips.Add(new(Name, $"{simpleName} {sourceFlag} {memberName}:1", "view member detail (source, IL)"));
-                }
-
-                if (overloadGroups.Any(g => g.Count() > 1))
-                    tips.Add(new(Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
-
-                tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --tree", "view type tree"));
-                tips.Add(new(Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
-
-                if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
-                    tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
-
                 Hints.WriteTips(
                     effectiveOptions.CompanionOutput,
-                    () => [.. tips]);
+                    () => MemberTipBindings.Resolve(
+                        apiType,
+                        options.PlatformAssembly,
+                        options.PackagePath,
+                        options.AssemblyPath,
+                        packageName,
+                        packageVersion));
             }
 
             return 0;

@@ -8,14 +8,15 @@ the reusable `--references` projection proposed by
 [#8148](https://github.com/richlander/dotnet-inspect/issues/8148), and the
 compact related-gesture `-E .tips` projection.
 
-The composition substrate is designed but not implemented. The
+The first composition slice is implemented for Member: host-neutral
+related-operation affordance identities join to lazy CLI-owned bindings for
+`-E .tips`. Other commands retain their existing imperative tip construction
+until adopted one owner at a time. The
 [companion-family grammar](view-facet-query-composition.md#companion-family)
-is independently owned: the current product slice implements `-E .tips` and
-reserves bare `-E` and `-E .references` with visible pre-acquisition failures
-until their semantic owners are ready. Current commands retain their
-imperative tip construction until the lazy affordance and host-binding seam is
-adopted. Product-resource explanation for the complete Library structural
-domain is already implemented by
+is independently owned: `-E .tips` is available, while bare `-E` and
+`-E .references` remain reserved with visible pre-acquisition failures until
+their semantic owners are ready. Product-resource explanation for the complete
+Library structural domain is already implemented by
 [Resource Explanation](resource-explanation.md). Reusable inspection-reference
 identity remains owned and staged by
 [#7916](https://github.com/richlander/dotnet-inspect/issues/7916).
@@ -768,36 +769,30 @@ replacement, retry, or scheduling semantics.
 
 ## Production adoption
 
-1. Lock this composition contract and its owner boundaries.
-2. Atomically replace the current `--tips` and level-valued option contract
-   with short-only `-E .tips`, reserve bare `-E` and `-E .references`, and
-   update Progressive Disclosure, CLI reference, and tests in the same
-   implementation slice.
-3. Add the contextual related-affordance composition substrate and lazy
-   host-binding seam with a fail-fast no-demand gate proving that absent `-E .tips`
-   performs no invocation-specific work.
-4. Have Resource Explanation register the Member command-level product
-   resource without changing subject acquisition semantics.
+1. Lock this composition contract and its owner boundaries. **Complete.**
+2. Replace the prior tip option with short-only `-E .tips`, reserve bare `-E`
+   and `-E .references`, and update Progressive Disclosure, CLI reference, and
+   tests in the same implementation slice. **Complete in #9060.**
+3. Add the contextual related-affordance identity and lazy CLI host-binding
+   seam, with Member as the first behavior-preserving production caller and a
+   fail-fast no-demand gate. **Implemented by #9191.**
+4. Register the Member command-level product resource, add its exact-subject
+   contextual explanation handoff, and admit bare `-E` only when both mappings
+   exist. **Tracked as the second #9191 stack slice.**
 5. Have #7916 define the reusable reference and subject-affordance contracts,
    including shell-safe generic identity.
-6. Add the host-neutral contextual-explanation selection and handoff
-   substrate, with Member as the bounded first adopter. Its CLI adoption
-   supplies the first related-gesture bindings and demonstrates that `-E .tips`
-   consumes no new producer or acquisition work. Advertise Member `--explain`
-   only when both its command-level resource and exact-subject mapping are
-   present.
-7. Add Member Index `--references` as the first row projection and demonstrate
+6. Add Member Index `-E .references` as the first row projection and demonstrate
    unchanged consumption by `explain`.
-8. Adopt the same composition one command owner at a time for Type, Library,
+7. Adopt the same composition one command owner at a time for Type, Library,
    Package, Findings, occurrences, and clusters.
-9. Add a Browser/Wasm binding over the shared related-operation affordances
+8. Add a Browser/Wasm binding over the shared related-operation affordances
    and contextual-explanation input without consuming CLI command syntax.
-10. Update the shipped skill after production behavior exists so it teaches
+9. Update the shipped skill after production behavior exists so it teaches
    capability search for unfamiliar text, exact-path explanation, direct
    `--explain`, reusable-reference composition, and explicit compact `-E .tips`
    continuation.
 
-Steps 2 through 10 are separately owned implementation efforts. This document
+Incomplete steps are separately owned implementation efforts. This document
 does not authorize one PR to change all participating owners.
 The separately tracked #8424 adoption adds Capability Catalog Search as a
 third top-level facade branch after its host-neutral operation exists; it does
