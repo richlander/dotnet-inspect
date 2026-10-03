@@ -64,9 +64,42 @@ public sealed record ResourceLifecycleOccurrence
     }
 }
 
+public abstract record ResourceLifecycleFindingInspection
+{
+    public sealed record Complete(
+        FindingInspection<ResourceLifecycleOccurrence>.Complete Inspection)
+        : ResourceLifecycleFindingInspection;
+
+    public sealed record Incomplete : ResourceLifecycleFindingInspection
+    {
+        public Incomplete(
+            FindingInspection<ResourceLifecycleOccurrence>.Complete inspection,
+            ImmutableArray<ResourceLifecycleLimitation> limitations)
+        {
+            ArgumentNullException.ThrowIfNull(inspection);
+            if (limitations.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    "Incomplete lifecycle inspection requires a limitation.",
+                    nameof(limitations));
+            }
+
+            Inspection = inspection;
+            Limitations = limitations;
+        }
+
+        public FindingInspection<ResourceLifecycleOccurrence>.Complete
+            Inspection { get; }
+        public ImmutableArray<ResourceLifecycleLimitation> Limitations { get; }
+    }
+
+    public sealed record Failed(InspectionError Error)
+        : ResourceLifecycleFindingInspection;
+}
+
 public static class ResourceLifecycleAnalysis
 {
-    public static FindingInspection<ResourceLifecycleOccurrence> Inspect(
+    public static ResourceLifecycleFindingInspection Inspect(
         LibraryResourceLifecycleAnalysisResult result,
         FindingSubject subject)
     {
@@ -110,26 +143,37 @@ public static class ResourceLifecycleAnalysis
                        root.Root,
                        outcome),
             ];
+            ImmutableArray<ResourceLifecycleLimitation> limitations =
+            [
+                .. result.Limitations,
+                .. from method in result.Methods
+                   from limitation in method.Limitations
+                   select limitation,
+                .. from method in result.Methods
+                   from root in method.Roots
+                   from limitation in root.Limitations
+                   select limitation,
+            ];
             if (occurrences.IsEmpty
                 && !result.IsComplete)
             {
-                ResourceLifecycleLimitation first =
-                    result.Limitations
-                        .Concat(result.Methods.SelectMany(method =>
-                            method.Limitations.Concat(
-                                method.Roots.SelectMany(root =>
-                                    root.Limitations))))
-                        .First();
+                ResourceLifecycleLimitation first = limitations[0];
                 return Failed(
                     subject,
                     $"Resource lifecycle analysis was incomplete "
                     + $"({first.Kind}: {first.Detail}).");
             }
 
-            return new FindingInspection<ResourceLifecycleOccurrence>.Complete(
-                AnalysisFindings.InspectResourceLifecycles(
-                    occurrences,
-                    subject));
+            var inspection =
+                new FindingInspection<ResourceLifecycleOccurrence>.Complete(
+                    AnalysisFindings.InspectResourceLifecycles(
+                        occurrences,
+                        subject));
+            return limitations.IsEmpty
+                ? new ResourceLifecycleFindingInspection.Complete(inspection)
+                : new ResourceLifecycleFindingInspection.Incomplete(
+                    inspection,
+                    limitations);
         }
         catch (Exception ex) when (
             ex is InvalidOperationException
@@ -189,10 +233,10 @@ public static class ResourceLifecycleAnalysis
         return root.ResourceKinds[0];
     }
 
-    static FindingInspection<ResourceLifecycleOccurrence> Failed(
+    static ResourceLifecycleFindingInspection.Failed Failed(
         FindingSubject subject,
         string reason) =>
-        new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+        new(
             new InspectionError(
                 subject,
                 AnalysisFindings.ResourceLifecycleDescriptor,

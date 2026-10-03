@@ -166,6 +166,8 @@ function type(id: string, assembly: BrowserAssemblySurface): BrowserTypeSurface 
     displayName: id,
     namespace: "Example",
     kind: "class",
+    kindFacetId: "api.type-kind.class",
+    traitFacetIds: ["api.type-trait.object"],
     accessibility: "public",
     accessibilityId: "public",
     assembly: `${assembly.name}.dll`,
@@ -190,6 +192,36 @@ const surface: BrowserPackageSurface = {
   compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
   assemblies: [core, other, empty],
   types: [type("Example.Widget", core), type("Example.Neighbor", other)],
+  typeKinds: [{
+    id: "api.type-kind.class",
+    singularLabel: "class",
+    pluralLabel: "classes",
+    weight: 100,
+    count: 2,
+    isDefault: true,
+  }],
+  typeTraits: [{
+    id: "api.type-trait.abstract",
+    singularLabel: "abstract",
+    pluralLabel: "abstract",
+    weight: 100,
+    count: 0,
+    isDefault: false,
+  }, {
+    id: "api.type-trait.static",
+    singularLabel: "static",
+    pluralLabel: "static",
+    weight: 200,
+    count: 0,
+    isDefault: false,
+  }, {
+    id: "api.type-trait.object",
+    singularLabel: "object",
+    pluralLabel: "objects",
+    weight: 300,
+    count: 2,
+    isDefault: false,
+  }],
   accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 2 }],
   totalMembers: 2,
   documents: [],
@@ -227,6 +259,7 @@ const historicalPlatformTarget: PlatformCatalogTarget = {
 };
 interface PlatformFixture {
   forwarders?: boolean;
+  forwarderInternalType?: boolean;
   forwarderFailure?: boolean;
   forwarderPending?: boolean;
   warmup?: "pending" | "fail-once";
@@ -237,6 +270,7 @@ interface PlatformFixture {
   libraryFailure?: boolean;
   libraryPending?: boolean;
   libraryPendingPack?: PlatformAssemblyRow["pack"];
+  libraryPendingAssembly?: string;
   duplicateLibrary?: boolean;
   nativeCoreLib?: boolean;
   mismatchedFile?: boolean;
@@ -397,6 +431,8 @@ async function installFacades(
           assemblyId: uploadAssemblyId,
           assemblyName: uploadAssembly.name,
         })),
+        typeKinds: model.typeKinds,
+        typeTraits: model.typeTraits,
         accessibility: model.accessibility,
         totalMembers: model.totalMembers,
         inspectionErrors: [],
@@ -607,6 +643,8 @@ async function installFacades(
         }
         document.documentElement.dataset.platformLibraryRequest = JSON.stringify([tfm, version, file, pack, assetFileName]);
         if (platformOptions.libraryPending
+          && (!platformOptions.libraryPendingAssembly
+            || platformOptions.libraryPendingAssembly + ".dll" === file)
           && (!platformOptions.libraryPendingPack || platformOptions.libraryPendingPack === pack)) {
           await new Promise(resolve => document.addEventListener("finish-platform-library", resolve, { once: true }));
         }
@@ -629,9 +667,47 @@ async function installFacades(
             name: "XmlReader", displayName: "XmlReader", namespace: "System.Xml",
           } : {}),
         }] : [];
+        if (platformOptions.forwarderInternalType && assembly.name === "System.Xml") {
+          types.push({
+            ...surfaces[0].types[0],
+            id: assembly.id + ":Hidden.InternalType",
+            definitionId: "Hidden.InternalType",
+            queryId: "Hidden.InternalType",
+            metadataId: "Hidden.InternalType",
+            name: "InternalType",
+            displayName: "Hidden.InternalType",
+            namespace: "Hidden",
+            accessibility: "internal",
+            accessibilityId: "internal",
+            signature: "internal class Hidden.InternalType",
+            assembly: file,
+            assemblyName: assembly.name,
+            assemblyId: assembly.id,
+            platformPack: pack,
+          });
+        }
+        const accessibility =
+          platformOptions.forwarderInternalType && assembly.name === "System.Xml"
+            ? [
+                {
+                  id: "public",
+                  label: "Public",
+                  order: 0,
+                  isDefault: true,
+                  count: 0,
+                },
+                {
+                  id: "internal",
+                  label: "Internal",
+                  order: 2,
+                  isDefault: false,
+                  count: 1,
+                },
+              ]
+            : surfaces[0].accessibility;
         return JSON.stringify({
           ...surfaces[0], package: "Microsoft.NETCore.App", version, frameworks: [tfm], activeFramework: tfm,
-          defaultAssemblyId: assembly.id, assemblies: [assembly], types,
+          defaultAssemblyId: assembly.id, assemblies: [assembly], types, accessibility,
           totalMembers: row.publicTypes,
         });
       }
@@ -876,10 +952,22 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const types = surface.types.filter(type => type.assemblyId === asset);
-        const typeKinds = [...new Set(types.map(type => type.kind))].map((kind, index) => ({
-          id: kind.toLowerCase(), singularLabel: kind, pluralLabel: kind + "s",
-          weight: index, count: types.filter(type => type.kind === kind).length,
+        const typeKinds = [...new Set(types.map(type => type.kindFacetId))].map((id, index) => ({
+          id,
+          singularLabel: types.find(type => type.kindFacetId === id)?.kind ?? id,
+          pluralLabel: (types.find(type => type.kindFacetId === id)?.kind ?? id) + "s",
+          weight: index,
+          count: types.filter(type => type.kindFacetId === id).length,
           isDefault: true,
+        }));
+        const typeTraits = [
+          ["api.type-trait.abstract", "abstract"],
+          ["api.type-trait.static", "static"],
+          ["api.type-trait.object", "object"],
+        ].map(([id, label], index) => ({
+          id, singularLabel: label, pluralLabel: label === "object" ? "objects" : label,
+          weight: index, count: types.filter(type => type.traitFacetIds.includes(id)).length,
+          isDefault: false,
         }));
         const namespaces = [...new Set(types.map(type => type.namespace))].map(name => ({
           name, count: types.filter(type => type.namespace === name).length,
@@ -906,6 +994,7 @@ async function installFacades(
               publicMethodCount: selected.publicMembers,
               publicPropertyCount: 0,
               typeKinds,
+              typeTraits,
               namespaces,
             },
             truncation: null,
@@ -2167,6 +2256,7 @@ async function installFacades(
         token,
         documentBaselineOrdinal,
         taste,
+        view,
         contextId
       ) {
         document.documentElement.dataset.platformMemberSourceRequest =
@@ -2181,6 +2271,7 @@ async function installFacades(
             token,
             documentBaselineOrdinal,
             taste,
+            view,
             contextId,
           ]);
         const value = {

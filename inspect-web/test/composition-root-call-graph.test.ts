@@ -542,7 +542,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -823,7 +823,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
     /enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
   assert.match(
     navigation,
-    /state\.accessibilityFilter = accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)/);
+    /includeTypeAccessibility\(type\)/);
 });
 
 test("restored selections reveal their accessibility bucket", () => {
@@ -832,7 +832,7 @@ test("restored selections reveal their accessibility bucket", () => {
     original,
     { accessibilityId: "private" });
   assert.deepEqual([...original], ["public"]);
-  assert.deepEqual([...revealed], ["public", "private"]);
+  assert.deepEqual([...revealed], ["private"]);
 
   const apply =
     appSource.match(/function applyView[\s\S]*?(?=\nfunction navBack)/)?.[0]
@@ -848,10 +848,10 @@ test("restored selections reveal their accessibility bucket", () => {
     /const type = pkg\.types\.find[\s\S]*?if \(!state\.atPackageRoot && !state\.atLibraryRoot\) revealTypeInFilters\(type\)/);
   assert.match(
     deepLink,
-    /const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
+    /const selected = pkg\.types\.find[\s\S]*?selectTypeAccessibility\(selected\.accessibilityId\)[\s\S]*?const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
   assert.match(
     reveal,
-    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
+    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.typeTraitFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
     /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypeRows\(\)\.findIndex[\s\S]*?loadCurrentSelectionData\("Loading the selected Type"\)/);
@@ -872,6 +872,12 @@ test("Type transitions load the current lens selection after rendering", () => {
     /onKindSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
   assert.match(
     appSource,
+    /onTypeAccessibilitySelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onTypeTraitSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
     /onTypeFilterChange:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
   assert.match(
     appSource,
@@ -883,13 +889,6 @@ test("Type transitions load the current lens selection after rendering", () => {
   assert.match(
     keyboardSelection,
     /state\.selectedTypeId = selected\.id[\s\S]*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
-
-  const libraryScope =
-    appSource.match(/function afterLibraryScopeChange\(\) \{[\s\S]*?\n}/)?.[0]
-    ?? "";
-  assert.match(
-    libraryScope,
-    /normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Library Type"\)/);
 
   const indexedLensSelection =
     appSource.match(/function selectScopeLensByIndex\([\s\S]*?\n}\n\n\/\/ The resident runtime/)?.[0]
@@ -1335,7 +1334,8 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
     ?? "";
   const renderMember =
-    appSource.match(/function renderMember\([\s\S]*?\n}\n\n\/\/ The annotated section/)?.[0]
+    appSource.match(
+      /function renderMember\([\s\S]*?\n}\n\nfunction memberReceiverPrefix/)?.[0]
     ?? "";
   const memberOverview =
     renderMember.match(/if \(state\.memberSection === "overview"\) \{[\s\S]*?\n  \} else if \(state\.memberSection === "call-graph"\)/)?.[0]

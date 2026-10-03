@@ -66,15 +66,25 @@ cardinalities without Rows, executes residual shaping only for sufficient row
 handoffs, and returns every source outcome without entering a residual cohort
 when any set is insufficient. Exact zero remains a first-class result.
 
+The immutable request-set reference planner now validates the complete set
+before acquisition, retains caller association and owner resource identities,
+and groups only exact owner-issued resource/source pairs. Method Query Source
+is the first source consumer: it issues compatible source bindings, preserves
+terminal-specialized lanes, and records one physical all-MethodDef traversal
+beside each request's independent result, outcome, source completion, and
+Producer Planning receipt. Incompatible or sparse requests remain separate;
+sharing is never required for acceptance.
+
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
 vocabulary supplies a default Top ranking. A future richer capability may
 represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
-operation-scope capabilities. Multiple row-intent associations, request-set
-collapse, source delegation planning, projection stages, continuation binding,
-the full structural-plan meaning record, and the remaining gates in
+operation-scope capabilities. Multiple row-intent associations, residual-over-
+covering-read request satisfaction, source delegation planning, projection
+stages, continuation binding, the full structural-plan meaning record, and the
+remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
 
@@ -331,6 +341,30 @@ result-contract mismatch rejects the set as a whole with typed reasons and
 starts no work. Different valid source bindings remain in the same request set
 and form separate groups. Request order is retained only for deterministic
 result publication. It neither supplies identity nor chooses planning priority.
+
+### Cost class of a request set
+
+A request set shares one physical traversal, so its cost is set by its most
+expensive lane, not its cheapest. Lanes fall into two cost classes: ones that
+read metadata tables and custom-attribute constructor names, and ones that
+decode IL bodies. One body-decoding lane moves the whole set into the
+body-decode regime, because the shared traversal must open every method body
+the lane needs even when every other lane would have finished without it.
+
+Compose a request set within one cost class. A set whose bulk requires IL may
+include IL lanes freely. A small, nice-to-have body-decoding lane does not join
+a metadata-only set: it becomes its own request, an opt-in question, or a
+separate section, so the default answer keeps the cheaper class. The Library
+Info Switches row is the motivating case: its attribute half is metadata-only,
+and its AppContext half walks every method body, so the multi-question Count
+scorecard ([#9153](https://github.com/richlander/dotnet-inspect/issues/9153))
+excluded the row rather than let one slice set the cost of the set.
+
+Sharing within a class is bounded by the lanes' per-row work, not by the
+traversal. The Library Info scorecard measured a hand-fused one-pass fold at
+0.95× of three independent NLinq folds over metadata-only lanes, so a request
+set over such lanes cannot earn more than that ceiling; its value there is
+one shared plan and settlement, not shared reads.
 
 ### Two satisfaction paths
 

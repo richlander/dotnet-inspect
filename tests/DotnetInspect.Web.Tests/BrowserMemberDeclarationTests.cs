@@ -927,6 +927,7 @@ public sealed class BrowserMemberDeclarationTests
                     member.MetadataToken ?? 0,
                     0,
                     "[]",
+                    "source",
                     Assert.IsType<string>(resolution.ContextId));
             BrowserMemberSource source =
                 JsonSerializer.Deserialize(
@@ -942,6 +943,36 @@ public sealed class BrowserMemberDeclarationTests
                 source.Source.Text,
                 StringComparison.Ordinal);
             Assert.Empty(source.Parts);
+            string censusJson =
+                await SourceExports.QueryPlatformMemberFindingCensus(
+                    framework,
+                    version,
+                    AssemblyFileName,
+                    "netcore.app",
+                    type.DefinitionName!.ToEscapedFullName(),
+                    type.DefinitionName.ToEscapedFullName(),
+                    member.Name,
+                    "",
+                    Analysis.CallGraphMemberResolver
+                        .CreateSelector(type, member).Key,
+                    member.MetadataToken ?? 0,
+                    "[]",
+                    Assert.IsType<string>(resolution.ContextId));
+            using JsonDocument censusDocument =
+                JsonDocument.Parse(censusJson);
+            JsonElement annotated =
+                censusDocument.RootElement.GetProperty("annotatedSource");
+            Assert.Equal(
+                JsonValueKind.Object,
+                annotated.GetProperty("document").ValueKind);
+            Assert.Contains(
+                "PointerFreeUnsafeMethod",
+                annotated.GetProperty("signature").GetString(),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"runtime {version} {assemblyName}",
+                annotated.GetProperty("provenance").GetString(),
+                StringComparison.Ordinal);
             Assert.Equal(requests, handler.Requests);
 
             Assert.True(
@@ -966,6 +997,7 @@ public sealed class BrowserMemberDeclarationTests
                     member.MetadataToken ?? 0,
                     1,
                     "[]",
+                    "source",
                     Assert.IsType<string>(resolution.ContextId));
             BrowserMemberSource documentSource =
                 JsonSerializer.Deserialize(

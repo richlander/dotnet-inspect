@@ -47,6 +47,9 @@ internal sealed class GateFixtureImage
 
     public MetadataBuilder Metadata => _metadata;
 
+    /// <summary>The types added so far, in order.</summary>
+    public IReadOnlyList<FixtureType> Types => _types;
+
     /// <summary>A TypeRef in the dependency assembly, or nested in <paramref name="enclosing"/>.</summary>
     public TypeReferenceHandle TypeRef(string ns, string name, TypeReferenceHandle? enclosing = null) =>
         _metadata.AddTypeReference(
@@ -57,13 +60,20 @@ internal sealed class GateFixtureImage
     public TypeSpecificationHandle TypeSpec(BlobBuilder signature) =>
         _metadata.AddTypeSpecification(_metadata.GetOrAddBlob(signature));
 
-    /// <summary>A parameterless attribute constructor on <paramref name="parent"/>.</summary>
-    public MemberReferenceHandle AttributeConstructor(EntityHandle parent)
+    /// <summary>An attribute constructor on <paramref name="parent"/> taking <paramref name="parameters"/>.</summary>
+    public MemberReferenceHandle AttributeConstructor(EntityHandle parent, params Action<SignatureTypeEncoder>[] parameters)
     {
         var signature = new BlobBuilder();
         new BlobEncoder(signature)
             .MethodSignature(isInstanceMethod: true)
-            .Parameters(0, r => r.Void(), _ => { });
+            .Parameters(
+                parameters.Length,
+                r => r.Void(),
+                p =>
+                {
+                    foreach (Action<SignatureTypeEncoder> parameter in parameters)
+                        parameter(p.AddParameter().Type());
+                });
         return _metadata.AddMemberReference(
             parent,
             _metadata.GetOrAddString(".ctor"),
@@ -94,15 +104,20 @@ internal sealed class GateFixtureImage
             TypeDefinitionHandle handle = _metadata.AddTypeDefinition(
                 type.Name == "<Module>"
                     ? default
-                    : type.Enclosing is null
+                    : type.Shape
+                    ?? (type.Enclosing is null
                         ? TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed
-                        : TypeAttributes.NestedPublic | TypeAttributes.Abstract | TypeAttributes.Sealed,
+                        : TypeAttributes.NestedPublic | TypeAttributes.Abstract | TypeAttributes.Sealed),
                 _metadata.GetOrAddString(type.Namespace),
                 _metadata.GetOrAddString(type.Name),
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(nextMethod));
             typeHandles[type] = handle;
+            foreach (EntityHandle constructor in type.AttributeConstructors)
+                _metadata.AddCustomAttribute(handle, constructor, default);
+            foreach ((EntityHandle constructor, BlobBuilder value) in type.ValuedAttributes)
+                _metadata.AddCustomAttribute(handle, constructor, _metadata.GetOrAddBlob(value));
             if (type.Enclosing is { } enclosing)
                 _metadata.AddNestedType(handle, typeHandles[enclosing]);
 
@@ -137,6 +152,8 @@ internal sealed class GateFixtureImage
 
                 foreach (EntityHandle constructor in method.AttributeConstructors)
                     _metadata.AddCustomAttribute(methodHandle, constructor, default);
+                foreach ((EntityHandle constructor, BlobBuilder value) in method.ValuedAttributes)
+                    _metadata.AddCustomAttribute(methodHandle, constructor, _metadata.GetOrAddBlob(value));
             }
         }
 
@@ -291,13 +308,65 @@ internal sealed class GateFixtureImage
         return blob;
     }
 
+    /// <summary>A custom attribute value with one <c>int32</c> fixed argument and no named arguments.</summary>
+    public static BlobBuilder AttributeValue(int fixedArgument)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteInt32(fixedArgument);
+        blob.WriteUInt16(0);
+        return blob;
+    }
+
+    /// <summary>A custom attribute value with one string fixed argument and no named arguments.</summary>
+    public static BlobBuilder AttributeValue(string fixedArgument)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteSerializedString(fixedArgument);
+        blob.WriteUInt16(0);
+        return blob;
+    }
+
     internal sealed class FixtureType(string ns, string name, FixtureType? enclosing)
     {
+        /// <summary>Overrides the default static (public sealed abstract) type shape.</summary>
+        public TypeAttributes? Shape { get; set; }
+        public List<(EntityHandle Constructor, BlobBuilder Value)> ValuedAttributes { get; } = [];
+
+        public FixtureType WithShape(TypeAttributes shape)
+        {
+            Shape = shape;
+            return this;
+        }
+
+        /// <summary>Attaches a custom attribute with a value to the type itself.</summary>
+        public FixtureType Attribute(EntityHandle constructor, BlobBuilder value)
+        {
+            ValuedAttributes.Add((constructor, value));
+            return this;
+        }
+
+        /// <summary>Attaches a custom attribute with a value to the most recently added method.</summary>
+        public FixtureType MethodAttribute(EntityHandle constructor, BlobBuilder value)
+        {
+            Methods[^1].ValuedAttributes.Add((constructor, value));
+            return this;
+        }
+
         public string Namespace { get; } = ns;
         public string Name { get; } = name;
         public FixtureType? Enclosing { get; } = enclosing;
         public StringHandle? NamespaceOverride { get; init; }
         public List<FixtureMethod> Methods { get; } = [];
+        public List<EntityHandle> AttributeConstructors { get; } = [];
+
+        /// <summary>Attaches custom attributes to the type itself.</summary>
+        public FixtureType Attributes(params EntityHandle[] attributeConstructors)
+        {
+            AttributeConstructors.AddRange(attributeConstructors);
+            return this;
+        }
 
         public FixtureType Method(
             string name,
@@ -330,5 +399,6 @@ internal sealed class GateFixtureImage
         string[]? ParameterNames = null)
     {
         public string[] ParameterNames { get; init; } = ParameterNames ?? [];
+        public List<(EntityHandle Constructor, BlobBuilder Value)> ValuedAttributes { get; } = [];
     }
 }

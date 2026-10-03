@@ -84,15 +84,57 @@ public sealed record ImplementationProfilePopulationCoverageReceipt(
     public int UnavailableBodyCount => UnavailableBodies.Length;
 }
 
-/// <summary>Unsafe evidence produced by one library-body Analysis execution.</summary>
-public sealed record LibrarySafetyAnalysisResult(
-    LibraryBodyAnalysisReceipt Receipt,
-    ImmutableArray<UnsafeEvidence> Evidence,
-    IReadOnlyDictionary<
-        int,
-        ImmutableArray<UnsafetyOccurrence>> Occurrences)
+/// <summary>
+/// Memory-safety contracts and unsafe evidence produced by one library-body
+/// Analysis execution.
+/// </summary>
+public sealed record LibrarySafetyAnalysisResult
 {
-    /// <summary>Whether unsafe-evidence production participated in this execution.</summary>
+    readonly UnsafeModeBreakdown _unsafeModes;
+
+    public LibrarySafetyAnalysisResult(
+        LibraryBodyAnalysisReceipt receipt,
+        MemorySafetyRulesResult memorySafetyRules,
+        UnsafeModeBreakdown unsafeModes,
+        ImmutableArray<UnsafeEvidence> evidence,
+        IReadOnlyDictionary<
+            int,
+            ImmutableArray<UnsafetyOccurrence>> occurrences)
+    {
+        Receipt = receipt;
+        MemorySafetyRules = memorySafetyRules;
+        _unsafeModes = unsafeModes;
+        Evidence = evidence;
+        Occurrences = occurrences;
+    }
+
+    public LibraryBodyAnalysisReceipt Receipt { get; }
+
+    /// <summary>The defining module's normalized memory-safety rules.</summary>
+    public MemorySafetyRulesResult MemorySafetyRules { get; }
+
+    /// <summary>
+    /// Whole-declaration caller-unsafe-mode counts.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Method evidence was not requested for this execution.
+    /// </exception>
+    public UnsafeModeBreakdown UnsafeModes =>
+        WasRequested
+            ? _unsafeModes
+            : throw new InvalidOperationException(
+                "Unsafe-mode census was not requested for this analysis execution.");
+
+    public ImmutableArray<UnsafeEvidence> Evidence { get; }
+
+    public IReadOnlyDictionary<
+        int,
+        ImmutableArray<UnsafetyOccurrence>> Occurrences { get; }
+
+    /// <summary>
+    /// Whether unsafe evidence and caller-unsafe-mode census production
+    /// participated in this execution.
+    /// </summary>
     public bool WasRequested =>
         Receipt.Features.HasFlag(
             LibraryBodyAnalysisFeatures.MethodEvidence);
@@ -328,6 +370,9 @@ public sealed class LibraryBodyAnalysisExecution
             Receipt,
             _moduleName,
             analysis);
+        LocalThrows = new(
+            Receipt,
+            analysis.Methods.LocalThrows);
         JsonWireContracts = new(
             Receipt,
             CallGraph,
@@ -341,6 +386,8 @@ public sealed class LibraryBodyAnalysisExecution
             analysis.Safety.LeverageMethods);
         Safety = new(
             Receipt,
+            analysis.Safety.Rules,
+            analysis.Safety.Modes,
             analysis.Safety.Evidence,
             analysis.Safety.Occurrences);
         Allocations = new(
@@ -523,6 +570,9 @@ public sealed class LibraryBodyAnalysisExecution
 
     /// <summary>Focused local call-graph result.</summary>
     public LibraryCallGraphAnalysisResult CallGraph { get; }
+
+    /// <summary>Focused physical local-throw evidence.</summary>
+    public LibraryLocalThrowAnalysisResult LocalThrows { get; }
 
     /// <summary>Focused JSON wire-contract call and value-flow evidence.</summary>
     public LibraryJsonWireContractAnalysisResult JsonWireContracts { get; }

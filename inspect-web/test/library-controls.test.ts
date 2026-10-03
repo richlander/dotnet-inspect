@@ -57,8 +57,6 @@ class FakeRoot {
 
 function recordingActions(calls: string[]): LibraryControlBindingActions {
   return {
-    onAccessibilityChipSelect: value =>
-      calls.push(`accessibility:${value}`),
     onLibraryApiRetry: () => calls.push("library-api-retry"),
     onLibraryChipSelect: value => calls.push(`library-chip:${value}`),
     onLibraryJump: value => calls.push(`library-jump:${value}`),
@@ -76,13 +74,10 @@ test("library controls decode every rendered selector without eager work", () =>
   const root = new FakeRoot();
   const libraryChip = new FakeElement({ libraryChip: "System.Text.Json" });
   const defaultLibraryChip = new FakeElement();
-  const accessChip = new FakeElement({ accessChip: "public" });
-  const allAccessChip = new FakeElement();
   root.addAll(
     "[data-library-chip]",
     libraryChip,
     defaultLibraryChip);
-  root.addAll("[data-access-chip]", accessChip, allAccessChip);
   const libraryApiRetry = new FakeElement();
   root.addAll("[data-library-api-retry]", libraryApiRetry);
   const libraryJump = root.add("#library-jump", new FakeElement());
@@ -118,8 +113,6 @@ test("library controls decode every rendered selector without eager work", () =>
   assert.deepEqual(calls, []);
   libraryChip.dispatch("click");
   defaultLibraryChip.dispatch("click");
-  accessChip.dispatch("click");
-  allAccessChip.dispatch("click");
   libraryApiRetry.dispatch("click");
   libraryJump.dispatch("change");
   libraryJump.value = "";
@@ -134,8 +127,6 @@ test("library controls decode every rendered selector without eager work", () =>
   assert.deepEqual(calls, [
     "library-chip:System.Text.Json",
     "library-chip:",
-    "accessibility:public",
-    "accessibility:",
     "library-api-retry",
     "library-jump:System.Collections",
     "library-jump:",

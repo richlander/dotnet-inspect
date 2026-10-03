@@ -50,6 +50,16 @@ public enum MethodDefinitionLayers
     /// full type name, memoized per attribute constructor and per type handle.
     /// </summary>
     AttributeTypeMatch = 128,
+
+    /// <summary>
+    /// Tier 1: the legacy hidden test on the method or its declaring type:
+    /// <c>EditorBrowsable(Never)</c>, or an <c>Obsolete</c> that is not
+    /// Roslyn's compiler-compatibility marker, as
+    /// <c>AttributeReader.HasHiddenAttribute</c> defines it, with the
+    /// attribute types matched through the <see cref="AttributeTypeMatch"/>
+    /// memo and the values read in place.
+    /// </summary>
+    HiddenAttribute = 256,
 }
 
 /// <summary>
@@ -424,6 +434,16 @@ public readonly ref struct MethodDefinitionView
         return _unit.Gate.HasAttributeOfType(target);
     }
 
+    /// <summary>Tier 1: the legacy hidden test on the method's own attributes.</summary>
+    public bool IsHidden
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.HiddenAttribute);
+            return _unit.Gate.IsHidden();
+        }
+    }
+
     /// <summary>Tier 2: the row's identity text, through the gate's identity budget.</summary>
     public MethodRowIdentity Identity
     {
@@ -505,8 +525,12 @@ public readonly ref struct MethodDefinitionView
                 + "declare the body layer.");
         }
 
-        producer.CountUnit(ref producer.LastBodyUnit, Token, ref producer.BodyAcquisitions);
-        return _unit.GetBody();
+        MethodBodyBlock body = _unit.GetBody();
+        producer.CountUnit(
+            ref producer.LastBodyUnit,
+            Token,
+            ref producer.BodyAcquisitions);
+        return body;
     }
 
     /// <summary>The same-unit fact of a declared visit dependency.</summary>
@@ -560,19 +584,36 @@ public readonly ref struct MethodDefinitionCompletionView
 internal struct MethodDefinitionUnit(
     MetadataReader reader,
     PEReader peReader,
-    LibraryMethodAnalysisRunner? lookup,
-    MethodRowGate gate,
-    MethodDefinitionSourceCoverageBuilder sourceCoverage)
+    MethodDefinitionSourceCoverageBuilder physicalSourceCoverage)
 {
     readonly MetadataReader _reader = reader;
     readonly PEReader _peReader = peReader;
-    readonly LibraryMethodAnalysisRunner? _lookup = lookup;
-    readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage =
-        sourceCoverage;
+    readonly MethodDefinitionSourceCoverageBuilder _physicalSourceCoverage =
+        physicalSourceCoverage;
+    MethodDefinitionSourceCoverageBuilder? _requestSourceCoverage;
+    LibraryMethodAnalysisRunner? _lookup;
+    MethodRowGate? _gate;
+    bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
 
+    public MethodDefinitionUnit(
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        MethodDefinitionSourceCoverageBuilder sourceCoverage)
+        : this(reader, peReader, sourceCoverage)
+    {
+        _lookup = lookup;
+        _gate = gate;
+        _requestSourceCoverage = sourceCoverage;
+        _positionsRequestOnMove = true;
+    }
+
     /// <summary>The source's method-row gate, positioned on this unit.</summary>
-    public readonly MethodRowGate Gate = gate;
+    public readonly MethodRowGate Gate =>
+        _gate ?? throw new InvalidOperationException(
+            "No Method-source request is positioned on this unit.");
 
     /// <summary>The unit's position in this pass's traversal, from 0.</summary>
     public int Ordinal { get; private set; } = -1;
@@ -590,12 +631,31 @@ internal struct MethodDefinitionUnit(
         _lookup ?? throw new InvalidOperationException(
             "The module lookup was not built because no planned producer declared it.");
 
+    public void SelectRequest(
+        MethodRowGate gate,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodDefinitionSourceCoverageBuilder sourceCoverage,
+        int ordinal)
+    {
+        ArgumentNullException.ThrowIfNull(gate);
+        ArgumentNullException.ThrowIfNull(sourceCoverage);
+        _gate = gate;
+        _lookup = lookup;
+        _requestSourceCoverage = sourceCoverage;
+        Ordinal = ordinal;
+        gate.MoveTo(
+            TypeHandle,
+            TypeDefinition,
+            MethodHandle,
+            MethodDefinition);
+    }
+
     public void MoveTo(
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition,
         MethodDefinitionHandle methodHandle)
     {
-        _sourceCoverage.RecordDefinitionExamined(methodHandle);
+        _physicalSourceCoverage.RecordDefinitionExamined(methodHandle);
         MoveToPreviouslyRead(
             typeHandle,
             typeDefinition,
@@ -618,20 +678,31 @@ internal struct MethodDefinitionUnit(
         MethodHandle = methodHandle;
         MethodDefinition = methodDefinition;
         _body = null;
-        Ordinal++;
-        Gate.MoveTo(typeHandle, typeDefinition, methodHandle, MethodDefinition);
-        _sourceCoverage.RecordMethodSelected(methodHandle);
+        _physicalSourceCoverage.RecordMethodSelected(methodHandle);
+        if (_positionsRequestOnMove)
+        {
+            Ordinal++;
+            Gate.MoveTo(
+                typeHandle,
+                typeDefinition,
+                methodHandle,
+                methodDefinition);
+        }
     }
 
     public MethodBodyBlock GetBody()
     {
         if (_body is not null)
+        {
+            _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
             return _body;
+        }
 
         MethodBodyBlock body = _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
         _body = body;
-        _sourceCoverage.RecordBodyAcquired(MethodHandle);
+        _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
+        _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
         return body;
     }
 

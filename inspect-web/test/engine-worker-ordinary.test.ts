@@ -223,6 +223,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("cancelMemberSourceComparison"),
     queryMemberFindingCensus: () =>
       unexpected("queryMemberFindingCensus"),
+    queryPlatformMemberFindingCensus: () =>
+      unexpected("queryPlatformMemberFindingCensus"),
   },
   callGraph: {
     queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
@@ -405,6 +407,8 @@ function retainedDetailSurface(
       displayName: typeId,
       namespace: typeId.split(".").slice(0, -1).join("."),
       kind: "class",
+      kindFacetId: "api.type-kind.class",
+      traitFacetIds: ["api.type-trait.object"],
       accessibility: "public",
       accessibilityId: "public",
       assembly: assemblyName,
@@ -414,6 +418,36 @@ function retainedDetailSurface(
       signature: `public class ${typeId}`,
       api: [],
       platformPack,
+    }],
+    typeKinds: [{
+      id: "api.type-kind.class",
+      singularLabel: "class",
+      pluralLabel: "classes",
+      weight: 100,
+      count: 1,
+      isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract",
+      singularLabel: "abstract",
+      pluralLabel: "abstract",
+      weight: 100,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.static",
+      singularLabel: "static",
+      pluralLabel: "static",
+      weight: 200,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.object",
+      singularLabel: "object",
+      pluralLabel: "objects",
+      weight: 300,
+      count: 1,
+      isDefault: false,
     }],
     accessibility: [{
       id: "public",
@@ -1405,6 +1439,8 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     assemblies: [],
     types: [],
+    typeKinds: [],
+    typeTraits: [],
     accessibility: [],
     totalMembers: 0,
     documents: [],
@@ -1595,6 +1631,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     0x06000001,
     0,
     "[]",
+    "source",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
     "Example",
@@ -1618,6 +1655,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     0x06000001,
     0,
     "[]",
+    "source",
     "platform-context",
   );
   await state.environment.flushAsync();
@@ -2283,6 +2321,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "cancelMethodBodyComparison",
       "cancelSourceQuery",
       "queryMemberFindingCensus",
+      "queryPlatformMemberFindingCensus",
       "queryMemberSource",
       "queryMemberSourceComparison",
       "queryMethodBodyComparison",
@@ -2337,7 +2376,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 104);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 105);
 
   const state = fixture();
   const groups = [

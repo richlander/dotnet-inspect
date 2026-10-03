@@ -684,6 +684,7 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Equal(
             MethodDefinitionSourceCompletion.ProducerFailed,
             execution.SourceReceipt.Completion);
+        Assert.Null(execution.SourceReceipt.SourceFailure);
         Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
         Assert.Equal(
             1,

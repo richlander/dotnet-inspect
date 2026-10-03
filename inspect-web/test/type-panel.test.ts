@@ -305,6 +305,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onMemberSourcePartSelect: part => {
       calls.push(`member-source-part:${part}`);
     },
+    onMemberSourceViewSelect: view => {
+      calls.push(`member-source-view:${view}`);
+    },
     onCopySignature: () => {
       calls.push("copy-signature");
     },
@@ -318,6 +321,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("explore-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
+    onTypeAccessibilitySelect: value =>
+      calls.push(`type-access:${value}`),
+    onTypeTraitSelect: value => calls.push(`type-trait:${value}`),
     onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
@@ -358,6 +364,25 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onTypeSelect: value => calls.push(`type:${value}`),
   };
 }
+
+const typeSelectorOptions = {
+  accessibilityFilter: "public",
+  traitFilter: "",
+  kindOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "api.type-kind.class", label: "class", count: 2 },
+  ],
+  accessibilityOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "public", label: "public", count: 2 },
+  ],
+  traitOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "api.type-trait.abstract", label: "abstract", count: 0 },
+    { value: "api.type-trait.static", label: "static", count: 0 },
+    { value: "api.type-trait.object", label: "object", count: 2 },
+  ],
+};
 
 test("type panel binds the qualified Type leverage retry", () => {
   const root = new FakeRoot();
@@ -442,11 +467,17 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   const secondType = new FakeElement({ type: "System.Int32" });
   const namespace = new FakeElement({ namespace: "System" });
   const secondNamespace = new FakeElement({ namespace: "System.Collections" });
-  const kind = new FakeElement({ kindFilter: "class" });
-  const secondKind = new FakeElement({ kindFilter: "interface" });
+  const kind = new FakeElement();
+  kind.value = "api.type-kind.class";
+  const accessibility = new FakeElement();
+  accessibility.value = "public";
+  const trait = new FakeElement();
+  trait.value = "api.type-trait.object";
   root.addAll("[data-type]", type, secondType);
   root.addAll("[data-namespace]", namespace, secondNamespace);
-  root.addAll("[data-kind-filter]", kind, secondKind);
+  root.addAll("[data-type-kind-filter]", kind);
+  root.addAll("[data-type-access-filter]", accessibility);
+  root.addAll("[data-type-trait-filter]", trait);
   const clear = root.add("#clear-filter", new FakeElement());
   const disclosure = root.add(
     "[data-type-filter-disclosure]",
@@ -474,8 +505,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   namespace.dispatch("click");
   secondNamespace.dispatch("click");
   namespaceJump.dispatch("change");
-  kind.dispatch("click");
-  secondKind.dispatch("click");
+  kind.dispatch("change");
+  accessibility.dispatch("change");
+  trait.dispatch("change");
   disclosure.open = true;
   disclosure.dispatch("toggle");
   clear.dispatch("click");
@@ -490,8 +522,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "namespace:System",
     "namespace:System.Collections",
     "namespace:System.Text",
-    "kind:class",
-    "kind:interface",
+    "kind:api.type-kind.class",
+    "type-access:public",
+    "type-trait:api.type-trait.object",
     "type-filter-disclosure:true",
     "clear",
     "filter:json",
@@ -601,6 +634,15 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const copyMemberSource = root.add("#copy-source", new FakeElement());
   const memberSourcePart =
     root.add("#member-source-part", new FakeElement());
+  const authoredSource =
+    new FakeElement({ memberSourceView: "source" });
+  const decompiledSource =
+    new FakeElement({ memberSourceView: "decompiler-source" });
+  root.addAll(
+    "[data-member-source-view]",
+    authoredSource,
+    decompiledSource,
+  );
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
   const exploreSource = root.add("#explore-source", new FakeElement());
   const calls: string[] = [];
@@ -625,6 +667,8 @@ test("type panel bindings dispatch member composition and detail controls", () =
   copyMemberSource.dispatch("click");
   memberSourcePart.value = "Body";
   memberSourcePart.dispatch("change");
+  authoredSource.dispatch("click");
+  decompiledSource.dispatch("click");
   copyTypeSource.dispatch("click");
   exploreSource.dispatch("click");
 
@@ -645,6 +689,8 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "copy-anchor:undefined",
     "copy-member-source",
     "member-source-part:Body",
+    "member-source-view:source",
+    "member-source-view:decompiler-source",
     "copy-type-source",
     "explore-source",
   ]);
@@ -710,10 +756,9 @@ test("the type nav lists namespace groups with the current type selected", () =>
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: '<option value="System.Text.Json">System.Text.Json · 2</option>',
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "library",
     filtersExpanded: false,
@@ -742,7 +787,16 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
   assert.match(html, /id="content-navigation-pane"/);
-  assert.match(html, /data-kind-filter="class"/);
+  assert.match(html, /data-type-access-filter/);
+  assert.match(html, /data-type-kind-filter/);
+  assert.match(html, /data-type-trait-filter/);
+  assert.match(html, />abstract · 0<\/option>/);
+  assert.match(html, />static · 0<\/option>/);
+  assert.match(html, />object · 2<\/option>/);
+  assert.ok(
+    html.indexOf("Namespace") < html.indexOf("Accessibility")
+      && html.indexOf("Accessibility") < html.indexOf("Kind")
+      && html.indexOf("Kind") < html.indexOf("Trait"));
   assert.match(html, /id="type-list" data-nav-scope="types"/);
   assert.match(html, /data-type-nav-back title="Back to library" aria-label="System\.Text\.Json: Back to library"/);
   assert.match(html, />System\.Text\.Json<\/span>/);
@@ -769,12 +823,11 @@ test("the type nav preserves the host selection value for the global namespace",
     typeFilter: "",
     namespaceFilter: "__global__",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: '<option value="__global__">global namespace · 1</option>',
     namespaceSelectionValue: namespace =>
       namespace === "" ? "__global__" : namespace,
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "GlobalFixture",
     parentSubject: "library",
     filtersExpanded: false,
@@ -797,10 +850,9 @@ test("the type nav reports no matches for an empty filtered group", () => {
     typeFilter: "nothing-matches",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 0,
     namespaceOptionsHtml: "",
-    kindFilters: [],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "library",
     filtersExpanded: true,
@@ -823,10 +875,9 @@ test("the type nav renders exclusive accessible pole cues", () => {
       typeFilter: "",
       namespaceFilter: "",
       kindFilter: "",
+      ...typeSelectorOptions,
       namespaceCount: 1,
       namespaceOptionsHtml: "",
-      kindFilters: ["class"],
-      accessibilityControlHtml: "",
       leverageControlHtml:
         '<button data-type-leverage-filter="sea-level">sea level</button>',
       library: "System.Text.Json",
@@ -898,10 +949,9 @@ test("the type nav omits a parent action when the Library has no visible parent"
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: "",
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: null,
     filtersExpanded: false,
@@ -923,10 +973,9 @@ test("the type nav handles a package with no projected types", () => {
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 0,
     namespaceOptionsHtml: "",
-    kindFilters: [],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "package",
     filtersExpanded: false,
@@ -1764,7 +1813,7 @@ test("source page actions render copy, open, and Explore for the page-owned grou
     /class="shell-action-link" href="https:\/\/example\.test\/source\.cs\?x=1&amp;y=2" target="_blank" rel="noreferrer">Open<\/a>/);
   assert.match(
     html,
-    /id="explore-source"[^>]*title="Explore source options"[^>]*>Explore<\/button>/);
+    /id="explore-source"[^>]*title="Explore type source"[^>]*>Explore<\/button>/);
   assert.match(html, /value="decompiler-source">Decompiler source<\/option>/);
 });
 
@@ -1804,10 +1853,15 @@ test("decompiler source renders its dedicated loading state", () => {
 test("source page actions disable copy until source is available", () => {
   const html = renderSourcePageActions({
     source: null,
+    memberView: "decompiler-source",
     copyButtonId: "copy-source",
     escapeHtml,
   });
 
+  assert.match(html, /aria-label="Source origin"/);
+  assert.match(
+    html,
+    /data-member-source-view="decompiler-source"\s+aria-pressed="true"/);
   assert.match(html, /id="copy-source"[^>]* disabled>Copy<\/button>/);
   assert.doesNotMatch(html, /shell-action-link/);
   assert.match(html, /id="explore-source"[^>]*>Explore<\/button>/);
@@ -1827,6 +1881,7 @@ test("authored member source actions expose only available parts", () => {
   assert.match(
     html,
     /id="member-source-part" aria-label="Select member source part"/);
+  assert.match(html, />Declaration<\/option>/);
   assert.match(html, />Member<\/option>/);
   assert.match(html, />XML docs<\/option>/);
   assert.match(
@@ -1834,6 +1889,9 @@ test("authored member source actions expose only available parts", () => {
     /value="Attributes" selected>Attributes<\/option>/);
   assert.match(html, />Signature<\/option>/);
   assert.match(html, />Body<\/option>/);
+  assert.match(
+    html,
+    /id="explore-source"[^>]*title="Explore annotated source"/);
 });
 
 test("member source selection lowers every original fragment for display and copy", () => {
@@ -1842,6 +1900,9 @@ test("member source selection lowers every original fragment for display and cop
   assert.equal(
     memberSourceText(source, "XmlDocumentation"),
     "/// first\n/// second");
+  assert.equal(
+    memberSourceText(source, "Declaration"),
+    "[First]\r\n[Second]\r\npublic void M()\r\n{\r\n    return;\r\n}");
   assert.equal(
     memberSourceText(source, "Attributes"),
     "[First]\n[Second]");
@@ -2042,14 +2103,18 @@ test("member source part selection resets across request signatures and absent p
   const selector = createMemberSourcePartSelector();
   const authored = memberSourceFixture();
 
-  assert.equal(selector.current("first", authored), "Member");
+  assert.equal(selector.current("first", authored), "Declaration");
+  assert.equal(
+    selector.current("first", { ...authored, parts: [] }),
+    "Declaration");
+  assert.equal(selector.current("first", authored), "Declaration");
   assert.equal(selector.select("first", authored, "Body"), true);
   assert.equal(selector.current("first", authored), "Body");
-  assert.equal(selector.current("second", authored), "Member");
+  assert.equal(selector.current("second", authored), "Declaration");
   assert.equal(selector.select("second", authored, "Body"), true);
   assert.equal(
     selector.current("second", { ...authored, parts: authored.parts.slice(0, 4) }),
-    "Member");
+    "Declaration");
   assert.equal(selector.select("second", authored, "Body"), true);
   assert.equal(selector.select("second", authored, "Attributes"), true);
 });
@@ -2152,8 +2217,8 @@ test("type source renders a settled fallback for an empty failure", () => {
 function memberSourceFixture(): BrowserMemberSource {
   const text =
     "/// first\r\n"
-    + "[First]\r\n"
     + "/// second\n"
+    + "[First]\r\n"
     + "[Second]\r\n"
     + "public void M()\r\n"
     + "{\r\n"
@@ -2175,6 +2240,7 @@ function memberSourceFixture(): BrowserMemberSource {
       end: start + fragment.length,
     };
   };
+  const declarationStart = text.indexOf("[First]");
   const secondDocumentationStart = text.indexOf("/// second");
   return {
     source: {
@@ -2185,6 +2251,17 @@ function memberSourceFixture(): BrowserMemberSource {
       text,
     },
     parts: [
+      {
+        kind: "Declaration",
+        spans: [{
+          start: declarationStart,
+          length: text.length - declarationStart,
+          startLine: 3,
+          endLine: 8,
+          leadingIndentation: "",
+          end: text.length,
+        }],
+      },
       {
         kind: "Member",
         spans: [{
@@ -2200,13 +2277,13 @@ function memberSourceFixture(): BrowserMemberSource {
         kind: "XmlDocumentation",
         spans: [
           span("/// first", 1),
-          span("/// second", 3, secondDocumentationStart),
+          span("/// second", 2, secondDocumentationStart),
         ],
       },
       {
         kind: "Attributes",
         spans: [
-          span("[First]", 2),
+          span("[First]", 3),
           span("[Second]", 4),
         ],
       },

@@ -81,12 +81,14 @@ public partial class LibraryBodyIndexTests
     {
         var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        Assert.False(index.CompatibilityIndex().MemorySafetyRulesEnabled);
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
-            index.CompatibilityIndex().MemorySafetyRules);
+            index.Safety.MemorySafetyRules);
         Assert.Equal(MemorySafetyRulesState.Legacy, rules.State);
-        Assert.Equal(0, index.CompatibilityIndex().UnsafeModes.Explicit);
-        Assert.Equal(0, index.CompatibilityIndex().UnsafeModes.Unavailable);
+        Assert.NotEqual(0, index.Safety.UnsafeModes.Implicit);
+        Assert.Equal(0, index.Safety.UnsafeModes.Explicit);
+        Assert.Equal(0, index.Safety.UnsafeModes.Unavailable);
+        Assert.Same(index.Receipt, index.Safety.Receipt);
+        Assert.False(index.HasMaterializedCompatibilityIndex);
 
         var pointerRead = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)));
@@ -99,11 +101,12 @@ public partial class LibraryBodyIndexTests
         var index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
 
-        Assert.True(index.CompatibilityIndex().MemorySafetyRulesEnabled);
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
-            index.CompatibilityIndex().MemorySafetyRules);
+            index.Safety.MemorySafetyRules);
         Assert.Equal(MemorySafetyRulesState.Updated, rules.State);
-        Assert.NotEqual(0, index.CompatibilityIndex().UnsafeModes.Explicit);
+        Assert.NotEqual(0, index.Safety.UnsafeModes.Explicit);
+        Assert.Same(index.Receipt, index.Safety.Receipt);
+        Assert.False(index.HasMaterializedCompatibilityIndex);
         Assert.DoesNotContain(
             index.CallGraph.DeclaredMethods,
             method => method.CallerUnsafeMode == CallerUnsafeMode.Implicit);
@@ -174,9 +177,10 @@ public partial class LibraryBodyIndexTests
         LibraryBodyAnalysisExecution index =
             OpenMemorySafetyContractImage(marker);
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
-            index.CompatibilityIndex().MemorySafetyRules);
+            index.Safety.MemorySafetyRules);
         Assert.Equal(expectedRules, rules.State);
-        Assert.False(index.CompatibilityIndex().MemorySafetyRulesEnabled);
+        Assert.Same(index.Receipt, index.Safety.Receipt);
+        Assert.False(index.HasMaterializedCompatibilityIndex);
 
         MethodIdentity pointerOnly = Assert.Single(
             index.CallGraph.DeclaredMethods,
@@ -199,12 +203,10 @@ public partial class LibraryBodyIndexTests
         LibraryBodyAnalysisExecution index =
             OpenMemorySafetyContractImage(2, 1);
         var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
-            index.CompatibilityIndex().MemorySafetyRules);
+            index.Safety.MemorySafetyRules);
         Assert.Equal(
             MemorySafetyRulesState.Conflicting,
             rules.State);
-        Assert.False(index.CompatibilityIndex().MemorySafetyRulesEnabled);
-
         Assert.All(
             index.CallGraph.DeclaredMethods,
             method => Assert.Equal(
@@ -212,12 +214,17 @@ public partial class LibraryBodyIndexTests
                 method.CallerUnsafeMode));
         Assert.Equal(
             index.CallGraph.DeclaredMethods.Length,
-            index.CompatibilityIndex().UnsafeModes.Unavailable);
-        Assert.Equal(0, index.CompatibilityIndex().UnsafeModes.Unsafe);
+            index.Safety.UnsafeModes.Unavailable);
+        Assert.Equal(0, index.Safety.UnsafeModes.Unsafe);
 
         Assert.Empty(index.Leverage.TopUnsafe(1));
-        Assert.Empty(index.CompatibilityIndex().OpaqueUnsafeMethods());
-        Assert.Empty(index.CompatibilityIndex().HollowUnsafeMethods());
+        Assert.Same(index.Receipt, index.Safety.Receipt);
+        Assert.False(index.HasMaterializedCompatibilityIndex);
+        Assert.Empty(OpaqueUnsafe.Collect(index.CallGraph.Methods));
+        Assert.Empty(HollowUnsafe.Collect(
+            index.CallGraph.Methods,
+            index.Safety.Evidence));
+        Assert.False(index.HasMaterializedCompatibilityIndex);
     }
 
     [Fact]

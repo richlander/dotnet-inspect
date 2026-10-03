@@ -205,13 +205,14 @@ public class LibraryInspectionView
         Architecture = fields.Architecture,
         AssemblyVersion = fields.AssemblyVersion,
         AsyncMethods = _data.AsyncMethodCount,
-        ClassifiedMethods = _data.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer),
+        ClassifiedMethods = _data.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer)
+            ?? _data.MethodClassificationFailureOf(MethodClassificationAnalyzer.Extension),
         Company = fields.Company,
         Compilation = fields.Compilation,
         Copyright = fields.Copyright,
         CustomAttributes = _data.AssemblyAttributeInspection.FindingCount(),
         Deterministic = _data.IsDeterministic,
-        ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
+        ExtensionMethods = _data.ExtensionMethodCount,
         Facade = _data.IsFacadeAssembly,
         Enabled = fields.Enabled,
         FileSize = fields.FileSize,
@@ -1696,7 +1697,8 @@ public class LibraryInspectionView
     private IEnumerable<ResourceTriageSummary> ResourceTriageSummaries()
     {
         if (_data.ResourceTriageQueryResult
-            is ResourceTriageResult.Available)
+            is ResourceTriageResult.Available
+                or ResourceTriageResult.Incomplete)
         {
             var drillByToken = _data.ResourceTriageDrillMap
                 ?? throw new InvalidOperationException(
@@ -1717,9 +1719,6 @@ public class LibraryInspectionView
     public static bool TopLeverageSelectorEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Selector));
 
     private static int CountOrZero<T>(List<T>? values) => values?.Count ?? 0;
-
-    private static int CountExtensionMethods(List<LibraryExtensionMethodJson>? methods)
-        => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
 
     private static int CountIntegrations(LibraryInspection inspection)
     {
@@ -3035,7 +3034,7 @@ public class LibraryInfoSection
     public string? AssemblyVersion { get => field; init => field = LibraryViewText.Contain(value); }
     /// <summary>The async analyzer's Count; absent when it failed, and <see cref="ClassifiedMethods"/> says why.</summary>
     public int? AsyncMethods { get; init; }
-    /// <summary>Why the async count is unavailable, or null when the analyzer answered.</summary>
+    /// <summary>Why the async or extension count is unavailable, or null when both analyzers answered.</summary>
     /// <inheritdoc cref="LibraryViewText"/>
     public string? ClassifiedMethods { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
@@ -3053,7 +3052,12 @@ public class LibraryInfoSection
     public string? EcosystemDependencyStatus { get => field; init => field = LibraryViewText.Contain(value); }
     /// <summary>Enabled enablement labels (<c>docs/design/library-info-composition.md</c>).</summary>
     public string? Enabled { get => field; init => field = LibraryViewText.Contain(value); }
-    public int ExtensionMethods { get; init; }
+    /// <summary>
+    /// The extension analyzer's Count: public static extension methods on
+    /// static extension types, not hidden. Extension properties are not
+    /// counted. Absent when the analyzer failed, and <see cref="ClassifiedMethods"/> says why.
+    /// </summary>
+    public int? ExtensionMethods { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool? Facade { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
