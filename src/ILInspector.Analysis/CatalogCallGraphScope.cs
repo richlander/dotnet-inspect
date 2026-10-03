@@ -1972,18 +1972,15 @@ public sealed class CatalogCallGraphScope : IDisposable
                 {
                     int edgeStart = start;
                     int groupCount = 0;
-                    GraphNodeIdentity? previousGroup = null;
-                    foreach (int edgeIndex
-                        in OrderReverseEdges(group, edges))
+                    foreach (IGrouping<GraphNodeIdentity, int> callerGroup
+                        in OrderReverseEdges(group, edges)
+                            .GroupBy(index =>
+                                edges[index].Caller.Evidence.Identity))
                     {
-                        StoredEdge edge = edges[edgeIndex];
-                        indexedEdges[start++] = edge;
-                        GraphNodeIdentity secondary =
-                            edge.Caller.Evidence.Identity;
-                        if (!secondary.Equals(previousGroup))
+                        groupCount++;
+                        foreach (int edgeIndex in callerGroup)
                         {
-                            previousGroup = secondary;
-                            groupCount++;
+                            indexedEdges[start++] = edges[edgeIndex];
                         }
                     }
                     ranges.Add(
