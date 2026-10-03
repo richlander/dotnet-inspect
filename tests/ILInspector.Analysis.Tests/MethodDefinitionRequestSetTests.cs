@@ -376,6 +376,50 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void Execute_CompletedGroupSurvivesLaterSingletonSourceFailure()
+    {
+        ImmutableArray<byte> image =
+            ImmutableArray.Create(
+                MetadataMethodPtrFixture.BuildTrailingOutOfRange(
+                    [0x06, 0x2A]));
+        MethodDefinitionSourceAssociation completed =
+            Association(
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        MethodDefinitionSourceAssociation failed =
+            Association(
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([completed, failed]),
+                image);
+
+        Assert.Equal(
+            ProducerOutcome.Complete,
+            ResultOf<int>(execution, completed).Outcome);
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<int>(execution, failed).Outcome);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            execution.ResultOf(completed)
+                .SourceReceipt.Completion);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            execution.ResultOf(failed)
+                .SourceReceipt.Completion);
+        Assert.Equal(
+            1,
+            execution.ResultOf(completed)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(2, execution.GroupReceipts.Length);
+    }
+
+    [Fact]
     public void Execute_DifferentTypeScopesPreserveTypedRowOrdinals()
     {
         ImmutableArray<byte> image =
@@ -487,7 +531,8 @@ public sealed class MethodDefinitionRequestSetTests
 
     static MethodDefinitionSourceAssociation Association<TResult>(
         ProducerDeclaration<TResult> producer,
-        ProducerTerminal terminal)
+        ProducerTerminal terminal,
+        MethodDefinitionSourceBreadth? breadth = null)
     {
         WorkDescription work =
             Assert.IsType<ProducerPlanResult.Accepted>(
@@ -498,7 +543,8 @@ public sealed class MethodDefinitionRequestSetTests
             MethodDefinitionSourceRequest<TResult>.Create(
                 QueryRequest(terminal),
                 work,
-                producer);
+                producer,
+                breadth ?? MethodDefinitionSourceBreadth.AllDefinitions);
         return MethodDefinitionSourceAssociation.Create(request);
     }
 
