@@ -64,9 +64,9 @@ public class OverviewCostTests
             Path.GetDirectoryName(typeof(object).Assembly.Location)!,
             "System.Runtime.dll");
 
-        var (exit, output, error) = await RunAppAsync("library", Fixture, "-D", "--tips", "q");
+        var (exit, output, error) = await RunAppAsync("library", Fixture, "-D");
         var (contrastExit, contrastOutput, contrastError) =
-            await RunAppAsync("library", switchFree, "-D", "--tips", "q");
+            await RunAppAsync("library", switchFree, "-D");
 
         Assert.True(exit == 0, error);
         Assert.Contains("| Switches | section |", output);
