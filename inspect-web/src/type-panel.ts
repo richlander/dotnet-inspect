@@ -4,7 +4,9 @@ import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import {
+  memberSourceView,
   typeSourceView,
+  type MemberSourceView,
   type SourceResultState,
   type TypeSourceView,
 } from "./source-inspection.ts";
@@ -18,6 +20,29 @@ import {
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
+
+export type TypeAccessibilitySelectionMode = "all" | "exact";
+
+export function normalizeTypeAccessibilityFilter(
+  selected: ReadonlySet<string>,
+  bucketIds: readonly string[],
+  mode: TypeAccessibilitySelectionMode,
+) {
+  if (mode === "all") return new Set(bucketIds);
+  const admitted = bucketIds.filter(id => selected.has(id));
+  const exact = admitted[0];
+  if (exact === undefined) return new Set(selected);
+  return new Set([exact]);
+}
+
+export function shouldRestoreTypeAccessibilitySelection(
+  capturedMode: TypeAccessibilitySelectionMode,
+  capturedGeneration: number,
+  currentGeneration: number,
+) {
+  return capturedMode === "all"
+    && capturedGeneration === currentGeneration;
+}
 
 const EXACT_TYPE_NOT_FOUND = 1;
 const EXACT_TYPE_AMBIGUOUS = 2;
@@ -278,17 +303,21 @@ export interface MemberSourcePartSelector {
 
 export function createMemberSourcePartSelector(): MemberSourcePartSelector {
   let selectedSignature = "";
-  let selectedPart: MemberSourcePartSelection = "Member";
+  let selectedPart: MemberSourcePartSelection = "Declaration";
   return {
     current(signature, source) {
       if (selectedSignature !== signature) {
         selectedSignature = signature;
-        selectedPart = "Member";
+        selectedPart = "Declaration";
       }
       if (source !== null
+        && source.parts.some(part => part.spans.length > 0)
         && !source.parts.some(
           part => part.kind === selectedPart && part.spans.length > 0)) {
-        selectedPart = "Member";
+        selectedPart = source.parts.some(
+          part => part.kind === "Declaration" && part.spans.length > 0)
+          ? "Declaration"
+          : "Member";
       }
       return selectedPart;
     },
@@ -312,12 +341,15 @@ export interface TypePanelBindingActions {
     anchor: "selector" | "digest" | "canonical" | undefined,
   ) => void;
   onCopyMemberSource: () => void;
+  onMemberSourceViewSelect: (view: MemberSourceView) => void;
   onMemberSourcePartSelect: (part: MemberSourcePartSelection) => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
+  onTypeAccessibilitySelect: (accessibility: string) => void;
+  onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageFilterSelect?: (filter: string) => void;
   onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
@@ -362,10 +394,21 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onNamespaceSelect(button.dataset.namespace ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-kind-filter]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelectorAll<HTMLSelectElement>("[data-type-kind-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onKindSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-type-access-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onTypeAccessibilitySelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-type-trait-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onTypeTraitSelect(select.value)));
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
@@ -471,6 +514,11 @@ export function bindTypePanel(
   root.querySelector("#copy-source")?.addEventListener(
     "click",
     actions.onCopyMemberSource);
+  root.querySelectorAll<HTMLElement>("[data-member-source-view]")
+    .forEach(button => button.addEventListener("click", () => {
+      const view = memberSourceView(button.dataset.memberSourceView ?? "");
+      if (view !== null) actions.onMemberSourceViewSelect(view);
+    }));
   const memberSourcePart =
     root.querySelector<HTMLSelectElement>("#member-source-part");
   memberSourcePart?.addEventListener("change", () => {
@@ -571,11 +619,14 @@ export interface TypeNavOptions {
   typeFilter: string;
   namespaceFilter: string;
   kindFilter: string;
+  accessibilityFilter: string;
+  traitFilter: string;
   namespaceCount: number;
   namespaceOptionsHtml: string;
   namespaceSelectionValue?: (exactNamespace: string) => string;
-  kindFilters: readonly string[];
-  accessibilityControlHtml: string;
+  kindOptions: readonly TypeSelectorOption[];
+  accessibilityOptions: readonly TypeSelectorOption[];
+  traitOptions: readonly TypeSelectorOption[];
   leverageControlHtml?: string;
   library: string;
   parentSubject: "package" | "platform" | "library" | null;
@@ -593,6 +644,12 @@ export interface TypeNavOptions {
   ) => TypeNavNamespaceLeverageCue | null;
 }
 
+export interface TypeSelectorOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
 export interface TypeNavNamespaceLeverageCue {
   topLeverage: boolean;
   description: string;
@@ -601,7 +658,8 @@ export interface TypeNavNamespaceLeverageCue {
 export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
-    namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
+    accessibilityFilter, traitFilter, namespaceCount, namespaceOptionsHtml,
+    kindOptions, accessibilityOptions, traitOptions,
     leverageControlHtml = "",
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
@@ -635,18 +693,37 @@ export function renderTypeNav(options: TypeNavOptions): string {
           <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
           <kbd>⌘F</kbd>
         </label>
-        <div class="namespace-picker">
-          <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
-            <option value="" ${!namespaceFilter ? "selected" : ""}>All namespaces · ${namespaceCount}</option>
-            ${namespaceOptionsHtml}
-          </select>
+        <div class="member-filter-selects type-filter-selects">
+          <label class="member-filter-select">
+            <span>Namespace</span>
+            <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
+              <option value="" ${!namespaceFilter ? "selected" : ""}>all namespaces · ${namespaceCount}</option>
+              ${namespaceOptionsHtml}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Accessibility</span>
+            <select class="scope-select" data-type-access-filter aria-label="Type accessibility">
+              ${accessibilityOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${accessibilityFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Kind</span>
+            <select class="scope-select" data-type-kind-filter aria-label="Type kind">
+              ${kindOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${kindFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Trait</span>
+            <select class="scope-select" data-type-trait-filter aria-label="Type trait">
+              ${traitOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${traitFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
         </div>
         <div class="chip-stack">
-          <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-            <button class="${!kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-            ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
-          </div>
-          ${accessibilityControlHtml}
           ${leverageControlHtml}
         </div>
       </details>
@@ -1192,8 +1269,10 @@ export interface RenderSourcePageActionsOptions {
   source: TypeSourceResult | null;
   typeCodeView?: BrowserTypeCodeView | null;
   typeView?: TypeSourceView;
+  memberView?: MemberSourceView;
   memberSource?: BrowserMemberSource | null;
   selectedMemberPart?: MemberSourcePartSelection;
+  exploreBusy?: boolean;
   copyButtonId: "copy-source" | "copy-type-source";
   escapeHtml: EscapeHtml;
 }
@@ -1205,8 +1284,10 @@ export function renderSourcePageActions(
     source,
     typeCodeView = null,
     typeView = "source",
+    memberView = "source",
     memberSource = null,
-    selectedMemberPart = "Member",
+    selectedMemberPart = "Declaration",
+    exploreBusy = false,
     copyButtonId,
     escapeHtml,
   } = options;
@@ -1214,6 +1295,14 @@ export function renderSourcePageActions(
     ? []
     : availableMemberSourceParts(memberSource.parts);
   return `
+    ${copyButtonId === "copy-source"
+      ? `<div class="source-origin-selector" role="group" aria-label="Source origin">
+          <button type="button" data-member-source-view="source"
+            aria-pressed="${memberView === "source"}">Authored</button>
+          <button type="button" data-member-source-view="decompiler-source"
+            aria-pressed="${memberView === "decompiler-source"}">Decompiled</button>
+        </div>`
+      : ""}
     ${copyButtonId === "copy-type-source"
       ? `<label class="source-part-picker">
           <span>View</span>
@@ -1242,7 +1331,11 @@ export function renderSourcePageActions(
       || typeView === "source"
       || typeView === "decompiler-source"
       ? `<button id="explore-source" class="primary-action" type="button"
-          title="Explore source options">Explore</button>`
+          title="${copyButtonId === "copy-source"
+            ? "Explore annotated source"
+            : "Explore type source"}"${exploreBusy ? " disabled" : ""}>${
+              exploreBusy ? "Exploring…" : "Explore"
+            }</button>`
       : ""}`;
 }
 
@@ -1360,6 +1453,7 @@ function memberSourcePartSelection(
   value: string | number,
 ): MemberSourcePartSelection | null {
   switch (value) {
+    case "Declaration":
     case "Member":
     case "XmlDocumentation":
     case "Attributes":
@@ -1373,6 +1467,8 @@ function memberSourcePartSelection(
 
 function memberSourcePartLabel(part: MemberSourcePartSelection): string {
   switch (part) {
+    case "Declaration":
+      return "Declaration";
     case "Member":
       return "Member";
     case "XmlDocumentation":

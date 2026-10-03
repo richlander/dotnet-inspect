@@ -775,6 +775,38 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void ResourceTriageQuery_IncompletePreservesEvidenceWithoutFailureProjection()
+    {
+        var inspection = new LibraryInspection();
+        var complete =
+            new FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete([]);
+        var limitation = new Analysis.ResourceLifecycleLimitation(
+            Analysis.ResourceLifecycleLimitationKind.UnsupportedFlow,
+            "Address-taken resource flow is unsupported.");
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Incomplete(
+                complete,
+                [],
+                [limitation]),
+            () => new Dictionary<
+                int,
+                (string? Stable, string Visibility, string Selector)>());
+
+        var incomplete =
+            Assert.IsType<ResourceTriageResult.Incomplete>(
+                inspection.ResourceTriageQueryResult);
+        Assert.Same(complete, incomplete.Inspection);
+        Assert.Same(limitation, Assert.Single(incomplete.Limitations));
+        Assert.Same(
+            complete,
+            inspection.ResourceLifecycleInspection!.Value);
+        Assert.Null(inspection.InspectionFailures);
+        Assert.Empty(inspection.ResourceTriage!);
+    }
+
+    [Fact]
     public void ResourceTriageQuery_FailureProjectsToArrayPoolEscapes()
     {
         var inspection = new LibraryInspection();

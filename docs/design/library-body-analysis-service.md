@@ -931,9 +931,33 @@ The Release solution build is the full absence gate for the deleted strongly
 typed surface. No source-scanning gate is added: the compiler proves that no
 consumer can bind the removed members, while ordinary design review preserves
 ownership for future code. This retirement changes no supported product
-terminal and makes no performance claim. `LocalThrows`, safety summaries,
-allocation and optimization compatibility, and complete implementation-profile
-compatibility remain separately owned migration work under #7553 and #8568.
+terminal and makes no performance claim. Safety summaries, allocation and
+optimization compatibility, and complete
+implementation-profile compatibility remain separately owned migration work
+under #7553 and #8568.
+
+### Local-throw focused result and adoption for #7553 and #8568
+
+**Library Body Analysis Execution** publishes one
+`LibraryLocalThrowAnalysisResult` associated with its execution receipt.
+Requested results expose the existing physical `MethodLocalThrowEvidence`
+population, including unresolved sites and unavailable bodies. Access to that
+population when `LocalThrows` was not requested still fails explicitly; the
+result does not turn an unrequested producer into a complete empty result.
+
+`AssemblyContextMemberProjectionQuery` composes Annotated Source local-throw
+paths from that focused result and the same execution's focused call graph.
+The Browser/Wasm host continues only to select the feature and transport the
+Research-owned result. `LibraryBodyIndex` no longer publishes local-throw
+evidence, and the member projection no longer materializes a compatibility
+index.
+
+This slice changes evidence ownership, not local-throw qualification, bounded
+root-path semantics, output shape, or rendering. The Release
+`LocalThrowEvidenceTests` and
+`AssemblyContextResearchProjectionQueryTests` gates preserve those contracts;
+the Release solution build is the full absence gate for the deleted strongly
+typed compatibility accessor.
 
 ### Production adoption for #8450
 
@@ -1158,8 +1182,9 @@ carry the same receipt and provides only the member-projection joins over those
 results. Path-backed production and immutable-image L1 production each execute
 Analysis once. `ResearchAssemblyContext` now derives its residual callee-
 evidence joins from that focused input; the L1 query retains a separate
-compatibility index only for its later call-relationship, invocation-
-destination, and local-throw migration.
+focused call-graph result for call relationships and invocation destinations
+and a focused local-throw result for local-throw paths. It no longer
+materializes a compatibility index.
 
 The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
 safety, and call-graph results from one exact receipt. CLI single-coordinate

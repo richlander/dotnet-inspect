@@ -10,10 +10,11 @@ Proposed focused design for
 > Given one normalized Find question and an ordered selection of exact
 > Ecosystem registrations, evaluate every selected Ecosystem's bounded
 > populations in order before any package-prefix population (stopping only
-> when a finite row window fills at a layer boundary), evaluate each distinct
-> concrete source's settlement, inventory, and source-local matches at most
-> once, and return ordered durable Find blocks that retain every admitting
-> Ecosystem membership, scoped failure, and completion fact.
+> when a finite row window fills at a layer boundary), issue one exact prefix
+> continuation when demanded work remains, evaluate each distinct concrete
+> source's settlement, inventory, and source-local matches at most once, and
+> return ordered durable Find blocks that retain every admitting Ecosystem
+> membership, scoped failure, and completion fact.
 
 The operation is a map/reduce over source-owner facts:
 
@@ -24,11 +25,12 @@ The operation is a map/reduce over source-owner facts:
    each bounded Ecosystem independently; and
 3. publish phase-identified blocks without retracting an earlier block.
 
-The owner defines phase scheduling, cross-Ecosystem source deduplication,
-membership reduction, the event and completed-Document contract, work bounds,
-and cancellation checkpoints. It does not define Find grammar or matching,
-Ecosystem membership declarations, source discovery, package or platform
-realization, host output, Spotlight interaction, or cache storage.
+The owner defines phase scheduling and continuation, cross-Ecosystem source
+deduplication, membership reduction, the event and completed-Document
+contract, work bounds, and cancellation checkpoints. It does not define Find
+grammar or matching, Ecosystem membership declarations, source discovery,
+package or platform realization, host output, Spotlight interaction, or cache
+storage.
 
 ## Demo
 
@@ -60,8 +62,11 @@ Ecosystem memberships that admit it.
 The corresponding Browser scenario starts with no visible Ecosystem hit
 groups. Bounded blocks reveal Ecosystems as they settle. Opening the
 Ecosystems category can list the complete catalog independently of hits.
-Selecting Aspire starts a replacement request with Aspire prefix demand; it
-does not mutate the running request.
+Selecting Aspire starts a replacement session with Aspire prefix demand; it
+does not mutate the running session. When bounded Ecosystem blocks leave room,
+the Browser may search its admitted Workspace Libraries before deciding
+whether to resume the exact prefix continuation. If those Libraries fill the
+row window, no `Aspire.*` package enumeration starts.
 
 ## Basis and owner map
 
@@ -83,6 +88,27 @@ does not mutate the running request.
 
 <!-- markdownlint-enable MD013 -->
 
+The staged session follows the pull-based principle of C# asynchronous streams:
+the producer does not perform later asynchronous source work until the consumer
+asks for it:
+
+- <https://learn.microsoft.com/en-us/dotnet/csharp/asynchronous-programming/generate-consume-asynchronous-stream>
+
+The deliberate divergence is an owner-issued semantic phase capability rather
+than a general enumerator position. A host inserts another bounded producer
+between phases, may reduce the remaining row window to zero, and still needs an
+Ecosystem-owned completion statement naming unsearched prefixes. A plain
+enumerator pause carries none of that request identity, bound, or coverage
+evidence.
+
+The continuation is the simplest sufficient addition because a Browser host
+must place one bounded Workspace phase between existing Ecosystem phases while
+preserving a finite row window. Immediate prefix execution starts unnecessary
+network work; restarting after Workspace repeats bounded settlement; and a
+mutable "start prefixes" side channel loses the exact request, bound, and
+completion association. One owner-issued one-shot capability preserves those
+facts without adding another matcher, scheduler, or result vocabulary.
+
 Type population-level settlement now has a host-neutral selector. Source
 realization and inventory, source-local Direct/Glob and Member matching, and
 CLI/Browser plan lowering remain adoption prerequisites rather than
@@ -97,7 +123,7 @@ responsibilities absorbed here. An adopter supplies typed boundaries that:
 This operation schedules and associates those results; it never reconstructs
 a candidate from display text.
 
-## Request
+## Request and staged session
 
 The semantic request has four inputs:
 
@@ -133,13 +159,56 @@ Ecosystem precedes its ancestors. A `--where ecosystem=` predicate removes
 every other layer from the array before construction.
 
 `PrefixDemand` is an immutable set of selected registration identities.
-Changing Browser demand creates a replacement operation through the Browser's
+Changing Browser demand creates a replacement session through the Browser's
 operation authority. There is no mutable "add a prefix while this request is
-running" side channel.
+running" side channel. Continuation resumes only the demand fixed by the
+request.
 
 `MaximumPrefixPackages` is a positive operation-work bound. It does not count
 bounded platform or core sources, does not select final Find rows, and does not
 claim prefix exhaustion when reached.
+
+One request creates one host-neutral `EcosystemFindSearchSession`. The session
+has an exact owner-issued identity and this state machine:
+
+```text
+Created
+  -> Bounded running
+  -> Bounded complete
+       -> Completed, when no prefix demand or the bounded row window filled
+       -> PrefixContinuation
+            -> Prefix running, when resumed with remaining capacity
+            -> Completed as RowLimitReached, when resumed with zero capacity
+            -> Canceled
+  -> Canceled
+```
+
+`RunBoundedAsync` settles the bounded phase once. When demanded prefix work
+remains, its outcome carries one opaque `EcosystemFindPrefixContinuation`.
+The continuation retains the exact session and request identity, normalized
+Find question, ordered registrations, demanded prefix declarations,
+settled-bounded receipt, prefix-package work bound, and maximum remaining row
+window. It is an in-process capability, not serializable inspection content,
+display identity, or cache key.
+
+The caller completes a continuation exactly once:
+
+- a positive remaining row window resumes prefix work within that smaller
+  bound;
+- zero finalizes the Ecosystem document as `RowLimitReached`, naming every
+  unsearched prefix source; and
+- an unbounded request resumes unbounded prefix work.
+
+A resumed finite window cannot exceed the continuation's maximum. The caller
+may reduce it after an adjacent bounded phase but cannot add demand, reorder
+registrations, replace the Find question, increase a work bound, or reuse the
+continuation with another session. A caller that needs different semantics
+starts a replacement session.
+
+`ExecuteAsync` is the convenience composition for hosts with no intervening
+phase. It runs bounded work and immediately resumes any continuation with its
+maximum remaining window. It does not implement a second scheduler or result
+contract.
 
 The request is rejected before source work when:
 
@@ -193,12 +262,13 @@ published membership vector.
 
 ## Phase contract
 
-The operation has a global two-phase barrier:
+The session has a global two-phase barrier and an explicit continuation point:
 
 ```text
 Bounded
   -> every selected Ecosystem bounded block settles
-  -> Prefix, when demand exists
+  -> PrefixContinuation, when demand exists
+  -> Prefix, only after continuation with remaining capacity
   -> Completed
 
 Bounded, finite row window
@@ -206,8 +276,9 @@ Bounded, finite row window
   -> Completed as RowLimitReached; later layers and Prefix do not start
 ```
 
-Cancellation may terminate either active phase. No prefix search, package
-settlement, or package evaluation starts before all bounded blocks settle.
+Cancellation may terminate either active phase or retire an unconsumed
+continuation. No prefix search, package settlement, or package evaluation
+starts before all bounded blocks settle and the continuation is resumed.
 
 ### Bounded phase
 
@@ -239,11 +310,11 @@ retracts or reclassifies a bounded row.
 
 ### Prefix phase
 
-After the bounded barrier, demanded prefixes produce candidates through their
-owner's incremental page stream. Prefix declarations are considered in
-selected Ecosystem order and then authored prefix order. Equal declarations
-may share one source enumeration; overlapping but unequal prefixes remain
-distinct source observations.
+After the bounded barrier and explicit continuation, demanded prefixes produce
+candidates through their owner's incremental page stream. Prefix declarations
+are considered in selected Ecosystem order and then authored prefix order.
+Equal declarations may share one source enumeration; overlapping but unequal
+prefixes remain distinct source observations.
 
 Each newly admitted package ID receives a stable candidate ordinal before
 settlement. Candidate work is case-insensitively deduplicated across every
@@ -300,6 +371,12 @@ EcosystemFindSearchEvent
     EcosystemFindSearchSummary
 ```
 
+The continuation is a session control capability returned by
+`RunBoundedAsync`; it is not a data event and never crosses the event or
+completed-Document boundary. `Completed` is published only after the caller
+has resumed the continuation or finalized it with zero capacity. This keeps
+one event vocabulary and one terminal Document for immediate and staged hosts.
+
 Bounded blocks are durable even when they contain zero rows, because zero
 matches and "not settled yet" are distinct Ecosystem states. Prefix blocks
 with zero monotonic rows are not durable; their completed work contributes to
@@ -325,10 +402,11 @@ structured output, cache consumers, and replay do not depend on event history.
 An adopter validates streamed item and failure counts against the terminal
 summary before publishing completed state.
 
-Explicit cancellation or host supersession produces no completed inspection
-envelope. Already published durable blocks remain valid partial observations,
-while the host marks the operation canceled. Events from a superseded Browser
-operation cannot enter its replacement outcome.
+Explicit cancellation, abandonment of an issued continuation, or host
+supersession produces no completed inspection envelope. Already published
+durable blocks remain valid partial observations, while the host marks the
+session canceled. Events from a superseded Browser session cannot enter its
+replacement outcome.
 
 ## Bounds, failures, and completion
 
@@ -339,7 +417,8 @@ bounded phase settles layers in array order, and once the settled layers
 fill the window, later layers do not start. A layer that has started always
 settles completely, so stopping never truncates a block. The operation then
 completes as `RowLimitReached`, naming each unsearched layer, and no prefix
-work starts. Without a finite window, every layer is attempted, as before.
+continuation is issued. Without a finite window, every layer is attempted, as
+before.
 
 The prefix-package bound is shared across all demanded prefixes. A candidate
 consumes one unit when admitted for settlement, including a candidate that
@@ -353,7 +432,8 @@ Terminal completion distinguishes at least:
 - `SourcePageLimitReached` or `ClientPageLimitReached`: a prefix source
   reported its owner-issued bound;
 - `RowLimitReached`: the row window filled at a layer boundary; the named
-  later layers did not start;
+  later layers or prefixes did not start, including when a caller resumes a
+  continuation with zero capacity;
 - `Partial`: useful blocks exist beside scoped bounded or candidate failures;
   and
 - `Failed`: no valid Document can be constructed under the operation's
@@ -375,14 +455,15 @@ Execution policy is host-neutral within declared bounds:
   identities.
 
 Concurrency changes settlement latency, not source identity, membership,
-candidate ordinal, completed-Document order, or the bounded-before-prefix
-barrier.
+candidate ordinal, completed-Document order, the bounded-before-prefix
+barrier, or continuation identity.
 
 The cancellation token crosses prefix enumeration, exact settlement,
 realization, inventory, Find evaluation, and event publication boundaries.
-After cancellation is observed, the operation requests no new page or source
-work and publishes no new durable event. In-flight owners retain their own
-resource drainage and typed cancellation behavior.
+It also retires any issued continuation. After cancellation is observed, the
+session requests no new page or source work and publishes no new durable
+event. In-flight owners retain their own resource drainage and typed
+cancellation behavior.
 
 The checked
 [Ecosystem Find Search model](models/ecosystem-find-search/README.md)
@@ -390,6 +471,11 @@ explores concurrent source settlement, the global phase barrier, source
 deduplication, complete membership publication, cancellation, and terminal
 completion. The model is evidence about the bounded abstract scheduler, not a
 proof of CLI, Browser, source, House, or Find implementation.
+
+The existing model does not yet exercise an externally held continuation.
+Continuation issuance, zero-capacity finalization, one-shot resume, and
+supersession remain `unverified` until a composition configuration adds that
+state and is listed in `eng/tla-expected-exit-codes.txt`.
 
 ## Cache boundary
 
@@ -420,7 +506,8 @@ The CLI is the first production adopter:
 - it maps blocking formats to no prefix demand unless the user explicitly
   requests it;
 - it renders producer `Source` separately from Ecosystem membership; and
-- it consumes the same typed stream for sequential or bounded-parallel
+- it uses `ExecuteAsync` to resume the prefix continuation immediately while
+  consuming the same typed stream for sequential or bounded-parallel
   execution.
 
 Those mappings are CLI policy. Output format is not passed to the semantic
@@ -432,15 +519,27 @@ Inspect Web then adopts the same request, event, and Document:
   prefix demand;
 - bounded blocks reveal hit-bearing Ecosystems;
 - the Ecosystems category lists the catalog independently of result blocks;
-- choosing one Ecosystem starts a replacement request that demands its
-  prefixes; and
+- choosing one Ecosystem starts a replacement session that demands its
+  prefixes;
+- the Browser runs admitted Workspace Find after `RunBoundedAsync`, then
+  resumes the continuation with the remaining row window or zero; and
 - operation authority suppresses stale publication after text, scope, or
   demand replacement.
 
 Spotlight grouping, visible batch size, focus, activation, and navigation
 remain Browser-owned. Selecting a Type or Member requires a separately
 owner-issued exact activation association; this operation never constructs
-one from its rendered row.
+one from its rendered row. The Browser operation keeps the continuation inside
+the .NET Worker; TypeScript receives result and lifecycle events, not the
+continuation capability.
+
+[#9171](https://github.com/richlander/dotnet-inspect/issues/9171) tracks three
+continuation-adoption slices: this focused contract; host-neutral session
+implementation plus CLI immediate resume; and Browser staged resume through
+the Spotlight composition tracked by
+[#9169](https://github.com/richlander/dotnet-inspect/issues/9169). There is no
+implemented predecessor to retain. The convenience `ExecuteAsync` is the thin
+CLI composition over the staged session, not a parallel execution path.
 
 ## Evidence and acceptance
 
@@ -456,19 +555,31 @@ The authentic first assets are:
 Release gates for an implementation must establish:
 
 1. every bounded block settles before prefix work starts;
-2. shared source settlement, realization, inventory, and source-local matching
+2. bounded rows that fill the window complete without issuing a continuation;
+3. bounded rows that leave capacity issue one exact continuation without
+   starting prefix enumeration;
+4. zero-capacity finalization starts no prefix work, reports
+   `RowLimitReached`, and names unsearched prefix sources;
+5. positive-capacity resume starts only demanded prefixes, respects the smaller
+   window, and does not repeat bounded settlement;
+6. a continuation cannot resume twice, cross a replacement-session boundary,
+   increase its maximum window, or survive cancellation;
+7. CLI immediate resume preserves the existing event and completed-Document
+   contract;
+8. shared source settlement, realization, inventory, and source-local matching
    occur once while every applicable membership is retained;
-3. core membership outranks same-Ecosystem prefix membership;
-4. bounded and candidate ordinals make completed content deterministic under
+9. core membership outranks same-Ecosystem prefix membership;
+10. bounded and candidate ordinals make completed content deterministic under
    parallel settlement;
-5. late duplicate prefix candidates add no work or membership mutation;
-6. cancellation requests no later page or source and publishes no later
+11. late duplicate prefix candidates add no work or membership mutation;
+12. cancellation requests no later page or source and publishes no later
    durable block;
-7. partial and failed sources remain visible beside healthy results;
-8. CLI and Browser equivalent requests produce equal completed Content; and
-9. the pathological case of an early useful block followed by a blocked,
-   failed, or canceled later source retains the early block without claiming
-   exhaustion.
+13. partial and failed sources remain visible beside healthy results;
+14. CLI and Browser equivalent fully resumed requests produce equal completed
+    Content; and
+15. the pathological cases retain an early useful block when a later source is
+    blocked, failed, canceled, or deliberately not started after an inserted
+    bounded phase fills the remaining row window, without claiming exhaustion.
 
 NativeAOT evidence is required for every CLI terminal adopted by the
 implementation. Browser/Wasm evidence must include a cold all-Ecosystem
@@ -489,6 +600,9 @@ This design does not:
 - grant graph-traversal permission from Find discovery;
 - define CLI flags, columns, stderr wording, exit status, or default format;
 - define Spotlight scopes, grouping, batch size, focus, or activation;
+- serialize, persist, render, or cache the prefix continuation;
+- let a host add prefix demand or increase work bounds after bounded
+  settlement;
 - define cache storage, persistence, refresh, or eviction;
 - search every prefix without explicit host-lowered demand; or
 - treat acquisition origin as producer or Ecosystem identity.

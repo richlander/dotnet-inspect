@@ -204,6 +204,12 @@ boundary remains projectable.
 Typed producer failures remain failed query outcomes. Root-local limitations
 remain visible on the focused Analysis result while sound positive
 exceptional-cleanup outcomes can still be projected.
+The focused Finding projection and Resource Triage query preserve those
+limitations beside any projected Findings rather than reporting the census as
+complete. When the Resource Triage section is selected explicitly, the CLI
+still emits the sound rows in every format, reports the incompleteness on
+stderr, and returns a nonzero status. Broader category selection does not let
+one incomplete constituent replace the category's established status contract.
 Finding projection requires a full-method-evidence receipt; a scoped lifecycle
 result cannot stand in for the whole-library Resource Triage census.
 
@@ -261,6 +267,8 @@ establish:
 
 - unchanged complete Resource Triage Finding population, payload, boundary
   sequence, and candidate identity;
+- positive Resource Triage rows remain available with typed lifecycle
+  limitations, a visible diagnostic, and nonzero status;
 - normal-first Resource Triage projection for simultaneous normal and
   exceptional terminal leaks;
 - one shared body-analysis execution for selected migrated sections; and
