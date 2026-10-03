@@ -12,9 +12,15 @@ internal sealed record DeclaredMethodOperationScorecardCell(
     double Microseconds,
     long AllocatedBytes);
 
+internal sealed record DeclaredMethodPreparationScorecardCell(
+    double Microseconds,
+    long AllocatedBytes,
+    long RetainedBytes);
+
 internal sealed record DeclaredMethodOperationScorecardResult(
     string TypeName,
     int Count,
+    DeclaredMethodPreparationScorecardCell Preparation,
     IReadOnlyList<DeclaredMethodOperationScorecardCell> Cells);
 
 internal static class DeclaredMethodOperationCheck
@@ -43,23 +49,32 @@ internal static class DeclaredMethodOperationCheck
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([participant]);
+        TypeDeclaredMethodPopulationInspectionRequest countRequest =
+            Request(
+                group,
+                participant,
+                type,
+                binding,
+                QuerySpaceTerminalRequirement.Count);
+        TypeDeclaredMethodPopulationInspectionRequest rowsRequest =
+            Request(
+                group,
+                participant,
+                type,
+                binding,
+                QuerySpaceTerminalRequirement.Rows);
+        using TypeDeclaredMethodPopulationPreparedInspection prepared =
+            TypeDeclaredMethodPopulationInspectionOperation.Prepare(
+                group,
+                participant,
+                type,
+                binding,
+                cancellationToken);
 
         var count = AssertCounted(
-            Execute(
-                group,
-                participant,
-                type,
-                binding,
-                QuerySpaceTerminalRequirement.Count,
-                cancellationToken));
+            Execute(prepared, countRequest, cancellationToken));
         var rows = AssertRead(
-            Execute(
-                group,
-                participant,
-                type,
-                binding,
-                QuerySpaceTerminalRequirement.Rows,
-                cancellationToken));
+            Execute(prepared, rowsRequest, cancellationToken));
         if (count.Count != rows.Count
             || count.Count != rows.Rows.Length)
         {
@@ -92,6 +107,12 @@ internal static class DeclaredMethodOperationCheck
 
         MetadataTypeDefinitionBinding binding =
             Binding(path, type);
+        DeclaredMethodPreparationScorecardCell preparation =
+            await MeasurePreparationAsync(
+                path,
+                type,
+                binding,
+                cancellationToken);
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromPath(
                 path,
@@ -103,25 +124,34 @@ internal static class DeclaredMethodOperationCheck
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([participant]);
+        TypeDeclaredMethodPopulationInspectionRequest countRequest =
+            Request(
+                group,
+                participant,
+                type,
+                binding,
+                QuerySpaceTerminalRequirement.Count);
+        TypeDeclaredMethodPopulationInspectionRequest rowsRequest =
+            Request(
+                group,
+                participant,
+                type,
+                binding,
+                QuerySpaceTerminalRequirement.Rows);
+        using TypeDeclaredMethodPopulationPreparedInspection prepared =
+            TypeDeclaredMethodPopulationInspectionOperation.Prepare(
+                group,
+                participant,
+                type,
+                binding,
+                cancellationToken);
 
         TypeDeclaredMethodPopulationOutcome.Counted count =
             AssertCounted(
-                Execute(
-                    group,
-                    participant,
-                    type,
-                    binding,
-                    QuerySpaceTerminalRequirement.Count,
-                    cancellationToken));
+                Execute(prepared, countRequest, cancellationToken));
         TypeDeclaredMethodPopulationOutcome.Read rows =
             AssertRead(
-                Execute(
-                    group,
-                    participant,
-                    type,
-                    binding,
-                    QuerySpaceTerminalRequirement.Rows,
-                    cancellationToken));
+                Execute(prepared, rowsRequest, cancellationToken));
         Validate(count, rows);
 
         QuerySpaceTerminalRequirement[] terminals =
@@ -131,15 +161,16 @@ internal static class DeclaredMethodOperationCheck
         ];
         foreach (QuerySpaceTerminalRequirement terminal in terminals)
         {
+            TypeDeclaredMethodPopulationInspectionRequest request =
+                terminal == QuerySpaceTerminalRequirement.Count
+                    ? countRequest
+                    : rowsRequest;
             for (int warmup = 0; warmup < 10; warmup++)
             {
                 GC.KeepAlive(
                     Execute(
-                        group,
-                        participant,
-                        type,
-                        binding,
-                        terminal,
+                        prepared,
+                        request,
                         cancellationToken));
             }
         }
@@ -156,14 +187,15 @@ internal static class DeclaredMethodOperationCheck
             {
                 QuerySpaceTerminalRequirement terminal =
                     terminals[(round + offset) % terminals.Length];
+                TypeDeclaredMethodPopulationInspectionRequest request =
+                    terminal == QuerySpaceTerminalRequirement.Count
+                        ? countRequest
+                        : rowsRequest;
                 Measurement measurement =
                     Measure(
                         () => Execute(
-                            group,
-                            participant,
-                            type,
-                            binding,
-                            terminal,
+                            prepared,
+                            request,
                             cancellationToken));
                 times[terminal].Add(measurement.Microseconds);
                 allocations[terminal].Add(
@@ -174,6 +206,7 @@ internal static class DeclaredMethodOperationCheck
         return new(
             DisplayName(type),
             count.Count,
+            preparation,
             [
                 Cell(
                     QuerySpaceTerminalRequirement.Count,
@@ -201,6 +234,19 @@ internal static class DeclaredMethodOperationCheck
         writer.WriteLine(
             $"# answer: {result.Count:N0} declared MethodDefs");
         writer.WriteLine(
+            "# first preparation starts from an already loaded "
+                + "participant snapshot");
+        writer.WriteLine(
+            "| Preparation | Elapsed | Allocated | "
+                + "Retained heap delta |");
+        writer.WriteLine("| --- | ---: | ---: | ---: |");
+        writer.WriteLine(
+            $"| Participant session + TypeDef source + execution borrow | "
+                + $"{result.Preparation.Microseconds:F3} us | "
+                + $"{result.Preparation.AllocatedBytes:N0} B | "
+                + $"{result.Preparation.RetainedBytes:N0} B |");
+        writer.WriteLine();
+        writer.WriteLine(
             "| Terminal | Median | Allocated | Time vs Count | "
                 + "Allocation vs Count |");
         writer.WriteLine("| --- | ---: | ---: | ---: | ---: |");
@@ -222,20 +268,94 @@ internal static class DeclaredMethodOperationCheck
         }
     }
 
-    private static TypeDeclaredMethodPopulationOutcome Execute(
+    private static TypeDeclaredMethodPopulationInspectionRequest Request(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         MetadataTypeDefinitionName type,
         MetadataTypeDefinitionBinding binding,
-        QuerySpaceTerminalRequirement terminal,
-        CancellationToken cancellationToken) =>
-        TypeDeclaredMethodPopulationInspectionOperation.Execute(
-            new(
+        QuerySpaceTerminalRequirement terminal) =>
+        new(
+            group,
+            participant,
+            type,
+            binding,
+            TypeDeclaredMethodPopulationQuery.CreateRequest(terminal));
+
+    private static async Task<DeclaredMethodPreparationScorecardCell>
+        MeasurePreparationAsync(
+            string path,
+            MetadataTypeDefinitionName type,
+            MetadataTypeDefinitionBinding binding,
+            CancellationToken cancellationToken)
+    {
+        _ = await MeasurePreparationOnceAsync(
+            path,
+            type,
+            binding,
+            cancellationToken);
+        return await MeasurePreparationOnceAsync(
+            path,
+            type,
+            binding,
+            cancellationToken);
+    }
+
+    private static async Task<DeclaredMethodPreparationScorecardCell>
+        MeasurePreparationOnceAsync(
+            string path,
+            MetadataTypeDefinitionName type,
+            MetadataTypeDefinitionBinding binding,
+            CancellationToken cancellationToken)
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "declared-method preparation scorecard"));
+        var participant = new AssemblyContextParticipant(
+            assembly,
+            NoResolverAssemblyBindingPolicy.Instance);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        AssemblyImageSpanResult loaded =
+            group.GetAssemblyImageSpan(assembly);
+        if (!loaded.IsAvailable)
+        {
+            throw new InvalidOperationException(
+                "Declared-method preparation snapshot was unavailable.");
+        }
+
+        long retainedBefore = GC.GetTotalMemory(forceFullCollection: true);
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        long started = Stopwatch.GetTimestamp();
+        using TypeDeclaredMethodPopulationPreparedInspection prepared =
+            TypeDeclaredMethodPopulationInspectionOperation.Prepare(
                 group,
                 participant,
                 type,
                 binding,
-                TypeDeclaredMethodPopulationQuery.CreateRequest(terminal)),
+                cancellationToken);
+        long elapsed = Stopwatch.GetTimestamp() - started;
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+        long retainedAfter = GC.GetTotalMemory(forceFullCollection: true);
+        GC.KeepAlive(prepared);
+        return new(
+            elapsed * 1_000_000.0 / Stopwatch.Frequency,
+            allocated,
+            Math.Max(0, retainedAfter - retainedBefore));
+    }
+
+    private static TypeDeclaredMethodPopulationOutcome Execute(
+        TypeDeclaredMethodPopulationPreparedInspection prepared,
+        TypeDeclaredMethodPopulationInspectionRequest request,
+        CancellationToken cancellationToken) =>
+        TypeDeclaredMethodPopulationInspectionOperation.Execute(
+            prepared,
+            request.Query,
+            request.MaximumRows,
             cancellationToken).Content;
 
     private static TypeDeclaredMethodPopulationOutcome.Counted

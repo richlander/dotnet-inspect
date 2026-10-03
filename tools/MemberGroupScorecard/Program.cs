@@ -128,14 +128,30 @@ if (args[0] == "declared-time")
         DeclaredMethodPopulation.Measure(
             path,
             declaredType!);
-    if (operationResult.Count != declaredResult.Check.Count)
+    PreparedQuerySpaceScorecardResult preparedQuerySpace =
+        DeclaredMethodPopulation.MeasurePreparedQuerySpace(
+            path,
+            declaredType!);
+    PreparedProducerScorecardResult preparedProducer =
+        DeclaredMethodPopulation.MeasurePreparedProducer(
+            path,
+            declaredType!);
+    if (operationResult.Count != declaredResult.Check.Count
+        || operationResult.Count != preparedQuerySpace.Count
+        || operationResult.Count != preparedProducer.Count)
     {
         Console.Error.WriteLine(
-            "QuerySpace operation and source-native scorecard disagree.");
+            "QuerySpace operation and source-native scorecards disagree.");
         return 1;
     }
     Console.Write(
         DeclaredMethodOperationCheck.Report(operationResult));
+    Console.Write(
+        DeclaredMethodPopulation.ReportPreparedQuerySpace(
+            preparedQuerySpace));
+    Console.Write(
+        DeclaredMethodPopulation.ReportPreparedProducer(
+            preparedProducer));
     Console.Write(
         DeclaredMethodPopulation.Report(declaredResult));
     return 0;
