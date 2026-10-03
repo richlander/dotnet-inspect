@@ -84,9 +84,14 @@ public sealed record ImplementationProfilePopulationCoverageReceipt(
     public int UnavailableBodyCount => UnavailableBodies.Length;
 }
 
-/// <summary>Unsafe evidence produced by one library-body Analysis execution.</summary>
+/// <summary>
+/// Memory-safety contracts and unsafe evidence produced by one library-body
+/// Analysis execution.
+/// </summary>
 public sealed record LibrarySafetyAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
+    MemorySafetyRulesResult MemorySafetyRules,
+    UnsafeModeBreakdown UnsafeModes,
     ImmutableArray<UnsafeEvidence> Evidence,
     IReadOnlyDictionary<
         int,
@@ -344,6 +349,8 @@ public sealed class LibraryBodyAnalysisExecution
             analysis.Safety.LeverageMethods);
         Safety = new(
             Receipt,
+            analysis.Safety.Rules,
+            analysis.Safety.Modes,
             analysis.Safety.Evidence,
             analysis.Safety.Occurrences);
         Allocations = new(
