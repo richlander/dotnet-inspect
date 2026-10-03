@@ -420,11 +420,7 @@ public sealed class CatalogCallGraphScope : IDisposable
         readonly Dictionary<
             GraphNodeIdentity,
             AssemblyReferenceIdentity?> _resolutionAssembliesByIdentity;
-        readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredEdge>>
-            _forward;
-        readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredEdge>>
-            _reverse;
-        readonly Dictionary<GraphNodeIdentity, int> _incoming;
+        readonly StoredEdgeIndex _edgeIndex;
         readonly Dictionary<
             (LibraryCallGraphAnalysisResult CallGraph, int Token),
             StoredDefinition> _definitionByLocation;
@@ -489,24 +485,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                         .ToImmutableArray());
             _resolutionAssembliesByIdentity =
                 ResolutionAssemblies(definitions, callSites);
-            _forward = edges
-                .GroupBy(edge => edge.Caller.Evidence.Identity)
-                .ToDictionary(
-                    group => group.Key,
-                    group => OrderForwardEdges(group).ToImmutableArray());
-            _reverse = edges
-                .GroupBy(edge => edge.Callee.Evidence.Identity)
-                .ToDictionary(
-                    group => group.Key,
-                    group => OrderReverseEdges(group).ToImmutableArray());
-            _incoming = edges
-                .GroupBy(edge => edge.Callee.Evidence.Identity)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group
-                        .Select(edge => edge.Caller.Evidence.Identity)
-                        .Distinct()
-                        .Count());
+            _edgeIndex = StoredEdgeIndex.Create(edges);
         }
 
         internal AssemblyCatalogId Catalog { get; }
@@ -1064,7 +1043,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                         : null;
                 string? loopHint = inLoop ? "loop call" : null;
 
-                if (!_reverse.TryGetValue(identity, out var rawEdges))
+                if (!_edgeIndex.TryGetReverse(
+                        identity,
+                        out ArraySegment<StoredEdge> rawEdges))
                 {
                     var leafStatus = depth > 0
                         && evidence.Kind
@@ -1292,12 +1273,14 @@ public sealed class CatalogCallGraphScope : IDisposable
                         StringComparison.Ordinal);
                 string? source = external ? assembly : null;
                 string? loopHint = inLoop ? "loop" : null;
-                int fanin = _incoming.GetValueOrDefault(identity);
+                int fanin = _edgeIndex.IncomingCount(identity);
                 bool hasUnresolvedDispatch =
                     hasVirtualDispatchOccurrence
                     && definition?.Method.IsVirtualDispatchOpen == true;
 
-                if (!_forward.TryGetValue(identity, out var rawEdges))
+                if (!_edgeIndex.TryGetForward(
+                        identity,
+                        out ArraySegment<StoredEdge> rawEdges))
                 {
                     CallTreeStatus leafStatus = depth > 0
                         && definition is null
@@ -1333,7 +1316,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                         parentEdgeCallerDefinition);
                 }
 
-                int fanout = rawEdges.Length;
+                int fanout = rawEdges.Count;
                 if (depth >= maxDepth)
                 {
                     return Node(
@@ -1872,35 +1855,218 @@ public sealed class CatalogCallGraphScope : IDisposable
                     parentEdgeCallerDefinition,
             };
 
-        static IOrderedEnumerable<StoredEdge> OrderForwardEdges(
-            IEnumerable<StoredEdge> edges) =>
-            edges
+        static IOrderedEnumerable<int> OrderForwardEdges(
+            IEnumerable<int> edgeIndexes,
+            ImmutableArray<StoredEdge> edges) =>
+            edgeIndexes
                 .OrderBy(
-                    edge => edge.Callee.Call.Callee.DeclaringType.Assembly,
+                    index => edges[index].Callee.Call.Callee
+                        .DeclaringType.Assembly,
                     StringComparer.Ordinal)
                 .ThenBy(
-                    edge => edge.Callee.Call.Callee
+                    index => edges[index].Callee.Call.Callee
                         .ToQualifiedDisplayString(),
                     StringComparer.Ordinal)
                 .ThenBy(
-                    edge => edge.Callee.Call.Callee.ParameterTypes.Length)
+                    index => edges[index].Callee.Call.Callee
+                        .ParameterTypes.Length)
                 .ThenBy(
-                    edge => edge.Callee.Evidence.Storage.ModuleVersionId)
+                    index => edges[index].Callee.Evidence.Storage
+                        .ModuleVersionId)
                 .ThenBy(
-                    edge => edge.Callee.Evidence.Storage.MethodToken)
+                    index => edges[index].Callee.Evidence.Storage
+                        .MethodToken)
                 .ThenBy(
-                    edge => edge.Callee.Evidence.Storage.ILOffset);
+                    index => edges[index].Callee.Evidence.Storage
+                        .ILOffset);
 
-        static IOrderedEnumerable<StoredEdge> OrderReverseEdges(
-            IEnumerable<StoredEdge> edges) =>
+        static IOrderedEnumerable<int> OrderReverseEdges(
+            IEnumerable<int> edgeIndexes,
+            ImmutableArray<StoredEdge> edges) =>
             CallTreeOrdering.OrderCallers(
-                    edges,
-                    edge => edge.Caller.Participant.Assembly.Identity.Name,
-                    edge => edge.Caller.Member.ToQualifiedDisplayString(),
-                    edge => edge.Caller.Member.ParameterTypes.Length,
-                    edge => edge.Caller.Evidence.Storage.ModuleVersionId,
-                    edge => edge.Caller.Evidence.Storage.MethodToken,
-                    edge => edge.Callee.Evidence.Storage.ILOffset);
+                    edgeIndexes,
+                    index => edges[index].Caller.Participant
+                        .Assembly.Identity.Name,
+                    index => edges[index].Caller.Member
+                        .ToQualifiedDisplayString(),
+                    index => edges[index].Caller.Member
+                        .ParameterTypes.Length,
+                    index => edges[index].Caller.Evidence.Storage
+                        .ModuleVersionId,
+                    index => edges[index].Caller.Evidence.Storage
+                        .MethodToken,
+                    index => edges[index].Callee.Evidence.Storage
+                        .ILOffset);
+
+        sealed class StoredEdgeIndex
+        {
+            readonly StoredEdge[] _forwardEdges;
+            readonly Dictionary<GraphNodeIdentity, EdgeRange>
+                _forwardRanges;
+            readonly StoredEdge[] _reverseEdges;
+            readonly Dictionary<GraphNodeIdentity, EdgeRange>
+                _reverseRanges;
+
+            StoredEdgeIndex(
+                StoredEdge[] forwardEdges,
+                Dictionary<GraphNodeIdentity, EdgeRange> forwardRanges,
+                StoredEdge[] reverseEdges,
+                Dictionary<GraphNodeIdentity, EdgeRange> reverseRanges)
+            {
+                _forwardEdges = forwardEdges;
+                _forwardRanges = forwardRanges;
+                _reverseEdges = reverseEdges;
+                _reverseRanges = reverseRanges;
+            }
+
+            internal static StoredEdgeIndex Create(
+                ImmutableArray<StoredEdge> edges)
+            {
+                var forward =
+                    new Dictionary<GraphNodeIdentity, List<int>>();
+                var reverse =
+                    new Dictionary<GraphNodeIdentity, List<int>>();
+                for (int index = 0; index < edges.Length; index++)
+                {
+                    StoredEdge edge = edges[index];
+                    Add(
+                        forward,
+                        edge.Caller.Evidence.Identity,
+                        index);
+                    Add(
+                        reverse,
+                        edge.Callee.Evidence.Identity,
+                        index);
+                }
+
+                (
+                    StoredEdge[] forwardEdges,
+                    Dictionary<GraphNodeIdentity, EdgeRange>
+                        forwardRanges) =
+                    Freeze(
+                        edges,
+                        forward,
+                        OrderForwardEdges,
+                        includeDistinctCallers: false);
+                (
+                    StoredEdge[] reverseEdges,
+                    Dictionary<GraphNodeIdentity, EdgeRange>
+                        reverseRanges) =
+                    Freeze(
+                        edges,
+                        reverse,
+                        OrderReverseEdges,
+                        includeDistinctCallers: true);
+                return new(
+                    forwardEdges,
+                    forwardRanges,
+                    reverseEdges,
+                    reverseRanges);
+            }
+
+            internal bool TryGetForward(
+                GraphNodeIdentity identity,
+                out ArraySegment<StoredEdge> edges) =>
+                TryGet(
+                    identity,
+                    _forwardEdges,
+                    _forwardRanges,
+                    out edges);
+
+            internal bool TryGetReverse(
+                GraphNodeIdentity identity,
+                out ArraySegment<StoredEdge> edges) =>
+                TryGet(
+                    identity,
+                    _reverseEdges,
+                    _reverseRanges,
+                    out edges);
+
+            internal int IncomingCount(GraphNodeIdentity identity) =>
+                _reverseRanges.TryGetValue(
+                    identity,
+                    out EdgeRange range)
+                    ? range.DistinctCallerCount
+                    : 0;
+
+            bool TryGet(
+                GraphNodeIdentity identity,
+                StoredEdge[] indexedEdges,
+                Dictionary<GraphNodeIdentity, EdgeRange> ranges,
+                out ArraySegment<StoredEdge> edges)
+            {
+                if (!ranges.TryGetValue(identity, out EdgeRange range))
+                {
+                    edges = default;
+                    return false;
+                }
+                edges = new(
+                    indexedEdges,
+                    range.Start,
+                    range.Count);
+                return true;
+            }
+
+            static void Add(
+                Dictionary<GraphNodeIdentity, List<int>> index,
+                GraphNodeIdentity identity,
+                int edgeIndex)
+            {
+                if (!index.TryGetValue(identity, out List<int>? edges))
+                {
+                    edges = [];
+                    index.Add(identity, edges);
+                }
+                edges.Add(edgeIndex);
+            }
+
+            static (
+                StoredEdge[] Edges,
+                Dictionary<GraphNodeIdentity, EdgeRange> Ranges)
+                Freeze(
+                    ImmutableArray<StoredEdge> edges,
+                    Dictionary<GraphNodeIdentity, List<int>> index,
+                    Func<
+                        IEnumerable<int>,
+                        ImmutableArray<StoredEdge>,
+                        IOrderedEnumerable<int>> order,
+                    bool includeDistinctCallers)
+            {
+                var indexedEdges = new StoredEdge[edges.Length];
+                var ranges =
+                    new Dictionary<GraphNodeIdentity, EdgeRange>(
+                        index.Count);
+                int start = 0;
+                foreach ((
+                    GraphNodeIdentity identity,
+                    List<int> group) in index)
+                {
+                    int offset = start;
+                    foreach (int edgeIndex in order(group, edges))
+                        indexedEdges[start++] = edges[edgeIndex];
+                    int count = start - offset;
+                    int distinctCallerCount = includeDistinctCallers
+                        ? group
+                            .Select(edgeIndex =>
+                                edges[edgeIndex].Caller.Evidence.Identity)
+                            .Distinct()
+                            .Count()
+                        : 0;
+                    ranges.Add(
+                        identity,
+                        new(
+                            offset,
+                            count,
+                            distinctCallerCount));
+                }
+                return (indexedEdges, ranges);
+            }
+
+            readonly record struct EdgeRange(
+                int Start,
+                int Count,
+                int DistinctCallerCount);
+        }
 
         sealed class PlanEntry(
             CatalogMemberCorrespondencePlan plan)
