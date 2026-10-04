@@ -158,8 +158,6 @@ function workspaceView(
     memberAccessibilityFilter: "all",
     memberTraitFilter: "",
     memberTextFilter: "",
-    methodLeverageEnabled: false,
-    memberLeverageFilter: "",
     selectedOverloadIndex: 0,
     bodyTarget: graphTarget,
     memberSection: "overview",
@@ -393,7 +391,6 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.section, "facts");
   assert.equal(parsed.memberSourceView, null);
   assert.equal(parsed.memberAccessibilityFilter, "public");
-  assert.equal(parsed.memberLeverageFilter, "");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
 });
@@ -437,23 +434,6 @@ test("legacy workspace transport treats an omitted source view as authored", () 
   assert.equal(parsed.workspaceNotice, "");
   assert.equal(parsed.memberSourceView, null);
 });
-
-test("shared Top Leverage filter remains an explicit URL activation", () => {
-  const state = workspaceState({
-    memberLeverageFilter: "top-leverage",
-  });
-  const url = buildWorkspaceStateUrl(
-    "https://inspect.example/",
-    state,
-    () => encoded());
-
-  assert.equal(url.searchParams.get("member-leverage"), "top");
-  const parsed = parseWorkspaceLocation(
-    locationSnapshot(url),
-    () => decoded(state));
-  assert.equal(parsed.memberLeverageFilter, "top-leverage");
-});
-
 test("workspace-subject URLs preserve retained coordinates and restore Workspace", () => {
   const state = workspaceState({
     subject: "workspace",
@@ -1235,26 +1215,6 @@ test("history signatures distinguish exact Member document identity", () => {
   const original = workspaceView({
     selectedMemberKey: "method:Build",
     memberDocumentFingerprint: "abc123",
-  });
-
-  test("history signatures distinguish Top Leverage activation and filtering", () => {
-    const inactive = workspaceView();
-    const active = workspaceView({
-      methodLeverageEnabled: true,
-    });
-    const filtered = workspaceView({
-      methodLeverageEnabled: true,
-      memberLeverageFilter: "top-leverage",
-    });
-
-    assert.notEqual(
-      workspaceViewSignature(inactive),
-      workspaceViewSignature(active),
-    );
-    assert.notEqual(
-      workspaceViewSignature(active),
-      workspaceViewSignature(filtered),
-    );
   });
 
   assert.notEqual(
