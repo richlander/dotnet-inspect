@@ -40,8 +40,10 @@ they are the writer's real job.
 
 The invariant that makes "thin" checkable: **no value reaches the writer un-decided**
 — every typed sink routes through a `Coerce` (instance 1) and every rendered local is
-a materialized, typed IR node (instance 2) — asserted by `CheckInvariant()`. A
-violation fails a unit test, not a recompile.
+a pipeline-issued, typed IR node (instance 2: materialized, or residual-bound with
+visible provenance under [Residual storage binding](#residual-storage-binding)) —
+asserted by `CheckInvariant()` and, for stack slots, by an unconditional printer
+boundary. A violation fails a unit test, not a recompile.
 
 The rest of this document details **instance 1 (coercion)** in full — it is the
 largest, most bug-dense, and the template for the others — then **instance 2 (slot
@@ -637,6 +639,16 @@ materialized IR node," checkable the same way. This is why instance 2 rides on
 instance 1: they share the type-propagation spine, so instance 2 is *mostly the
 deletion* of print-time typing once propagation exists — not a second engine.
 
+Materialization has since retired the semantic core of that unifier on the
+fixed corpus: its multi-candidate type choice reaches zero webs after the
+bounded reference storage slice. What remains at the printer is a deterministic
+residual policy — one testified type, the ordered-store split identity, or the
+reference `object` fallback — applied to a counted population. The terminus is
+therefore no longer "delete the unifier when the residual reaches zero". It is
+[Residual storage binding](#residual-storage-binding): move that frozen policy
+in front of the printer as a decided, provenance-carrying pass, delete the
+printer's slot paths now, and burn the pass's population down upstream.
+
 ### Mutually exclusive switch-section ranges
 
 A raised `Switch` supplies one bounded live-range proof before storage
@@ -671,6 +683,113 @@ synthetic positive and decline cases gate downstream joins, read-before-write,
 nested control flow, and same-typed sections. On the fixed corpus the proof
 reduces residual printer split slots from 140 to 138 with zero collection
 failures and no introduced residual identity.
+
+### Residual storage binding
+
+The focused claim:
+
+> After storage materialization and live-range splitting, every stack-slot web
+> that materialization declined is bound to a decided, typed local before
+> presentation, carrying its materialization veto class as typed provenance.
+> No `StoreStackSlot` or `LoadStackSlot` reaches `CSharpPrinter`.
+
+This is one Decompiler responsibility moving out of the printer. It creates no
+new storage, type, or host owner, and it does not redefine the materialization
+admission contract, the coercion domain, the live-range proofs, or the
+[local declaration plan](decompiler-local-binding-plan.md).
+
+**Position.** The pass runs on every body — function, raised lambda, raised
+local function — immediately after `SlotMaterializationPass` has issued its
+decisions for that body and before coercion insertion, so a residual-bound
+local's loads discharge their sink obligations exactly as a materialized
+local's do. Nested bodies bind inside their own finalized pipeline, as they
+materialize today; late re-materialization of residual nested webs remains a
+materialization concern, not a binding one.
+
+**Policy is frozen, not re-derived.** The pass applies the residual policy the
+printer applies today and nothing else: a web whose testimony names one type
+binds one local of that type; a web the ordered-store split rule separates
+binds one local per split identity; a reference-like web with conflicting
+testimony binds the `object` fallback. The pass consumes issued testimony,
+split identities, and the existing storage types. It does not derive producer
+and observer compatibility, infer a join type, add hierarchy or variance
+conversions, or consult a sink the materialization owner has not already
+testified. Admission growth belongs to materialization and its testimony
+owners; this pass only shrinks. A residual class that cannot be bound by the
+frozen policy is a visible failure at the pass boundary, never a new rule here.
+
+**Every bound local carries provenance.** Each residual-bound local records
+its binding kind (testified type, split identity, or reference fallback) and
+the overlapping veto classes `SlotMaterializationPass.Analyze` already issues
+for its web. Provenance is a typed fact on the local, available to hosts and
+to the census; it is not display text, and it never upgrades fidelity or
+identity. Bound locals keep their `S_n` and `S_n_k` names so render A/B stays
+comparable; readable naming remains owned by the declaration plan and
+[Readable local names](readable-local-names.md).
+
+**The printer deletes its slot machinery in the same slice.**
+`TryChooseUnifiedStackSlotType`, `_stackSlotUnifiedTypes`,
+`_stackSlotDeclarations`, `StackSlotName`, `StackSlotTargetType`,
+`CollectStackSlotNames`, their assignability helpers, and every rendering
+branch keyed on `StoreStackSlot`/`LoadStackSlot` leave the printer family. The
+printer's residual-stack-slot spelling is replaced by its existing typed-local
+spelling. Deletion and the pass land together; neither is coherent alone.
+
+**Gate.** The printer boundary is unconditional in Release: a stack-slot node
+reaching `CSharpPrinter` raises a typed pipeline failure, not success-shaped
+output, independent of the `IrInvariants` switch. `IrInvariants`, when
+enabled, additionally checks that each residual-bound local's occurrence set
+equals its pre-binding web, reusing the storage-rewrite correspondence check.
+Focused Release tests pin one fixture per binding kind and per veto class the
+pass may receive — conflicting testimony, underivable testimony, missing load,
+incomplete direct-copy component, nested body scope, true split — plus the
+compiler-produced boundary where a surviving slot must fail visibly.
+
+**Measurement replaces the printer census.** The harness's printer-unifier
+census retires with the unifier. A residual-binding census over the fixed
+14-assembly, 89,065-method corpus reports bound webs grouped by binding kind
+and veto class, with one example per group, and `--slot-residual-census`
+continues to report materialization's own accounting. The population the pass
+binds at the implementation slice's head is the recorded start of the
+burn-down. Each later slice moves one veto class into materialization, reports
+the class population before and after, and never touches the printer.
+
+**The floor is named, not assumed to be zero.** Some residual classes require
+inference this design excludes — hierarchy conversions, conflicting testimony
+that only whole-method flow could reconcile — and may remain bound by the
+frozen policy indefinitely. That is an acceptable end state because the
+decision is visible, counted, and owned by the pipeline. When the census
+reaches a class the owners decline to materialize, the program records that
+population as the named floor on #2095, and any attempt to lower it is a
+separately approved design, not an admission rule added here.
+
+**Expected visible delta.** The implementation slice intends byte-identical
+rendered bodies up to declaration placement and initializer form, as earlier
+materialization slices produced, because the bound policy is the printer's
+own. Render A/B over the fixed corpus classifies every changed method; a
+valid-to-invalid transition is the stop signal.
+
+**Motivating inputs.** As of the 2026-09-21 fixed census, the residual classes
+this pass receives are witnessed by real published assemblies:
+`Microsoft.CodeAnalysis.CommonCompiler.CompileAndEmit` (conflicting testimony),
+`Newtonsoft.Json.Utilities.DynamicProxyMetaObject<T>.GetArgArray`
+(underivable testimony), `Microsoft.CodeAnalysis.AnalyzerAssemblyLoader..ctor`
+(missing load), `Newtonsoft.Json.JsonConvert.SerializeObject` (incomplete
+direct-copy component),
+`Microsoft.CodeAnalysis.Emit.DeltaMetadataWriter.FinalizeCustomAttributeTableRows`
+(nested body scope), and `Newtonsoft.Json.JsonSerializer.PopulateInternal`
+(true split). The implementation slice re-selects its pinned witnesses from a
+fresh census at its exact base; later materialization may have retired some
+of these.
+
+**Production adoption.** The shared default pipeline adopts the pass for CLI
+and Browser/Wasm; no host or rendering option changes. Residual provenance is
+exposed only through existing structured disclosure and the harness census.
+
+**Non-goals.** No change to `SlotMaterializationPass` admission or testimony
+owners; no new control-flow, liveness, or reaching-definitions analysis; no
+readable-name or declaration-placement redesign; no definite-assignment
+change (instance 3); no claim that the frozen policy is a correctness proof.
 
 ## Instance 3 — definite assignment (noted, deferred)
 
@@ -995,8 +1114,9 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    non-action boundaries. Direct-copy components remain atomic:
    `MaterializesBooleanSinkIdentityAcrossDirectCopyComponent` gates the
    decided case; an undecided member still retains the entire component.
-   The C2 deletion and invariant extension follow once the residual census
-   reaches the printer-owned floor.
+   The C2 deletion and invariant extension are owned by
+   [Residual storage binding](#residual-storage-binding); they no longer wait
+   for the residual census to reach zero.
 
    Element-store identity also recovers late: integer-typed loads used as the
    value of a char or metadata-resolved enum array store may testify to that
@@ -1483,9 +1603,12 @@ insistence on a falsifiable trigger rather than a standing intention:
   `CheckInvariant()` and green across the corpus: at that point the cast class cannot
   recur silently, because a new un-coerced sink fails a unit test, not a recompile.
 - **Thin writer done** when the invariant covers both instances — every typed sink
-  through a `Coerce`, every rendered local a materialized IR node (steps 4–5) — so the
-  writer is a total function of a decided, fully-typed IR. Instance 3 remains an
-  optional later slice.
+  through a `Coerce`, every rendered local a pipeline-issued IR node (steps 4–5),
+  and no stack-slot node reaches the printer under the unconditional boundary of
+  [Residual storage binding](#residual-storage-binding) — so the writer is a
+  total function of a decided, fully-typed IR. The residual-binding population
+  is then a measured pipeline burn-down with a named floor, not a printer
+  concern. Instance 3 remains an optional later slice.
 - **Explicitly out of scope** and tracked separately: member-naming of
   `Convert`-wrapped constants (a naming nicety, not a validity gap) and any
   cross-assembly enum backing that would require loading the defining assembly.
