@@ -286,8 +286,9 @@ sleeps, or concurrent status requests.
 
 When the budget expires with status unresolved, obtain a final snapshot. Do not
 publish the report below unless its fetched live base equals
-`conflict-checked-base`; instead clear `schedule`, classify and surface a
-fetch or probe failure, and set `rec=stop`. A recorded local conflict never reaches expiry: it
+`conflict-checked-base` or the probe recorded a conflict; instead clear
+`schedule`, classify and surface a fetch or probe failure, and set
+`rec=stop`. A recorded local conflict never reaches expiry: it
 leaves the wait for conflict recovery the moment it is found, including when
 the final snapshot is the one that finds it. Otherwise clear `schedule`, keep
 the unresolved predicates, publish the report, set `rec=stop`, and end. This is an informational stop: it ends observation only
@@ -630,9 +631,13 @@ the path applies.
      already-merged result as terminal. Then remove `review-clean`, integrate
      the tip, re-run the claimed validation, push, obtain current-head CI, and
      re-dispatch the required reviewers at the new head as a normal round.
-   - *Conflict requiring semantic resolution:* expire merge authorization,
-     disable any armed auto-merge first, and handle an already-merged result as
-     terminal. Then remove `review-clean` and resolve it as an author change under
+   - *Conflict requiring semantic resolution:* expire merge authorization;
+     when the API can be read, disable any armed auto-merge first and handle
+     an already-merged result as terminal, and when it cannot, the recovery
+     push still proceeds and names the request known from the last successful
+     read ([Probe the live base locally,
+     first](github-status-queries.md#probe-the-live-base-locally-first)).
+     Then remove `review-clean` and resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 
