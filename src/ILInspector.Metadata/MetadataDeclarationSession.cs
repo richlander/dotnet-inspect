@@ -121,6 +121,26 @@ public sealed class MetadataDeclarationSession : IDisposable
             accessibility);
     }
 
+    public MetadataTypeMemberGroupPopulationOutcome
+        InspectTypeMemberGroups(
+            MetadataTypeMemberGroupPopulationRequest request,
+            ApiSurfaceExtractionBounds bounds,
+            CancellationToken cancellationToken = default)
+    {
+        EnsureAccess();
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(bounds);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+            return new MetadataTypeMemberGroupPopulationOutcome.Failed();
+
+        return MetadataTypeMemberGroupPopulationInspection.Read(
+            _assemblySession!.GetMetadataReaderForDeclarationSession(),
+            request,
+            bounds,
+            cancellationToken);
+    }
+
     public MetadataMethodDeclarationResult PostMethodDeclaration(
         MetadataTypeDefinitionAddress type,
         ILInspector.MetadataPrimitives.MetadataMethodAddress method,

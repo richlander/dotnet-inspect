@@ -23,15 +23,77 @@ objects. A merge or readiness goal also justifies GraphQL because
 `mergeStateStatus` is the documented field that reports a blocked merge.
 During a bounded third- or sixth-round wait, GraphQL may also provide CI status
 when the REST **primary** limit is exhausted because the primary limits are
-separate, but the lifecycle and status reads remain separated by the local
-conflict probe below. Do not switch APIs to evade a secondary limit.
+separate; the local conflict probe below still runs first, and the lifecycle
+and status reads remain separate requests. Do not switch APIs to evade a
+secondary limit.
+
+## Probe the live base locally, first
+
+Every status attempt starts with a local conflict probe, before any GitHub
+request: the eligibility check before reviewer dispatch, every bounded-wait
+snapshot, every scheduled check-in, and merge preflight. The probe needs only
+`git fetch` against the repository remote, so it runs when the GitHub API is
+rate-limited, returns `mergeable: null` while GitHub is still computing the
+test merge, or reports a stale value for a head it has not re-evaluated. A
+local conflict is decisive and `mergeable: null` or `true` never clears it; a
+GitHub-reported conflict (`mergeable: false`, below) still counts as one. The
+API fields never substitute for the probe. An agent that spends a status budget on CI reads while the candidate already
+conflicts with `main` has skipped this step.
+
+```bash
+git fetch origin "$base_ref"
+base_tip=$(git rev-parse FETCH_HEAD)
+git rev-parse --verify -q "$head_sha^{commit}" >/dev/null
+git rev-parse --verify -q "$base_tip^{commit}" >/dev/null
+```
+
+Both `rev-parse` checks must succeed before the test merge; `git merge-tree`
+also exits 1 for an unresolvable ref, so an unverified input would read as a
+conflict. A failed check is a probe failure: fetch the missing head (for
+example `git fetch origin "$head_sha"`) and retry once, then classify as
+below.
+
+Compare `base_tip` with the `conflict-checked-base` recorded for the expected
+head and base ref. When no tip is recorded or the tip changed, run the
+non-mutating test merge:
+
+```bash
+git merge-tree --write-tree "$head_sha" "$base_tip"
+```
+
+Exit status zero records `conflict-checked-base=$base_tip` and allows the
+attempt to continue to the GitHub reads below. Exit status one with a tree
+OID on the first line of standard output means the candidate conflicts with
+the live base; record the conflict and skip the CI reads. Any other outcome is
+a probe failure, not evidence of either result: classify a concrete transport
+failure (fetch) as transient, handled like a transient query failure, and an
+unverifiable ref, missing object, or command failure as terminal.
+
+A recorded local conflict is decisive about the conflict, not about the PR's
+lifecycle. Still take the PR read below when the API answers, and apply the
+[result table](round-orchestration.md#apply-the-result) top-down: merged,
+closed, draft, and head or base-ref mismatch outrank conflict recovery. When
+the API cannot be read on this attempt, do not hold the conflict: resolve and
+push the recovery against the expected base anyway — the agent that pushed
+the head knows the PR was open at that head and base ref and has received no
+merge or close — and take the lifecycle read on the next attempt. A conflict
+is never a waiting state; `waiting` never carries a conflict predicate, and a
+status budget cannot expire holding one, because recovery leaves the wait at
+once ([Bounded status waiting](round-orchestration.md#bounded-status-waiting)).
+
+Fetch on every attempt so base movement is discovered, but rerun the test
+merge only for an unrecorded tip. Base movement alone does not invalidate the
+candidate, trigger integration, or spend review evidence. The probe
+establishes only whether Git can form a tree merge for that head and base
+tip; it does not establish CI state, semantic non-interaction, or merge
+authorization.
 
 ## Routine REST snapshot
 
-Repository policy queries the PR before checks so lifecycle, head mismatch, and
-conflict can short-circuit a second request. Run each request as a separate
-agent tool call so a failure is classified before another request spends
-capacity:
+After the local probe (and, on a recorded conflict, without the checks
+request), repository policy queries the PR before checks so lifecycle, head
+mismatch, and a GitHub-reported conflict can short-circuit a second request. Run each request as a separate agent tool call so a failure is
+classified before another request spends capacity:
 
 ```bash
 pr_number=1234
@@ -50,6 +112,10 @@ Handle lifecycle, candidate mismatch, and `mergeable: false` before checks:
   candidate mismatch that invalidates all review and merge authorization.
 - Treat `mergeable: false` as not conflict-free. GitHub's GraphQL
   `MergeableState.CONFLICTING` documents the corresponding conflict meaning.
+  For conflict detection, treat `mergeable: null` or `true` as no information
+  beyond the local probe that already ran; GitHub computes the test merge
+  lazily and may report a value for an older evaluation. Positive mergeability
+  for merge preflight and six-round boundaries keeps its own meaning below.
 
 When CI state is still required, copy the validated 40-character head into a
 separate request. The same response body projects both the aggregate gate and
@@ -93,51 +159,18 @@ and response headers; `--jq` selects values from the response body. See
 [required-check troubleshooting][required-checks],
 [REST pagination][pagination], and the [`gh api` manual][gh-api].
 
-## Probe the live base locally
-
-GitHub's test-merge result does not replace a local conflict probe during a
-bounded status wait. After the PR response validates lifecycle, head, and base
-ref, a reported GitHub conflict may short-circuit the snapshot. Otherwise,
-fetch the live base non-mutating before querying checks:
-
-```bash
-git fetch origin "$base_ref"
-base_tip=$(git rev-parse FETCH_HEAD)
-```
-
-Compare `base_tip` with the `conflict-checked-base` recorded for the expected
-head and base ref. When no tip is recorded or the tip changed, run the
-non-mutating test merge:
-
-```bash
-git merge-tree --write-tree "$head_sha" "$base_tip"
-```
-
-Exit status zero records `conflict-checked-base=$base_tip` and allows the
-snapshot to continue. Exit status one means the candidate conflicts with the
-live base and enters conflict recovery before any CI query. Any other exit
-status is a probe failure, not evidence of either outcome; classify a concrete
-transport failure as transient and an invalid ref, missing object, or command
-failure as terminal.
-
-Fetch on every scheduled snapshot so base movement is discovered, but rerun
-the test merge only for an unrecorded tip. Base movement alone does not
-invalidate the candidate, trigger integration, or spend review evidence. The
-probe establishes only whether Git can form a tree merge for that head and
-base tip; it does not establish CI state, semantic non-interaction, or merge
-authorization.
-
 ## Graph-shaped snapshots
 
-When GraphQL is justified during a bounded status wait, first request only the
-lifecycle and fixed-head fields needed by the same interpretation rules:
+When GraphQL is justified during a bounded status wait, the local probe above
+has already run. First request only the lifecycle and fixed-head fields needed
+by the same interpretation rules:
 `state`, `merged`, `headRefOid`, `baseRefName`, `baseRefOid`,
 `baseRef { target { oid } }`, `isDraft`, `mergeable`, and `mergeStateStatus`.
 Do not request `statusCheckRollup` in that first query.
 
-After validating the response and completing a clean local conflict probe,
-request `headRefOid` and `statusCheckRollup` state and contexts with `pageInfo`
-in a second query. Confirm `headRefOid` still equals the expected head before
+After validating the response, and unless a conflict is recorded, request
+`headRefOid` and `statusCheckRollup` state and contexts with `pageInfo` in a
+second query. Confirm `headRefOid` still equals the expected head before
 using the status result. Request enough contexts for the normal check matrix;
 if another page exists and `ci-required` is absent, page before concluding that
 the check is missing. These fields and the `MergeableState` and
