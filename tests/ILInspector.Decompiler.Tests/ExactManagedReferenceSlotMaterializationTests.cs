@@ -130,10 +130,14 @@ public class ExactManagedReferenceSlotMaterializationTests
             body);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         string output = CSharpPrinter.Print(function).Output!;
 
+        // The load-only residual piece is a plan-owned local now, so it takes
+        // the plan's definite-assignment initializer; it still precedes the
+        // materialized ref local's up-front declaration.
         int residualDeclaration = output.IndexOf(
-            "int S_0;",
+            "int S_0 = default;",
             StringComparison.Ordinal);
         int materializedDeclaration = output.IndexOf(
             "ref int S_1 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();",
@@ -440,12 +444,19 @@ public class ExactManagedReferenceSlotMaterializationTests
             SlotMaterializationVeto.MissingStore));
         new SlotMaterializationPass().Run(function, PassContext.None);
 
+        // Residual storage binding rejects the managed-reference web first;
+        // the printer's unconditional boundary rejects whatever reaches it.
+        var binding = Assert.Throws<InvalidOperationException>(
+            () => new ResidualSlotBindingPass().Run(function, PassContext.None));
+        Assert.Equal(
+            "M: managed-reference stack slot 0 reached residual storage binding after slot materialization.",
+            binding.Message);
         var result = CSharpPrinter.Print(function);
         Assert.False(result.Succeeded);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Equal(DiagnosticIds.InternalError, diagnostic.Id);
         Assert.Equal(
-            "InvalidOperationException: Managed-reference stack slot 0 reached C# emission after slot materialization.",
+            "InvalidOperationException: Stack slot 0 reached C# emission without residual storage binding.",
             diagnostic.Message);
     }
 
@@ -508,10 +519,19 @@ public class ExactManagedReferenceSlotMaterializationTests
                 {
                     Type.Kind: TypeRefKind.ByRef,
                 });
-        Assert.Contains(
+        // The neighboring residual web is bound by ResidualSlotBindingPass at
+        // the end of the pipeline, so no slot node reaches the printer and the
+        // bound local carries the web's veto as provenance.
+        Assert.DoesNotContain(
             function.DescendantsOutsideNestedFunctions,
-            node => node is StoreStackSlot { Slot: 1 }
-                or LoadStackSlot { Slot: 1 });
+            node => node is StoreStackSlot or LoadStackSlot);
+        var bound = Assert.Single(
+            function.ResidualSlotBindings.Values,
+            binding => binding.Slot == 1);
+        Assert.Equal(ResidualSlotBindingKind.Unified, bound.Kind);
+        Assert.Equal(
+            SlotMaterializationVeto.UnderivableTypeTestimony,
+            bound.Vetoes);
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains(
             "ref DefaultInterpolatedStringHandler S_0 = ref V_0;",
