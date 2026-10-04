@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Output;
@@ -18,12 +19,20 @@ internal static class MemberExplanationBindings
             Registered.Value.Command.DefaultSections);
 
     internal static InspectionEnvelope<MemberContextualExplanationDocument>
-        ExplainExactSubject(
-            DotnetInspector.Queries.ResolvedMemberInspectionBasis basis) =>
-        MemberContextualExplanationOperation.ExplainExactSubject(
-            Registered.Value.ExactSubject.Document,
+        ExplainMemberGroup(
+            ResolvedMemberGroupExplanationBasis basis) =>
+        MemberContextualExplanationOperation.ExplainMemberGroup(
+            Registered.Value.MemberGroup.Document,
             basis,
-            Registered.Value.ExactSubject.DefaultSections);
+            Registered.Value.MemberGroup.DefaultSections);
+
+    internal static InspectionEnvelope<MemberContextualExplanationDocument>
+        ExplainExactMember(
+            DotnetInspector.Queries.ResolvedMemberInspectionBasis basis) =>
+        MemberContextualExplanationOperation.ExplainExactMember(
+            Registered.Value.ExactMember.Document,
+            basis,
+            Registered.Value.ExactMember.DefaultSections);
 
     private static Registration CreateRegistration() =>
         new(
@@ -33,6 +42,12 @@ internal static class MemberExplanationBindings
                     StructuralViewIdentity.MemberType,
                     InspectionCatalogIdentity.ApiMember)),
             CreateResource(
+                "member-overload",
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.MemberTarget,
+                    InspectionCatalogIdentity.ApiMemberOverload),
+                [SectionNames.Methods]),
+            CreateResource(
                 "member-detail",
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.MemberTarget,
@@ -40,7 +55,8 @@ internal static class MemberExplanationBindings
 
     private static RegisteredResource CreateResource(
         string catalogName,
-        StructuralRoute route)
+        StructuralRoute route,
+        IEnumerable<string>? defaultSections = null)
     {
         StructuralSchemaProjection projection =
             StructuralViewRegistry.Project(route);
@@ -84,12 +100,15 @@ internal static class MemberExplanationBindings
                     0,
                     ResourceLimit,
                     RelationshipLimit)).Content,
-            [.. projection.DefaultSectionNames]);
+            defaultSections is null
+                ? [.. projection.DefaultSectionNames]
+                : [.. defaultSections]);
     }
 
     private sealed record Registration(
         RegisteredResource Command,
-        RegisteredResource ExactSubject);
+        RegisteredResource MemberGroup,
+        RegisteredResource ExactMember);
 
     private sealed record RegisteredResource(
         ResourceExplanationDocument Document,

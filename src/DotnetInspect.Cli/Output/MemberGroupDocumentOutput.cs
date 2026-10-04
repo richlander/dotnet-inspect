@@ -73,14 +73,7 @@ internal static class MemberGroupDocumentOutput
             return false;
         }
 
-        string memberName = options.MemberFilter.Single();
-        if (memberName.Contains('*', StringComparison.Ordinal)
-            || memberName.Contains('?', StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        return ResolveCanonicalMethodName(type, memberName) is not null
+        return ResolveSubject(type, options) is not null
             && (options.Tree || !options.FormatFlagExplicitlySet);
     }
 
@@ -88,25 +81,20 @@ internal static class MemberGroupDocumentOutput
         ApiType type,
         MemberOptions options,
         string assemblyPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        MemberGroupSubject? resolvedSubject = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
-        MetadataTypeDefinitionName definition =
-            type.DefinitionName
-            ?? throw new ArgumentException(
-                "An exact metadata Type definition is required.",
-                nameof(type));
-        string memberName =
-            ResolveCanonicalMethodName(
-                type,
-                options.MemberFilter.Single())
+        MemberGroupSubject subject =
+            resolvedSubject
+            ?? ResolveSubject(type, options)
             ?? throw new InvalidOperationException(
                 "The native MemberGroup route requires one unambiguous "
                 + "ordinary method name.");
         var plan = new MemberOverloadPopulationInspectionPlan(
-            new MemberGroupSubject(definition, memberName),
+            subject,
             new MemberOverloadPopulationRequest(
                 new MemberOverloadCountRequest(),
                 new MemberOverloadRowsRequest(
@@ -275,6 +263,36 @@ internal static class MemberGroupDocumentOutput
         }
 
         return canonicalName;
+    }
+
+    internal static MemberGroupSubject? ResolveSubject(
+        ApiType type,
+        MemberOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(options);
+        if (type.DefinitionName is not { } definition
+            || options.MemberFilter.Count != 1
+            || options.OverloadIndex.HasValue
+            || !string.IsNullOrWhiteSpace(options.MemberDigest)
+            || options.MemberGenericArity.HasValue
+            || options.KindFilter.Count > 0)
+        {
+            return null;
+        }
+
+        string requestedName = options.MemberFilter.Single();
+        if (requestedName.Contains('*', StringComparison.Ordinal)
+            || requestedName.Contains('?', StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string? canonicalName =
+            ResolveCanonicalMethodName(type, requestedName);
+        return canonicalName is null
+            ? null
+            : new MemberGroupSubject(definition, canonicalName);
     }
 
     private static bool RequestsReturnedRowDocumentation(
