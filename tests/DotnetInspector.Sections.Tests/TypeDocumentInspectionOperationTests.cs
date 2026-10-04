@@ -66,6 +66,54 @@ public sealed class TypeDocumentInspectionOperationTests
     }
 
     [Fact]
+    public async Task GenericSubjectOnly_RetainsDetachedDeclarationSignature()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var zeroPopulation = new ApiSurfaceExtractionBounds(
+            maxTypes: 0,
+            maxMembers: 0,
+            maxInspectionFailures: 0,
+            maxTypeForwarders: 0,
+            s_bounds.MaxMetadataRows,
+            maxRetainedTextCharacters: 0);
+
+        TypeDocument document =
+            Available(
+                Execute(
+                    library,
+                    type: Name(
+                        "System.Text.Json.Serialization",
+                        "JsonConverter`1"),
+                    bounds: zeroPopulation));
+
+        Assert.IsType<TypeDocumentDeclarations.NotRequested>(
+            document.Declarations);
+        TypeDocumentGenericParameter parameter =
+            Assert.Single(
+                document.Subject.Signature.GenericParameters);
+        Assert.Equal(0, parameter.DefinitionSegmentIndex);
+        Assert.Equal(0, parameter.MetadataIndex);
+        Assert.Equal("T", parameter.Name.ToString());
+        Assert.Equal(
+            GenericParameterAttributes.None,
+            parameter.Attributes);
+
+        string json =
+            JsonSerializer.Serialize<TypeDocumentInspectionOutcome>(
+                new TypeDocumentInspectionOutcome.Available(document));
+        Assert.Contains("\"Name\":\"T\"", json);
+        Assert.Contains("\"DefinitionSegmentIndex\":0", json);
+        Assert.Contains("\"MetadataIndex\":0", json);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task CountOnly_BindsSubjectAndPopulation()
     {
         byte[] content =

@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
@@ -246,6 +248,17 @@ public static class TypeDocumentInspectionOperation
                         document.Subject.Type.ModuleVersionId,
                         plan.Type,
                         document.Subject.Type.Definition.Value,
+                        new(
+                            ImmutableArray.CreateRange(
+                                document.Subject.Signature
+                                    .GenericParameters
+                                    .Select(parameter =>
+                                        new TypeDocumentGenericParameter(
+                                            parameter
+                                                .DefinitionSegmentIndex,
+                                            parameter.MetadataIndex,
+                                            parameter.Name,
+                                            parameter.Attributes)))),
                         document.Subject.Category,
                         document.Subject.Attributes,
                         document.Subject.IsByRefLike,

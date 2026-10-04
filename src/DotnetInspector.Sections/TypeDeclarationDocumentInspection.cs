@@ -1,8 +1,10 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
+using InertText;
 
 namespace DotnetInspector.Sections;
 
@@ -40,11 +42,22 @@ public sealed record TypeDocumentInspectionRequest
     public TypeDocumentInspectionPlan Plan { get; }
 }
 
+public sealed record TypeDocumentGenericParameter(
+    int DefinitionSegmentIndex,
+    int MetadataIndex,
+    [property: JsonConverter(typeof(InertStringJsonConverter))]
+        InertString Name,
+    GenericParameterAttributes Attributes);
+
+public sealed record TypeDocumentDeclarationSignature(
+    ImmutableArray<TypeDocumentGenericParameter> GenericParameters);
+
 public sealed record TypeDocumentSubject(
     LibraryAssemblyIdentity DefiningAssembly,
     Guid ModuleVersionId,
     MetadataTypeDefinitionName Type,
     int TypeDefinitionToken,
+    TypeDocumentDeclarationSignature Signature,
     MetadataTypeDeclarationCategory Category,
     TypeAttributes Attributes,
     bool IsByRefLike,

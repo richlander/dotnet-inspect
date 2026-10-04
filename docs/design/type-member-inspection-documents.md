@@ -283,6 +283,13 @@ are lightweight Member-group shapes, not embedded `MemberGroupDocument` or
 `MemberDocument` values. That declaration population contains only members
 physically owned by the Type.
 
+The subject's detached declaration signature retains each generic parameter's
+inert name, metadata index, attributes, and the declaring-name segment that
+introduces it. This lets hosts present exact shapes such as
+`Outer<T>.Inner<U>` without reopening Metadata or retaining the eager rich API
+surface. Base/interface constraint type identities remain separate Metadata
+views rather than implicit Type-document population.
+
 One declared Member-group row binds a canonical name and member category to one
 non-empty exact declaration population. The grouping key must retain every
 owner-issued distinction needed for unambiguous drill-down. Receiver
