@@ -719,7 +719,9 @@ public sealed class MethodDefinitionHandleCoverage
 public sealed record MethodDefinitionSourceCoverage(
     MethodDefinitionHandleCoverage DefinitionsExamined,
     MethodDefinitionHandleCoverage MethodsSelected,
-    MethodDefinitionHandleCoverage BodiesAcquired);
+    MethodDefinitionHandleCoverage BodiesAttempted,
+    MethodDefinitionHandleCoverage BodiesAcquired,
+    MethodDefinitionHandleCoverage ModuleLookupMethods);
 
 /// <summary>Where and why required Method-source acquisition was incomplete.</summary>
 public sealed record MethodDefinitionSourceFailure(
@@ -937,22 +939,8 @@ internal static class MethodQuerySource
         ProducerResult<TResult> result =
             interim.ResultOf(request.Producer);
         WorkReceipt workReceipt = interim.Receipt;
-        ProducerParticipation participation =
-            workReceipt.For(request.Producer);
         MethodDefinitionSourceFailure? sourceFailure =
             interim.SourceFailureOf(request.Producer);
-
-        int moduleLookups = 0;
-        foreach (ProducerLayerParticipation layer in participation.Layers)
-        {
-            if (string.Equals(
-                    layer.Layer,
-                    nameof(MethodDefinitionLayers.ModuleLookup),
-                    StringComparison.Ordinal))
-            {
-                moduleLookups = layer.Acquired;
-            }
-        }
 
         MethodDefinitionSourceCompletion completion =
             CompletionOf(result.Outcome, sourceFailure);
@@ -965,7 +953,7 @@ internal static class MethodQuerySource
             completion,
             sourceFailure,
             interim.SourceCoverage,
-            moduleLookups);
+            interim.SourceCoverage.ModuleLookupMethods.Count);
         return new(receipt, workReceipt, result);
     }
 
@@ -1048,20 +1036,6 @@ internal static class MethodQuerySource
                     MethodDefinitionSourceFailure? sourceFailure =
                         execution.SourceFailureOf(
                             request.FocusedProducer);
-                    int moduleLookups = 0;
-                    foreach (ProducerLayerParticipation layer
-                        in participation.Layers)
-                    {
-                        if (string.Equals(
-                                layer.Layer,
-                                nameof(
-                                    MethodDefinitionLayers.ModuleLookup),
-                                StringComparison.Ordinal))
-                        {
-                            moduleLookups = layer.Acquired;
-                        }
-                    }
-
                     MethodDefinitionSourceCompletion completion =
                         CompletionOf(
                             participation.Outcome,
@@ -1076,7 +1050,8 @@ internal static class MethodQuerySource
                             completion,
                             sourceFailure,
                             execution.SourceCoverage,
-                            moduleLookups);
+                            execution.SourceCoverage
+                                .ModuleLookupMethods.Count);
                     byAssociation.Add(
                         association.Identity,
                         new(
@@ -1142,7 +1117,9 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     readonly bool _enabled;
     readonly MethodDefinitionHandleCoverageBuilder _definitionsExamined = new();
     readonly MethodDefinitionHandleCoverageBuilder _methodsSelected = new();
+    readonly MethodDefinitionHandleCoverageBuilder _bodiesAttempted = new();
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAcquired = new();
+    readonly MethodDefinitionHandleCoverageBuilder _moduleLookupMethods = new();
 
     public MethodDefinitionSourceCoverageBuilder(bool enabled) =>
         _enabled = enabled;
@@ -1165,11 +1142,25 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _bodiesAcquired.Add(handle);
     }
 
+    public void RecordBodyAttempted(MethodDefinitionHandle handle)
+    {
+        if (_enabled)
+            _bodiesAttempted.Add(handle);
+    }
+
+    public void RecordModuleLookupUsed(MethodDefinitionHandle handle)
+    {
+        if (_enabled)
+            _moduleLookupMethods.Add(handle);
+    }
+
     public MethodDefinitionSourceCoverage Build() =>
         new(
             _definitionsExamined.Build(),
             _methodsSelected.Build(),
-            _bodiesAcquired.Build());
+            _bodiesAttempted.Build(),
+            _bodiesAcquired.Build(),
+            _moduleLookupMethods.Build());
 }
 
 internal sealed class MethodDefinitionHandleCoverageBuilder
