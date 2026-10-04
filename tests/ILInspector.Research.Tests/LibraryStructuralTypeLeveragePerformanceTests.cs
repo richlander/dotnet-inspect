@@ -13,7 +13,7 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
 {
     [Fact]
     [Trait("Speed", "Slow")]
-    public void SystemTextJsonBodyTypeLeverageMatchesPilot()
+    public void SystemTextJsonTypeLeverageMatchesSignatureAndBodyPilot()
     {
         string path = Path.Combine(
             AppContext.BaseDirectory,
@@ -27,6 +27,29 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                 path,
                 "System.Text.Json",
                 cancellationToken);
+        LibraryStructuralTypeLeverageShard signatureShard =
+            LibraryStructuralReport.CreateTypeLeverageShard(
+                inventory);
+
+        LibraryStructuralTypeLeverageRow signatureThrowHelper =
+            SignatureRow(signatureShard, "ThrowHelper");
+        Assert.Equal(12, signatureThrowHelper.SignatureOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            signatureThrowHelper.Pole);
+
+        LibraryStructuralTypeLeverageRow signatureJsonDocument =
+            SignatureRow(signatureShard, "JsonDocument");
+        Assert.Equal(11, signatureJsonDocument.SignatureOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            signatureJsonDocument.Pole);
+
+        LibraryStructuralTypeLeverageRow signatureJsonSerializer =
+            SignatureRow(signatureShard, "JsonSerializer");
+        Assert.Equal(10, signatureJsonSerializer.SignatureOutgoingDegree);
+        Assert.Null(signatureJsonSerializer.Pole);
+
         AnalysisLibraryBodyUseOutcome outcome =
             AnalysisLibraryBodyUseService.ExecutePath(
                 path,
@@ -61,7 +84,9 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
             BodyRow(shard, "JsonSerializer");
         Assert.Equal(2, jsonSerializer.BodyIncomingDegree);
         Assert.Equal(21, jsonSerializer.BodyOutgoingDegree);
-        Assert.Null(jsonSerializer.Pole);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            jsonSerializer.Pole);
         Assert.Equal(
             LibraryStructuralEvidenceDisposition.Qualified,
             shard.RoleDisposition);
@@ -215,6 +240,13 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
 
     private static LibraryStructuralBodyTypeLeverageRow BodyRow(
         LibraryStructuralBodyTypeLeverageShard shard,
+        string name) =>
+        Assert.Single(
+            shard.Rows,
+            row => row.Name.Segments.AsSpan().SequenceEqual([name]));
+
+    private static LibraryStructuralTypeLeverageRow SignatureRow(
+        LibraryStructuralTypeLeverageShard shard,
         string name) =>
         Assert.Single(
             shard.Rows,

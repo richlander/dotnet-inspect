@@ -169,6 +169,63 @@ public sealed class LibraryStructuralTypeLeverageTests
     }
 
     [Fact]
+    public void TypeShardUsesTenPercentCohortOnlyAtDoubleDigitMaximum()
+    {
+        (string Name, MetadataLibraryTypeClassification Classification)[]
+            cohortTypes =
+            [
+                ("Maximum", MetadataLibraryTypeClassification.None),
+                ("NinetyPercent", MetadataLibraryTypeClassification.None),
+                ("BelowNinetyPercent", MetadataLibraryTypeClassification.None),
+                .. Enumerable.Range(1, 10).Select(index =>
+                    ($"Peer{index}",
+                        MetadataLibraryTypeClassification.None)),
+            ];
+        (int Source, int Target)[] cohortRelationships =
+        [
+            .. Enumerable.Range(3, 10).Select(source => (source, 0)),
+            .. Enumerable.Range(3, 9).Select(source => (source, 1)),
+            .. Enumerable.Range(3, 8).Select(source => (source, 2)),
+        ];
+        LibraryStructuralTypeLeverageShard cohort = Shard(
+            "Cohort",
+            cohortTypes,
+            cohortRelationships);
+
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            Row(cohort, 0).Pole);
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            Row(cohort, 1).Pole);
+        Assert.Null(Row(cohort, 2).Pole);
+
+        (string Name, MetadataLibraryTypeClassification Classification)[]
+            exactTypes =
+            [
+                ("Maximum", MetadataLibraryTypeClassification.None),
+                ("BelowMaximum", MetadataLibraryTypeClassification.None),
+                .. Enumerable.Range(1, 9).Select(index =>
+                    ($"Peer{index}",
+                        MetadataLibraryTypeClassification.None)),
+            ];
+        (int Source, int Target)[] exactRelationships =
+        [
+            .. Enumerable.Range(2, 9).Select(source => (source, 0)),
+            .. Enumerable.Range(2, 8).Select(source => (source, 1)),
+        ];
+        LibraryStructuralTypeLeverageShard exact = Shard(
+            "Exact",
+            exactTypes,
+            exactRelationships);
+
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            Row(exact, 0).Pole);
+        Assert.Null(Row(exact, 1).Pole);
+    }
+
+    [Fact]
     public void TypeShardIssuesOneDominantPoleOrNoneForExactTie()
     {
         LibraryStructuralTypeLeverageShard seaDominant = Shard(

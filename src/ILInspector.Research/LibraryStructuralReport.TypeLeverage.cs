@@ -659,15 +659,15 @@ public static partial class LibraryStructuralReport
         int mountainPeakMaximum)
     {
         bool seaLevel =
-            seaLevelMaximum
-                >= LibraryStructuralSalience.MinimumDesignationDegree
-            && designationEligible
-            && incomingDegree == seaLevelMaximum;
+            designationEligible
+            && IsDesignationDegree(
+                incomingDegree,
+                seaLevelMaximum);
         bool mountainPeak =
-            mountainPeakMaximum
-                >= LibraryStructuralSalience.MinimumDesignationDegree
-            && designationEligible
-            && outgoingDegree == mountainPeakMaximum;
+            designationEligible
+            && IsDesignationDegree(
+                outgoingDegree,
+                mountainPeakMaximum);
         if (seaLevel && mountainPeak)
         {
             if (incomingDegree == outgoingDegree)
@@ -684,6 +684,18 @@ public static partial class LibraryStructuralReport
             return LibraryStructuralTypePole.MountainPeak;
         return null;
     }
+
+    private static bool IsDesignationDegree(
+        int degree,
+        int maximum) =>
+        maximum >= LibraryStructuralSalience.MinimumDesignationDegree
+        && (maximum
+                < LibraryStructuralSalience.MinimumCohortMaximumDegree
+            ? degree == maximum
+            : degree * 100L
+                >= maximum
+                    * LibraryStructuralSalience
+                        .CohortMinimumPercentage);
 
     private static GraphDistinctNeighborDegreeResult Degree(
         GraphDocument<

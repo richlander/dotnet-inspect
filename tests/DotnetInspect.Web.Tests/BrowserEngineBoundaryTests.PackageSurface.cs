@@ -2197,7 +2197,7 @@ public sealed partial class BrowserEngineBoundaryTests
                         .BrowserLibraryStructuralSalience));
         Assert.Equal("available", salience.Outcome);
         Assert.Equal(
-            "structural-salience.v2",
+            "structural-salience.v3",
             salience.MethodologyVersion);
         Assert.True(salience.NamespaceIndex?.Coverage.Considered > 0);
         Assert.NotEmpty(salience.NamespaceIndex!.Namespaces);

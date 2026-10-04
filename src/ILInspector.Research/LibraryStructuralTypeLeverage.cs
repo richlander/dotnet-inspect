@@ -9,8 +9,10 @@ namespace ILInspector.Research;
 public static class LibraryStructuralSalience
 {
     public const string CurrentMethodologyVersion =
-        "structural-salience.v2";
+        "structural-salience.v3";
     public const int MinimumDesignationDegree = 3;
+    public const int MinimumCohortMaximumDegree = 10;
+    public const int CohortMinimumPercentage = 90;
 }
 
 public enum LibraryStructuralSalienceEvidenceMode

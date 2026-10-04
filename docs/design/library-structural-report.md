@@ -313,11 +313,15 @@ a designation cutoff or receive a designation. Helper-looking names such as
 `SR` or `ThrowHelper` are not an identity or classification contract and do
 not justify exclusion.
 
-Among eligible Types, every Type tied at a namespace's named nonzero maximum
-qualifies for that directional pole when the maximum is at least three
-distinct peers. The three-peer floor requires evidence of leverage across a
-group and prevents one- and two-edge ties from turning sparse adjacency into a
-high-value designation.
+When an eligible directional maximum is below ten, every Type tied at that
+maximum qualifies for the directional pole. At a double-digit maximum, every
+eligible Type whose degree is at least exactly 90% of that maximum qualifies.
+Research compares the integer ratio without rounding or floating point. In
+both cases the maximum must be at least three distinct peers. The three-peer
+floor requires evidence of leverage across a group and prevents one- and
+two-edge ties from turning sparse adjacency into a high-value designation;
+the double-digit cohort admits near-maximum peers only where one peer no longer
+represents a large share of the winning degree.
 
 Research issues at most one visible pole per Type. A Type that qualifies in
 only one direction receives that pole. When it qualifies in both directions,
@@ -356,10 +360,10 @@ operands count one peer and a self relationship counts no peer.
 
 The body row records body incoming and body outgoing degree. Research applies
 the same role thresholds, Metadata-owned designation eligibility,
-three-distinct-peer floor, exact directional maximum, dominant-or-none pole
-selection, and deterministic orders as surface mode. Body use is a separate
-evidence mode: its degrees and poles do not replace or merge with signature
-degrees and poles.
+three-distinct-peer floor, exact-or-90%-cohort directional policy,
+dominant-or-none pole selection, and deterministic orders as surface mode.
+Body use is a separate evidence mode: its degrees and poles do not replace or
+merge with signature degrees and poles.
 
 The result retains both source qualifications and both Graph work receipts. It
 is complete only when the Metadata inventory and Analysis body-use result are
