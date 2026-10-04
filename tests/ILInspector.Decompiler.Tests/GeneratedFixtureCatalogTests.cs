@@ -6,6 +6,8 @@ using ILInspector.MetadataPrimitives;
 
 using Microsoft.CodeAnalysis.CSharp;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>

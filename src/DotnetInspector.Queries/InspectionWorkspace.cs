@@ -677,6 +677,30 @@ public sealed class AssemblyContextGroup : IDisposable
         }
     }
 
+    AssemblyImageAccessResult<TResult> UseBorrowedSnapshot<
+        TState,
+        TResult>(
+        ParticipantState participant,
+        CancellationToken cancellationToken,
+        TState state,
+        Func<AssemblyImageSnapshot, TState, TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        cancellationToken.ThrowIfCancellationRequested();
+        SnapshotAccess access = GetSnapshot(
+            participant,
+            admittedParticipantResourceBorrow: true);
+        if (access.Failure is { } failure)
+        {
+            return new AssemblyImageAccessResult<TResult>.Rejected(
+                participant.Participant.Assembly,
+                failure);
+        }
+
+        TResult value = callback(access.Snapshot!, state);
+        return new AssemblyImageAccessResult<TResult>.Available(value);
+    }
+
     internal TResult UseContext<TResult>(Func<TResult> callback)
     {
         ArgumentNullException.ThrowIfNull(callback);
@@ -919,12 +943,16 @@ public sealed class AssemblyContextGroup : IDisposable
         _ = FindExactParticipant(participant);
     }
 
-    SnapshotAccess GetSnapshot(ParticipantState participant)
+    SnapshotAccess GetSnapshot(
+        ParticipantState participant,
+        bool admittedParticipantResourceBorrow = false)
     {
         lock (participant.ImageLoadGate)
         {
             ObjectDisposedException.ThrowIf(
-                participant.ReleaseRequested || participant.Released,
+                participant.Released
+                    || (!admittedParticipantResourceBorrow
+                        && participant.ReleaseRequested),
                 participant);
             if (participant.Initialized)
                 return participant.Access;
@@ -1204,6 +1232,22 @@ public sealed class AssemblyContextGroup : IDisposable
             _owner = owner;
             _participant = participant;
             _resource = resource;
+        }
+
+        internal AssemblyImageAccessResult<TResult> UseSnapshot<
+            TState,
+            TResult>(
+            CancellationToken cancellationToken,
+            TState state,
+            Func<AssemblyImageSnapshot, TState, TResult> callback)
+        {
+            AssemblyContextGroup? owner = Volatile.Read(ref _owner);
+            ObjectDisposedException.ThrowIf(owner is null, this);
+            return owner.UseBorrowedSnapshot(
+                _participant,
+                cancellationToken,
+                state,
+                callback);
         }
 
         public void Dispose()

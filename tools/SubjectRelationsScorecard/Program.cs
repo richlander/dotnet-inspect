@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 
 using DotnetInspector.PerformanceOracles;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
 const string usage =
@@ -55,6 +56,9 @@ try
             $"# index preparation: {image.Name}, "
             + $"{preparation.Elapsed.TotalMilliseconds:F3} ms, "
             + $"{preparation.AllocatedBytes} B, "
+            + $"borrow "
+            + $"{preparation.BorrowElapsed.TotalMilliseconds:F3} ms, "
+            + $"{preparation.BorrowAllocatedBytes} B, "
             + $"{preparation.Receipt.PhysicalRelationCount} relations, "
             + $"{preparation.Receipt.IndexedTargetCount} targets, "
             + $"{preparation.Receipt.Disposition}");
@@ -157,7 +161,10 @@ sealed class HierarchyAsset
 
     public AssemblyInspectionSession Session => Image.Session;
 
-    public MetadataHierarchyRelationIndex Index => Image.Index;
+    public Func<
+        MetadataHierarchyRelationAnalysisRequest,
+        MetadataHierarchyRelationAnalysisOutcome> AnalyzeIndex =>
+            Image.AnalyzeIndex;
 
     HierarchyImage Image { get; }
 
@@ -220,35 +227,132 @@ sealed class HierarchyAsset
 
 sealed class HierarchyImage : IDisposable
 {
+    private readonly InspectionWorkspace _workspace;
+    private readonly AssemblyContextGroup _group;
+    private readonly AssemblyContextHierarchyRelationIndexExecution
+        _execution;
+
     internal HierarchyImage(string path)
     {
-        AssemblyInspectionSession session =
-            AssemblyInspectionSession.OpenPrefetched(
-            new MemoryStream(
-                File.ReadAllBytes(path),
-                writable: false));
+        AssemblyInspectionSession? oracleSession = null;
+        InspectionWorkspace? workspace = null;
+        AssemblyContextGroup? group = null;
+        AssemblyContextHierarchyRelationIndexExecution? execution = null;
         try
         {
-            Session = session;
+            oracleSession =
+                AssemblyInspectionSession.OpenPrefetched(
+                    new MemoryStream(
+                        File.ReadAllBytes(path),
+                        writable: false));
+            workspace = new();
+            var participant =
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.CreateFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local(
+                            "subject-relations scorecard")),
+                    NoResolverAssemblyBindingPolicy.Instance);
+            group =
+                workspace.CreateAssemblyContextGroup([participant]);
+            AssemblyImageAccessResult<int> image =
+                group.UseAssemblyImage(
+                    participant.Assembly,
+                    static _ => 0);
+            if (image is AssemblyImageAccessResult<int>.Rejected rejected)
+            {
+                throw new InvalidOperationException(
+                    rejected.Failure.Detail);
+            }
+
             long allocatedBefore =
                 GC.GetAllocatedBytesForCurrentThread();
             long started = Stopwatch.GetTimestamp();
-            MetadataHierarchyRelationIndexPreparation preparation =
-                Session.PrepareHierarchyRelationIndex(
-                    MetadataOperationPolicy.Unbounded);
+            AssemblyContextHierarchyRelationIndexPreparation preparation =
+                AssemblyContextHierarchyRelationIndexQuery
+                    .PrepareParticipant(
+                        group,
+                        participant,
+                        MetadataOperationPolicy.Unbounded);
             TimeSpan elapsed =
                 Stopwatch.GetElapsedTime(started);
             long allocated =
                 GC.GetAllocatedBytesForCurrentThread()
                     - allocatedBefore;
-            Index = RequireIndex(preparation);
+
+            AssemblyContextHierarchyRelationIndexPreparation.Ready ready =
+                RequireIndex(preparation);
+            allocatedBefore =
+                GC.GetAllocatedBytesForCurrentThread();
+            started = Stopwatch.GetTimestamp();
+            execution = ready.OpenExecution();
+            TimeSpan borrowElapsed =
+                Stopwatch.GetElapsedTime(started);
+            long borrowAllocated =
+                GC.GetAllocatedBytesForCurrentThread()
+                    - allocatedBefore;
+
+            Session = oracleSession;
+            _workspace = workspace;
+            _group = group;
+            _execution = execution;
+            AnalyzeIndex =
+                request => _execution.Analyze(request);
             IndexPreparation =
-                new(elapsed, allocated, Index.Receipt);
+                new(
+                    elapsed,
+                    allocated,
+                    borrowElapsed,
+                    borrowAllocated,
+                    ready.Receipt);
             Name = Path.GetFileNameWithoutExtension(path);
         }
-        catch
+        catch (Exception failure)
         {
-            session.Dispose();
+            var cleanupFailures = new List<Exception>();
+            try
+            {
+                execution?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                cleanupFailures.Add(ex);
+            }
+            try
+            {
+                group?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                cleanupFailures.Add(ex);
+            }
+            if (workspace is not null)
+            {
+                try
+                {
+                    workspace.DisposeAsync()
+                        .AsTask()
+                        .GetAwaiter()
+                        .GetResult();
+                }
+                catch (Exception ex)
+                {
+                    cleanupFailures.Add(ex);
+                }
+            }
+            try
+            {
+                oracleSession?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                cleanupFailures.Add(ex);
+            }
+            if (cleanupFailures.Count != 0)
+            {
+                throw new AggregateException(
+                    [failure, .. cleanupFailures]);
+            }
             throw;
         }
     }
@@ -257,26 +361,81 @@ sealed class HierarchyImage : IDisposable
 
     internal AssemblyInspectionSession Session { get; }
 
-    internal MetadataHierarchyRelationIndex Index { get; }
+    internal Func<
+        MetadataHierarchyRelationAnalysisRequest,
+        MetadataHierarchyRelationAnalysisOutcome> AnalyzeIndex { get; }
 
     internal HierarchyIndexPreparationObservation IndexPreparation { get; }
 
-    public void Dispose() => Session.Dispose();
+    public void Dispose()
+    {
+        var failures = new List<Exception>();
+        try
+        {
+            _execution.Dispose();
+        }
+        catch (Exception ex)
+        {
+            failures.Add(ex);
+        }
+        try
+        {
+            _group.Dispose();
+        }
+        catch (Exception ex)
+        {
+            failures.Add(ex);
+        }
+        try
+        {
+            _workspace.DisposeAsync()
+                .AsTask()
+                .GetAwaiter()
+                .GetResult();
+        }
+        catch (Exception ex)
+        {
+            failures.Add(ex);
+        }
+        try
+        {
+            Session.Dispose();
+        }
+        catch (Exception ex)
+        {
+            failures.Add(ex);
+        }
+        if (failures.Count != 0)
+            throw new AggregateException(failures);
+    }
 
-    static MetadataHierarchyRelationIndex RequireIndex(
-        MetadataHierarchyRelationIndexPreparation preparation) =>
+    static AssemblyContextHierarchyRelationIndexPreparation.Ready
+        RequireIndex(
+            AssemblyContextHierarchyRelationIndexPreparation
+                preparation) =>
         preparation switch
         {
-            MetadataHierarchyRelationIndexPreparation.Ready ready =>
-                ready.Index,
-            MetadataHierarchyRelationIndexPreparation.Failed failed =>
+            AssemblyContextHierarchyRelationIndexPreparation.Ready
+                ready =>
+                ready,
+            AssemblyContextHierarchyRelationIndexPreparation
+                .ParticipantRejected rejected =>
+                throw new InvalidOperationException(
+                    rejected.Failure.Detail),
+            AssemblyContextHierarchyRelationIndexPreparation
+                .InspectionFailed failed =>
+                throw new InvalidOperationException(failed.Detail),
+            AssemblyContextHierarchyRelationIndexPreparation
+                .IndexFailed failed =>
                 throw new InvalidOperationException(
                     string.Join(
                         ", ",
                         failed.Receipt.Diagnostics.Select(
                             static diagnostic => diagnostic.Detail))),
-            MetadataHierarchyRelationIndexPreparation.Rejected rejected =>
-                throw new InvalidOperationException(rejected.Detail),
+            AssemblyContextHierarchyRelationIndexPreparation
+                .ImageRejected rejected =>
+                throw new InvalidOperationException(
+                    rejected.Detail),
             _ => throw new InvalidOperationException(
                 "Unknown hierarchy index preparation outcome."),
         };
@@ -285,6 +444,8 @@ sealed class HierarchyImage : IDisposable
 readonly record struct HierarchyIndexPreparationObservation(
     TimeSpan Elapsed,
     long AllocatedBytes,
+    TimeSpan BorrowElapsed,
+    long BorrowAllocatedBytes,
     MetadataHierarchyRelationIndexReceipt Receipt);
 
 static class HierarchyPopulation
@@ -348,7 +509,7 @@ static class HierarchyPopulation
             "Prepared reverse index",
             (closing, asset) =>
                 HierarchyRelationOracle.IndexedAnswer(
-                    asset.Index,
+                    asset.AnalyzeIndex,
                     asset.Kind,
                     asset.Target,
                     closing,

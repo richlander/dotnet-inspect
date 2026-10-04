@@ -79,9 +79,149 @@ public partial class CommandExecutionTests
         Assert.Equal(0, explained.Exit);
         Assert.Empty(ordinary.Error);
         Assert.Equal(ordinary.Output, explained.Output);
-        Assert.Contains("Context: Exact Member", explained.Error);
-        Assert.Contains("Selected Content: Signature", explained.Error);
+        Assert.Contains(
+            selectOverload
+                ? "Context: Exact Member"
+                : "Context: MemberGroup",
+            explained.Error);
+        Assert.Contains(
+            selectOverload
+                ? "Selected Content: Signature"
+                : "Selected Content: Methods",
+            explained.Error);
+        if (!selectOverload)
+        {
+            Assert.DoesNotContain(
+                $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+                explained.Error);
+        }
         Assert.DoesNotContain("Tips:", explained.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_OverloadedBareNameExplainsOneMemberGroup(
+        bool selectMethodKind)
+    {
+        string[] arguments =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize",
+            .. selectMethodKind ? new[] { "--kind", "method" } : [],
+            "--explain",
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# Explain System.Text.Json.JsonSerializer.Serialize",
+            output);
+        Assert.Contains("Context: MemberGroup", output);
+        Assert.Contains("Subject: Method / Declared", output);
+        Assert.Contains("Default View: member.overview", output);
+        Assert.Contains("Selected Content: Methods", output);
+        Assert.DoesNotContain("Serialize:1", output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+    }
+
+    [Fact]
+    public async Task Member_SingletonMethodKindExplainsOneMemberGroup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--kind",
+            "method",
+            "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context: MemberGroup", output);
+        Assert.Contains("Selected Content: Methods", output);
+        Assert.DoesNotContain(
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+    }
+
+    [Fact]
+    public async Task Member_OverloadedGroupCompanionsPreserveTreeAndProjection()
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize",
+        ];
+
+        var ordinary = await RunAppAsync(subject);
+        var explanation = await RunAppAsync([.. subject, "-E"]);
+        var primaryTips =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companionTips =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, explanation.Exit);
+        Assert.Equal(0, primaryTips.Exit);
+        Assert.Equal(0, companionTips.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(ordinary.Output, explanation.Output);
+        Assert.Equal(ordinary.Output, companionTips.Output);
+        Assert.Contains("Context: MemberGroup", explanation.Error);
+        Assert.DoesNotContain("Serialize:1", explanation.Error);
+        Assert.Equal(
+            primaryTips.Output.Trim(),
+            companionTips.Error.Trim());
+    }
+
+    [Theory]
+    [InlineData("Serialize:7", "System.IO.Stream")]
+    [InlineData("Serialize~1dc14dd1fb", "Serialize~1dc14dd1fb")]
+    public async Task Member_ExactSelectorsRemainExactExplanationSubjects(
+        string selector,
+        string expectedSelector)
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            selector,
+        ];
+        var ordinary = await RunAppAsync(subject);
+        var primary = await RunAppAsync([.. subject, "--explain"]);
+        var companion = await RunAppAsync([.. subject, "-E"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, primary.Exit);
+        Assert.Equal(0, companion.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Empty(primary.Error);
+        Assert.Equal(ordinary.Output, companion.Output);
+        Assert.Contains("Context: Exact Member", primary.Output);
+        Assert.Contains(
+            "# Explain System.Text.Json.JsonSerializer.Serialize~",
+            primary.Output);
+        Assert.Contains(expectedSelector, primary.Output);
+        Assert.DoesNotContain(
+            "Context: MemberGroup",
+            primary.Output);
+        Assert.Contains(
+            "Context: Exact Member",
+            companion.Error);
+        Assert.Contains(expectedSelector, companion.Error);
     }
 
     [Fact]
@@ -179,7 +319,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_CommandTipsProjection_RequiresExactSubject()
+    public async Task Member_CommandTipsProjection_RequiresSubject()
     {
         var (exit, output, error) =
             await RunAppAsync("member", "--explain", ".tips");
@@ -187,7 +327,7 @@ public partial class CommandExecutionTests
         Assert.NotEqual(0, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "requires one exact Member subject and source",
+            "requires one Member subject and source",
             error);
     }
 
@@ -237,7 +377,6 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Serialize", "ambiguous")]
     [InlineData("DefinitelyMissing", "No members matched")]
     public async Task Member_Explain_UnresolvedSubjectDoesNotFallBackToCommand(
         string member,
@@ -269,7 +408,7 @@ public partial class CommandExecutionTests
 
         Assert.NotEqual(0, exit);
         Assert.Empty(output);
-        Assert.Contains("requires one exact Member selector", error);
+        Assert.Contains("requires one Member selector", error);
         Assert.DoesNotContain("Explain member", error);
     }
 
