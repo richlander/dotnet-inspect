@@ -244,14 +244,14 @@ public static partial class SourceHouse
                 bool includeCompilerGenerated = false) =>
                 request.Product
                     == SourceHouseDecompilationProduct.StructuredTypeDocument
-                    ? session.BoundedApiSurface(
+                    ? session.BoundedCompatibilityApiSurface(
                         descriptor,
                         catalog,
                         request.Plan.BindingPolicy,
                         ApiSurfaceExtractionScope.IncludeAll,
                         request.Plan.Limits.TargetBounds,
                         includeCompilerGenerated)
-                    : session.BoundedApiSurface(
+                    : session.BoundedCompatibilityApiSurface(
                         ApiSurfaceExtractionScope.IncludeAll,
                         request.Plan.Limits.TargetBounds,
                         includeCompilerGenerated:

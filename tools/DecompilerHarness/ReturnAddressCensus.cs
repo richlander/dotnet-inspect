@@ -127,7 +127,8 @@ internal static class ReturnAddressCensus
             using var session = AssemblyInspectionSession.Open(path);
             if (!session.HasMetadata)
                 return new RaCensusAssembly(name, Opened: false, 0, 0, 0, []);
-            var surface = session.ApiSurface(includeAll: true);
+            var surface =
+                session.CompatibilityApiSurface(includeAll: true);
 
             // token -> (ApiType, ApiMember) for method-like members.
             var byToken = new Dictionary<int, (ApiType Type, ApiMember Member)>();

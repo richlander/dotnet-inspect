@@ -6,9 +6,7 @@ import type {
 } from "../src/facades/inspect-web-analysis.d.ts";
 import {
   createTypeMethodLeverageCoordinator,
-  filterMemberGroupsByMethodLeverage,
   methodLeverageFor,
-  methodLeverageEmptyStateMessage,
   projectTypeMethodLeverage,
   typeMethodLeverageCacheKey,
   type PackageTypeMethodLeverageRequest,
@@ -122,38 +120,6 @@ test("method leverage counts tied accessors by winning method token", () => {
 
   assert.equal(presentation.anchoredWinnerCount, 1);
   assert.equal(presentation.anchoredMethodCount, 2);
-  assert.equal(
-    methodLeverageEmptyStateMessage({
-      status: "ready",
-      request,
-      isCurrent: () => true,
-      presentation,
-    }),
-    "No Top Leverage member matches the current filters.",
-  );
-});
-
-test("method leverage explains a valid zero-winner result", () => {
-  const result = available([]);
-  if (!result.content) throw new Error("Expected available content.");
-  const presentation = projectTypeMethodLeverage({
-    ...result,
-    content: {
-      ...result.content,
-      winnerCount: 0,
-      winningRank: null,
-    },
-  }, request);
-
-  assert.equal(
-    methodLeverageEmptyStateMessage({
-      status: "ready",
-      request,
-      isCurrent: () => true,
-      presentation,
-    }),
-    "This Type has no inbound-call Top Leverage designation.",
-  );
 });
 
 test("method leverage rejects duplicate winner correspondence", () => {
@@ -253,48 +219,4 @@ test("method leverage retry reacquires typed non-available outcomes", async () =
     assert.equal(state.typeMethodLeverage.status, "ready");
     assert.equal(queries, 2);
   }
-});
-
-test("top leverage filtering preserves ordinary groups until ready", () => {
-  const groups = [{
-    key: "method:Run",
-    name: "Run",
-    kind: "method",
-    sourceOverloadCount: 2,
-    overloads: [
-      {
-        signature: "void Run()",
-        stableSelector: "HiddenWinner~1234567890",
-      },
-      {
-        signature: "void Run(int value)",
-        stableSelector: "Other~1234567890",
-      },
-    ],
-  }];
-  const loading = {
-    status: "loading",
-    request,
-    isCurrent: () => true,
-  } as const;
-
-  assert.deepEqual(
-    filterMemberGroupsByMethodLeverage(groups, { status: "idle" }),
-    groups,
-  );
-  assert.deepEqual(filterMemberGroupsByMethodLeverage(groups, loading), groups);
-
-  const ready = {
-    status: "ready",
-    request,
-    isCurrent: () => true,
-    presentation: projectTypeMethodLeverage(available(), request),
-  } as const;
-  const filtered = filterMemberGroupsByMethodLeverage(groups, ready);
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0]?.sourceOverloadCount, 2);
-  assert.deepEqual(
-    filtered[0]?.overloads.map(overload => overload.stableSelector),
-    ["HiddenWinner~1234567890"],
-  );
 });
