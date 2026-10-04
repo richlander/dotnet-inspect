@@ -33,7 +33,7 @@ public static class LibraryDependencyStructureInspection
         ArgumentNullException.ThrowIfNull(request);
         try
         {
-            return Project(
+            return Select(
                 LibraryDependencyStructure.Execute(analysis),
                 request);
         }
@@ -52,7 +52,7 @@ public static class LibraryDependencyStructureInspection
         ArgumentNullException.ThrowIfNull(request);
         try
         {
-            return Project(
+            return Select(
                 LibraryDependencyStructure.Execute(callGraph),
                 request);
         }
@@ -61,6 +61,25 @@ public static class LibraryDependencyStructureInspection
             return new LibraryDependencyStructureQueryResult.Failed(
                 error);
         }
+    }
+
+    public static LibraryDependencyStructureQueryResult Select(
+        LibraryDependencyStructureResult result,
+        QuerySpaceRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(request);
+        return result switch
+        {
+            LibraryDependencyStructureResult.Available available =>
+                Select(available.Document, request),
+            LibraryDependencyStructureResult.Unavailable unavailable =>
+                new LibraryDependencyStructureQueryResult.Unavailable(
+                    unavailable),
+            var unknown => throw new InvalidOperationException(
+                "Unknown Library Dependency Structure result "
+                    + $"'{unknown.GetType().Name}'."),
+        };
     }
 
     public static LibraryDependencyStructureQueryResult Select(
@@ -179,21 +198,6 @@ public static class LibraryDependencyStructureInspection
                     stageNumber,
                     requiredPosition,
                     availableCount));
-
-    private static LibraryDependencyStructureQueryResult Project(
-        LibraryDependencyStructureResult result,
-        QuerySpaceRequest request) =>
-        result switch
-        {
-            LibraryDependencyStructureResult.Available available =>
-                Select(available.Document, request),
-            LibraryDependencyStructureResult.Unavailable unavailable =>
-                new LibraryDependencyStructureQueryResult.Unavailable(
-                    unavailable),
-            var unknown => throw new InvalidOperationException(
-                "Unknown Library Dependency Structure result "
-                    + $"'{unknown.GetType().Name}'."),
-        };
 
     private sealed record Projection(
         LibraryDependencyStructureDocument Document,
