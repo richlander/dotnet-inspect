@@ -49,7 +49,7 @@ output.WriteLine(
 foreach (Asset asset in assets)
 {
     foreach (Measurement measurement
-        in asset.Measure(options.Iterations))
+        in asset.Measure(options.Iterations, options.Operation))
     {
         output.WriteLine(
             string.Create(
@@ -79,9 +79,18 @@ enum Command
     Time,
 }
 
+enum MeasurementOperation
+{
+    Build,
+    Callers,
+    Callees,
+    Census,
+}
+
 sealed record Options(
     Command Command,
     int Iterations,
+    MeasurementOperation? Operation,
     string? TsvPath,
     ImmutableArray<string> Paths)
 {
@@ -95,7 +104,9 @@ sealed record Options(
         if (args.Length == 0)
         {
             error =
-                "usage: check|time [--iterations N] [--tsv path] <assembly>...";
+                "usage: check|time [--iterations N]"
+                + " [--operation Build|Callers|Callees|Census]"
+                + " [--tsv path] <assembly>...";
             return false;
         }
 
@@ -112,6 +123,7 @@ sealed record Options(
         }
 
         int iterations = ScorecardConstants.DefaultIterations;
+        MeasurementOperation? operation = null;
         string? tsvPath = null;
         var paths = ImmutableArray.CreateBuilder<string>();
         for (int index = 1; index < args.Length; index++)
@@ -128,6 +140,20 @@ sealed record Options(
                     && parsed > 0:
                     iterations = parsed;
                     break;
+                case "--operation"
+                    when index + 1 < args.Length
+                    && Enum.TryParse(
+                        args[++index],
+                        ignoreCase: true,
+                        out MeasurementOperation parsedOperation)
+                    && Enum.IsDefined(parsedOperation):
+                    operation = parsedOperation;
+                    break;
+                case "--operation":
+                    error =
+                        "--operation requires Build, Callers, Callees,"
+                        + " or Census.";
+                    return false;
                 case "--tsv" when index + 1 < args.Length:
                     tsvPath = args[++index];
                     break;
@@ -144,6 +170,11 @@ sealed record Options(
             }
         }
 
+        if (command == Command.Check && operation is not null)
+        {
+            error = "--operation is valid only for the time command.";
+            return false;
+        }
         if (paths.Count == 0)
         {
             error = "At least one assembly path is required.";
@@ -158,7 +189,12 @@ sealed record Options(
             }
         }
 
-        options = new(command, iterations, tsvPath, paths.ToImmutable());
+        options = new(
+            command,
+            iterations,
+            operation,
+            tsvPath,
+            paths.ToImmutable());
         return true;
     }
 }
@@ -296,13 +332,19 @@ sealed class Asset
                 Encoding.UTF8.GetBytes(text.ToString())));
     }
 
-    internal IEnumerable<Measurement> Measure(int iterations)
+    internal IEnumerable<Measurement> Measure(
+        int iterations,
+        MeasurementOperation? operation)
     {
-        _ = MeasureBuild(1);
-        yield return MeasureBuild(iterations);
-
-        using (CatalogCallGraphScope scope = CreateScope())
+        if (operation is null or MeasurementOperation.Build)
         {
+            _ = MeasureBuild(1);
+            yield return MeasureBuild(iterations);
+        }
+
+        if (operation is null or MeasurementOperation.Callers)
+        {
+            using CatalogCallGraphScope scope = CreateScope();
             _ = scope.StorageEdgeCount;
             _ = MeasureTrees(scope, CallerRoots, callers: true, 1);
             yield return MeasureTrees(
@@ -311,8 +353,9 @@ sealed class Asset
                 callers: true,
                 iterations);
         }
-        using (CatalogCallGraphScope scope = CreateScope())
+        if (operation is null or MeasurementOperation.Callees)
         {
+            using CatalogCallGraphScope scope = CreateScope();
             _ = scope.StorageEdgeCount;
             _ = MeasureTrees(scope, CalleeRoots, callers: false, 1);
             yield return MeasureTrees(
@@ -321,8 +364,9 @@ sealed class Asset
                 callers: false,
                 iterations);
         }
-        using (CatalogCallGraphScope scope = CreateScope())
+        if (operation is null or MeasurementOperation.Census)
         {
+            using CatalogCallGraphScope scope = CreateScope();
             _ = scope.StorageEdgeCount;
             _ = MeasureCensus(scope, 1);
             yield return MeasureCensus(scope, iterations);

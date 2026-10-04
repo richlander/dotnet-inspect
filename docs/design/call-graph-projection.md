@@ -522,6 +522,8 @@ must preserve the exact scorecard fingerprint and show no credible NativeAOT
 regression in any measured operation before the next product graph adopts the
 same shape. Correctness checks and timed samples run in separate processes so
 fingerprint construction cannot contaminate elapsed-time or peak-RSS evidence.
+The timed host can isolate Build, Callers, Callees, or Census in its own process
+when a mixed-process high-water mark requires attribution.
 
 `DotnetInspector.ResearchQueries.AnnotatedMemberDocumentQuery` is the first
 non-rendering consumer of this progressive seam. It accepts an already-acquired
