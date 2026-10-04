@@ -660,7 +660,10 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   padding: 16px;
 }
 .ecosystem-catalog-heading {
-  display: block;
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
 }
 .ecosystem-catalog-heading strong {
   color: var(--text);

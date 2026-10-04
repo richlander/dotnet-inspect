@@ -223,7 +223,9 @@ import {
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
 import {
+  isProductEcosystemId,
   isProductEcosystemsPath,
+  productEcosystemCatalog,
   productEcosystemsViewHtml,
   setProductEcosystemCatalog,
 } from "./product-ecosystems.ts";
@@ -407,6 +409,7 @@ import {
   captureScopeBarFocus,
   createScopeBarState,
   focusRenderedElement,
+  renderNavigationDescriptorBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   type ScopeBarBinding,
@@ -9185,6 +9188,16 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
 }
 
 function renderWorkspaceCatalogView() {
+  const ecosystemPresentation =
+    retainedWorkspacePresentation !== null
+      && activeRetainedWorkspacePosting?.navigation.snapshot.activeSubject.kind
+        .toLowerCase() === "ecosystem"
+      ? retainedWorkspacePresentation
+      : null;
+  if (ecosystemPresentation !== null) {
+    renderRetainedEcosystemView(ecosystemPresentation);
+    return;
+  }
   document.title = `${isProductHomeDemosPath(location.pathname) ? "Demos" : "Workspace"} — dotnet-inspect`;
   const subjectPath: readonly SubjectPathSegment[] = [{
     kind: "workspace",
@@ -9232,6 +9245,80 @@ function renderWorkspaceCatalogView() {
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
     }, escapeHtml)}`);
+  bindWorkspaceCatalogViewEvents();
+}
+
+function renderRetainedEcosystemView(
+  presentation: NavigationDescriptorPresentation,
+): void {
+  const title = presentation.subjectLabel;
+  document.title = `${title} — dotnet-inspect`;
+  const subjectPath: readonly SubjectPathSegment[] = [{
+    kind: "workspace",
+    label: title,
+    copyable: false,
+  }];
+  replaceChildrenPreservingRenderedInteractions(app, `
+    <div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+      ${workbenchShellHtml({
+        inspectedTargetHtml: `
+          <div class="inspected-target" aria-label="Inspected target">
+            <span class="subject-icon" aria-hidden="true">E</span>
+            <div class="subject-path" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}">
+              ${renderInspectedSubjectPath(subjectPath)}
+            </div>
+          </div>`,
+        subjectInspectorHtml: renderNavigationDescriptorBar({
+          subjects: presentation.subjects,
+          inspectors: presentation.inspectors,
+          subjectLabel: presentation.subjectLabel,
+          lensOutcome: presentation.lensOutcome,
+          escapeHtml,
+        }),
+        titleNavigationHtml: renderTitleNavigation(
+          navigationHistory.canBack(),
+          navigationHistory.canForward()),
+      })}
+      <div class="notice-stack">
+        ${renderQueryNotice()}
+      </div>
+      <main id="subject-panel" class="workspace">
+        ${renderWorkspaceNavPane()}
+        <section class="detail-pane">
+          <article id="inspector-panel" class="detail-scroll">
+            <header class="type-heading">
+              <div class="type-badge">E</div>
+              <div>
+                <div class="type-namespace">Ecosystem</div>
+                <h1>${escapeHtml(title)}</h1>
+              </div>
+            </header>
+            <div class="empty-state">
+              <h2>No packages are loaded.</h2>
+              <p>This Ecosystem is ready for package discovery.</p>
+            </div>
+          </article>
+        </section>
+      </main>
+      ${dataBarHtml({
+        buildIdentity: state.buildIdentity,
+      }, escapeHtml)}
+      ${state.spotlightOpen ? spotlight.modalHtml() : ""}
+    </div>
+    ${renderApplicationMenu(false)}
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp
+      ? renderKeyboardHelpDialog(keyboardHelpBindings)
+      : ""}
+    ${renderLibraryOpenDialog({
+      open: state.libraryOpen,
+      busy: state.libraryOpenBusy,
+      error: state.libraryOpenError,
+    }, escapeHtml)}`);
+  bindWorkspaceCatalogViewEvents();
+}
+
+function bindWorkspaceCatalogViewEvents(): void {
   bindScopeBarEvents();
   bindWorkspaceSubjectEvents();
   bindSettingsPanelEvents();
@@ -16876,8 +16963,121 @@ function renderProductEcosystemsPage(): void {
     }, escapeHtml)}`);
   bindHomeShell(document, homeShellActions);
   bindLibraryOpenEvents();
+  bindProductEcosystemEvents();
   bindSettingsPanelEvents();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
+}
+
+function bindProductEcosystemEvents(): void {
+  document.querySelectorAll<HTMLButtonElement>(
+    "[data-ecosystem-open]",
+  ).forEach(button => button.addEventListener("click", () => {
+    const ecosystemId = button.dataset.ecosystemOpen;
+    if (isProductEcosystemId(ecosystemId)) {
+      observeAsync(
+        openProductEcosystem(ecosystemId),
+        "Opening the Ecosystem",
+      );
+    }
+  }));
+}
+
+async function openProductEcosystem(ecosystemId: string): Promise<void> {
+  const ecosystem = productEcosystemCatalog().find(
+    candidate => candidate.id === ecosystemId);
+  if (ecosystem === undefined || !ecosystem.hasWorkspaceRegistration) {
+    throw new Error(
+      `Ecosystem '${ecosystemId}' is not available as a Workspace.`,
+    );
+  }
+  if (!canPublishRetainedWorkspace()) {
+    appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
+    render({ synchronizeUrl: false });
+    return;
+  }
+
+  const navigationSeq = navigationSequence.begin();
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  const controller = requireRetainedWorkspaceActivation();
+  if (controller.state.activeDefinitionId === null
+    && retainedWorkspaces.activeWorkspaceId !== null) {
+    workspaceLocation.replace(location.href, history.state);
+  }
+  const destination = new URL(
+    `/ecosystems/${encodeURIComponent(ecosystem.id)}`,
+    location.origin,
+  ).toString();
+  const locationIntent = retainedLocationIntents.admitNonBrowser(
+    "push",
+    installedRetainedLocation,
+    history,
+  );
+  const definition = controller.retain({
+    label: ecosystem.title,
+    canonicalLocation: destination,
+    ecosystem: { id: ecosystem.id },
+  });
+  issuedManagedRetainedDefinitionIds.add(definition.id);
+
+  let result: BrowserRetainedWorkspaceActivationResult;
+  try {
+    const activation = controller.activate(
+      definition.id,
+      () =>
+        navigationSequence.isCurrent(navigationSeq)
+        && retainedLocationIntents.currentIntentId === locationIntent.id,
+      posting => installRetainedWorkspacePosting(posting, locationIntent),
+      undefined,
+      undefined,
+      posting => retainedLocationPresentationCurrent(
+        locationIntent,
+        posting.canonicalLocation,
+      ),
+    );
+    render({ synchronizeUrl: false });
+    result = await activation;
+  } catch (error) {
+    failedManagedRetainedDefinitionId = definition.id;
+    realignRetainedLocationIntent(locationIntent, "failed");
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    appendQueryNotice(
+      errorMessage(error)
+        || `Couldn’t open ${ecosystem.title} as a Workspace.`,
+      null,
+    );
+    render({ synchronizeUrl: false });
+    return;
+  }
+
+  if (result.status === "failed") {
+    failedManagedRetainedDefinitionId = definition.id;
+    realignRetainedLocationIntent(locationIntent, "failed");
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    appendQueryNotice(
+      result.failure?.message
+        ?? `Couldn’t open ${ecosystem.title} as a Workspace.`,
+      null,
+    );
+    render({ synchronizeUrl: false });
+    return;
+  }
+  if (result.status === "activated" || result.status === "noEffect") {
+    failedManagedRetainedDefinitionId = null;
+    completeRetainedActivationPresentation(
+      result,
+      locationIntent,
+      navigationSeq,
+    );
+    clearWorkspaceFeedIdentity();
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  appendQueryNotice(
+    `Opening ${ecosystem.title} was superseded before the Workspace could be activated.`,
+    null,
+  );
+  render({ synchronizeUrl: false });
 }
 
 function renderProductDemosPage(): void {
@@ -25738,10 +25938,18 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (restoredActiveManagedWorkspace
-    && activeRetainedWorkspacePosting?.canonicalPacket !== null
     && activeRetainedWorkspacePosting?.canonicalLocation === location.href) {
+    const subjectKind =
+      activeRetainedWorkspacePosting.navigation.snapshot.activeSubject.kind
+        .toLowerCase();
+    const restoredLocation =
+      subjectKind === "ecosystem" ? null : await parseLocation();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     state.credits = false;
     state.home = false;
+    state.workspaceSubjectOpen =
+      subjectKind === "ecosystem"
+      || restoredLocation?.workspaceSubjectOpen === true;
     render({ synchronizeUrl: false });
     return;
   }

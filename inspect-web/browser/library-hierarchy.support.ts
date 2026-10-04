@@ -2526,6 +2526,149 @@ async function installFacades(
           cleanup: null,
         };
       }
+      function ecosystemWorkspacePosting(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        ecosystemId,
+      ) {
+        const workspaceId = "ecosystem-workspace";
+        const ecosystemSubjectId = "ecosystem-subject";
+        const activeSubject = {
+          id: ecosystemSubjectId,
+          kind: "Ecosystem",
+          label: ecosystemId,
+          summary: null,
+          parent: workspaceId,
+        };
+        const effectiveLens = {
+          id: "ecosystem.overview",
+          subject: activeSubject,
+          facet: "ecosystem.overview",
+        };
+        return {
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          canonicalPacket: null,
+          realizationId: "ecosystem-realization",
+          publicationOrdinal: 1,
+          definition: {
+            tabs: [],
+            contexts: [],
+            registrations: [{
+              kind: "ecosystem",
+              exactLibrary: null,
+              packagePrefix: null,
+              ecosystem: {
+                id: ecosystemId,
+                namespaceRoots: [],
+                corePackages: [],
+                populations: [],
+              },
+            }],
+            activeTabId: null,
+            selectedContextId: null,
+          },
+          navigation: {
+            operation: "Initialize",
+            request: "ecosystem-workspace-request",
+            snapshot: {
+              generation: "ecosystem-workspace-generation",
+              scope: { kind: "Current", runtimeFailure: null },
+              workspace: {
+                id: workspaceId,
+                kind: "Workspace",
+                label,
+                summary: null,
+                parent: null,
+              },
+              activePackage: null,
+              activeSubject,
+              typeInventoryLibraryContext: null,
+              packages: [],
+              hierarchy: [{
+                kind: "Workspace",
+                label,
+                subject: {
+                  id: workspaceId,
+                  kind: "Workspace",
+                  label,
+                  summary: null,
+                  parent: null,
+                },
+                state: "Active",
+                isActive: false,
+                isRetained: true,
+                evidence: [],
+                action: null,
+              }, {
+                kind: "Ecosystem",
+                label: ecosystemId,
+                subject: activeSubject,
+                state: "Active",
+                isActive: true,
+                isRetained: true,
+                evidence: [],
+                action: null,
+              }],
+              libraries: [],
+              types: [],
+              members: [],
+              lenses: [{
+                facet: {
+                  id: "ecosystem.overview",
+                  kind: "Inspector",
+                  title: "Overview",
+                  summary: "Ecosystem overview",
+                  order: 0,
+                  role: null,
+                },
+                state: "Available",
+                isCurrent: true,
+                target: effectiveLens,
+                unavailability: null,
+                message: null,
+                action: null,
+              }],
+              lensOutcome: {
+                kind: "Applied",
+                basis: "Recommendation",
+                subject: activeSubject,
+                effectiveLens,
+                request: null,
+                preferredRole: null,
+                policyFailure: null,
+                resolution: null,
+                suspension: null,
+              },
+              diagnostics: [],
+            },
+            outcome: {
+              kind: "Applied",
+              rejection: null,
+              failureSource: null,
+              message: null,
+              request: null,
+              resolution: null,
+              scope: null,
+              diagnostics: [],
+              coordinateRetention: null,
+            },
+            synchronization: "SynchronizationRequired",
+            authority: {
+              session: "ecosystem-session",
+              revision: "ecosystem-revision",
+              intent: "ecosystem-intent",
+              epoch: "ecosystem-epoch",
+            },
+          },
+          packages: [],
+          platforms: [],
+          predecessor: null,
+          cleanup: null,
+        };
+      }
       export function inspectVocabulary() {
         return {
           content: {
@@ -2691,6 +2834,35 @@ async function installFacades(
         return {
           status: "prepared",
           receipt: "source-receipt",
+          preparation: {
+            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
+            label: preparedRetainedWorkspace.label,
+            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
+            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
+            definition: preparedRetainedWorkspace.definition,
+            navigation: preparedRetainedWorkspace.navigation,
+            packages: preparedRetainedWorkspace.packages,
+            platforms: preparedRetainedWorkspace.platforms,
+          },
+          posting: null,
+          failure: null,
+        };
+      }
+      export async function prepareEcosystemWorkspaceDefinition(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        ecosystemId,
+      ) {
+        preparedRetainedWorkspace = ecosystemWorkspacePosting(
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          ecosystemId,
+        );
+        return {
+          status: "prepared",
+          receipt: "ecosystem-receipt",
           preparation: {
             retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
             label: preparedRetainedWorkspace.label,
