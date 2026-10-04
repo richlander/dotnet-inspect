@@ -328,6 +328,48 @@ public static partial class AnalysisExports
     }
 
     [JSExport]
+    public static async Task<string> QueryPlatformTypeMethodLeverage(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack,
+        string typeDefinitionId)
+    {
+        BrowserTypeMethodLeverage leverage;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            InspectionEnvelope<
+                AssemblyContextEntry<
+                    AssemblyTypeMethodLeverageInspection>>
+                    inspection =
+                        resolution.Scope.UseParticipant(
+                            resolution.Participant,
+                            (group, participant) =>
+                                TypeMethodLeverageInspectionOperation.Execute(
+                                    group,
+                                    participant,
+                                    typeDefinitionId));
+            leverage = BrowserImplementationProfileWireProjection
+                .ProjectTypeMethodLeverage(
+                    inspection,
+                    new BrowserCompileLibraryAvailability(
+                        BrowserCompileLibraryStatus.Selected,
+                        resolution.Scope.Framework,
+                        null));
+        }
+
+        return JsonSerializer.Serialize(
+            leverage,
+            BrowserAnalysisJsonContext.Default
+                .BrowserTypeMethodLeverage);
+    }
+
+    [JSExport]
     public static Task<string> QueryPlatformPerformance(
         string targetFramework,
         string platformVersion,

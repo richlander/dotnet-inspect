@@ -195,24 +195,6 @@ public sealed class LibraryBodyIndex
                 confidence,
                 rootReach);
 
-    // A membership/search LINQ terminal on System.Linq.Enumerable: one that walks the
-    // sequence to answer a lookup/membership question and whose canonical fix is an
-    // indexed lookup (HashSet/Dictionary). Lazy operators (Where/Select/OrderBy) are
-    // excluded — they do not enumerate at the call site — as are materializers
-    // (ToArray/ToList), which have a different fix shape.
-    //
-    // Only the predicate/value overloads do real O(n) work. The parameterless positional
-    // and aggregate overloads (First(), Single(), Count(), Any()) are O(1) — a positional
-    // read, or the ICollection.Count fast path — so they are NOT scans and must not be
-    // flagged. Every scanning overload takes the source plus a predicate/value, so it has
-    // at least two parameters in Enumerable's static signature; gate on that arity.
-    public static bool IsLinqMembershipScan(
-        MemberRef member,
-        out string operation)
-        => RepeatedScanAnalysis.IsLinqMembershipScan(
-            member,
-            out operation);
-
     readonly LibraryImplementationProfileAnalysisResult
         _implementationProfileAnalysis;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;

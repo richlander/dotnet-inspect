@@ -796,7 +796,7 @@ public partial class LibraryBodyIndexTests
     [InlineData("System.Linq")]   // .NET 5+ reference assemblies
     [InlineData("System.Core")]   // .NET Framework
     [InlineData("netstandard")]   // canonicalizes to the core library
-    public void IsLinqMembershipScan_MatchesPredicateOverloadAcrossTargetFrameworks(string assembly)
+    public void RepeatedScanAnalysis_MembershipScan_MatchesPredicateOverloadAcrossTargetFrameworks(string assembly)
     {
         var enumerable = TypeRef.Definition(assembly, "System.Linq", "Enumerable");
         var anyPredicate = new MemberRef(
@@ -806,7 +806,7 @@ public partial class LibraryBodyIndexTests
             TypeRef.CoreLib("System", "Boolean"),
             MemberKind.Method);
 
-        Assert.True(LibraryBodyIndex.IsLinqMembershipScan(anyPredicate, out var op));
+        Assert.True(RepeatedScanAnalysis.IsLinqMembershipScan(anyPredicate, out var op));
         Assert.Equal("Any", op);
     }
 
@@ -816,7 +816,7 @@ public partial class LibraryBodyIndexTests
     [InlineData("Single")]
     [InlineData("Count")]
     [InlineData("Last")]
-    public void IsLinqMembershipScan_RejectsParameterlessOverload(string name)
+    public void RepeatedScanAnalysis_MembershipScan_RejectsParameterlessOverload(string name)
     {
         var enumerable = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable");
         var parameterless = new MemberRef(
@@ -826,11 +826,11 @@ public partial class LibraryBodyIndexTests
             TypeRef.CoreLib("System", "Boolean"),
             MemberKind.Method);
 
-        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(parameterless, out _));
+        Assert.False(RepeatedScanAnalysis.IsLinqMembershipScan(parameterless, out _));
     }
 
     [Fact]
-    public void IsLinqMembershipScan_RejectsLazyOperatorAndUserTypeLookalike()
+    public void RepeatedScanAnalysis_MembershipScan_RejectsLazyOperatorAndUserTypeLookalike()
     {
         var enumerable = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable");
         var where = new MemberRef(
@@ -839,7 +839,7 @@ public partial class LibraryBodyIndexTests
             [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"), TypeRef.CoreLib("System", "Func`2")],
             TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
             MemberKind.Method);
-        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(where, out _));
+        Assert.False(RepeatedScanAnalysis.IsLinqMembershipScan(where, out _));
 
         // A user-defined Enumerable in a different namespace/assembly must not match.
         var userEnumerable = TypeRef.Definition("MyLib", "My.Linq", "Enumerable");
@@ -849,25 +849,7 @@ public partial class LibraryBodyIndexTests
             [TypeRef.CoreLib("System", "Object"), TypeRef.CoreLib("System", "Object")],
             TypeRef.CoreLib("System", "Boolean"),
             MemberKind.Method);
-        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(userAny, out _));
-    }
-
-    [Fact]
-    public void IsLinqMembershipScan_RejectsSameNameAssemblyWithoutFrameworkKey()
-    {
-        // #1708 Row A: an assembly literally named System.Linq but without a framework
-        // public-key-token (trusted = false) must not be classified as real LINQ for the
-        // #1725 repeated-scan shapes — the matcher must honor the trust gate, not just the
-        // simple name.
-        var spoof = TypeRef.Definition("System.Linq", "System.Linq", "Enumerable", trustedFrameworkAssembly: false);
-        var anyPredicate = new MemberRef(
-            spoof,
-            "Any",
-            [TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"), TypeRef.CoreLib("System", "Func`2")],
-            TypeRef.CoreLib("System", "Boolean"),
-            MemberKind.Method);
-
-        Assert.False(LibraryBodyIndex.IsLinqMembershipScan(anyPredicate, out _));
+        Assert.False(RepeatedScanAnalysis.IsLinqMembershipScan(userAny, out _));
     }
 
     [Fact]
@@ -2064,6 +2046,17 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(0, copies);
     }
 
+    [Fact]
+    public void OptimizationOpportunities_LinqMembershipScan_RejectsSimpleNameSpoofWithoutFrameworkKey()
+    {
+        var index = BodyAnalysisTestExecution.Open(
+            FixtureCatalog.AnalysisSpoofSystemLinq.AssemblyPath());
+
+        Assert.DoesNotContain(index.Optimization.Opportunities, opportunity =>
+            opportunity.Method.Name == "CallsFakeEnumerableAnyInLoop"
+            && opportunity.Shape == "linq-scan-in-loop");
+    }
+
     // #1708 Row A, span-to-array opportunity path. An assembly named "System.Runtime"
     // (unsigned -> canonicalizes to corelib, no framework key) exposes a System.Span<T>
     // lookalike. The span-to-array-copy opportunity must require a trusted framework key,
@@ -2100,6 +2093,19 @@ public partial class LibraryBodyIndexTests
 
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.Reflection >= 1, $"expected reflection on facade assembly, got {s.Reflection}");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_LinqMembershipScan_RecognizesLegacyFacade()
+    {
+        var index = BodyAnalysisTestExecution.Open(
+            FixtureCatalog.AnalysisFacade.AssemblyPath());
+
+        var opportunity = Assert.Single(
+            index.Optimization.Opportunities.Where(opportunity =>
+                opportunity.Method.Name == "LinqMembershipScanInLoop"
+                && opportunity.Shape == "linq-scan-in-loop"));
+        Assert.Contains("Any", opportunity.Evidence, StringComparison.Ordinal);
     }
 
     // #1708 Row B (.NET Framework path). Real net48 assemblies cannot be built on this

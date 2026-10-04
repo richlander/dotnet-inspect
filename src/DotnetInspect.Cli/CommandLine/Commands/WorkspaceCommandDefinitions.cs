@@ -117,7 +117,8 @@ public static class WorkspaceCommandDefinitions
         var lensOption = new Option<string?>("--lens")
         {
             Description =
-                "Exact destination view-facet id, such as type.compare or member.compare",
+                "Exact destination view-facet id or contextual name, "
+                    + "such as type.compare or .compare",
         };
         var shareOption = WorkspaceShareOption.Create(
             "Emit the complete portable Workspace definition as a canonical packet or URL");
