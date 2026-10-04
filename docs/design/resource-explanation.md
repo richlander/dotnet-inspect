@@ -501,8 +501,9 @@ declaration vocabulary. The vocabulary supports:
 The declaration vocabulary is recursive by identity, not by embedding
 arbitrary CLR object graphs. Composition rejects duplicate identities,
 unresolved required shape references, invalid choice cases, contradictory
-cardinality, and cycles that require an infinitely expanded inline value.
-Recursive domain structure remains expressible through a named reference.
+cardinality, missing or non-positive embedded-value budgets, and recursive
+shape cycles without a finite declared depth and node bound. Recursive domain
+structure remains expressible through a named reference.
 
 The vocabulary is not limited to direct resource facts. Query operands, result
 rows, reusable references, envelope contracts, and other owner-issued product
@@ -513,9 +514,14 @@ produced or consumed elsewhere.
 
 Every named data shape has one semantic owner, stable shape identity, schema
 version, kind, and concise meaning. Record field and choice-case order is
-owner-issued. Scalar kinds are common physical value carriers; semantic values
-such as versions, member anchors, artifact coordinates, and durations retain
-named owner shapes rather than collapsing to their physical string or integer
+owner-issued. It also declares a finite embedded-value budget: maximum
+canonical encoded bytes, maximum nesting depth, and maximum value-node count.
+The common declaration vocabulary applies a fixed finite canonical
+encoded-size budget to every declaration node's identity, meaning, and other
+metadata.
+Scalar kinds are common physical value carriers; semantic values such as
+versions, member anchors, artifact coordinates, and durations retain named
+owner shapes rather than collapsing to their physical string or integer
 representation.
 
 A schema-conforming value is correspondingly one scalar, one vocabulary term,
@@ -523,6 +529,14 @@ one record keyed by declared field identities, or one closed-choice case with
 its declared payload. A named shape reference reuses that value contract.
 Cross-resource joins use resource relationships and public addresses instead;
 they are not hidden inside arbitrary nested values.
+
+Snapshot construction validates the complete canonical value against all three
+shape budgets before catalog or request-overlay composition. A value that
+exceeds encoded bytes, nesting depth, node count, or an embedded ordered-many
+maximum is not truncated. The owner supplies an admitted typed Failed or
+Unavailable observation when its contract supports that outcome; otherwise
+the explanation operation fails visibly without a partial Document. Keys,
+public addresses, and typed outcome data use the same budgeted value contract.
 
 Built-in scalar kinds are deliberately small: Boolean, arbitrary-precision
 Integer, finite Decimal, finite Binary Floating Point, Unicode Text, and
@@ -683,6 +697,12 @@ Expansion admits another resource, relationship observation, or target only
 when both the item and its newly required transitive declarations fit. The
 traversal receipt records schema declarations emitted and schema-limit
 truncation separately.
+
+The schema-declaration limit counts every schema, data-shape, record-field,
+choice-case, resource-type, fact, relationship, and public-address-kind
+declaration node. Together with the declaration-node encoded-size budget, it
+bounds the self-contained schema slice rather than counting one arbitrarily
+large aggregate as one declaration.
 
 ### Resource Explanation Document
 
@@ -1155,6 +1175,8 @@ The pathological graph includes:
 - operation and row facets with the same display label but different effects;
 - one owner-specific record shape whose concrete CLR type is unavailable to
   the declaration floor;
+- one recursive optional record value at its depth and node budgets and one
+  value exceeding each budget;
 - legitimate optional absence beside a distinct unavailable or failed fact;
 - one resolved contextual resource with no public reusable reference;
 - a snapshot whose fact value violates its declared data shape;
@@ -1178,8 +1200,8 @@ Implementation slices must name Release gates for the following properties:
 
 | Property | Required gate |
 | --- | --- |
-| Owner schemas are closed, internally valid, and independent of concrete domain assemblies. | Schema-construction tests covering scalar, term, record, choice, reference, and cardinality declarations, plus a real owner-specific shape whose CLR type stays in its owner assembly. |
-| Every snapshot fact and relationship observation uses an admitted state and every available value or target conforms to its declared shape, cardinality, and target-type constraint. | Construction matrix covering valid values, optional absence, available-empty many values, targetless unavailable and failed outcomes, invalid scalar/term/record/choice values, excess cardinality, and wrong-target relationships. |
+| Owner schemas are closed, internally valid, finitely budgeted, and independent of concrete domain assemblies. | Schema-construction tests covering scalar, term, record, choice, reference, cardinality, encoded-byte, nesting-depth, and node-count declarations, including recursive shapes and a real owner-specific shape whose CLR type stays in its owner assembly. |
+| Every snapshot fact and relationship observation uses an admitted state and every available value or target conforms to its declared shape, cardinality, embedded-value budgets, and target-type constraint. | Construction matrix covering valid values, optional absence, available-empty many values, targetless unavailable and failed outcomes, invalid scalar/term/record/choice values, excess cardinality, over-budget bytes/depth/nodes, and wrong-target relationships. |
 | Every completed Document carries the bounded transitive schema slice needed to interpret all emitted observations, targets, and addresses without owner-catalog access. | Document-construction tests over colliding physical scalar values with distinct named meanings, nested record/choice references, typed addresses, schema-limit truncation, and a root closure that exceeds the schema limit and fails without partial Content. |
 | An opaque external identity remains a typed fact until its owner issues an explanation resource type and key; Resource Explanation never invents the target declaration. | Query result-contract fixture before and after output-contract-owner adoption, asserting a typed opaque fact in the first case and the exact owner-issued relationship target in the second. |
 | Installed resources and detached resolved resources use the same Document model without placing contextual snapshots in the installed catalog. | Shared Content-shape tests over one installed query facet and one exact `System.Text.Json` Member, with catalog immutability asserted before and after contextual explanation. |
