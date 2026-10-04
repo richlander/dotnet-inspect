@@ -599,11 +599,20 @@ internal sealed class PackageSearchQuerySources
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
         SearchAssemblySource> _sources;
+    readonly Dictionary<
+        AssemblyAcquisitionRegistration,
+        ExactLibrarySourceCoordinate> _memberCoordinates;
+    readonly Dictionary<
+        FindSourceIdentity,
+        SearchAssemblySource> _memberSemanticSources = [];
 
     internal PackageSearchQuerySources(
         ImmutableArray<PackageAssemblyRoleParticipant> participants)
     {
         _sources = new(
+            participants.Length,
+            ReferenceEqualityComparer.Instance);
+        _memberCoordinates = new(
             participants.Length,
             ReferenceEqualityComparer.Instance);
         foreach (PackageAssemblyRoleParticipant participant
@@ -614,6 +623,14 @@ internal sealed class PackageSearchQuerySources
                 SearchAssemblySource.FromPackage(
                     participant.Package,
                     participant.Asset));
+            _memberCoordinates.Add(
+                participant.Participant.Assembly.Registration,
+                new ExactLibrarySourceCoordinate.Package(
+                    PackageSourceCoordinate.Create(
+                        participant.Package.PackageId,
+                        participant.Package.PackageVersion),
+                    new ManagedMetadataIdentity.Assembly(
+                        participant.Participant.Assembly.Identity)));
         }
     }
 
@@ -628,6 +645,36 @@ internal sealed class PackageSearchQuerySources
             : throw new InspectionQueryException(
                 $"No committed package asset corresponds to "
                 + $"'{subject.Identity.Name}'.");
+
+    internal FindSourceIdentity MemberFindSourceFor(
+        AssemblyContextSubject subject,
+        int memberOrder)
+    {
+        SearchAssemblySource source = SourceFor(subject);
+        ExactLibrarySourceCoordinate coordinate =
+            _memberCoordinates.TryGetValue(
+                subject.Registration,
+                out ExactLibrarySourceCoordinate? candidate)
+                ? candidate
+                : throw new InspectionQueryException(
+                    "A package Member source requires an exact coordinate.");
+        var identity = new FindSourceIdentity(
+            coordinate,
+            contextOrder: 0,
+            memberOrder,
+            subject.Identity);
+        _memberSemanticSources.Add(identity, source);
+        return identity;
+    }
+
+    internal SearchAssemblySource SourceFor(
+        FindSourceIdentity source) =>
+        _memberSemanticSources.TryGetValue(
+                source,
+                out SearchAssemblySource? searchSource)
+            ? searchSource
+            : throw new InspectionQueryException(
+                "No committed package asset corresponds to the semantic Member source.");
 }
 
 /// <summary>

@@ -13,6 +13,9 @@ public enum FindVisibility
 }
 
 /// <summary>A normalized host-neutral semantic Find question.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(TypeFindQuestion), "type")]
+[JsonDerivedType(typeof(MemberFindQuestion), "member")]
 public abstract record FindQuestion
 {
     private protected FindQuestion()
@@ -249,9 +252,9 @@ public enum FindMatchCompletion
 /// <summary>
 /// One exact source occurrence inside an ordered semantic Find population.
 /// </summary>
-public sealed record TypeFindSourceIdentity
+public sealed record FindSourceIdentity
 {
-    public TypeFindSourceIdentity(
+    public FindSourceIdentity(
         ExactLibrarySourceCoordinate coordinate,
         int contextOrder,
         int memberOrder,
@@ -277,7 +280,7 @@ public sealed record TypeFindSourceIdentity
 public sealed record TypeFindDeclarationAssociation
 {
     public TypeFindDeclarationAssociation(
-        TypeFindSourceIdentity source,
+        FindSourceIdentity source,
         MetadataTypeDefinitionName name,
         Guid moduleVersionId,
         int declarationOrder)
@@ -291,7 +294,7 @@ public sealed record TypeFindDeclarationAssociation
         DeclarationOrder = declarationOrder;
     }
 
-    public TypeFindSourceIdentity Source { get; }
+    public FindSourceIdentity Source { get; }
     public MetadataTypeDefinitionName Name { get; }
     public Guid ModuleVersionId { get; }
     public int DeclarationOrder { get; }
@@ -337,7 +340,7 @@ public enum TypeFindSourceCoverageKind
 
 /// <summary>Detached coverage and failure evidence for one exact source.</summary>
 public sealed record TypeFindSourceCoverage(
-    TypeFindSourceIdentity Source,
+    FindSourceIdentity Source,
     TypeFindSourceCoverageKind Kind,
     string? Detail,
     ImmutableArray<TypeFindUnsupportedDeclaration> UnsupportedDeclarations)
@@ -348,7 +351,7 @@ public sealed record TypeFindSourceCoverage(
 /// <summary>
 /// Population-owner coverage that could not be attributed to an exact source.
 /// </summary>
-public sealed record TypeFindPopulationGap(
+public sealed record FindPopulationGap(
     int ContextOrder,
     int? MemberOrder,
     string Kind,
@@ -372,7 +375,7 @@ public abstract class TypeFindSourceEvaluation
 {
     private protected TypeFindSourceEvaluation(
         TypeFindQuestion question,
-        TypeFindSourceIdentity source,
+        FindSourceIdentity source,
         TypeFindSourceCoverage coverage)
         : base(question)
     {
@@ -382,7 +385,7 @@ public abstract class TypeFindSourceEvaluation
 
     public new TypeFindQuestion Question =>
         (TypeFindQuestion)base.Question;
-    public TypeFindSourceIdentity Source { get; }
+    public FindSourceIdentity Source { get; }
     public TypeFindSourceCoverage Coverage { get; }
     public abstract ImmutableArray<TypeFindSemanticMatch> Matches { get; }
     public bool IsComplete => Coverage.IsComplete;
@@ -391,7 +394,7 @@ public abstract class TypeFindSourceEvaluation
     {
         internal Available(
             TypeFindQuestion question,
-            TypeFindSourceIdentity source,
+            FindSourceIdentity source,
             ImmutableArray<TypeFindSemanticMatch> matches,
             TypeFindSourceCoverage coverage)
             : base(question, source, coverage)
@@ -409,7 +412,7 @@ public abstract class TypeFindSourceEvaluation
     {
         internal Rejected(
             TypeFindQuestion question,
-            TypeFindSourceIdentity source,
+            FindSourceIdentity source,
             TypeFindSourceCoverage coverage)
             : base(question, source, coverage)
         {
@@ -422,7 +425,7 @@ public abstract class TypeFindSourceEvaluation
     {
         internal Failed(
             TypeFindQuestion question,
-            TypeFindSourceIdentity source,
+            FindSourceIdentity source,
             TypeFindSourceCoverage coverage)
             : base(question, source, coverage)
         {
@@ -440,7 +443,7 @@ public sealed class TypeFindSemanticPopulation
     private TypeFindSemanticPopulation(
         TypeFindQuestion question,
         ImmutableArray<TypeFindSourceEvaluation> sources,
-        ImmutableArray<TypeFindPopulationGap> gaps,
+        ImmutableArray<FindPopulationGap> gaps,
         bool ownerReportsComplete)
     {
         Question = question;
@@ -454,13 +457,13 @@ public sealed class TypeFindSemanticPopulation
 
     public TypeFindQuestion Question { get; }
     public ImmutableArray<TypeFindSourceEvaluation> Sources { get; }
-    public ImmutableArray<TypeFindPopulationGap> Gaps { get; }
+    public ImmutableArray<FindPopulationGap> Gaps { get; }
     public bool IsComplete { get; }
 
     public static TypeFindSemanticPopulation Create(
         TypeFindQuestion question,
         IEnumerable<TypeFindSourceEvaluation> sources,
-        IEnumerable<TypeFindPopulationGap>? gaps = null,
+        IEnumerable<FindPopulationGap>? gaps = null,
         bool ownerReportsComplete = true)
     {
         ArgumentNullException.ThrowIfNull(question);
@@ -509,7 +512,7 @@ public sealed class TypeFindBlock
         ImmutableArray<TypeFindSemanticMatch> matches,
         ImmutableArray<TypeFindPatternSettlement> settlements,
         ImmutableArray<TypeFindSourceCoverage> sourceCoverage,
-        ImmutableArray<TypeFindPopulationGap> populationGaps,
+        ImmutableArray<FindPopulationGap> populationGaps,
         bool isSourceCoverageComplete,
         FindMatchCompletion matchCompletion)
     {
@@ -535,7 +538,7 @@ public sealed class TypeFindBlock
     public ImmutableArray<TypeFindSemanticMatch> Matches { get; }
     public ImmutableArray<TypeFindPatternSettlement> Settlements { get; }
     public ImmutableArray<TypeFindSourceCoverage> SourceCoverage { get; }
-    public ImmutableArray<TypeFindPopulationGap> PopulationGaps { get; }
+    public ImmutableArray<FindPopulationGap> PopulationGaps { get; }
     public bool IsSourceCoverageComplete { get; }
     public FindMatchCompletion MatchCompletion { get; }
 }
@@ -604,7 +607,7 @@ public static class TypeFindSourceEvaluator
 
         var sources =
             ImmutableArray.CreateBuilder<TypeFindSourceEvaluation>();
-        var gaps = ImmutableArray.CreateBuilder<TypeFindPopulationGap>();
+        var gaps = ImmutableArray.CreateBuilder<FindPopulationGap>();
         foreach (WorkspaceDeclarationContextReceipt context
             in evaluated.Population.Contexts)
         {
@@ -641,7 +644,7 @@ public static class TypeFindSourceEvaluator
             }
 
             var source =
-                new TypeFindSourceIdentity(
+                new FindSourceIdentity(
                     member.Coordinate,
                     contextOrder,
                     memberOrder,
@@ -746,7 +749,7 @@ public static class TypeFindSourceEvaluator
     private static ImmutableArray<TypeFindSemanticMatch>
         EvaluateAvailableSource(
             TypeFindQuestion question,
-            TypeFindSourceIdentity source,
+            FindSourceIdentity source,
             IReadOnlyList<TypeDeclarationLocatorCandidate> candidates)
     {
         var matches =
@@ -790,7 +793,7 @@ public static class TypeFindSourceEvaluator
 
     private static TypeFindSemanticMatch? Classify(
         TypeFindPattern pattern,
-        TypeFindSourceIdentity source,
+        FindSourceIdentity source,
         TypeDeclarationLocatorCandidate candidate)
     {
         string typeName =
@@ -990,4 +993,114 @@ public static class FindSemanticReducer
                 ? FindMatchCompletion.MatchLimitReached
                 : FindMatchCompletion.Exhausted);
     }
+
+    public static MemberFindBlock ReduceMember(
+        MemberFindQuestion question,
+        MemberFindSemanticPopulation population)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        ArgumentNullException.ThrowIfNull(population);
+        if (!ReferenceEquals(question, population.Question))
+        {
+            throw new ArgumentException(
+                "The Member Find population must retain the exact reduction question.",
+                nameof(population));
+        }
+
+        var matches =
+            ImmutableArray.CreateBuilder<MemberFindSemanticMatch>();
+        var settlements =
+            ImmutableArray.CreateBuilder<MemberFindPatternSettlement>();
+        bool limitReached = false;
+        foreach (MemberFindPattern pattern in question.Patterns)
+        {
+            if (limitReached)
+            {
+                settlements.Add(
+                    new(
+                        pattern,
+                        FindPatternSettlementKind.NotEvaluated));
+                continue;
+            }
+
+            int before = matches.Count;
+            foreach (MemberFindSourceEvaluation source
+                in population.Sources)
+            {
+                foreach (MemberFindSemanticMatch match
+                    in source.Matches.Where(
+                        match =>
+                            match.Pattern.Ordinal == pattern.Ordinal))
+                {
+                    if (question.MaximumMatches is int maximum
+                        && matches.Count >= maximum)
+                    {
+                        limitReached = true;
+                        break;
+                    }
+                    matches.Add(match);
+                }
+                if (limitReached)
+                    break;
+            }
+
+            if (matches.Count > before)
+            {
+                settlements.Add(
+                    new(
+                        pattern,
+                        FindPatternSettlementKind.Matched));
+            }
+            else if (IsMemberPatternComplete(
+                         pattern,
+                         population))
+            {
+                settlements.Add(
+                    new(
+                        pattern,
+                        FindPatternSettlementKind.NoMatch));
+            }
+            else
+            {
+                settlements.Add(
+                    new(
+                        pattern,
+                        FindPatternSettlementKind.Inconclusive));
+            }
+
+            if (question.MaximumMatches is int limit
+                && matches.Count >= limit)
+            {
+                limitReached = true;
+            }
+        }
+
+        return new(
+            question,
+            matches.DrainToImmutable(),
+            settlements.DrainToImmutable(),
+            [.. population.Sources.Select(static source => source.Coverage)],
+            population.Gaps,
+            population.IsComplete,
+            limitReached
+                ? FindMatchCompletion.MatchLimitReached
+                : FindMatchCompletion.Exhausted);
+    }
+
+    private static bool IsMemberPatternComplete(
+        MemberFindPattern pattern,
+        MemberFindSemanticPopulation population) =>
+        population.Gaps.IsEmpty
+        && (
+            population.OwnerReportsComplete
+            || population.Sources.Any(
+                static source =>
+                    source.Coverage.Kind
+                    is MemberFindSourceCoverageKind
+                        .MatchLimitReached))
+        && population.Sources.All(
+            source =>
+                source is MemberFindSourceEvaluation.Available
+                && source.Coverage.IsPatternComplete(
+                    pattern.Ordinal));
 }
