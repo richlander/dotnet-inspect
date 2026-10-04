@@ -181,7 +181,10 @@ ruleset. Keep GitHub auto-merge unarmed while gates are pending. After a green
 preflight, exercise a recorded authorization through a direct merge using the
 [exact-head precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
 If an auto-merge request exists, disable it before any recovery mutation or
-head-moving push.
+head-moving push; when the API cannot be read, the conflict-recovery push
+still proceeds (a conflict is never a waiting state) and names the request
+known from the last successful read, as [Probe the live base locally,
+first](github-status-queries.md#probe-the-live-base-locally-first) states.
 
 For stacks, every open layer must meet its applicable eligibility row above. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -283,8 +286,8 @@ sleeps, or concurrent status requests.
 
 When the budget expires with status unresolved, obtain a final snapshot. Do not
 publish the report below unless its fetched live base equals
-`conflict-checked-base`; instead classify and surface a fetch or probe
-failure, with `rec=stop`. A recorded local conflict never reaches expiry: it
+`conflict-checked-base`; instead clear `schedule`, classify and surface a
+fetch or probe failure, and set `rec=stop`. A recorded local conflict never reaches expiry: it
 leaves the wait for conflict recovery the moment it is found, including when
 the final snapshot is the one that finds it. Otherwise clear `schedule`, keep
 the unresolved predicates, publish the report, set `rec=stop`, and end. This is an informational stop: it ends observation only

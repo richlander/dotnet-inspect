@@ -587,7 +587,8 @@ approves keeping the PR intact. Full checkpoint mechanics:
   (merged, closed, draft, head or base-ref mismatch) still outrank conflict
   recovery; when the API cannot be read, resolve and push the recovery anyway
   — the agent that pushed the head knows the PR was open and has seen no
-  merge or close — and take the lifecycle read on the next attempt. A conflict
+  merge or close; a driver's last successful read is its knowledge — and
+  take the lifecycle read on the next attempt. A conflict
   is never a waiting state. Never report budget exhaustion without probing the
   final tip. If an hour passes without an authored change while
   an independent gate hasn't started, fix the sequencing or record the blocker.
