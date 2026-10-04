@@ -506,13 +506,19 @@ owner stack rather than being folded into the Package adoption. This design
 defines the reusable pattern and uses Type to prove its structural adequacy; it
 does not transfer declaration semantics from Metadata, Library, or Type.
 
-Method-body Access and Detail adoption likewise follows as a focused Method
-Query Source stack. It moves the reference declarations into host-neutral
-production capabilities, lets the request-set planner pass the complete
-analyzer requirement set to the Method producer, adopts one real body-analysis
-operation through CLI and Browser/Wasm, and retires the superseded eager or
-repeated decode path. The merged scorecard remains its evidence source, not a
-parallel capability substrate.
+Method-body Access and Detail adoption likewise follows as a focused two-slice
+Method Query Source stack:
+
+1. **Production planning.** Move the reference declarations into host-neutral
+   production capabilities, let the request-set planner pass the complete
+   analyzer requirement set to the Method producer, and expose one real
+   body-analysis operation through one shared host-neutral API.
+2. **Host adoption and retirement.** Consume that API from CLI and
+   Browser/Wasm, publish exact NativeAOT before/after evidence, and retire the
+   superseded eager or repeated decode path.
+
+The merged scorecard remains that stack's evidence source, not a parallel
+capability substrate.
 
 ## Required evidence
 
