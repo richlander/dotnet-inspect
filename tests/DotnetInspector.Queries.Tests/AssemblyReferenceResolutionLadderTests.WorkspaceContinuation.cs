@@ -143,6 +143,160 @@ public sealed partial class AssemblyReferenceResolutionLadderTests
 
     [Fact]
     public async Task
+        WorkspaceContinuationCancelsConstructionAtWorkDeadline()
+    {
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease predecessor =
+            await ActivateAsync(coordinator);
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        var time = new WorkspaceContinuationTimeProvider();
+        var work = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 1,
+                maxAcquisitions: 1,
+                maxRealizedAssemblies: 1,
+                maxTransferBytes: 1,
+                maxRetainedAssemblyBytes: 1,
+                maxWorkspaceReplacements: 1,
+                deadline: time.GetUtcNow().AddMinutes(1)),
+            time);
+        AssemblyReferenceResolutionRequest request =
+            ResolutionRequest(
+                predecessor,
+                binding,
+                new AssemblyBindingPolicyVersion(),
+                AssemblyBindingSelection.NameNotOwned(),
+                work);
+        TestExternalRoute route = new(binding, request.Generation);
+        var demand = new AssemblyReferenceWorkspaceContinuationDemand(
+            request,
+            RouteSet(request, route),
+            route,
+            ownerEvidence: new object());
+        var constructorEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var constructorCancellationObserved = false;
+
+        Task<AssemblyReferenceWorkspaceContinuationOutcome> operation =
+            AssemblyReferenceWorkspaceContinuationOperation.ExecuteAsync(
+                    coordinator,
+                    predecessor,
+                    demand,
+                    async (_, _, token) =>
+                    {
+                        constructorEntered.SetResult();
+                        try
+                        {
+                            await Task.Delay(
+                                Timeout.InfiniteTimeSpan,
+                                token);
+                        }
+                        finally
+                        {
+                            constructorCancellationObserved =
+                                token.IsCancellationRequested;
+                        }
+                        throw new InvalidOperationException();
+                    },
+                    TestContext.Current.CancellationToken)
+                .AsTask();
+        await constructorEntered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        time.Advance(TimeSpan.FromMinutes(2));
+
+        AssemblyReferenceWorkspaceContinuationOutcome outcome =
+            await operation.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        var incomplete = Assert.IsType<
+            AssemblyReferenceWorkspaceContinuationOutcome.Incomplete>(
+                outcome);
+        Assert.True(constructorCancellationObserved);
+        Assert.NotNull(incomplete.Cleanup.Candidate);
+        Assert.Equal(
+            WorkspaceRealizationRetirementReason.CandidateCancelled,
+            incomplete.Cleanup.Candidate.Reason);
+        Assert.True(incomplete.Cleanup.Succeeded);
+        Assert.Null(incomplete.Cleanup.Publication);
+        Assert.Same(predecessor.Realization, coordinator.Current!.Identity);
+        var exhaustion = Assert.IsType<
+            AssemblyReferenceResolutionWorkExhaustion>(incomplete.Evidence);
+        Assert.Equal(
+            AssemblyReferenceResolutionWorkKind.Deadline,
+            exhaustion.Kind);
+        Assert.Same(exhaustion, work.Capture().Exhaustion);
+    }
+
+    [Fact]
+    public async Task
+        WorkspaceContinuationPreservesCallerCancellationDuringConstruction()
+    {
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease predecessor =
+            await ActivateAsync(coordinator);
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        AssemblyReferenceResolutionRequest request =
+            ResolutionRequest(
+                predecessor,
+                binding,
+                new AssemblyBindingPolicyVersion(),
+                AssemblyBindingSelection.NameNotOwned());
+        TestExternalRoute route = new(binding, request.Generation);
+        var demand = new AssemblyReferenceWorkspaceContinuationDemand(
+            request,
+            RouteSet(request, route),
+            route,
+            ownerEvidence: new object());
+        var constructorEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+
+        Task<AssemblyReferenceWorkspaceContinuationOutcome> operation =
+            AssemblyReferenceWorkspaceContinuationOperation.ExecuteAsync(
+                    coordinator,
+                    predecessor,
+                    demand,
+                    async (_, _, token) =>
+                    {
+                        constructorEntered.SetResult();
+                        await Task.Delay(
+                            Timeout.InfiniteTimeSpan,
+                            token);
+                        throw new InvalidOperationException();
+                    },
+                    cancellation.Token)
+                .AsTask();
+        await constructorEntered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        cancellation.Cancel();
+
+        AssemblyReferenceWorkspaceContinuationOutcome outcome =
+            await operation.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        var cancelled = Assert.IsType<
+            AssemblyReferenceWorkspaceContinuationOutcome.Cancelled>(
+                outcome);
+        Assert.NotNull(cancelled.Cleanup.Candidate);
+        Assert.Equal(
+            WorkspaceRealizationRetirementReason.CandidateCancelled,
+            cancelled.Cleanup.Candidate.Reason);
+        Assert.True(cancelled.Cleanup.Succeeded);
+        Assert.Null(cancelled.Cleanup.Publication);
+        Assert.Same(predecessor.Realization, coordinator.Current!.Identity);
+        Assert.Null(request.Work.Capture().Exhaustion);
+    }
+
+    [Fact]
+    public async Task
         WorkspaceContinuationRejectsForeignSelectedRouteAtDemandFormation()
     {
         await using var coordinator = new WorkspaceReplacementCoordinator();
@@ -491,6 +645,109 @@ public sealed partial class AssemblyReferenceResolutionLadderTests
                 selection),
             ImmutableArray.Create(route),
             (_, _) => throw new InvalidOperationException());
+    }
+
+    sealed class WorkspaceContinuationTimeProvider : TimeProvider
+    {
+        readonly object _gate = new();
+        readonly List<ManualTimer> _timers = [];
+        DateTimeOffset _now = DateTimeOffset.UnixEpoch;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            lock (_gate)
+            {
+                timer.ChangeCore(dueTime, period, _now);
+                _timers.Add(timer);
+            }
+            return timer;
+        }
+
+        internal void Advance(TimeSpan duration)
+        {
+            List<(TimerCallback Callback, object? State)> callbacks = [];
+            lock (_gate)
+            {
+                _now += duration;
+                foreach (ManualTimer timer in _timers)
+                {
+                    if (timer.TryTakeCallback(_now, out var callback))
+                        callbacks.Add(callback);
+                }
+            }
+            foreach (var callback in callbacks)
+                callback.Callback(callback.State);
+        }
+
+        sealed class ManualTimer(
+            WorkspaceContinuationTimeProvider owner,
+            TimerCallback callback,
+            object? state) : ITimer
+        {
+            DateTimeOffset _dueAt;
+            TimeSpan _period;
+            bool _enabled;
+            bool _disposed;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                lock (owner._gate)
+                {
+                    if (_disposed)
+                        return false;
+
+                    ChangeCore(dueTime, period, owner._now);
+                    return true;
+                }
+            }
+
+            internal void ChangeCore(
+                TimeSpan dueTime,
+                TimeSpan period,
+                DateTimeOffset now)
+            {
+                _enabled = dueTime != Timeout.InfiniteTimeSpan;
+                _dueAt = _enabled ? now + dueTime : DateTimeOffset.MaxValue;
+                _period = period;
+            }
+
+            internal bool TryTakeCallback(
+                DateTimeOffset now,
+                out (TimerCallback Callback, object? State) result)
+            {
+                if (_disposed || !_enabled || now < _dueAt)
+                {
+                    result = default;
+                    return false;
+                }
+
+                if (_period == Timeout.InfiniteTimeSpan)
+                {
+                    _enabled = false;
+                }
+                else
+                {
+                    _dueAt = now + _period;
+                }
+                result = (callback, state);
+                return true;
+            }
+
+            public void Dispose() => _disposed = true;
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 
     sealed class ReplacementFixture : IAsyncDisposable

@@ -274,18 +274,34 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
                 new(null));
         }
 
+        using AssemblyReferenceResolutionDeadlineCancellation
+            deadlineCancellation =
+            demand.Request.Work.CreateDeadlineCancellation();
+        using CancellationTokenSource operationCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                deadlineCancellation.Token);
+        CancellationToken operationToken = operationCancellation.Token;
+
         WorkspaceRealizationCandidateStartResult start;
         try
         {
             start = await coordinator.BeginCandidateAsync(
                     predecessor.Definition.Plan,
-                    cancellationToken)
+                    operationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
             return new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
+                new(null));
+        }
+        catch (OperationCanceledException)
+            when (deadlineCancellation.IsCancellationRequested)
+        {
+            return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
+                demand.Request.Work.RecordDeadlineExhaustion(),
                 new(null));
         }
         catch (Exception failure)
@@ -313,7 +329,7 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
             successorRequest = await constructSuccessor(
                     construction.Workspace,
                     demand,
-                    cancellationToken)
+                    operationToken)
                 .ConfigureAwait(false)
                 ?? throw new InvalidOperationException(
                     "The successor constructor returned no resolution request.");
@@ -329,6 +345,17 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
             when (cancellationToken.IsCancellationRequested)
         {
             return new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
+                await RetireCandidateAsync(
+                        coordinator,
+                        candidate,
+                        cancel: true)
+                    .ConfigureAwait(false));
+        }
+        catch (OperationCanceledException)
+            when (deadlineCancellation.IsCancellationRequested)
+        {
+            return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
+                demand.Request.Work.RecordDeadlineExhaustion(),
                 await RetireCandidateAsync(
                         coordinator,
                         candidate,
@@ -360,13 +387,24 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         {
             completion = await coordinator.CompleteCandidateAsync(
                     candidate,
-                    cancellationToken)
+                    operationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
             return new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
+                await RetireCandidateAsync(
+                        coordinator,
+                        candidate,
+                        cancel: true)
+                    .ConfigureAwait(false));
+        }
+        catch (OperationCanceledException)
+            when (deadlineCancellation.IsCancellationRequested)
+        {
+            return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
+                demand.Request.Work.RecordDeadlineExhaustion(),
                 await RetireCandidateAsync(
                         coordinator,
                         candidate,
@@ -411,6 +449,25 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
                         .SuccessorEvidenceMismatch)
                 .ConfigureAwait(false);
         }
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
+                await RetireCandidateAsync(
+                        coordinator,
+                        candidate,
+                        cancel: true)
+                    .ConfigureAwait(false));
+        }
+        if (deadlineCancellation.IsCancellationRequested)
+        {
+            return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
+                demand.Request.Work.RecordDeadlineExhaustion(),
+                await RetireCandidateAsync(
+                        coordinator,
+                        candidate,
+                        cancel: true)
+                    .ConfigureAwait(false));
+        }
 
         WorkspaceRealizationCutoverResult cutover =
             coordinator.CutOver(candidate, predecessor.Definition);
@@ -435,13 +492,20 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         try
         {
             successorAdmission = await coordinator.EnterOperationAsync(
-                    cancellationToken)
+                    operationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
             return new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
+                new(null, publication));
+        }
+        catch (OperationCanceledException)
+            when (deadlineCancellation.IsCancellationRequested)
+        {
+            return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
+                demand.Request.Work.RecordDeadlineExhaustion(),
                 new(null, publication));
         }
         catch (Exception failure)
