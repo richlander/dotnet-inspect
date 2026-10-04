@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries;
@@ -14,6 +15,7 @@ using InertText;
 using Inspector.Findings;
 using Markout;
 using Markout.Formatting;
+using QuerySpace;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -28,6 +30,7 @@ public partial class DiffCommand
     internal sealed record DiffAnalysisPlan(
         AnalysisSetValidationResult.Accepted Selection,
         IReadOnlyList<string> Views,
+        StringLiteralComparisonQueryPlan? StringLiteralQuery = null,
         bool DetailedChanges = false);
 
     static readonly string[] RoutesOutsideAnalysisSelection =
@@ -46,6 +49,7 @@ public partial class DiffCommand
     /// </summary>
     internal static bool SelectsAnalysisSet(DiffOptions options)
         => options.Analysis is not null
+            || options.Where.Length > 0
             || options.IncludeSections?.Contains(DiffSections.Summary.Name) == true
             || options.IncludeSections?.Contains(DiffSections.Transitions.Name) == true;
 
@@ -117,6 +121,15 @@ public partial class DiffCommand
         }
 
         var selection = (AnalysisSetValidationResult.Accepted)validation;
+        bool requiresStringLiteralQuery =
+            DiffAnalysisCatalog.RequiresStringLiteralQuery(selection);
+        if (!TryPlanStringLiteralQuery(
+            options,
+            requiresStringLiteralQuery,
+            out StringLiteralComparisonQueryPlan? stringLiteralQuery))
+        {
+            return false;
+        }
         bool selectsApi = DiffAnalysisViewAdmission.IncludesApi(selection);
         List<string> views;
         if (options.IncludeSections is { Count: > 0 } sections)
@@ -153,10 +166,11 @@ public partial class DiffCommand
                     + "selected; add --analysis api or select -S Transitions.");
                 return false;
             case DiffAnalysisViewRejectionReason
-                .TransitionsRequireTypeOrMember:
+                .TransitionsRequireSupportedSurface:
                 CommandError.Write(
-                    "The Transitions view requires the Type or Member surface; "
-                    + "add --type or --member, or select -S Summary.");
+                    "The Transitions view is not declared at this report surface "
+                    + "by any selected analysis; select string-literals at "
+                    + "Library, add --type or --member, or select -S Summary.");
                 return false;
         }
         if ((views.Contains(DiffSections.Transitions.Name)
@@ -187,10 +201,83 @@ public partial class DiffCommand
         plan = new DiffAnalysisPlan(
             selection,
             views,
+            stringLiteralQuery,
             DetailedChanges:
                 options.IncludeSections?.Contains(
                     DiffSections.Changes.Name) == true);
         return true;
+    }
+
+    private static bool TryPlanStringLiteralQuery(
+        DiffOptions options,
+        bool required,
+        out StringLiteralComparisonQueryPlan? plan)
+    {
+        plan = null;
+        if (!required)
+        {
+            if (options.Where.Length == 0)
+                return true;
+            CommandError.Write(
+                "--where is not consumed by the selected Diff analyses; "
+                + "select --analysis string-literals or remove --where.");
+            return false;
+        }
+        if (options.Where.Length != 1)
+        {
+            CommandError.Write(
+                "--analysis string-literals requires exactly one --where "
+                + "predicate: \"Literal contains value\" or "
+                + "\"Literal starts-with value\".");
+            return false;
+        }
+        if (!RowPredicateSyntaxParser.TryParse(
+            options.Where[0],
+            out RowPredicateSyntax syntax,
+            out OptionError error))
+        {
+            CommandError.Write(error);
+            return false;
+        }
+
+        PortableQueryIntent intent =
+            StringLiteralComparisonQuery.CreateIntent(
+                RowPredicateSyntaxParser.PortableOperator(
+                    syntax.Operator),
+                syntax.Value);
+        if (syntax.Field != StringLiteralComparisonQuery.LiteralKey)
+        {
+            CommandError.Write(
+                "String-literal Diff accepts only the exact --where key "
+                    + "'Literal'.");
+            return false;
+        }
+
+        switch (StringLiteralComparisonQuery.ResolveIntent(intent))
+        {
+            case StringLiteralComparisonQueryPlanResult.Accepted accepted:
+                plan = accepted.Plan;
+                return true;
+            case StringLiteralComparisonQueryPlanResult.Rejected rejected:
+                CommandError.Write(
+                    rejected.Failure.Reason switch
+                    {
+                        PortableQueryFailureReason.OperatorNotAdmitted =>
+                            "String-literal Diff accepts only 'contains' and "
+                                + "'starts-with' predicates.",
+                        PortableQueryFailureReason.ValueRejected =>
+                            "The string-literal predicate value must be non-empty "
+                                + $"and at most "
+                                + $"{StringLiteralUsePredicate.MaximumLength} "
+                                + "UTF-16 characters.",
+                        _ => "The string-literal Diff predicate could not be "
+                            + $"resolved ({rejected.Failure.Reason}).",
+                    });
+                return false;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown string-literal query-plan result.");
+        }
     }
 
     /// <summary>
@@ -495,7 +582,29 @@ public partial class DiffCommand
                 "--analysis"),
             implementation is null
                 ? null
-                : () => implementation);
+                : () => implementation,
+            hostUnavailability:
+                plan.StringLiteralQuery is not null
+                    && (fromPaths.Count != 1 || toPaths.Count != 1)
+                ? [
+                    new DiffAnalysisHostUnavailability(
+                        new AnalysisDeclarationId("string-literals"),
+                        "String-literal Diff requires exactly one Library "
+                            + "assembly at each endpoint."),
+                ]
+                : null,
+            stringLiteralQuery: plan.StringLiteralQuery,
+            prepareStringLiterals: plan.StringLiteralQuery is { } literal
+                ? fromPaths.Count == 1 && toPaths.Count == 1
+                    ? () => StringLiteralComparisonQuery.ExecutePaths(
+                        fromPaths[0],
+                        toPaths[0],
+                        $"library:{name}",
+                        name,
+                        literal)
+                    : () => throw new InvalidOperationException(
+                        "String-literal Diff endpoint cardinality was not admitted.")
+                : null);
         return new AnalysisSetRun(
             DiffAnalysisInspection.Execute(
                 new DiffAnalysisInspectionRequest(

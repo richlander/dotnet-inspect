@@ -22,6 +22,7 @@ public enum ResearchChangeMechanism
 
 public enum ResearchSubjectKind
 {
+    Library,
     Type,
     Member,
 }

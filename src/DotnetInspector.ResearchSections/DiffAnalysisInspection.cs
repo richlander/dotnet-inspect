@@ -44,7 +44,13 @@ public sealed record DiffAnalysisComparisonContext(
     string AfterVersion,
     AnalysisReportSurfaceKind Surface,
     DiffAnalysisDocumentViews Views,
-    ImmutableArray<string> Analyses);
+    ImmutableArray<string> Analyses,
+    ImmutableArray<DiffAnalysisQueryTermContext> Predicates = default);
+
+public sealed record DiffAnalysisQueryTermContext(
+    string Key,
+    string Operator,
+    string Value);
 
 public sealed record DiffAnalysisDocumentOutcome(
     string Analysis,
@@ -245,6 +251,18 @@ public static class DiffAnalysisInspection
                 "The validated analysis surface does not match the resolved input.",
                 nameof(request));
         }
+        bool requiresStringLiteralQuery =
+            DiffAnalysisCatalog.RequiresStringLiteralQuery(
+                request.Selection);
+        if (requiresStringLiteralQuery
+            != (request.Input.StringLiteralQuery is not null))
+        {
+            throw new ArgumentException(
+                requiresStringLiteralQuery
+                    ? "The selected string-literals analysis requires one predicate."
+                    : "The Diff request supplied a predicate that no selected analysis consumes.",
+                nameof(request));
+        }
 
         DiffAnalysisResult result = DiffAnalysisOperation.Execute(
             request.Catalog,
@@ -300,7 +318,16 @@ public static class DiffAnalysisInspection
                 request.AfterVersion,
                 request.Selection.Surface,
                 request.Views,
-                [.. request.Selection.Analyses.Select(analysis => analysis.Id.Value)]),
+                [.. request.Selection.Analyses.Select(analysis => analysis.Id.Value)],
+                request.Input.StringLiteralQuery is { } literal
+                    ? [
+                        new DiffAnalysisQueryTermContext(
+                            literal.Term.Key,
+                            QuerySpace.PortableQueryModel.TextOf(
+                                literal.Term.Operator),
+                            literal.Term.Value),
+                    ]
+                    : []),
             [.. result.Outcomes.Select(ProjectOutcome)],
             selectedApiDiff,
             request.Views.HasFlag(DiffAnalysisDocumentViews.Summary)
@@ -309,7 +336,15 @@ public static class DiffAnalysisInspection
                     projection.Transitions))]
                 : null,
             request.Views.HasFlag(DiffAnalysisDocumentViews.Transitions)
-                ? [.. projections.SelectMany(projection => projection.Transitions)]
+                ? [
+                    .. projections
+                        .Where(projection =>
+                            projection.Outcome.Participation.Projections.Any(
+                                candidate => candidate.Id
+                                    == DiffAnalysisCatalog
+                                        .TransitionsProjection.Id))
+                        .SelectMany(projection => projection.Transitions),
+                ]
                 : null,
             apiResult: apiDiff,
             unclassifiedChanges: unclassifiedApiChanges,
@@ -838,6 +873,10 @@ public static class DiffAnalysisInspection
                 Rows<UnsafetyOccurrence>(
                     emitEmptyComparison: false,
                     ToUnsafetyTransitionRow),
+            var id when id == StringLiteralUseFindings.Descriptor.Id =>
+                Rows<StringLiteralUseOccurrence>(
+                    emitEmptyComparison: false,
+                    ToStringLiteralTransitionRow),
             var id when id == CSharpFindings.LineDescriptor.Id =>
                 Rows<CSharpCanonicalLine>(
                     emitEmptyComparison: true,
@@ -1092,6 +1131,28 @@ public static class DiffAnalysisInspection
             oldFinding is null ? "absent" : "present",
             newFinding is null ? "absent" : "present",
             pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
+    }
+
+    private static DiffAnalysisTransitionRow
+        ToStringLiteralTransitionRow(
+            ResearchSubjectKey subject,
+            PairFinding<StringLiteralUseOccurrence> pair,
+            string beforeVersion,
+            string afterVersion)
+    {
+        Finding<StringLiteralUseOccurrence>? oldFinding =
+            OldSide(pair);
+        Finding<StringLiteralUseOccurrence>? newFinding =
+            NewSide(pair);
+        return new(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            subject.Display,
+            beforeVersion,
+            afterVersion,
+            oldFinding?.Payload.LiteralText.ToString() ?? "absent",
+            newFinding?.Payload.LiteralText.ToString() ?? "absent",
+            pair.Detail);
     }
 
     private static DiffAnalysisTransitionRow ToCSharpTransitionRow(

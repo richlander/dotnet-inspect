@@ -17,6 +17,14 @@ export type CloneTarget<T> = { kind: "workspace" } | { kind: "package"; package:
 // field. A Package with no retained mode state presents Diff.
 export type CompareMode = "diff" | "clone";
 
+export type DiffContent =
+  | { kind: "api" }
+  | {
+      kind: "string-literals";
+      operator: "contains" | "starts-with";
+      value: string;
+    };
+
 export function isCompareMode(
   value: string | null | undefined,
 ): value is CompareMode {
@@ -58,12 +66,14 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
 ) {
   const settings = new WeakMap<T, {
     diff: DiffTarget;
+    diffContent: DiffContent;
     clone: CloneTarget<T>;
     mode: CompareMode;
   }>();
   const get = (pkg: T) =>
     settings.get(pkg) ?? {
       diff: { kind: "previous" } as const,
+      diffContent: { kind: "api" } as const,
       clone: { kind: "workspace" } as const,
       mode: "diff" as const,
     };
@@ -86,7 +96,12 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
             package: copies.get(value.clone.package) ?? value.clone.package,
           }
           : value.clone;
-        settings.set(copy, { diff: value.diff, clone, mode: value.mode });
+        settings.set(copy, {
+          diff: value.diff,
+          diffContent: value.diffContent,
+          clone,
+          mode: value.mode,
+        });
       }
     },
     selectDiff(pkg: T, diff: DiffTarget, versions: PackageVersionState) {
@@ -98,6 +113,16 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
           || !versions.inventory.versions.includes(diff.version)))
         throw new Error("Select a version from this Package's available versions.");
       settings.set(pkg, { ...get(pkg), diff });
+    },
+    selectDiffContent(pkg: T, content: DiffContent) {
+      requireResident(pkg);
+      if (content.kind === "string-literals") {
+        if (content.value.length === 0)
+          throw new Error("Enter a non-empty string literal predicate.");
+        if (content.value.length > 1_024)
+          throw new Error("String literal predicates are limited to 1,024 characters.");
+      }
+      settings.set(pkg, { ...get(pkg), diffContent: content });
     },
     selectClone(pkg: T, clone: CloneTarget<T>) {
       requireResident(pkg);
@@ -231,4 +256,46 @@ export function bindPackageComparisonTargets<T extends ComparisonPackage>(
   });
   root.querySelector("#package-comparison-retry")
     ?.addEventListener("click", () => actions.retry());
+}
+
+export function bindDiffContent(
+  root: ParentNode,
+  current: DiffContent,
+  select: (content: DiffContent) => void,
+): void {
+  const content = root.querySelector<HTMLSelectElement>(
+    "#compare-diff-content",
+  );
+  content?.addEventListener("change", () => {
+    if (content.value === "api") select({ kind: "api" });
+    else if (content.value === "string-literals") {
+      select({
+        kind: "string-literals",
+        operator: current.kind === "string-literals"
+          ? current.operator
+          : "contains",
+        value: current.kind === "string-literals"
+          ? current.value
+          : "https://",
+      });
+    }
+  });
+  if (current.kind !== "string-literals") return;
+  const operator = root.querySelector<HTMLSelectElement>(
+    "#compare-string-literal-operator",
+  );
+  operator?.addEventListener("change", () => {
+    select({
+      ...current,
+      operator: operator.value === "starts-with"
+        ? "starts-with"
+        : "contains",
+    });
+  });
+  const value = root.querySelector<HTMLInputElement>(
+    "#compare-string-literal-value",
+  );
+  value?.addEventListener("change", () => {
+    select({ ...current, value: value.value });
+  });
 }
