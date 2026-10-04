@@ -156,6 +156,40 @@ public sealed class CompleteRestorationPreparationTests
     }
 
     [Fact]
+    public void RegistrationOnlyEcosystem_AcceptsCopiedProductDefaultPolicy()
+    {
+        WorkspacePlan aspire = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(aspire, EcosystemPackIds.Aspire);
+        TraversalTargetFrameworkPolicy copiedPolicy =
+            aspire.TraversalTargetPolicy with { };
+        var plan = new WorkspacePlan(
+            copiedPolicy,
+            aspire.Registrations);
+        var request =
+            new CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemInput(
+                    plan,
+                    registration.Declaration.Id,
+                    new ViewFacetId("ecosystem.overview"));
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareEcosystemRestoration(
+                request,
+                new TestIntentAuthority(),
+                TestContext.Current.CancellationToken));
+
+        Assert.NotSame(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            copiedPolicy);
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            copiedPolicy);
+        Assert.Same(plan, ready.Plan.WorkspacePlan);
+    }
+
+    [Fact]
     public void RegistrationOnlyEcosystem_RejectsContextAndConfiguredTarget()
     {
         WorkspacePlan aspire = EcosystemPackCatalog.CreateWorkspacePlan(
@@ -166,7 +200,8 @@ public sealed class CompleteRestorationPreparationTests
             aspire.Registrations,
             [new WorkspaceContextInput()]);
         var configuredPlan = new WorkspacePlan(
-            new TraversalTargetFrameworkPolicy("net10.0"),
+            new TraversalTargetFrameworkPolicy(
+                TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework),
             aspire.Registrations);
 
         AssertInvalid(contextPlan, registration.Declaration.Id);
