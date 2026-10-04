@@ -227,11 +227,19 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     input.Request,
                     input.Item,
                     input.Consumed));
-        AssemblyBindingRequest request = BindingRequest(input.Request);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(sourceIdentity),
+            AssemblyBindingOrigin.FromAssembly(Descriptor(image)),
+            AssemblyResolutionScope.Any);
         PackageAssemblyReferenceSupplierOutcome.Missing package =
             await CompletePackageMissAsync(
                 request,
                 cancellationToken);
+        PlatformAssemblyReferenceBindingOutcome platformRoute =
+            await CompletePlatformRouteAsync(
+                input.Request,
+                platform,
+                request);
 
         var completed = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.PlatformOwned>(
@@ -239,11 +247,18 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     .CompletePlatform(
                         request,
                         package,
-                        new ExternalAssemblyReferencePlatformResult(
-                            input.Request,
-                            platform)));
+                        platformRoute));
 
-        Assert.Same(platform, completed.Platform);
+        Assert.Same(
+            platform,
+            completed.Platform.Outcome);
+        Assert.Same(request, completed.Platform.Request);
+        Assert.Same(
+            BindingRequest(input.Request),
+            completed.Platform.Route.PlatformBindingRequest);
+        Assert.NotSame(
+            request,
+            completed.Platform.Route.PlatformBindingRequest);
         Assert.Equal(targetIdentity, completed.Binding.Candidate.Identity);
     }
 
@@ -282,6 +297,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
             await CompletePackageMissAsync(
                 request,
                 cancellationToken);
+        PlatformAssemblyReferenceBindingOutcome platformRoute =
+            await CompletePlatformRouteAsync(
+                input.Request,
+                platform);
 
         var missing = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.NameOwnedNoMatch>(
@@ -289,13 +308,11 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     .CompletePlatform(
                         request,
                         package,
-                        new ExternalAssemblyReferencePlatformResult(
-                            input.Request,
-                            platform)));
+                        platformRoute));
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NameOwnedNoMatch,
-            missing.Binding.Disposition);
+            missing.Platform.Disposition);
     }
 
     [Fact]
@@ -337,6 +354,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
             await CompletePackageMissAsync(
                 request,
                 cancellationToken);
+        PlatformAssemblyReferenceBindingOutcome platformRoute =
+            await CompletePlatformRouteAsync(
+                platformRequest,
+                platform);
 
         var missing = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.NoSupplier>(
@@ -344,13 +365,11 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     .CompletePlatform(
                         request,
                         package,
-                        new ExternalAssemblyReferencePlatformResult(
-                            platformRequest,
-                            platform)));
+                        platformRoute));
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
-            missing.Binding.Disposition);
+            missing.Platform.Disposition);
     }
 
     [Fact]
@@ -390,6 +409,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
         using PackageSourceOperationLease operation =
             root.IssueOperationLease(cancellationToken);
         int platformCalls = 0;
+        PlatformAssemblyReferenceBindingOutcome platformRoute =
+            await CompletePlatformRouteAsync(
+                input.Request,
+                platform);
 
         var completed = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.PlatformOwned>(
@@ -408,16 +431,14 @@ public sealed class PlatformAssemblyReferenceResolverTests
                             Assert.Equal(
                                 cancellationToken,
                                 continuedCancellationToken);
-                            return ValueTask.FromResult<
-                                ExternalAssemblyReferencePlatformResult>(
-                                    new(
-                                        input.Request,
-                                        platform));
+                            return ValueTask.FromResult(platformRoute);
                         },
                         cancellationToken));
 
         Assert.Equal(1, platformCalls);
-        Assert.Same(platform, completed.Platform);
+        Assert.Same(
+            platform,
+            completed.Platform.Outcome);
     }
 
     [Fact]
@@ -503,6 +524,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
             new ExternalAssemblyReferencePlatformResult(
                 first.Request,
                 firstOutcome);
+        PlatformAssemblyReferenceBindingOutcome firstPlatform =
+            await CompletePlatformRouteAsync(
+                first.Request,
+                firstOutcome);
         PlatformHouseRequest secondRequest = Request(
             firstIdentity with { Name = "Different.Assembly" },
             PlatformSourceCapabilityIdentity.Create("second-source"),
@@ -522,12 +547,253 @@ public sealed class PlatformAssemblyReferenceResolverTests
                 .CompletePlatform(
                     secondBinding,
                     secondPackage,
-                    firstResult));
+                    firstPlatform));
         Assert.Throws<ArgumentException>(
             "outcome",
             () => new ExternalAssemblyReferencePlatformResult(
                 secondRequest,
                 firstOutcome));
+    }
+
+    [Fact]
+    public async Task
+        PlatformRouteAdapterSelectsOneFamilyAfterCompleteReorderedResults()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+        PlatformSourceCapabilityIdentity runtimeCapability =
+            PlatformSourceCapabilityIdentity.Create("runtime");
+        PlatformSourceCapabilityIdentity aspNetCoreCapability =
+            PlatformSourceCapabilityIdentity.Create("aspnetcore");
+        PlatformHouseRequest runtimeRequest = Request(
+            identity,
+            runtimeCapability,
+            AssemblyBindingOrigin.Global(),
+            cancellationToken,
+            image.LongLength,
+            family: PlatformFamily.DotNetRuntime,
+            bindingRequest: binding);
+        PlatformHouseRequest aspNetCoreRequest = Request(
+            identity,
+            aspNetCoreCapability,
+            AssemblyBindingOrigin.Global(),
+            cancellationToken,
+            maxBytes: 0,
+            family: PlatformFamily.AspNetCore,
+            bindingRequest: binding);
+        var runtimeAttempt = SuccessfulAttempt(
+            runtimeRequest,
+            runtimeCapability,
+            identity,
+            image,
+            "runtime-candidate");
+        var aspNetCoreAttempt = TerminalAttempt(
+            aspNetCoreRequest,
+            aspNetCoreCapability,
+            PlatformSourceContributionKind.Unavailable,
+            PlatformSourceUnavailabilityKind.Absent);
+        PlatformHouseOutcome<AssemblyBindingDecision> runtimeOutcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                runtimeRequest,
+                [runtimeAttempt],
+                Consumed(
+                    sourceOperations: 1,
+                    assemblies: 1,
+                    bytes: image.LongLength));
+        PlatformHouseOutcome<AssemblyBindingDecision> aspNetCoreOutcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                aspNetCoreRequest,
+                [aspNetCoreAttempt],
+                Consumed(
+                    sourceOperations: 1,
+                    assemblies: 0,
+                    bytes: 0));
+        PlatformAssemblyReferenceExternalRoute route =
+            await PlatformRouteAsync(
+                runtimeRequest,
+                aspNetCoreRequest);
+
+        var selected = Assert.IsType<
+            PlatformAssemblyReferenceBindingOutcome.Selected>(
+                PlatformAssemblyReferenceRouteAdapter.Complete(
+                    route,
+                    [
+                        new(
+                            aspNetCoreRequest,
+                            aspNetCoreOutcome),
+                        new(
+                            runtimeRequest,
+                            runtimeOutcome),
+                    ]));
+
+        Assert.Equal(
+            PlatformFamily.DotNetRuntime,
+            selected.Family.Target.Family);
+        Assert.Same(
+            runtimeRequest,
+            selected.FamilyResults[0].PlatformRequest);
+        Assert.Same(
+            aspNetCoreRequest,
+            selected.FamilyResults[1].PlatformRequest);
+    }
+
+    [Fact]
+    public async Task
+        PlatformRouteAdapterReportsAmbiguousAcrossCompatibleFamilies()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+        PlatformSourceCapabilityIdentity runtimeCapability =
+            PlatformSourceCapabilityIdentity.Create("runtime");
+        PlatformSourceCapabilityIdentity aspNetCoreCapability =
+            PlatformSourceCapabilityIdentity.Create("aspnetcore");
+        PlatformHouseRequest runtimeRequest = Request(
+            identity,
+            runtimeCapability,
+            AssemblyBindingOrigin.Global(),
+            cancellationToken,
+            image.LongLength,
+            family: PlatformFamily.DotNetRuntime,
+            bindingRequest: binding);
+        PlatformHouseRequest aspNetCoreRequest = Request(
+            identity,
+            aspNetCoreCapability,
+            AssemblyBindingOrigin.Global(),
+            cancellationToken,
+            image.LongLength,
+            family: PlatformFamily.AspNetCore,
+            bindingRequest: binding);
+        PlatformHouseOutcome<AssemblyBindingDecision> runtimeOutcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                runtimeRequest,
+                [
+                    SuccessfulAttempt(
+                        runtimeRequest,
+                        runtimeCapability,
+                        identity,
+                        image,
+                        "runtime-candidate"),
+                ],
+                Consumed(
+                    sourceOperations: 1,
+                    assemblies: 1,
+                    bytes: image.LongLength));
+        PlatformHouseOutcome<AssemblyBindingDecision> aspNetCoreOutcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                aspNetCoreRequest,
+                [
+                    SuccessfulAttempt(
+                        aspNetCoreRequest,
+                        aspNetCoreCapability,
+                        identity,
+                        image,
+                        "aspnetcore-candidate"),
+                ],
+                Consumed(
+                    sourceOperations: 1,
+                    assemblies: 1,
+                    bytes: image.LongLength));
+        PlatformAssemblyReferenceExternalRoute route =
+            await PlatformRouteAsync(
+                runtimeRequest,
+                aspNetCoreRequest);
+
+        Assert.IsType<PlatformAssemblyReferenceBindingOutcome.Ambiguous>(
+            PlatformAssemblyReferenceRouteAdapter.Complete(
+                route,
+                [
+                    new(runtimeRequest, runtimeOutcome),
+                    new(aspNetCoreRequest, aspNetCoreOutcome),
+                ]));
+    }
+
+    [Fact]
+    public async Task
+        PlatformRouteAdapterDoesNotSelectWhenOneFamilyIsUnavailable()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+        PlatformSourceCapabilityIdentity runtimeCapability =
+            PlatformSourceCapabilityIdentity.Create("runtime");
+        PlatformSourceCapabilityIdentity aspNetCoreCapability =
+            PlatformSourceCapabilityIdentity.Create("aspnetcore");
+        PlatformHouseRequest runtimeRequest = Request(
+            identity,
+            runtimeCapability,
+            AssemblyBindingOrigin.Global(),
+            cancellationToken,
+            image.LongLength,
+            family: PlatformFamily.DotNetRuntime,
+            bindingRequest: binding);
+        PlatformHouseRequest aspNetCoreRequest = Request(
+            identity,
+            aspNetCoreCapability,
+            AssemblyBindingOrigin.Global(),
+            cancellationToken,
+            maxBytes: 0,
+            family: PlatformFamily.AspNetCore,
+            bindingRequest: binding);
+        PlatformHouseOutcome<AssemblyBindingDecision> runtimeOutcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                runtimeRequest,
+                [
+                    SuccessfulAttempt(
+                        runtimeRequest,
+                        runtimeCapability,
+                        identity,
+                        image,
+                        "runtime-candidate"),
+                ],
+                Consumed(
+                    sourceOperations: 1,
+                    assemblies: 1,
+                    bytes: image.LongLength));
+        PlatformHouseOutcome<AssemblyBindingDecision> aspNetCoreOutcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                aspNetCoreRequest,
+                [
+                    TerminalAttempt(
+                        aspNetCoreRequest,
+                        aspNetCoreCapability,
+                        PlatformSourceContributionKind.Unavailable),
+                ],
+                Consumed(
+                    sourceOperations: 1,
+                    assemblies: 0,
+                    bytes: 0));
+        PlatformAssemblyReferenceExternalRoute route =
+            await PlatformRouteAsync(
+                runtimeRequest,
+                aspNetCoreRequest);
+
+        Assert.IsType<PlatformAssemblyReferenceBindingOutcome.Unavailable>(
+            PlatformAssemblyReferenceRouteAdapter.Complete(
+                route,
+                [
+                    new(runtimeRequest, runtimeOutcome),
+                    new(aspNetCoreRequest, aspNetCoreOutcome),
+                ]));
     }
 
     [Fact]
@@ -1887,7 +2153,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
             bool mismatchRoute = false,
             Func<byte[], Stream>? openStream = null,
             AssemblyReferenceIdentity? materializedIdentity = null,
-            bool bindingDemand = false)
+            bool bindingDemand = false,
+            AssemblyBindingRequest? bindingRequest = null)
     {
         AssemblyReferenceIdentity candidateIdentity =
             materializedIdentity ?? identity;
@@ -1900,7 +2167,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
             AssemblyBindingOrigin.Global(),
             cancellationToken,
             image.LongLength,
-            mismatchRoute);
+            mismatchRoute,
+            bindingRequest: bindingRequest);
         var contribution =
             new PlatformSourceContribution.Realization(
                 PlatformSourceFacet.Reference,
@@ -1987,6 +2255,78 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     operation));
     }
 
+    static async Task<PlatformAssemblyReferenceBindingOutcome>
+        CompletePlatformRouteAsync(
+            PlatformHouseRequest request,
+            PlatformHouseOutcome<AssemblyBindingDecision> outcome,
+            AssemblyBindingRequest? ladderRequest = null)
+    {
+        PlatformFamilyTarget target =
+            Assert.IsType<PlatformTargetDemand.Exact>(
+                request.Target).Target;
+        ResolutionEnvironment resolution =
+            await ResolutionEnvironment.CreateAsync(target.Family);
+        MemberCallGraphPlatformPopulationScope population =
+            Assert.Single(
+                resolution.FocalScope.PlatformPopulations,
+                candidate => candidate.Family == target.Family);
+        var family = new PlatformAssemblyReferenceFamilyRoute(
+            [
+                new PlatformAssemblyReferenceFamilyEligibility
+                    .WorkspacePopulation(population),
+            ],
+            request);
+        var route = new PlatformAssemblyReferenceExternalRoute(
+            ladderRequest ?? BindingRequest(request),
+            resolution.Generation,
+            resolution.FocalScope,
+            [family]);
+        return PlatformAssemblyReferenceRouteAdapter.Complete(
+            route,
+            [new ExternalAssemblyReferencePlatformResult(request, outcome)]);
+    }
+
+    static async Task<PlatformAssemblyReferenceExternalRoute>
+        PlatformRouteAsync(params PlatformHouseRequest[] requests)
+    {
+        PlatformFamily[] families =
+        [
+            .. requests.Select(
+                request =>
+                    Assert.IsType<PlatformTargetDemand.Exact>(
+                        request.Target).Target.Family),
+        ];
+        ResolutionEnvironment resolution =
+            await ResolutionEnvironment.CreateAsync(families);
+        var familyRoutes =
+            ImmutableArray.CreateBuilder<
+                PlatformAssemblyReferenceFamilyRoute>(
+                    requests.Length);
+        foreach (PlatformHouseRequest request in requests)
+        {
+            PlatformFamily family =
+                Assert.IsType<PlatformTargetDemand.Exact>(
+                    request.Target).Target.Family;
+            MemberCallGraphPlatformPopulationScope population =
+                Assert.Single(
+                    resolution.FocalScope.PlatformPopulations,
+                    candidate => candidate.Family == family);
+            familyRoutes.Add(
+                new(
+                    [
+                        new PlatformAssemblyReferenceFamilyEligibility
+                            .WorkspacePopulation(population),
+                    ],
+                    request));
+        }
+
+        return new(
+            BindingRequest(requests[0]),
+            resolution.Generation,
+            resolution.FocalScope,
+            familyRoutes.MoveToImmutable());
+    }
+
     static async Task<PackageAssemblyReferenceSupplierAssociation>
         EmptyPackageAssociationAsync(
             PackageDependencyTraversalRootCompletion completion)
@@ -2043,18 +2383,47 @@ public sealed class PlatformAssemblyReferenceResolverTests
         AssemblyReferenceResolutionGenerationReceipt Generation,
         MemberCallGraphFocalScopeReceipt FocalScope)
     {
-        internal static async Task<ResolutionEnvironment> CreateAsync()
+        internal static async Task<ResolutionEnvironment> CreateAsync(
+            params PlatformFamily[] platformFamilies)
         {
-            await using var workspace = new InspectionWorkspace();
+            ImmutableArray<WorkspaceRegistration> initialRegistrations =
+            [
+                .. platformFamilies.Select(
+                    family =>
+                        new WorkspaceRegistration.Ecosystem(
+                            new WorkspaceEcosystemRegistrationDeclaration(
+                                WorkspaceEcosystemRegistrationId.Create(
+                                    family switch
+                                    {
+                                        PlatformFamily.DotNetRuntime =>
+                                            "ecosystem.runtime",
+                                        PlatformFamily.AspNetCore =>
+                                            "ecosystem.aspnetcore",
+                                        _ => throw new ArgumentOutOfRangeException(
+                                            nameof(platformFamilies)),
+                                    }),
+                                namespaceRoots: [],
+                                corePackages: [],
+                                populations:
+                                [
+                                    new
+                                        WorkspaceEcosystemPopulationDeclaration
+                                            .Platform(
+                                                new(
+                                                    family)),
+                                ]))),
+            ];
+            await using var workspace = new InspectionWorkspace(
+                initialRegistrations);
             var scope = Assert.IsType<WorkspaceScopeReadResult.Available>(
                 await workspace.GetScopeSnapshotAsync());
-            var registrations =
+            var registrationSnapshot =
                 Assert.IsType<WorkspaceRegistrationReadResult.Available>(
                     workspace.GetRegistrationSnapshot());
             MemberCallGraphFocalScopeReceipt focalScope =
                 MemberCallGraphFocalScopeReceipt.CaptureEverything(
                     scope.Snapshot,
-                    registrations.Revision);
+                    registrationSnapshot.Revision);
             return new(
                 AssemblyReferenceResolutionGenerationReceipt.Capture(
                     scope.Snapshot,
@@ -2078,7 +2447,9 @@ public sealed class PlatformAssemblyReferenceResolverTests
         AssemblyBindingOrigin origin,
         CancellationToken cancellationToken,
         long maxBytes,
-        bool mismatchRoute = false)
+        bool mismatchRoute = false,
+        PlatformFamily family = PlatformFamily.DotNetRuntime,
+        AssemblyBindingRequest? bindingRequest = null)
         => Request(
             identity,
             [capability],
@@ -2088,7 +2459,9 @@ public sealed class PlatformAssemblyReferenceResolverTests
             maxAssemblies: 1,
             maxBytes,
             origin,
-            mismatchRoute);
+            mismatchRoute,
+            family,
+            bindingRequest);
 
     static PlatformHouseRequest Request(
         AssemblyReferenceIdentity identity,
@@ -2099,10 +2472,12 @@ public sealed class PlatformAssemblyReferenceResolverTests
         int maxAssemblies,
         long maxBytes,
         AssemblyBindingOrigin? origin = null,
-        bool mismatchRoute = false)
+        bool mismatchRoute = false,
+        PlatformFamily family = PlatformFamily.DotNetRuntime,
+        AssemblyBindingRequest? bindingRequest = null)
     {
         var target = new PlatformFamilyTarget(
-            PlatformFamily.DotNetRuntime,
+            family,
             PlatformTargetFramework.Parse("net11.0"),
             PlatformVersion.Parse("11.0.0"));
         var requestOrigin = new PlatformHouseRequestOrigin.Standalone(
@@ -2121,10 +2496,11 @@ public sealed class PlatformAssemblyReferenceResolverTests
             ]);
         var metadataRequest =
             new PlatformMetadataRequestEvidence<AssemblyBindingRequest>(
-                new AssemblyBindingRequest(
-                    AssemblyBindingTarget.Reference(identity),
-                    origin ?? AssemblyBindingOrigin.Global(),
-                    AssemblyResolutionScope.Platform),
+                bindingRequest
+                    ?? new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(identity),
+                        origin ?? AssemblyBindingOrigin.Global(),
+                        AssemblyResolutionScope.Platform),
                 "metadata-request");
         var route = new PlatformAssemblyReferenceRoute(
             metadataRequest.Identity,

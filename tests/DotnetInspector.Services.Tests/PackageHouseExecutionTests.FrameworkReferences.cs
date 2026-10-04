@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Text;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformQueries;
+using DotnetInspector.Platforms;
 using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
@@ -33,6 +35,17 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             "Microsoft.AspNetCore.App",
             Assert.Single(selected.Evidence.References).Name);
+        var eligibility =
+            new PlatformAssemblyReferenceFamilyEligibility
+                .PackageFrameworkReference(
+                    selected.Evidence,
+                    Assert.Single(selected.Evidence.Occurrences));
+        Assert.Equal(
+            PlatformFamily.AspNetCore,
+            eligibility.Family);
+        Assert.Same(
+            selected.Evidence,
+            eligibility.Evidence);
     }
 
     [Fact]

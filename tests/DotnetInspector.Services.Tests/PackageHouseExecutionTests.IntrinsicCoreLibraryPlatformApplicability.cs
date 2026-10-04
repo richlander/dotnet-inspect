@@ -26,6 +26,7 @@ public sealed partial class PackageHouseExecutionTests
             typeof(IntrinsicCoreLibraryRouteDecision),
             typeof(IntrinsicCoreLibraryPlatformApplicabilityPlanResult),
             typeof(IntrinsicCoreLibraryPlatformIncompleteEvidence),
+            typeof(IntrinsicCoreLibraryPlatformRouteAdaptationOutcome),
             typeof(IntrinsicCoreLibraryWorkspaceContinuationOutcome),
         ];
         Assert.All(
@@ -48,6 +49,7 @@ public sealed partial class PackageHouseExecutionTests
             typeof(IntrinsicCoreLibraryPlatformFamilyComposition),
             typeof(IntrinsicCoreLibraryPlatformApplicabilityPlan),
             typeof(IntrinsicCoreLibraryRouteApplicabilityReceipt),
+            typeof(IntrinsicCoreLibraryPlatformExternalRoute),
             typeof(IntrinsicCoreLibraryWorkspaceSuccessorEvidence),
             typeof(
                 IntrinsicCoreLibraryWorkspaceOccurrenceCorrespondence),
@@ -118,6 +120,83 @@ public sealed partial class PackageHouseExecutionTests
                     ReferenceEquals(
                         population.Ecosystem,
                         graph.FocalScope.Ecosystems.Single()));
+        }
+        finally
+        {
+            if (completedPopulation is not null)
+                await RetireAsync(completedPopulation);
+        }
+    }
+
+    [Fact]
+    public async Task
+        IntrinsicCoreLibraryPlatformRouteAdapterRetainsPackageIneligibleApplicability()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        WorkspacePlan plan = IntrinsicCoreLibraryWorkspacePlan(
+            PlatformFamily.DotNetRuntime);
+        await using var workspace = new InspectionWorkspace(plan);
+        PackageDependencyMemberCallGraphOutcome.Completed graph =
+            await IntrinsicCoreLibraryGraphAsync(
+                workspace,
+                PlatformFamily.DotNetRuntime,
+                cancellationToken);
+        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+            occurrence = ExactVoidOccurrence(graph);
+        PlatformPopulationArtifactMaterializationOutcome.Completed?
+            completedPopulation = null;
+        try
+        {
+            IntrinsicCoreLibraryRouteDecision decision =
+                await IntrinsicCoreLibraryPlatformApplicabilityQuery
+                    .ExecuteAsync(
+                        occurrence,
+                        graph.FocalScope,
+                        PlatformFamily.DotNetRuntime,
+                        async _ =>
+                        {
+                            completedPopulation =
+                                await CreateCoreLibraryPlatformPopulationAsync(
+                                    cancellationToken);
+                            return completedPopulation;
+                        },
+                        CatalogBounds(),
+                        cancellationToken);
+            var applicable = Assert.IsType<
+                IntrinsicCoreLibraryRouteDecision.Applicable>(decision);
+            var scope = Assert.IsType<
+                WorkspaceScopeReadResult.Available>(
+                    await workspace.GetScopeSnapshotAsync());
+            AssemblyReferenceResolutionGenerationReceipt generation =
+                AssemblyReferenceResolutionGenerationReceipt.Capture(
+                    scope.Snapshot,
+                    graph.FocalScope);
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromAssembly(
+                    ResolvedAssemblyReference.CreateFromPath(
+                        SystemTextJsonNetStandardPath,
+                        AssemblyResolutionProvenance.Local(
+                            "intrinsic Platform route adapter test"))),
+                AssemblyResolutionScope.Any);
+
+            var completed = Assert.IsType<
+                IntrinsicCoreLibraryPlatformRouteAdaptationOutcome.Completed>(
+                    IntrinsicCoreLibraryPlatformRouteAdapter.Adapt(
+                        request,
+                        generation,
+                        graph.FocalScope,
+                        applicable));
+
+            Assert.Same(request, completed.Route.Request);
+            Assert.Same(generation, completed.Route.Generation);
+            Assert.Same(
+                applicable.Receipt,
+                completed.Route.Applicability);
+            Assert.Same(
+                occurrence,
+                completed.Route.Applicability.Context);
         }
         finally
         {
