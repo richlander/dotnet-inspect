@@ -639,15 +639,17 @@ materialized IR node," checkable the same way. This is why instance 2 rides on
 instance 1: they share the type-propagation spine, so instance 2 is *mostly the
 deletion* of print-time typing once propagation exists — not a second engine.
 
-Materialization has since retired the semantic core of that unifier on the
-fixed corpus: its multi-candidate type choice reaches zero webs after the
-bounded reference storage slice. What remains at the printer is a deterministic
-residual policy — one testified type, the ordered-store split identity, or the
-reference `object` fallback — applied to a counted population. The terminus is
-therefore no longer "delete the unifier when the residual reaches zero". It is
-[Residual storage binding](#residual-storage-binding): move that frozen policy
-in front of the printer as a decided, provenance-carrying pass, delete the
-printer's slot paths now, and burn the pass's population down upstream.
+Materialization has since retired most of that unifier's work on the fixed
+corpus: its multi-candidate type choice reaches zero webs there after the
+bounded reference storage slice. The unifier itself is still live code for any
+input outside that corpus, and what it does is deterministic: a bounded
+compatibility derivation over the web's node types that either unifies the web
+under one candidate type or, failing that, splits it by rendered type. The
+terminus is therefore no longer "delete the unifier when the residual reaches
+zero". It is [Residual storage binding](#residual-storage-binding): move that
+derivation, verbatim and frozen, in front of the printer as a decided,
+provenance-carrying pass; delete the printer's slot paths now; and burn the
+pass's population down upstream until only a named floor remains.
 
 ### Mutually exclusive switch-section ranges
 
@@ -688,86 +690,149 @@ failures and no introduced residual identity.
 
 The focused claim:
 
-> After storage materialization and live-range splitting, every stack-slot web
-> that materialization declined is bound to a decided, typed local before
-> presentation, carrying its materialization veto class as typed provenance.
-> No `StoreStackSlot` or `LoadStackSlot` reaches `CSharpPrinter`.
+> After every pass that consumes stack-slot nodes has run, each stack-slot web
+> that materialization declined is bound to decided, typed locals before
+> presentation by the printer's own residual policy, ported verbatim and
+> frozen, and each bound local carries its binding kind and the web's
+> materialization veto classes as typed provenance. No `StoreStackSlot` or
+> `LoadStackSlot` reaches `CSharpPrinter`.
 
 This is one Decompiler responsibility moving out of the printer. It creates no
 new storage, type, or host owner, and it does not redefine the materialization
 admission contract, the coercion domain, the live-range proofs, or the
 [local declaration plan](decompiler-local-binding-plan.md).
 
-**Position.** The pass runs on every body — function, raised lambda, raised
-local function — immediately after `SlotMaterializationPass` has issued its
-decisions for that body and before coercion insertion, so a residual-bound
-local's loads discharge their sink obligations exactly as a materialized
-local's do. Nested bodies bind inside their own finalized pipeline, as they
-materialize today; late re-materialization of residual nested webs remains a
-materialization concern, not a binding one.
+**This is a named divergence from the 2026-09-21 checkpoint.** That checkpoint
+on #2095 ruled that moving the printer's on-demand inference into a helper is
+not retirement. The operator has approved this move on 2026-10-04 with an
+explicit scope: the derivation leaves the printer as a quarantined pass that
+issues decisions before rendering, is frozen and shrink-only, carries
+provenance, and is counted by a census that drives its burn-down. The
+divergence is recorded here and on #2095; it does not license adding admission
+rules to the pass.
 
-**Policy is frozen, not re-derived.** The pass applies the residual policy the
-printer applies today and nothing else: a web whose testimony names one type
-binds one local of that type; a web the ordered-store split rule separates
-binds one local per split identity; a reference-like web with conflicting
-testimony binds the `object` fallback. The pass consumes issued testimony,
-split identities, and the existing storage types. It does not derive producer
-and observer compatibility, infer a join type, add hierarchy or variance
-conversions, or consult a sink the materialization owner has not already
-testified. Admission growth belongs to materialization and its testimony
-owners; this pass only shrinks. A residual class that cannot be bound by the
-frozen policy is a visible failure at the pass boundary, never a new rule here.
+**Position.** The pass runs on every body — function, raised lambda, raised
+local function — after `UnsafeAwaitBoundaryPass` and `PdbLocalScopePass` and
+immediately before the final binding passes and `CoercionInsertionPass`. It is
+the last pass that may observe a stack-slot node. `SwapIdiomPass`,
+`PointerCompoundAssignmentPass`, and `UnsafeAwaitBoundaryPass` still
+pattern-match `StoreStackSlot`/`LoadStackSlot` after `SlotMaterializationPass`,
+so binding earlier would change swap raising, compound-assignment raising, and
+unsafe-await declines; the pass therefore recomputes
+`SlotMaterializationPass.Analyze` at its own position rather than reusing the
+earlier decision list. Bound locals' loads and stores then discharge their sink
+obligations through `CoercionInsertionPass` exactly as a materialized local's
+do. Nested bodies bind inside their own finalized pipeline, as they
+materialize today; a nested body whose own tail has not run reaches the printer
+boundary and fails visibly.
+
+**Policy is the printer's, ported verbatim and frozen.** The pass applies the
+residual policy `CSharpPrinter.CollectStackSlotNames` and
+`TryChooseUnifiedStackSlotType` apply today and nothing else, in this order:
+
+1. **Unified.** The candidate set is every load's node type, every
+   `StoreElement` element target whose stored value is a load of the slot and
+   whose stores are all conditionals renderable for that element type, and
+   every store's result type, in that order. The first candidate every store
+   can be assigned to (exact type, implicit numeric assignment, renderable
+   conditional target, representable enum constant; a `Coalesce` store never
+   qualifies) and every load can be read as (assignable without strictly
+   narrowing a reference, or a Boolean candidate at a Boolean sink) binds the
+   whole web to one local of that type.
+2. **Split.** When no candidate qualifies, the web is partitioned by rendered
+   node type: every occurrence whose type spells the same is one local, named
+   `S_n` for the first distinct type in occurrence order and `S_n_k` for each
+   later one. This is the printer's existing split key; it is not a live-range
+   or store-ordered split, and no pass proves it.
+3. **Untyped.** A web with no node type at all, which the printer declares as
+   `var S_n;` today, is a visible pass failure: an untyped local cannot be
+   issued, and the printer's declaration was never valid C#.
+
+There is no reference `object` fallback: the printer computes one and
+discards it, so the pass must not introduce one. The derivation consumes node
+types and assignment types, `StoreElement` element targets, the conditional,
+coalesce, and constant store shapes above, the body's return type for the
+Boolean sink rule, and the function's type shapes and enum backing. That
+inventory is closed. The pass does not consult materialization testimony to
+choose a type, does not infer a join, hierarchy, or variance conversion, and
+does not gain an admission rule when a class fails to bind. Admission growth
+belongs to materialization and its testimony owners; this pass only shrinks.
+The implementation makes the restriction structural: the pass's inputs are the
+function and its own recomputed decision list, and its compatibility helpers
+move with it out of the printer rather than being shared.
 
 **Every bound local carries provenance.** Each residual-bound local records
-its binding kind (testified type, split identity, or reference fallback) and
-the overlapping veto classes `SlotMaterializationPass.Analyze` already issues
-for its web. Provenance is a typed fact on the local, available to hosts and
-to the census; it is not display text, and it never upgrades fidelity or
-identity. Bound locals keep their `S_n` and `S_n_k` names so render A/B stays
-comparable; readable naming remains owned by the declaration plan and
-[Readable local names](readable-local-names.md).
+its binding kind (unified or split) and the overlapping
+`SlotMaterializationVeto` flags its web carried at the pass position.
+Provenance is a typed side fact keyed by local index, available to hosts and
+to the census; it is not display text, it does not widen the local declaration
+shape, and it never upgrades fidelity or identity. Bound locals keep their
+`S_n` and `S_n_k` names so render A/B stays comparable; readable naming
+remains owned by the declaration plan and
+[Readable local names](readable-local-names.md). Because bound locals are
+ordinary appended locals, the declaration plan owns their placement; the
+plan's current statement that residual slots stay outside it is updated by the
+implementation slice.
 
 **The printer deletes its slot machinery in the same slice.**
-`TryChooseUnifiedStackSlotType`, `_stackSlotUnifiedTypes`,
-`_stackSlotDeclarations`, `StackSlotName`, `StackSlotTargetType`,
-`CollectStackSlotNames`, their assignability helpers, and every rendering
-branch keyed on `StoreStackSlot`/`LoadStackSlot` leave the printer family. The
-printer's residual-stack-slot spelling is replaced by its existing typed-local
-spelling. Deletion and the pass land together; neither is coherent alone.
+`TryChooseUnifiedStackSlotType`, `CanAssignTo`, `CanLoadAsType`,
+`CanAssignType`, `StrictlyNarrowsReference`, `CanAssignForNarrowing`,
+`_stackSlotUnifiedTypes`, `_stackSlotStoreTypes`, `_stackSlotNames`,
+`_stackSlotDeclarations`, `_fixedStackSlotNames`, `StackSlotName`,
+`StackSlotTargetType`, `StackSlotRenderType`, `CollectStackSlotNames`,
+`FixedLocalName`'s stack-slot branch and the `Fixed.LocalIsStackSlot` flag,
+and every rendering branch keyed on `StoreStackSlot`/`LoadStackSlot` leave the
+printer family. The printer's residual-stack-slot spelling is replaced by its
+existing typed-local spelling. Deletion and the pass land together; neither is
+coherent alone.
 
 **Gate.** The printer boundary is unconditional in Release: a stack-slot node
 reaching `CSharpPrinter` raises a typed pipeline failure, not success-shaped
-output, independent of the `IrInvariants` switch. `IrInvariants`, when
-enabled, additionally checks that each residual-bound local's occurrence set
-equals its pre-binding web, reusing the storage-rewrite correspondence check.
-Focused Release tests pin one fixture per binding kind and per veto class the
-pass may receive — conflicting testimony, underivable testimony, missing load,
-incomplete direct-copy component, nested body scope, true split — plus the
-compiler-produced boundary where a surviving slot must fail visibly.
+output, independent of the `IrInvariants` switch, following the existing
+unconditional `EnsureNoResidualManagedReferenceSlots` precedent. When
+`IrInvariants` is enabled, a residual-binding correspondence check, a sibling
+of the [storage-rewrite check](#storage-rewrite-validation) rather than a
+reuse of it, verifies that each web's occurrences are partitioned exactly by
+its declared binding (one local for a unified web, one per rendered type for a
+split web), that each local's table type equals the type its binding declares,
+that locals are fresh and not shared across webs, and that non-slot nodes
+retain identity and ordered structure. The storage-rewrite check keeps its
+materialization-only scope: one local per converted web at its testified type.
+Focused Release tests pin one fixture per binding kind and one per
+`SlotMaterializationVeto` value reachable at the pass position, plus the
+untyped-web failure and a compiler-produced boundary where a surviving slot
+must fail visibly.
 
-**Measurement replaces the printer census.** The harness's printer-unifier
-census retires with the unifier. A residual-binding census over the fixed
-14-assembly, 89,065-method corpus reports bound webs grouped by binding kind
-and veto class, with one example per group, and `--slot-residual-census`
-continues to report materialization's own accounting. The population the pass
-binds at the implementation slice's head is the recorded start of the
-burn-down. Each later slice moves one veto class into materialization, reports
-the class population before and after, and never touches the printer.
+**Measurement replaces the printer census.** The harness's
+`--slot-unifier-census` retires with the unifier. A residual-binding census
+over the fixed 14-assembly, 89,065-method corpus reports bound webs grouped by
+binding kind and veto flags, with one example per group, and
+`--slot-residual-census` continues to report materialization's own
+accounting. The population the pass binds at the implementation slice's head
+is the recorded start of the burn-down. Each later slice moves one group into
+materialization, reports the group population before and after, and never
+touches the printer.
 
-**The floor is named, not assumed to be zero.** Some residual classes require
-inference this design excludes — hierarchy conversions, conflicting testimony
-that only whole-method flow could reconcile — and may remain bound by the
-frozen policy indefinitely. That is an acceptable end state because the
-decision is visible, counted, and owned by the pipeline. When the census
-reaches a class the owners decline to materialize, the program records that
-population as the named floor on #2095, and any attempt to lower it is a
-separately approved design, not an admission rule added here.
+**The floor is named, not assumed to be zero.** Some groups require inference
+this design excludes — hierarchy conversions, conflicting testimony that only
+whole-method flow could reconcile — and may remain bound by the frozen policy
+indefinitely. That is an acceptable end state because the decision is visible,
+counted, and owned by the pipeline. When the census reaches a group the owners
+decline to materialize, the program records that population as the named
+floor on #2095, and any attempt to lower it is a separately approved design,
+not an admission rule added here.
 
-**Expected visible delta.** The implementation slice intends byte-identical
-rendered bodies up to declaration placement and initializer form, as earlier
-materialization slices produced, because the bound policy is the printer's
-own. Render A/B over the fixed corpus classifies every changed method; a
-valid-to-invalid transition is the stop signal.
+**Expected visible delta.** Because the policy is the printer's own, the
+implementation slice intends identical statements with these classified
+exceptions: declaration placement and initializer form, as earlier
+materialization slices produced; casts at bound-local sinks now decided by
+`CoercionInsertionPass` instead of the printer; and untyped webs moving from
+invalid `var` declarations to visible failure. Render A/B over the fixed
+corpus classifies every changed method into one of those classes or stops; a
+valid-to-invalid transition is the stop signal. The multi-candidate unified
+population is zero on the fixed corpus, so the corpus cannot measure the
+unified kind beyond single-candidate webs; the focused fixtures carry that
+evidence.
 
 **Motivating inputs.** As of the 2026-09-21 fixed census, the residual classes
 this pass receives are witnessed by real published assemblies:
@@ -778,9 +843,9 @@ this pass receives are witnessed by real published assemblies:
 direct-copy component),
 `Microsoft.CodeAnalysis.Emit.DeltaMetadataWriter.FinalizeCustomAttributeTableRows`
 (nested body scope), and `Newtonsoft.Json.JsonSerializer.PopulateInternal`
-(true split). The implementation slice re-selects its pinned witnesses from a
-fresh census at its exact base; later materialization may have retired some
-of these.
+(split). The implementation slice re-selects its pinned witnesses from a fresh
+census at its exact base; later materialization may have retired some of
+these.
 
 **Production adoption.** The shared default pipeline adopts the pass for CLI
 and Browser/Wasm; no host or rendering option changes. Residual provenance is
@@ -947,8 +1012,8 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
 5. **Materialize stack-slot locals (instance 2).** On the step-4 propagation, emit
    each slot's live ranges as typed local IR nodes and **delete
    `TryChooseUnifiedStackSlotType`** — the writer stops inventing and unifying
-   variables. Extend the invariant to "every rendered local is a materialized IR
-   node." Mostly a deletion once step 4 lands. In progress: 5a landed slot
+   variables. Extend the invariant to "every rendered local is a pipeline-issued
+   IR node." Mostly a deletion once step 4 lands. In progress: 5a landed slot
    reconciliation (`TestifiedSlotTypes` — the one slot-evidence rule: typed
    loads contribute their type, untyped loads their sink target, underivable
    or disagreeing loads veto); 5b-1 landed slot stores as typed sinks with the
@@ -1130,8 +1195,9 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    atomic copy-component gates remain. No expression or condition moves.
    Nonconditional producers, nonconstant arms, out-of-range values, and missing
    enum backing remain printer-owned. Earlier testimony is unchanged; the
-   general element-target printer fallback remains necessary for lowered and
-   deferred trees.
+   general element-target fallback remains necessary for lowered and deferred
+   trees and moves into [Residual storage binding](#residual-storage-binding)
+   with the rest of the frozen policy.
 
    Real witnesses are Newtonsoft.Json 13.0.4
    `DateTimeUtils.WriteDateTimeOffset` (`'+'`/`'-'`),
