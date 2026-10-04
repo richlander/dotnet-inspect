@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Queries;
@@ -638,7 +639,8 @@ public sealed partial class PackageHouseExecutionTests
                         platformTarget: platformTarget),
                     inventory));
         ResolutionEnvironment resolution =
-            await ResolutionEnvironment.CreateAsync();
+            await ResolutionEnvironment.CreateAsync(
+                PlatformFamily.DotNetRuntime);
         PackageAssemblyReferenceSupplierAssociation association =
             PackageAssemblyReferenceSupplierAssociation.Create(
                 new PackageAssemblyReferenceSupplierAssociationRequest(
@@ -656,6 +658,124 @@ public sealed partial class PackageHouseExecutionTests
             PackageAssemblyReferenceRouteDisposition.PlatformDelegated,
             route.Disposition);
         Assert.Same(execution, route.Execution);
+        var bindingRequest = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(CallGraphTargetIdentity()),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+        var requestOrigin = new PlatformHouseRequestOrigin.Standalone(
+            PlatformStandaloneOperationIdentity.Create(
+                "delegated-package-route"));
+        var sources = new PlatformSourcePlan(
+            PlatformSourcePlanIdentity.Create(
+                "delegated-package-route-sources"),
+            PlatformSourcePolicyGeneration.Create(
+                "delegated-package-route-generation"),
+            [
+                new(
+                    PlatformSourceFacet.Reference,
+                    PlatformSourceSelectionMode.Precedence,
+                    [
+                        PlatformSourceCapabilityIdentity.Create(
+                            "delegated-package-route-source"),
+                    ]),
+            ]);
+        var metadata =
+            new PlatformMetadataRequestEvidence<AssemblyBindingRequest>(
+                bindingRequest,
+                "delegated-package-binding");
+        var prerequisites = new PlatformAssemblyReferenceRoute(
+            metadata.Identity,
+            platformTarget,
+            requestOrigin,
+            sources.Identity,
+            sources.Generation);
+        var platformRequest = new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create(
+                "delegated-package-binding-request"),
+            new PlatformTargetDemand.Exact(platformTarget),
+            requestOrigin,
+            new PlatformHouseOperation.ResolveAssemblyReference
+                .WithPrerequisites<PlatformAssemblyReferenceRoute>(
+                    metadata,
+                    new(
+                        prerequisites,
+                        "delegated-package-binding-route"),
+                    PlatformViewDemand.Reference),
+            sources,
+            new(
+                maxSourceOperations: 1,
+                maxTargetCandidates: 1,
+                maxAssemblies: 1,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 1,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)));
+        MemberCallGraphPlatformPopulationScope population =
+            Assert.Single(
+                resolution.FocalScope.PlatformPopulations);
+        PackageHouseSettlement.Acquired foreignAcquired =
+            await ExecuteFrameworkReferencesAsync(
+                PackageHouseTargetContext.Exact("net8.0"),
+                FrameworkArchive(
+                    """
+                    <group targetFramework="net8.0">
+                      <frameworkReference name="Microsoft.NETCore.App" />
+                    </group>
+                    """,
+                    ($"lib/net8.0/{MaterializedPackageId}.dll", [])));
+        var foreignFramework = Assert.IsType<
+            PackageHouseFrameworkReferenceOutcome.Selected>(
+                PackageHouseFrameworkReferenceProjection.Project(
+                    foreignAcquired));
+        RealizedPackageDependencyContext foreignRoot =
+            await RouteRootContextAsync(
+                Assert.IsType<
+                    PackageHouseRootContributionOutcome.Contributed>(
+                        PackageHouseRootContributionAdapter.Create(
+                            foreignAcquired))
+                    .Contribution.Binding);
+        var foreignEligibility =
+            new PlatformAssemblyReferenceFamilyEligibility
+                .PackageFrameworkReference(
+                    foreignFramework.Evidence,
+                    Assert.Single(
+                        foreignFramework.Evidence.Occurrences),
+                    foreignRoot);
+        Assert.Throws<ArgumentException>(
+            "families",
+            () => new PlatformAssemblyReferenceExternalRoute(
+                BindingRequest(CallGraphTargetIdentity()),
+                resolution.Generation,
+                resolution.FocalScope,
+                [
+                    new(
+                        [
+                            new PlatformAssemblyReferenceFamilyEligibility
+                                .WorkspacePopulation(population),
+                            foreignEligibility,
+                        ],
+                        platformRequest),
+                ],
+                projected.Receipt));
+        var platformRoute =
+            new PlatformAssemblyReferenceExternalRoute(
+                BindingRequest(CallGraphTargetIdentity()),
+                resolution.Generation,
+                resolution.FocalScope,
+                [
+                    new(
+                        [
+                            new PlatformAssemblyReferenceFamilyEligibility
+                                .WorkspacePopulation(population),
+                        ],
+                        platformRequest),
+                ],
+                projected.Receipt);
+        Assert.Same(
+            route,
+            Assert.Single(platformRoute.DelegatedPackageRoutes));
         using PackageSourceOperationLease operation =
             environment.IssueOperation(
                 execution.Request,
@@ -870,9 +990,30 @@ public sealed partial class PackageHouseExecutionTests
         AssemblyReferenceResolutionGenerationReceipt Generation,
         MemberCallGraphFocalScopeReceipt FocalScope)
     {
-        internal static async Task<ResolutionEnvironment> CreateAsync()
+        internal static async Task<ResolutionEnvironment> CreateAsync(
+            PlatformFamily? platformFamily = null)
         {
-            await using var workspace = new InspectionWorkspace();
+            ImmutableArray<WorkspaceRegistration> initialRegistrations =
+                platformFamily is { } family
+                    ?
+                    [
+                        new WorkspaceRegistration.Ecosystem(
+                            new WorkspaceEcosystemRegistrationDeclaration(
+                                WorkspaceEcosystemRegistrationId.Create(
+                                    "ecosystem.runtime"),
+                                namespaceRoots: [],
+                                corePackages: [],
+                                populations:
+                                [
+                                    new
+                                        WorkspaceEcosystemPopulationDeclaration
+                                            .Platform(
+                                                new(family)),
+                                ])),
+                    ]
+                    : [];
+            await using var workspace = new InspectionWorkspace(
+                initialRegistrations);
             var scope = Assert.IsType<WorkspaceScopeReadResult.Available>(
                 await workspace.GetScopeSnapshotAsync());
             var registrations =
