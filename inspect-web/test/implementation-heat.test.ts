@@ -260,7 +260,7 @@ function visible(
   }));
 }
 
-test("heat tints overloads at or above half the family maximum", () => {
+test("heat tints overloads above half the family maximum and median", () => {
   const projected = projectFamilyHeat(family());
   assert.equal(projected.status, "shown");
   assert.equal(projected.maximum, 80);
@@ -271,6 +271,46 @@ test("heat tints overloads at or above half the family maximum", () => {
   assert.equal(
     projected.overloads[0]?.description,
     "80 instructions; 100% of the largest body in this family",
+  );
+});
+
+test("heat requires both distribution and maximum-relative significance", () => {
+  const projected = projectFamilyHeat(family({
+    roster: [1, 2, 3, 4].map(metadataToken => ({
+      typeDefinitionId: typeId,
+      stableSelector: `Run(${metadataToken})`,
+      metadataToken,
+    })),
+    methods: [
+      method(1, 100),
+      method(2, 49, { isTrivial: false }),
+      method(3, 48, { isTrivial: false }),
+      method(4, 47, { isTrivial: false }),
+    ],
+    relationships: [],
+  }));
+  assert.deepEqual(
+    projected.overloads.map(overload => overload.heatStrength),
+    [1, null, null, null],
+  );
+});
+
+test("heat does not split DeserializeAsync-sized ties at the median", () => {
+  const sizes = [16, 16, 13, 13, 13, 13, 13, 13, 9, 9];
+  const projected = projectFamilyHeat(family({
+    member: "DeserializeAsync",
+    roster: sizes.map((_, index) => ({
+      typeDefinitionId: "type:System.Text.Json.JsonSerializer",
+      stableSelector: `DeserializeAsync:${index + 1}`,
+      metadataToken: index + 1,
+    })),
+    methods: sizes.map((size, index) =>
+      method(index + 1, size, { isTrivial: false })),
+    relationships: [],
+  }));
+  assert.deepEqual(
+    projected.overloads.map(overload => overload.heatStrength),
+    [1, 1, null, null, null, null, null, null, null, null],
   );
 });
 
@@ -462,7 +502,7 @@ test("all-access rows join public roster and non-public analyzed tokens", () => 
   assert.deepEqual(
     allRows?.overloads.map(overload =>
       [overload.metadataToken, overload.heatStrength]),
-    [[1, 1], [3, Math.sqrt(70 / 80)]],
+    [[1, 1], [3, null]],
   );
   assert.equal(
     familyHeatFor(

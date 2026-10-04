@@ -41,7 +41,7 @@ public sealed class TypeDocumentInspectionOperationTests
             document.Declarations);
         Assert.Equal(
             "System.Text.Json",
-            document.Subject.DefiningAssembly.Name.ToString());
+            document.Subject.Assembly.Name.ToString());
         Assert.Equal(
             Name("System.Text.Json", "JsonSerializer"),
             document.Subject.Type);
@@ -58,7 +58,7 @@ public sealed class TypeDocumentInspectionOperationTests
         string json =
             JsonSerializer.Serialize<TypeDocumentInspectionOutcome>(
                 new TypeDocumentInspectionOutcome.Available(document));
-        Assert.Contains("\"kind\":\"available\"", json);
+        Assert.Contains("\"outcome\":\"available\"", json);
         Assert.Contains("\"kind\":\"not-requested\"", json);
         Assert.Contains("\"namespace\":\"System.Text.Json\"", json);
 
@@ -123,8 +123,9 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        TypeDocument document =
-            Available(Execute(library, count: new()));
+        InspectionEnvelope<TypeDocumentInspectionOutcome> inspection =
+            Execute(library, count: new());
+        TypeDocument document = Available(inspection);
         TypeMemberGroupPopulationResult population =
             Assert.IsType<TypeDocumentDeclarations.Available>(
                     document.Declarations)
@@ -137,7 +138,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 .Value);
         Assert.Null(population.Rows);
         Assert.Equal(
-            document.Subject.DefiningAssembly,
+            document.Subject.Assembly,
             population.Binding.Assembly);
         Assert.Equal(
             document.Subject.ModuleVersionId,
@@ -148,6 +149,48 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.Equal(
             document.Subject.Type,
             population.Binding.Type);
+        var share =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                inspection.Share);
+        Assert.Equal(
+            "type-member-group-population-inspection/share",
+            share.Path);
+        Assert.Empty(inspection.Diagnostics);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task DocumentRejectsMismatchedExactTypeBinding()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeDocument document =
+            Available(Execute(library, count: new()));
+        TypeSubject source = document.Subject;
+        var mismatched = new TypeSubject(
+            source.Assembly,
+            source.ModuleVersionId,
+            source.Type,
+            checked(source.TypeDefinitionToken + 1),
+            source.Signature,
+            source.Category,
+            source.Attributes,
+            source.IsByRefLike,
+            source.DefinesCoreLibraryRoot,
+            source.DeclaringTypeDefinitionToken);
+
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => new TypeDocument(
+                    mismatched,
+                    document.Declarations,
+                    document.AssemblyBytes));
+        Assert.Equal("declarations", exception.ParamName);
 
         await library.RetireAsync();
     }

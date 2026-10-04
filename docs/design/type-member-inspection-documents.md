@@ -1379,12 +1379,13 @@ adapter, with portable parent and row bindings, bounded Rows continuation,
 nested exact-member Counts, Composition Count, selector Counts, and typed
 incomplete or failed outcomes.
 
-Step 8's host-neutral `TypeDocument` is implemented by
-[#9306](https://github.com/richlander/dotnet-inspect/pull/9306) over that route.
-It establishes one detached exact-Type declaration subject and optionally
-executes the declared Member-group population in the same Library lease and
-Metadata session. Subject-only requests issue no population demand, and
-requested declaration-population rejection, incompleteness, or failure remains
+Step 8's initial host-neutral composition landed in
+[#9298](https://github.com/richlander/dotnet-inspect/pull/9298).
+[#9306](https://github.com/richlander/dotnet-inspect/pull/9306) completes the
+declaration-document contract over that route: one Metadata declaration
+session establishes the detached exact-Type subject and optionally executes
+declared Member-group population. Subject-only requests issue no population
+demand, and requested population rejection, incompleteness, or failure remains
 independently typed without discarding the available Type subject. CLI and
 Browser adoption remains step 9; no production host uses this route yet.
 

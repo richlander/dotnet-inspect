@@ -52,17 +52,56 @@ public sealed record TypeDocumentGenericParameter(
 public sealed record TypeDocumentDeclarationSignature(
     ImmutableArray<TypeDocumentGenericParameter> GenericParameters);
 
-public sealed record TypeDocumentSubject(
-    LibraryAssemblyIdentity DefiningAssembly,
-    Guid ModuleVersionId,
-    MetadataTypeDefinitionName Type,
-    int TypeDefinitionToken,
-    TypeDocumentDeclarationSignature Signature,
-    MetadataTypeDeclarationCategory Category,
-    TypeAttributes Attributes,
-    bool IsByRefLike,
-    bool DefinesCoreLibraryRoot,
-    int? DeclaringTypeDefinitionToken);
+public sealed record TypeSubject
+{
+    public TypeSubject(
+        LibraryAssemblyIdentity assembly,
+        Guid moduleVersionId,
+        MetadataTypeDefinitionName type,
+        int typeDefinitionToken,
+        TypeDocumentDeclarationSignature signature,
+        MetadataTypeDeclarationCategory category,
+        TypeAttributes attributes,
+        bool isByRefLike,
+        bool definesCoreLibraryRoot,
+        int? declaringTypeDefinitionToken)
+    {
+        Assembly = assembly
+            ?? throw new ArgumentNullException(nameof(assembly));
+        if (moduleVersionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "An exact Type subject requires a module version identifier.",
+                nameof(moduleVersionId));
+        }
+        Type = type ?? throw new ArgumentNullException(nameof(type));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            typeDefinitionToken);
+        Signature = signature
+            ?? throw new ArgumentNullException(nameof(signature));
+        if (!Enum.IsDefined(category))
+            throw new ArgumentOutOfRangeException(nameof(category));
+
+        ModuleVersionId = moduleVersionId;
+        TypeDefinitionToken = typeDefinitionToken;
+        Category = category;
+        Attributes = attributes;
+        IsByRefLike = isByRefLike;
+        DefinesCoreLibraryRoot = definesCoreLibraryRoot;
+        DeclaringTypeDefinitionToken = declaringTypeDefinitionToken;
+    }
+
+    public LibraryAssemblyIdentity Assembly { get; }
+    public Guid ModuleVersionId { get; }
+    public MetadataTypeDefinitionName Type { get; }
+    public int TypeDefinitionToken { get; }
+    public TypeDocumentDeclarationSignature Signature { get; }
+    public MetadataTypeDeclarationCategory Category { get; }
+    public TypeAttributes Attributes { get; }
+    public bool IsByRefLike { get; }
+    public bool DefinesCoreLibraryRoot { get; }
+    public int? DeclaringTypeDefinitionToken { get; }
+}
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(
@@ -107,10 +146,45 @@ public abstract record TypeDocumentDeclarations
         : TypeDocumentDeclarations;
 }
 
-public sealed record TypeDocument(
-    TypeDocumentSubject Subject,
-    TypeDocumentDeclarations Declarations,
-    int AssemblyBytes);
+public sealed record TypeDocument
+{
+    public TypeDocument(
+        TypeSubject subject,
+        TypeDocumentDeclarations declarations,
+        int assemblyBytes)
+    {
+        Subject = subject
+            ?? throw new ArgumentNullException(nameof(subject));
+        Declarations = declarations
+            ?? throw new ArgumentNullException(nameof(declarations));
+        ArgumentOutOfRangeException.ThrowIfNegative(assemblyBytes);
+        if (declarations
+                is TypeDocumentDeclarations.Available available
+            && !Matches(
+                subject,
+                available.Population.Binding))
+        {
+            throw new ArgumentException(
+                "The Type subject and Member-group population binding must identify the same exact Type.",
+                nameof(declarations));
+        }
+
+        AssemblyBytes = assemblyBytes;
+    }
+
+    public TypeSubject Subject { get; }
+    public TypeDocumentDeclarations Declarations { get; }
+    public int AssemblyBytes { get; }
+
+    private static bool Matches(
+        TypeSubject subject,
+        TypeMemberGroupPopulationBinding binding) =>
+        subject.Assembly == binding.Assembly
+        && subject.ModuleVersionId == binding.ModuleVersionId
+        && subject.Type == binding.Type
+        && subject.TypeDefinitionToken
+            == binding.TypeDefinitionToken;
+}
 
 public enum TypeDocumentInspectionRejection
 {
@@ -134,7 +208,7 @@ public enum TypeDocumentInspectionBound
     MetadataRows,
 }
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
 [JsonDerivedType(
     typeof(TypeDocumentInspectionOutcome.Available),
     "available")]

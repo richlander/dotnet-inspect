@@ -10,7 +10,7 @@ namespace DotnetInspector.Sections;
 public static class TypeDocumentInspectionOperation
 {
     private const string SharePath =
-        "type-document-inspection/share";
+        "type-member-group-population-inspection/share";
     private const string ShareReason =
         "A complete portable Workspace scenario was not supplied.";
 
