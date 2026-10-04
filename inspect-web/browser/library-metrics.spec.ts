@@ -30,8 +30,17 @@ test("reciprocal relationship evidence remains independently reachable", async (
   await page.setViewportSize({ width: 1100, height: 700 });
   await page.goto("/browser/library-metrics.html");
   const edges = page.locator("path.metrics-relationship-edge");
+  const visibleEdges = page.locator(
+    "path.metrics-relationship-edge:not([hidden])",
+  );
   const activation = page.locator("#metrics-activated-type");
-  await expect(edges).toHaveCount(20);
+  const limit = page.locator("[data-metrics-relationship-limit]");
+  const limitOutput = page.locator(
+    "[data-metrics-relationship-limit-output]",
+  );
+  await expect(edges).toHaveCount(30);
+  await expect(visibleEdges).toHaveCount(15);
+  await expect(limitOutput).toHaveText("15 / 30");
   await page.locator("svg.metrics-relationship-crossing")
     .scrollIntoViewIfNeeded();
 
@@ -83,6 +92,8 @@ test("reciprocal relationship evidence remains independently reachable", async (
     .toHaveText("Example.B");
   await expect(detail.locator("[data-metrics-relationship-depth]"))
     .toHaveText("1 retained call site");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("1/30 most connected");
 
   await detail.locator("[data-metrics-relationship-target]").click();
   await expect(activation).toHaveText("Example.B");
@@ -96,6 +107,26 @@ test("reciprocal relationship evidence remains independently reachable", async (
     .toHaveText("Example.B");
   await expect(detail.locator("[data-metrics-relationship-target]"))
     .toHaveText("Example.A");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("6/30 most connected");
+
+  await limit.focus();
+  await limit.press("End");
+  await expect(visibleEdges).toHaveCount(30);
+  await expect(limitOutput).toHaveText("30 / 30");
+
+  const lastEdge = edges.nth(29);
+  await lastEdge.focus();
+  await lastEdge.press("Enter");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("30/30 most connected");
+
+  await limit.focus();
+  await limit.press("Home");
+  await expect(visibleEdges).toHaveCount(8);
+  await expect(limitOutput).toHaveText("8 / 30");
+  await expect(detail.locator("[data-metrics-relationship-detail-empty]"))
+    .toBeVisible();
 
   const svg = page.locator("svg.metrics-relationship-crossing");
   const viewport = await svg.boundingBox();

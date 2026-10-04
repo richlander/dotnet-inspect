@@ -248,13 +248,51 @@ test("relationship arcs expose exact selection evidence and a detail surface", (
 
   assert.match(
     html,
-    /data-metrics-relationship data-source-type-key="Example\.Core\.Engine" data-source-type-display="Example\.Core\.Engine" data-target-type-key="Example\.Core\.Store" data-target-type-display="Example\.Core\.Store" data-call-site-count="4"[^>]*tabindex="0" role="button" aria-pressed="false"/,
+    /data-metrics-relationship data-relationship-rank="1" data-source-type-key="Example\.Core\.Engine" data-source-type-display="Example\.Core\.Engine" data-target-type-key="Example\.Core\.Store" data-target-type-display="Example\.Core\.Store" data-call-site-count="4"[^>]*tabindex="0" role="button" aria-pressed="false"/,
   );
   assert.match(html, /data-metrics-relationship-detail aria-live="polite"/);
   assert.match(html, /data-metrics-relationship-source/);
   assert.match(html, /data-metrics-relationship-target/);
+  assert.match(html, /data-metrics-relationship-rank/);
   assert.match(html, /Relationship depth/);
+  assert.match(html, />Rank<\/span>/);
   assert.match(html, /Select an arc for details/);
+});
+
+test("relationship disclosure defaults to half capped at 24 and expands by quartiles", () => {
+  const types = Array.from({ length: 9 }, (_, index) => `Type${index}`);
+  const relationships = types.flatMap(source => types
+    .filter(target => target !== source)
+    .map(target => ({
+      sourceTypeKey: `Example.${source}`,
+      sourceTypeDisplay: `Example.${source}`,
+      targetTypeKey: `Example.${target}`,
+      targetTypeDisplay: `Example.${target}`,
+      sourceDegree: 8,
+      targetDegree: 8,
+    }))).map((relationship, index, all) => ({
+      ...relationship,
+      callSiteCount: all.length - index,
+    }));
+  const html = render({
+    data: {
+      ...data,
+      entangledRelationships: relationships,
+    },
+  });
+  const edgeTags = [...html.matchAll(
+    /<path class="metrics-relationship-edge"[^>]*>/g,
+  )].map(match => match[0]);
+
+  assert.equal(edgeTags.length, 72);
+  assert.equal(edgeTags.filter(tag => !tag.includes(" hidden")).length, 24);
+  assert.match(
+    html,
+    /data-metrics-relationship-limit data-limit-levels="18,24,36,54,72"/,
+  );
+  assert.match(html, /type="range" min="0" max="4" value="1"/);
+  assert.match(html, /Showing top <span[^>]*>24<\/span> of 72/);
+  assert.match(html, /data-relationship-rank="72"[^>]* hidden/);
 });
 
 test("reciprocal relationships use distinct geometry independent of insertion lanes", () => {
@@ -297,7 +335,7 @@ test("relationship topology renders the complete Research projection", () => {
     sourceTypeDisplay: "Example.Hub",
     targetTypeKey: `Example.Leaf${index}`,
     targetTypeDisplay: `Example.Leaf${index}`,
-    callSiteCount: index + 1,
+    callSiteCount: 16 - index,
     sourceDegree: 16,
     targetDegree: 1,
   }));
@@ -312,5 +350,8 @@ test("relationship topology renders the complete Research projection", () => {
     html.match(/class="metrics-relationship-edge"/g)?.length,
     relationships.length,
   );
-  assert.match(html, /17 most connected types · 16 retained relationships/);
+  assert.match(
+    html,
+    /17 most connected types · Showing top <span[^>]*>8<\/span> of 16 retained relationships/,
+  );
 });
