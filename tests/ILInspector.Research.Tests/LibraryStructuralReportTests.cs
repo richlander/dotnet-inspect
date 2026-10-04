@@ -177,32 +177,39 @@ public sealed class LibraryStructuralReportTests
         Assert.DoesNotContain(
             execution.CallGraph.DirectCalls,
             call => call.Caller.DeclaringType.Name == "Consumer"
-                && call.Callee.DeclaringType.Name is "Box`1" or "Pair`2"
+                && ExactTypeIdentity(call.Callee.DeclaringType)
+                    is "CalleeResolution.Models.Box`1"
+                        or "CalleeResolution.Models.Pair`2"
                 && execution.CallGraph.DeclaredMethods.Any(method =>
                     method.MetadataToken == call.CalleeDefinitionToken));
         Assert.Contains(
             available.Document.EntangledRelationships,
             static relationship =>
                 relationship.Source.Name == "Consumer"
-                && relationship.Target.Name == "Box`1"
+                && ExactTypeIdentity(relationship.Target)
+                    == "CalleeResolution.Models.Box`1"
                 && relationship.CallSiteCount == 4);
         Assert.Contains(
             available.Document.EntangledRelationships,
             static relationship =>
                 relationship.Source.Name == "Consumer"
-                && relationship.Target.Name == "Pair`2"
+                && ExactTypeIdentity(relationship.Target)
+                    == "CalleeResolution.Models.Pair`2"
                 && relationship.CallSiteCount == 1);
+        // The direct call and lifted lambda both retain Consumer as owner.
         Assert.Contains(
             available.Document.EntangledRelationships,
             static relationship =>
                 relationship.Source.Name == "Consumer"
                 && relationship.Target.Name == "Helper"
-                && relationship.CallSiteCount == 1);
+                && relationship.CallSiteCount == 2);
         Assert.DoesNotContain(
             available.Document.EntangledRelationships,
             static relationship =>
-                relationship.Source.Name == "Box`1"
-                && relationship.Target.Name == "Box`1");
+                ExactTypeIdentity(relationship.Source)
+                    == "CalleeResolution.Models.Box`1"
+                && ExactTypeIdentity(relationship.Target)
+                    == "CalleeResolution.Models.Box`1");
     }
 
     [Fact]
