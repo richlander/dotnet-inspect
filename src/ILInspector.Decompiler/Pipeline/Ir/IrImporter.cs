@@ -524,11 +524,48 @@ public static class IrImporter
         Func<StableSampleCandidate, bool>? predicate = null,
         Func<StableSampleCandidate, string?>? stableIdentitySuffix = null)
     {
-        List<MethodCandidate> candidates =
-            CollectStableSampleCandidates(
-                source,
-                predicate,
-                stableIdentitySuffix);
+        var reader = source.Reader;
+        var candidates = new List<MethodCandidate>();
+        int sequence = 0;
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            string typeName = reader.GetFullTypeName(typeDef);
+            var seen = new Dictionary<string, int>();
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                string memberName = reader.GetString(method.Name);
+                int overloadIndex = seen.GetValueOrDefault(memberName);
+                seen[memberName] = overloadIndex + 1;
+
+                if (method.RelativeVirtualAddress == 0)
+                    continue;
+                var stableCandidate = new StableSampleCandidate(
+                    typeName,
+                    memberName,
+                    overloadIndex,
+                    typeDefHandle,
+                    methodHandle);
+                if (predicate is not null && !predicate(stableCandidate))
+                    continue;
+                string key = StableSampleKey(reader, typeDef, method, typeName, memberName);
+                if (stableIdentitySuffix?.Invoke(stableCandidate)
+                    is { Length: > 0 } suffix)
+                {
+                    key += "|" + suffix;
+                }
+                candidates.Add(new MethodCandidate(
+                    typeDefHandle,
+                    methodHandle,
+                    typeName,
+                    memberName,
+                    sequence++,
+                    StableHash(key),
+                    key,
+                    overloadIndex));
+            }
+        }
 
         foreach (var candidate in candidates
             .OrderBy(c => c.Hash)
@@ -565,7 +602,7 @@ public static class IrImporter
 
         return
         [
-            .. CollectStableSampleCandidates(
+            .. CollectStableRankedSampleCandidates(
                     source,
                     scope,
                     stableIdentitySuffix)
@@ -586,7 +623,7 @@ public static class IrImporter
         ];
     }
 
-    static List<MethodCandidate> CollectStableSampleCandidates(
+    static List<MethodCandidate> CollectStableRankedSampleCandidates(
         MetadataSource source,
         Func<StableSampleCandidate, bool>? predicate,
         Func<StableSampleCandidate, string?>?
