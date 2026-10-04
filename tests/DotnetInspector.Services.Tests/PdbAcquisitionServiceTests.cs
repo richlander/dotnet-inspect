@@ -901,6 +901,92 @@ public class PdbAcquisitionServiceTests
     }
 
     [Fact]
+    public async Task PlatformSettlement_RejectsEmbeddedIdentityMismatch()
+    {
+        var (assembly, _) =
+            CreateSyntheticPdbAssembly(
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    "10.0.0",
+                    "test"),
+                "Mismatch.pdb",
+                embeddedEntryCount: 1,
+                includeCodeView: true,
+                codeViewStamp: 0x12345679);
+
+        Assert.Throws<BadImageFormatException>(
+            () => PdbContext.OpenEmbeddedPdbOnly(assembly));
+
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(assembly);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(
+                    throwOnRequest: true));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.InvalidEmbeddedContent,
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(result).Failure);
+        Assert.Equal(
+            PdbLoadStatus.IdentityMismatch,
+            context.LastPdbLoadStatus);
+        Assert.False(context.HasPdb);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_EmbeddedOnlyRemainsAcquired()
+    {
+        var (assembly, _) =
+            CreateSyntheticPdbAssembly(
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    "10.0.0",
+                    "test"),
+                "EmbeddedOnly.pdb",
+                embeddedEntryCount: 1,
+                includeCodeView: false);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(assembly);
+        var handler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(result);
+        Assert.Equal(
+            PortablePdbSettlementSource.Embedded,
+            acquired.Source);
+        Assert.Null(context.PdbId);
+        Assert.True(context.HasPdb);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    [Fact]
     public async Task PlatformSettlement_DuplicateEmbeddedEntriesRemainFailed()
     {
         var (assembly, _) =
@@ -1573,7 +1659,8 @@ public class PdbAcquisitionServiceTests
         AssemblyResolutionProvenance provenance,
         string pdbFileName,
         int embeddedEntryCount,
-        bool includeCodeView)
+        bool includeCodeView,
+        uint? codeViewStamp = null)
     {
         Guid pdbGuid = Guid.NewGuid();
         uint pdbStamp = 0x12345678;
@@ -1618,7 +1705,11 @@ public class PdbAcquisitionServiceTests
         {
             debugDirectory.AddCodeViewEntry(
                 pdbFileName,
-                contentId,
+                codeViewStamp is { } stamp
+                    ? new BlobContentId(
+                        pdbGuid,
+                        stamp)
+                    : contentId,
                 portablePdbVersion: 0x0100);
         }
         for (int i = 0; i < embeddedEntryCount; i++)

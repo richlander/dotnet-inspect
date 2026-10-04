@@ -20,6 +20,8 @@ using DotnetInspector.Sections;
 using InertText;
 using Markout;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>

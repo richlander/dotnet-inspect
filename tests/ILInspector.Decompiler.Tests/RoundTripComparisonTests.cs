@@ -12,6 +12,8 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Speed", "Slow")]

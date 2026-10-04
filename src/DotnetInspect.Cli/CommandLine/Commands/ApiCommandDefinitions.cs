@@ -583,7 +583,7 @@ public static class ApiCommandDefinitions
                     == ExplanationProjection.Tips)
                 {
                     CommandError.Write(
-                        "'--explain .tips' requires one exact Member "
+                        "'--explain .tips' requires one Member "
                             + "subject and source.");
                     return 1;
                 }
