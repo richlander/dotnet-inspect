@@ -308,8 +308,8 @@ Adapter construction is bidirectionally total within that boundary:
   in the declared domain;
 - every authoritative relationship of an adopted kind produces exactly one
   typed observation, preserving a targetless admitted outcome or every
-  available graph target, including an opaque external target when the target
-  owner has no registered path; and
+  available graph target whose owner has issued an explanation resource type
+  and key; and
 - no projected resource or relationship exists without its owner-issued
   source.
 
@@ -388,7 +388,9 @@ collection kind. That identity is registered independently of the path. The
 collection carries:
 
 - its collection kind and owner;
-- the count and canonical paths of direct members;
+- the count of direct members;
+- one ordered membership relationship whose emitted targets are subject to the
+  request's target limit;
 - member ordering issued by the source owner; and
 - the direct facts that apply to the collection as a whole.
 
@@ -456,6 +458,7 @@ ResourceExplanationDocument
   one root resource
   bounded ordered resource expansion
   bounded ordered relationship observations
+  bounded ordered relationship targets
   traversal receipt
 ```
 
@@ -490,7 +493,10 @@ declaration vocabulary. The vocabulary supports:
   payload shape;
 - references to another owner-issued data shape; and
 - cardinality paired with every field, fact, relationship, input, or output as
-  required-one, optional-one, or ordered-many.
+  required-one, optional-one, or ordered-many. An ordered-many value embedded
+  directly in a resource snapshot also declares a positive maximum count;
+  relationship targets and ordinary operation result sequences use their
+  owning request or execution bounds instead.
 
 The declaration vocabulary is recursive by identity, not by embedding
 arbitrary CLR object graphs. Composition rejects duplicate identities,
@@ -531,7 +537,8 @@ assembly. Non-finite numeric values require an explicit owner choice shape
 rather than an invalid scalar encoding.
 
 Ordered-many direct facts are for bounded descriptor data such as examples or
-fixed supported cases. An owner collection that is independently addressable,
+fixed supported cases, and their declarations include a positive maximum
+embedded count. An owner collection that is independently addressable,
 unbounded, pageable, selectable, or useful as a navigation target is modeled
 as resources and relationships instead of being copied into a direct fact.
 
@@ -614,6 +621,11 @@ safety, and resolution remain with that owner. The Document therefore never
 uses one untyped string field for both a product-resource path and a reusable
 inspection reference.
 
+One resource has at most one emitted canonical address per address kind.
+Accepted aliases resolve to that canonical address but do not enlarge the
+Document address set. Address-kind count is covered by the schema-declaration
+limit.
+
 An unavailable relationship remains its targetless owner-issued unavailable
 or failed observation where that owner admits such an outcome. It is not
 replaced by an empty target list, display placeholder, or omission that looks
@@ -633,9 +645,9 @@ Construction validates:
 3. Every observation state is admitted by its declaration, and every available
    fact value or relationship target conforms to its shape, cardinality, and
    target constraint.
-4. Every public-address value resolves to at most one resource within its
-   address kind, and every canonical path resolves to exactly one installed
-   resource.
+4. Every snapshot has at most one canonical address per address kind, every
+   public-address value resolves to at most one resource within its kind, and
+   every canonical path resolves to exactly one installed resource.
 5. Every available relationship target whose declaration requires navigation
    has one registered address.
 6. Every adopted owner domain is represented completely under that owner's
@@ -665,11 +677,12 @@ lower the completed Document without consulting owner catalogs or guessing
 semantics from identifiers.
 
 Every request contains a positive schema-declaration limit in addition to its
-resource and relationship limits. The root resource's required schema closure
-must fit or the operation fails visibly without a partial Document. Expansion
-admits another resource or relationship observation only when both the item
-and its newly required transitive declarations fit. The traversal receipt
-records schema declarations emitted and schema-limit truncation separately.
+resource, relationship, and target limits. The root resource's required schema
+closure must fit or the operation fails visibly without a partial Document.
+Expansion admits another resource, relationship observation, or target only
+when both the item and its newly required transitive declarations fit. The
+traversal receipt records schema declarations emitted and schema-limit
+truncation separately.
 
 ### Resource Explanation Document
 
@@ -697,16 +710,18 @@ ResourceExplanationDocument
     source explanation key
     relationship identity
     available, absent, unavailable, or failed outcome
+    target projection completeness
     ordered available targets
       target explanation key and resource-type identity
       available typed target addresses
   traversal receipt
     requested depth
-    requested schema, resource, and relationship limits
+    requested schema, resource, relationship, and target limits
     completed depth
     emitted schema declaration count
     visited resource count
     emitted relationship-observation count
+    emitted target count
     completeness
     truncation reasons
 ```
@@ -728,13 +743,14 @@ is one of:
 - an expanded resource in the Document;
 - a registered resource outside the selected traversal bound, with its
   available public addresses; or
-- a non-navigable external owner identity whose schema or public address has
-  not been adopted.
+- an unexpanded typed target whose owner-issued resource type and explanation
+  key are present in the schema slice even when no public address or target
+  snapshot is available.
 
-The last form preserves an opaque owner-issued explanation key without minting
-another owner's route or converting it to display text. When that owner later
-registers the same key and schema, catalog composition adds its
-resource type and addresses without changing the source declaration.
+The last form preserves an adopted owner-issued typed target without minting
+another owner's route or converting it to display text. An opaque external
+identity whose owner has not issued an explanation resource type and key is a
+schema-conforming fact value, not a relationship target.
 
 ### Lowering-neutral structure
 
@@ -784,10 +800,11 @@ gates for that move.
 Resource order is breadth-first from the root, then source-owner declaration
 order, then owner-issued explanation key as a stable tie-breaker. A canonical
 path is used only when the owner-issued ordering key otherwise compares equal.
-Relationship order follows source resource order, source-owner identity,
-source-owner relationship order, relationship identity, target-owner identity,
-and target explanation key. This is a total order and does not require every
-resource to have a public address.
+Relationship-observation order follows source resource order, source-owner
+identity, source-owner relationship order, and relationship identity. Targets
+within one available observation follow owner-issued order, then target-owner
+identity and target explanation key as stable tie-breakers. This is a total
+order and does not require every resource to have a public address.
 
 Equal schemas, snapshots, registrations, and traversal bounds produce equal
 Content across CLI and Browser/Wasm. Hosts do not reorder the semantic
@@ -798,17 +815,25 @@ Document to match their visual layout.
 ### Default explanation
 
 Every host-neutral request contains resolved numeric limits for maximum depth,
-schema declarations, resources, and relationship observations. Hosts may offer
-shorthands, but they resolve those defaults before calling Resource
-Explanation. The completed Document records all four limits.
+schema declarations, resources, relationship observations, and emitted
+relationship targets. Hosts may offer shorthands, but they resolve those
+defaults before calling Resource Explanation. The completed Document records
+all five limits.
 
 Default explanation resolves depth zero:
 
 - the root resource and its typed direct facts are complete;
 - direct relationship observations are listed in deterministic order up to
-  the explicit relationship limit, preserving targetless outcomes and every
-  available target address; and
+  the explicit relationship limit, preserving targetless outcomes;
+- available relationship targets are listed in owner order up to the explicit
+  target limit, with every available address for each emitted target; and
 - related resources are not expanded.
+
+An available relationship observation records whether its target projection
+is complete. Reaching the target limit may therefore emit a deterministic
+prefix of one ordered-many relationship while preserving the source
+observation's Available outcome and reporting that its projected targets are
+truncated. It never changes that observation to available-empty.
 
 This keeps the common response concise while making the next exact gesture
 copyable.
@@ -826,9 +851,9 @@ copy an unbounded descriptor collection.
 
 Recursive explanation expands declared relationships only. The semantic
 request contains explicit non-negative maximum depth and positive schema,
-resource, and relationship limits. A CLI shorthand may supply documented
-finite defaults, but the host-neutral request always contains the resolved
-numeric bounds.
+resource, relationship, and target limits. A CLI shorthand may supply
+documented finite defaults, but the host-neutral request always contains the
+resolved numeric bounds.
 
 Traversal:
 
@@ -836,15 +861,20 @@ Traversal:
 2. visits each explanation key at most once;
 3. records encountered relationship observations in total deterministic order
    until the relationship limit is reached;
-4. expands a target only when the next depth, schema, and resource limits admit
-   it; and
-5. records depth, schema, resource, and relationship truncation in the
+4. records targets in owner order until the target limit is reached, marking
+   the containing observation's target projection incomplete when needed; each
+   emitted target occurrence consumes the limit even when the same resource is
+   reached through another relationship;
+5. expands an emitted target only when the next depth, schema, and resource
+   limits admit it; and
+6. records depth, schema, resource, relationship, and target truncation in the
    traversal receipt.
 
 Cycles therefore remain visible as relationships when encountered before the
 relationship bound, but cannot loop. No host may replace any bound with an
-unbounded sentinel. A bounded Document reports `Complete` only when no
-declared resource or relationship within the requested depth was omitted.
+unbounded sentinel. A bounded Document reports `Complete` only when no required
+schema declaration, declared resource, relationship observation, or target
+within the requested depth was omitted.
 
 ### Installed, contextual, and resolved-plan explanation
 
@@ -920,7 +950,7 @@ preserves the distinction among:
 - operators and named orders;
 - Rows and exact Count terminal requirements;
 - effects and continuation acceptance; and
-- opaque external value-vocabulary and result-contract references.
+- opaque external value-vocabulary and result-contract identities.
 
 A structural section may present a row space without owning it. Operation and
 row facets with equal display labels remain distinct resources when their typed
@@ -928,6 +958,13 @@ identities, scopes, stages, or effects differ.
 
 Resource Explanation never reconstructs a facet from a schema column, a
 rendered property, a parser option, or a command delegate.
+
+Before an external owner adopts Resource Explanation, its opaque identity is a
+typed fact under Query Space's named opaque-external-identity shape. It does
+not become a relationship target, because Query Space cannot issue another
+owner's explanation resource type or key. A later focused adoption may replace
+or accompany that fact with an owner-issued relationship after the external
+owner publishes the required schema and key projection.
 
 ### Value-vocabulary resources
 
@@ -981,8 +1018,10 @@ addresses; neither use changes the resource key or schema.
 ### Output-contract resources
 
 Query Space may expose an opaque result-contract identity. Resource
-Explanation can list that relationship before the contract itself is
-explainable.
+Explanation preserves that pre-adoption identity as a schema-conforming typed
+fact under Query Space's opaque-external-identity shape. It does not list a
+result-contract relationship before the contract owner issues an explanation
+resource type and key.
 
 A later envelope-contract catalog must own exact contract identity, Content
 Kind, `(result_kind, schema_version)`, serializer, JSON Schema, producers, and
@@ -1126,9 +1165,12 @@ The pathological graph includes:
 - a category whose complete capability set differs from one member;
 - an authoritative resource added without a path registration;
 - an authoritative relationship omitted by its adapter;
-- a cycle of cross-owner navigational relationships; and
+- a cycle of cross-owner navigational relationships;
 - valid expansions truncated by depth, schema, resource, and relationship
-  limits.
+  limits;
+- one ordered-many relationship whose targets exceed the target limit; and
+- one opaque external result-contract identity before and after its owner
+  issues an explainable resource type and key.
 
 ## Invariants and evidence
 
@@ -1139,13 +1181,14 @@ Implementation slices must name Release gates for the following properties:
 | Owner schemas are closed, internally valid, and independent of concrete domain assemblies. | Schema-construction tests covering scalar, term, record, choice, reference, and cardinality declarations, plus a real owner-specific shape whose CLR type stays in its owner assembly. |
 | Every snapshot fact and relationship observation uses an admitted state and every available value or target conforms to its declared shape, cardinality, and target-type constraint. | Construction matrix covering valid values, optional absence, available-empty many values, targetless unavailable and failed outcomes, invalid scalar/term/record/choice values, excess cardinality, and wrong-target relationships. |
 | Every completed Document carries the bounded transitive schema slice needed to interpret all emitted observations, targets, and addresses without owner-catalog access. | Document-construction tests over colliding physical scalar values with distinct named meanings, nested record/choice references, typed addresses, schema-limit truncation, and a root closure that exceeds the schema limit and fails without partial Content. |
+| An opaque external identity remains a typed fact until its owner issues an explanation resource type and key; Resource Explanation never invents the target declaration. | Query result-contract fixture before and after output-contract-owner adoption, asserting a typed opaque fact in the first case and the exact owner-issued relationship target in the second. |
 | Installed resources and detached resolved resources use the same Document model without placing contextual snapshots in the installed catalog. | Shared Content-shape tests over one installed query facet and one exact `System.Text.Json` Member, with catalog immutability asserted before and after contextual explanation. |
-| Canonical paths are shell-safe, unique case-insensitively, and registered rather than derived from labels. | Registry-construction tests over every shipped registration. |
+| Canonical paths are shell-safe, unique case-insensitively, registered rather than derived from labels, and emitted once per address kind despite accepted aliases. | Registry-construction tests over every shipped registration. |
 | Each adopted descriptor domain has bidirectionally total resource registration and relationship-observation projection. | Adapter-construction tests comparing the complete real owner enumerations with projected identities and observations, plus omission, duplicate, and extra-projection contract fixtures. |
 | Exact resolution returns one root or a visible failure with no partial Document. | Resolver contract tests including unknown paths and bounded suggestions. |
 | Structural, query, value, and contextual snapshots preserve owner-issued typed identities and native values. | Adapter contract tests against real owner descriptors and the exact Member contextual basis. |
 | Equal labels do not create resource identity or relationships. | Collision fixture spanning structural and query owners. |
-| Recursive traversal visits each identity once, preserves encountered cycle edges, and reports depth, schema, resource, and relationship truncation. | Cyclic and permuted-input graph fixtures exercising every bound and the total ordering key. |
+| Recursive traversal visits each identity once, preserves encountered cycle edges, bounds emitted relationship targets independently, marks partial target projections, and reports depth, schema, resource, relationship, and target truncation. | Cyclic and permuted-input graph fixtures exercising every bound, including one ordered-many relationship larger than the target limit, and the total ordering key. |
 | Capability explanation performs no acquisition. | Host-level missing-target test with acquisition and planning services replaced by fail-fast recording fakes, asserting no capability was requested. |
 | Direct contextual explanation resolves and acquires once, then hands one detached snapshot to Resource Explanation without serializing a reusable reference. | Authentic exact-Member integration test with counting resolution/acquisition collaborators and fail-fast reference serialization and ordinary-content producers. |
 | CLI and Browser/Wasm receive equal Content for equal descriptor inputs. | Shared Content equality or serialization fixture exercised by both hosts. |
