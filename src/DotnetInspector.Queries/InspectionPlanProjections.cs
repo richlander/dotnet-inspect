@@ -209,12 +209,24 @@ public sealed record ResolvedMemberInspectionBasis
     public ResolvedMemberInspectionBasis(
         ResolvedInspectionSource source,
         ResolvedInspectionMemberTarget target,
+        ViewFacetId defaultFacet,
         InspectionCatalogReference catalog,
         InspectionSemanticDemand semanticDemand,
         InspectionCapabilityRequestProvenance capabilityRequest)
     {
         Source = source ?? throw new ArgumentNullException(nameof(source));
         Target = target ?? throw new ArgumentNullException(nameof(target));
+        ArgumentNullException.ThrowIfNull(defaultFacet);
+        if (!ViewFacetId.TryGetKind(
+                defaultFacet.Value,
+                out StructuralSubjectKind kind)
+            || kind != StructuralSubjectKind.Member)
+        {
+            throw new ArgumentException(
+                "An exact-member inspection requires a member default facet.",
+                nameof(defaultFacet));
+        }
+        DefaultFacet = defaultFacet;
         Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         SemanticDemand = semanticDemand
             ?? throw new ArgumentNullException(nameof(semanticDemand));
@@ -225,6 +237,8 @@ public sealed record ResolvedMemberInspectionBasis
     public ResolvedInspectionSource Source { get; }
 
     public ResolvedInspectionMemberTarget Target { get; }
+
+    public ViewFacetId DefaultFacet { get; }
 
     public InspectionCatalogReference Catalog { get; }
 
@@ -273,23 +287,10 @@ public sealed record EffectiveDiscoveryPlan : MemberInspectionTerminalPlan
 /// <summary>Terminal policy for projecting one portable semantic view.</summary>
 public sealed record ShareProjectionPlan : MemberInspectionTerminalPlan
 {
-    public ShareProjectionPlan(
-        ResolvedMemberInspectionBasis basis,
-        ViewFacetId facet)
+    public ShareProjectionPlan(ResolvedMemberInspectionBasis basis)
         : base(basis)
     {
-        ArgumentNullException.ThrowIfNull(facet);
-        if (!ViewFacetId.TryGetKind(
-                facet.Value,
-                out StructuralSubjectKind kind)
-            || kind != StructuralSubjectKind.Member)
-        {
-            throw new ArgumentException(
-                "A member share plan requires a member view facet.",
-                nameof(facet));
-        }
-        Facet = facet;
     }
 
-    public ViewFacetId Facet { get; }
+    public ViewFacetId Facet => Basis.DefaultFacet;
 }
