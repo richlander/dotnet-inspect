@@ -1364,6 +1364,15 @@ Inspect Web ordinary-method declaration source now compose through the shared
 remain on their existing body-resolution path because those targets are not
 additional declaration documents.
 
+Step 7's Metadata-owned compact declaration kernel is implemented by
+[#9209](https://github.com/richlander/dotnet-inspect/pull/9209). The shared
+Sections QuerySpace route now carries producer-directed spelling,
+accessibility, receiver, and hidden-admission terms through a Library lease
+adapter, with portable parent and row bindings, bounded Rows continuation,
+nested exact-member Counts, Composition Count, selector Counts, and typed
+incomplete or failed outcomes. `TypeDocument` and CLI or Browser adoption
+remain steps 8 and 9; no production host uses this route yet.
+
 ## Required evidence
 
 The implementation sequence must add Release gates proving:
