@@ -1,6 +1,6 @@
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 
-namespace DotnetInspector.PlatformHouse.Installed;
+namespace DotnetInspector.PlatformHouse.Local;
 
 /// <summary>
 /// Projects installed discovery into source-neutral ephemeral attempts.

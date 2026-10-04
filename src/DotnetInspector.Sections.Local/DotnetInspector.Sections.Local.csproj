@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../DotnetInspector.PlatformHouse.Installed/DotnetInspector.PlatformHouse.Installed.csproj" />
+    <ProjectReference Include="../DotnetInspector.PlatformHouse.Local/DotnetInspector.PlatformHouse.Local.csproj" />
     <ProjectReference Include="../DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
   </ItemGroup>
 

@@ -1,4 +1,4 @@
-namespace DotnetInspector.Platforms.Installed;
+namespace DotnetInspector.Platforms.Local;
 
 internal sealed class InstalledObservationBudget
 {

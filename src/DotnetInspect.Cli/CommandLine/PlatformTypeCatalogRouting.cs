@@ -6,11 +6,11 @@ using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
-using DotnetInspector.PlatformHouse.Installed;
+using DotnetInspector.PlatformHouse.Local;
 using DotnetInspector.PlatformHouse.Packages;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 

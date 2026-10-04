@@ -1,6 +1,6 @@
 using ILInspector.Metadata;
 
-namespace DotnetInspector.Platforms.Installed;
+namespace DotnetInspector.Platforms.Local;
 
 /// <summary>An installed platform family understood by the dotnet hive layout.</summary>
 public enum InstalledPlatformFamily

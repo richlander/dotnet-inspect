@@ -13,7 +13,7 @@ Family-wide installed target discovery is the second focused slice of
 by [#7749](https://github.com/richlander/dotnet-inspect/issues/7749).
 
 The first production consumer is
-`DotnetInspector.PlatformHouse.Installed`, which translates an authorized
+`DotnetInspector.PlatformHouse.Local`, which translates an authorized
 PlatformHouse request into this source owner's coordinates and returns the live
 source result beside a resource-free House contribution.
 
@@ -77,8 +77,8 @@ returns path-backed results. This owner does not wrap that behavior.
 ## Boundary and dependency direction
 
 The source implementation lives in the `Platforms` folder of
-`DotnetInspector.PlatformHouse.Installed`, under the
-`DotnetInspector.Platforms.Installed` namespace, beside the installed House
+`DotnetInspector.PlatformHouse.Local`, under the
+`DotnetInspector.Platforms.Local` namespace, beside the installed House
 adapter and its execution.
 
 ```text
@@ -87,7 +87,7 @@ ILInspector.Metadata
 DotnetInspector.PlatformHouse
         |
         v
-DotnetInspector.PlatformHouse.Installed (source, adapter, execution)
+DotnetInspector.PlatformHouse.Local (source, adapter, execution)
 ```
 
 The installed source may depend on the package-neutral target currency and
@@ -99,7 +99,7 @@ Metadata identity projection. It must not reference:
 - package caches or package-source configuration; or
 - inspected-assembly loading or Roslyn.
 
-`DotnetInspector.PlatformHouse.Installed` is the integration boundary above
+`DotnetInspector.PlatformHouse.Local` is the integration boundary above
 both owners. It translates House target currency into installed-source
 coordinates, validates House capability authorization, and pairs live source
 values with resource-free `PlatformSourceContribution` evidence.
@@ -308,7 +308,7 @@ plan.
 ## Evidence gates
 
 The focused executable suite
-`DotnetInspector.PlatformHouse.Installed.Tests` proves:
+`DotnetInspector.PlatformHouse.Local.Tests` proves:
 
 - explicit-root, family-specific, framework-scoped discovery;
 - complete family-wide discovery across installed feature bands;

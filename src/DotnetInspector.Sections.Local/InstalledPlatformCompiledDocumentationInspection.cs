@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using DotnetInspector.PlatformHouse;
-using DotnetInspector.PlatformHouse.Installed;
+using DotnetInspector.PlatformHouse.Local;
 using DotnetInspector.PlatformQueries;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 
-namespace DotnetInspector.Sections.Installed;
+namespace DotnetInspector.Sections.Local;
 
 /// <summary>
 /// Binds the installed PlatformHouse source to the shared compiled

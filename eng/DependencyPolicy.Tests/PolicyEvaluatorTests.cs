@@ -829,7 +829,7 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
-    public void CheckedInPolicyKeepsInstalledAdaptersOutOfBrowserHosts()
+    public void CheckedInPolicyKeepsLocalAdaptersOutOfBrowserHosts()
     {
         string repository = FindRepositoryRoot();
         DependencyPolicyDocument policy = PolicyLoader.Load(
@@ -837,7 +837,7 @@ public sealed class PolicyEvaluatorTests
         DependencyRule rule = Assert.Single(
             policy.Rules,
             candidate => candidate.Id
-                == "browser-hosts-never-reference-installed-adapters");
+                == "browser-hosts-never-reference-local-adapters");
         Assert.Equal(
             [
                 DependencyGraphKind.Project,
@@ -848,20 +848,20 @@ public sealed class PolicyEvaluatorTests
         Assert.NotNull(rule.Deny);
         Assert.Equal(
             [
-                "DotnetInspector.PlatformHouse.Installed",
-                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.PlatformHouse.Local",
+                "DotnetInspector.Sections.Local",
             ],
             rule.Deny);
 
         AssertCheckedInRuleRejectsRepositoryDependency(
-            "browser-hosts-never-reference-installed-adapters",
+            "browser-hosts-never-reference-local-adapters",
             "DotnetInspect.Web.Core",
-            "DotnetInspector.PlatformHouse.Installed",
+            "DotnetInspector.PlatformHouse.Local",
             "src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj");
         AssertCheckedInRuleRejectsRepositoryDependency(
-            "browser-hosts-never-reference-installed-adapters",
+            "browser-hosts-never-reference-local-adapters",
             "DotnetInspect.Web",
-            "DotnetInspector.Sections.Installed",
+            "DotnetInspector.Sections.Local",
             "src/DotnetInspect.Web/DotnetInspect.Web.csproj");
     }
 
@@ -1026,7 +1026,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.PlatformHouse",
-                "DotnetInspector.PlatformHouse.Installed",
+                "DotnetInspector.PlatformHouse.Local",
                 "DotnetInspector.PlatformHouse.Packages",
                 "DotnetInspector.PlatformQueries",
                 "DotnetInspector.Platforms",
@@ -1035,7 +1035,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.ResearchQueries",
                 "DotnetInspector.ResearchSections",
                 "DotnetInspector.Sections",
-                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.Sections.Local",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceSelection",
                 "DotnetInspector.Vocabulary",
@@ -1104,7 +1104,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.PlatformHouse",
-                "DotnetInspector.PlatformHouse.Installed",
+                "DotnetInspector.PlatformHouse.Local",
                 "DotnetInspector.PlatformHouse.Packages",
                 "DotnetInspector.PlatformQueries",
                 "DotnetInspector.Platforms",
@@ -1113,7 +1113,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.ResearchQueries",
                 "DotnetInspector.ResearchSections",
                 "DotnetInspector.Sections",
-                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.Sections.Local",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceHouse",
                 "DotnetInspector.SourceSelection",

@@ -120,7 +120,7 @@ Reference-only, reference-plus-implementation, and implementation-only role
 closure are gated in Release.
 
 Installed successful-result materialization is implemented in the
-`Execution` folder of `DotnetInspector.PlatformHouse.Installed` under #7269. It accepts
+`Execution` folder of `DotnetInspector.PlatformHouse.Local` under #7269. It accepts
 only owner-issued successful installed source results for one exact assembly
 demand, selects that assembly from each immutable source snapshot, and
 publishes the required views into one request-bounded Artifact generation.
@@ -185,7 +185,7 @@ immutable bytes. No source client, Package Source lease, package payload, or
 store lifetime enters the Artifact, Library, or House result.
 
 Installed reference-only complete-population materialization is implemented
-in the `Execution` folder of `DotnetInspector.PlatformHouse.Installed` (#7322). It consumes one
+in the `Execution` folder of `DotnetInspector.PlatformHouse.Local` (#7322). It consumes one
 authoritative adapter-issued installed reference population, preserves source
 order, publishes every distinct managed assembly into one finite Artifact
 generation, obtains Metadata's exact projection for each Artifact, and
@@ -2111,12 +2111,12 @@ House request, source, package, pruning, Metadata, or result dependencies.
 The operational House lives in the `Execution` folder of the host-neutral
 `DotnetInspector.PlatformHouse` assembly, above its contract seam, Metadata,
 Artifact content children, and shared Library ownership. The installed and
-package-backed source adapters (`DotnetInspector.PlatformHouse.Installed` and
+package-backed source adapters (`DotnetInspector.PlatformHouse.Local` and
 `DotnetInspector.PlatformHouse.Packages`) each carry their platform source, the
 House adapter, and the source-specific execution in one assembly; they depend
 on the House assembly for the contract seam and the materialization kernel
 while producing their source results, and the browser host never references
-the installed assembly (`browser-hosts-never-reference-installed-adapters`). During Artifact
+the installed assembly (`browser-hosts-never-reference-local-adapters`). During Artifact
 materialization, application orchestration wraps each selected realization in
 `PlatformLibraryArtifactProvenance`, retains Metadata's owner-issued projection
 from the Artifact admission callback, and passes the resulting resource-free

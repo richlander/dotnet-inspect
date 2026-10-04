@@ -1145,9 +1145,9 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
 
-      - name: Run installed PlatformHouse adapter tests
+      - name: Run local PlatformHouse adapter tests
         if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Installed.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Local.Tests -c Release
 
       - name: Run package-backed PlatformHouse adapter tests
         if: matrix.shard == 'contracts'

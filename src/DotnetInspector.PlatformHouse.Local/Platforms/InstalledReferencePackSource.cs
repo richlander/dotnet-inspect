@@ -2,9 +2,9 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
-using static DotnetInspector.Platforms.Installed.InstalledHiveFileSystem;
+using static DotnetInspector.Platforms.Local.InstalledHiveFileSystem;
 
-namespace DotnetInspector.Platforms.Installed;
+namespace DotnetInspector.Platforms.Local;
 
 /// <summary>
 /// Discovers and snapshots reference packs from one explicit dotnet hive.

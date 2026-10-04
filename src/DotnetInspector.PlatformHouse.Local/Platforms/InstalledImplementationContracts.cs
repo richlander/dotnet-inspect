@@ -2,7 +2,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Formats;
 using ILInspector.Metadata;
 
-namespace DotnetInspector.Platforms.Installed;
+namespace DotnetInspector.Platforms.Local;
 
 /// <summary>One exact installed shared-framework implementation coordinate.</summary>
 public sealed record InstalledImplementationPlatformCoordinate

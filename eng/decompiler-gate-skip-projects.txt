@@ -129,11 +129,11 @@ src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.JsonSchema
 src/DotnetInspector.MetadataRendering
-src/DotnetInspector.PlatformHouse.Installed
+src/DotnetInspector.PlatformHouse.Local
 src/DotnetInspector.Presentation
 src/DotnetInspector.ResearchSections
 src/DotnetInspector.Sections
-src/DotnetInspector.Sections.Installed
+src/DotnetInspector.Sections.Local
 src/DotnetInspector.SourceDelegation
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
@@ -167,7 +167,7 @@ tests/DotnetInspector.Networking.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.Packages.Tests
 tests/DotnetInspector.PerformanceOracles.Tests
-tests/DotnetInspector.PlatformHouse.Installed.Tests
+tests/DotnetInspector.PlatformHouse.Local.Tests
 tests/DotnetInspector.PlatformHouse.Packages.Tests
 tests/DotnetInspector.PlatformHouse.Tests
 tests/DotnetInspector.Platforms.Tests

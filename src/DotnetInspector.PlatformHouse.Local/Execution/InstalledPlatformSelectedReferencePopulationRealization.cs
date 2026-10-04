@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using DotnetInspector.Platforms;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 
-namespace DotnetInspector.PlatformHouse.Installed;
+namespace DotnetInspector.PlatformHouse.Local;
 
 /// <summary>
 /// Creates a lazy installed capability for selected-target complete reference

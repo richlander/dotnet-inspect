@@ -2,12 +2,12 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Formats;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
 
-namespace DotnetInspector.PlatformHouse.Installed;
+namespace DotnetInspector.PlatformHouse.Local;
 
 /// <summary>
 /// Resource-free provenance for one installed reference assembly snapshot.

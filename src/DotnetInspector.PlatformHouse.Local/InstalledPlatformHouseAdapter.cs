@@ -1,8 +1,8 @@
 using DotnetInspector.Platforms;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 using ILInspector.Metadata;
 
-namespace DotnetInspector.PlatformHouse.Installed;
+namespace DotnetInspector.PlatformHouse.Local;
 
 /// <summary>House-authorized capabilities of one installed reference source.</summary>
 public sealed record InstalledPlatformHouseCapabilities

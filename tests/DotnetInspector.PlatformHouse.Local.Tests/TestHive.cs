@@ -1,7 +1,7 @@
 using System.Text.Json;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 
-namespace DotnetInspector.PlatformHouse.Installed.Tests;
+namespace DotnetInspector.PlatformHouse.Local.Tests;
 
 internal sealed class TestHive : IDisposable
 {

@@ -5,7 +5,7 @@
 This document is the normative owner for host-neutral interpretation of .NET
 shared-framework runtime configuration and dependency manifests. The first
 production consumer is the explicit-hive implementation source in
-`DotnetInspector.Platforms.Installed`; package-backed and Browser/Wasm sources
+`DotnetInspector.Platforms.Local`; package-backed and Browser/Wasm sources
 may supply the same bytes without adopting installed-location semantics.
 
 This is the format-owner portion of PlatformHouse production-adoption step 4b
@@ -89,7 +89,7 @@ UntrustedDocuments.HardenedJson
 DotnetInspector.Platforms (currency and Formats)
         |
         v
-source adapters, including DotnetInspector.PlatformHouse.Installed
+source adapters, including DotnetInspector.PlatformHouse.Local
 ```
 
 The dependency on `UntrustedDocuments` consumes only the repository's
@@ -170,8 +170,8 @@ it observes, including entries that do not become managed members.
 
 1. This owner introduces reusable byte-to-model interpretation.
 2. The step 4b first adopter,
-   `DotnetInspector.PlatformHouse.Installed` (namespace
-   `DotnetInspector.Platforms.Installed`), acquires manifests from one explicit
+   `DotnetInspector.PlatformHouse.Local` (namespace
+   `DotnetInspector.Platforms.Local`), acquires manifests from one explicit
    hive and consumes these models while resolving the installed implementation
    closure.
 3. Step 5 package-backed platform sources may consume the same readers from

@@ -85,7 +85,7 @@
       ]
     },
     {
-      "id": "browser-hosts-never-reference-installed-adapters",
+      "id": "browser-hosts-never-reference-local-adapters",
       "source": "docs/design/platform-house-reference-processing.md#assembly-reference-processing; consolidation tracker #9240 slice 3",
       "graphs": [
         "project",
@@ -98,8 +98,8 @@
         "src/DotnetInspect.Web*/*.csproj"
       ],
       "deny": [
-        "DotnetInspector.PlatformHouse.Installed",
-        "DotnetInspector.Sections.Installed"
+        "DotnetInspector.PlatformHouse.Local",
+        "DotnetInspector.Sections.Local"
       ]
     },
     {
@@ -126,7 +126,7 @@
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
-        "DotnetInspector.PlatformHouse.Installed",
+        "DotnetInspector.PlatformHouse.Local",
         "DotnetInspector.PlatformHouse.Packages",
         "DotnetInspector.PlatformQueries",
         "DotnetInspector.Platforms",
@@ -135,7 +135,7 @@
         "DotnetInspector.ResearchQueries",
         "DotnetInspector.ResearchSections",
         "DotnetInspector.Sections",
-        "DotnetInspector.Sections.Installed",
+        "DotnetInspector.Sections.Local",
         "DotnetInspector.Services",
         "DotnetInspector.SourceSelection",
         "DotnetInspector.Vocabulary",
@@ -183,7 +183,7 @@
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
-        "DotnetInspector.PlatformHouse.Installed",
+        "DotnetInspector.PlatformHouse.Local",
         "DotnetInspector.PlatformHouse.Packages",
         "DotnetInspector.PlatformQueries",
         "DotnetInspector.Platforms",
@@ -192,7 +192,7 @@
         "DotnetInspector.ResearchQueries",
         "DotnetInspector.ResearchSections",
         "DotnetInspector.Sections",
-        "DotnetInspector.Sections.Installed",
+        "DotnetInspector.Sections.Local",
         "DotnetInspector.Services",
         "DotnetInspector.SourceHouse",
         "DotnetInspector.SourceSelection",

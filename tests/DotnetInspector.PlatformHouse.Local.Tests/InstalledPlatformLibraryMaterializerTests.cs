@@ -7,12 +7,12 @@ using DotnetInspector.DocumentationHouse.Platform;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Platforms;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using Inspector.Resources;
 
-namespace DotnetInspector.PlatformHouse.Installed.Tests;
+namespace DotnetInspector.PlatformHouse.Local.Tests;
 
 public sealed class InstalledPlatformLibraryMaterializerTests
 {

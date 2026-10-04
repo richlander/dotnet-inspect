@@ -1,7 +1,7 @@
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 using ILInspector.Metadata;
 
-namespace DotnetInspector.PlatformHouse.Installed;
+namespace DotnetInspector.PlatformHouse.Local;
 
 /// <summary>
 /// Adapts one installed reference result to the source-neutral Platform

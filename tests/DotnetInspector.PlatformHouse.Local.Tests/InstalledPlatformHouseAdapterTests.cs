@@ -1,9 +1,9 @@
 using System.Reflection.Metadata;
 using DotnetInspector.Platforms;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 using ILInspector.Metadata;
 
-namespace DotnetInspector.PlatformHouse.Installed.Tests;
+namespace DotnetInspector.PlatformHouse.Local.Tests;
 
 public sealed class InstalledPlatformHouseAdapterTests
 {

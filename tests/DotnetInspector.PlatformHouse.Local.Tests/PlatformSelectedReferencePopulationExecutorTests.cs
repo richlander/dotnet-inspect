@@ -5,7 +5,7 @@ using DotnetInspector.Platforms;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 
-namespace DotnetInspector.PlatformHouse.Installed.Tests;
+namespace DotnetInspector.PlatformHouse.Local.Tests;
 
 public sealed class PlatformSelectedReferencePopulationExecutorTests
 {
