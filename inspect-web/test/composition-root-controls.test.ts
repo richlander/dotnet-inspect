@@ -1345,7 +1345,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameMedia\.matches\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     binding,
-    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(member\)[\s\S]*openOverload\(memberNavOverloadSourceIndex\(member, selector\)\)[\s\S]*openMemberDocument\(selector\)/);
+    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{\s*openOverload\(selector\);\s*}/);
   assert.doesNotMatch(
     binding,
     /onCopyName|currentInspectedSubjectName/);

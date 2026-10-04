@@ -857,6 +857,10 @@ already carries the kind.
 - A single-member row shows a method's compact parameter list (the member
   name and unqualified parameter types, as nested overload rows spell them)
   or a property's, field's, or event's unqualified value type.
+- Activating a row with one exact declaration in the active inventory opens
+  that exact Member directly. It does not insert a one-row MemberGroup chooser
+  between the inventory and the Member surface. This is the same traversal
+  rule for methods, properties, fields, and events.
 - An overload family's parent row shows its overload count and family-level
   status, and colors its name differently from single-member rows. The name
   color marks a row that holds overloads, together with the overload count, so

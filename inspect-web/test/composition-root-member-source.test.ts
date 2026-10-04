@@ -750,6 +750,9 @@ test("moving between members keeps sections sticky without section-driven profil
   assert.match(
     openMemberGroupBody,
     /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
+  assert.doesNotMatch(
+    openMemberGroupBody,
+    /openMemberDocument|memberBaselineOrdinal/);
   assert.match(
     openMemberGroupBody,
     /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex =\s*memberNavOverloadSourceIndex\(group, 0\);[\s\S]*retainMemberSectionIfSupported\(group\)/);
@@ -784,6 +787,9 @@ test("moving between members keeps sections sticky without section-driven profil
   assert.match(
     selectEntryBody,
     /entry\.group\.key === state\.selectedMemberKey[\s\S]*selectMemberFamilyParent\(state, entry\.group\)[\s\S]*clearMemberContentCache\(\);\s*render\(\)/);
+  assert.match(
+    selectEntryBody,
+    /memberNavOverloadSourceIndex\(entry\.group, entry\.index\);[\s\S]*openOverload\(sourceIndex\)/);
 });
 
 test("every overload-specific member loader leaves a multi-overload picker inert", () => {
@@ -847,7 +853,10 @@ test("source requests carry exact type and member identities", () => {
     /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformAssemblyRequest\(row\)[\s\S]*pack: row\.pack,[\s\S]*contextId: platformDemoContextIdFor\(pkg\)[\s\S]*kind: "package"/);
   assert.match(
     memberLoader,
-    /documentBaselineOrdinal:[\s\S]*overload\.baselineOrdinal/);
+    /documentBaselineOrdinal:[\s\S]*memberBaselineOrdinal\(type, member, overload\)/);
+  assert.match(
+    appSource,
+    /function memberBaselineOrdinal\([\s\S]*overload\.baselineOrdinal[\s\S]*row => row\.metadataToken === metadataToken\)\?\.baselineOrdinal/);
   assert.doesNotMatch(memberLoader, /overload\.anchorDigest/);
   assert.doesNotMatch(memberLoader, /signature:/);
 });
