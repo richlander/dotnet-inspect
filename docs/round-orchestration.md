@@ -284,14 +284,14 @@ choose a conservative delay and never schedule beyond the deadline. Do not use
 `gh run watch`, `gh pr checks --watch`, fixed-rate schedules, synchronous
 sleeps, or concurrent status requests.
 
-When the budget expires with status unresolved, obtain a final snapshot. Do not
-publish the report below unless its fetched live base equals
-`conflict-checked-base` or the probe recorded a conflict; instead clear
-`schedule`, classify and surface a fetch or probe failure, and set
-`rec=stop`. A recorded local conflict never reaches expiry: it
-leaves the wait for conflict recovery the moment it is found, including when
-the final snapshot is the one that finds it. Otherwise clear `schedule`, keep
-the unresolved predicates, publish the report, set `rec=stop`, and end. This is an informational stop: it ends observation only
+When the budget expires with status unresolved, obtain a final snapshot. If
+its probe records a conflict, leave the wait for conflict recovery at once and
+publish no report: a recorded local conflict never reaches expiry, including
+when the final snapshot is the one that finds it. If its fetched live base
+differs from `conflict-checked-base` (a fetch or probe failure), clear
+`schedule`, classify and surface the failure, and set `rec=stop`. Otherwise
+clear `schedule`, keep the unresolved predicates, publish the report, set
+`rec=stop`, and end. This is an informational stop: it ends observation only
 and neither closes nor abandons the PR.
 
 ### Status budget report
