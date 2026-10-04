@@ -17,7 +17,7 @@
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Speed</OptimizationPreference>
-    <AssemblyName>analysis-harness</AssemblyName>
+    <AssemblyName>body-use-scorecard</AssemblyName>
     <RootNamespace>ILInspector.AnalysisHarness</RootNamespace>
   </PropertyGroup>
 
@@ -31,6 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../BodyUseScorecardKernel/BodyUseScorecardKernel.csproj" />
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../../tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
   </ItemGroup>

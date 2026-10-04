@@ -398,8 +398,11 @@ Roslyn fidelity assets and the body-use ECMA safety fixtures. A faster fair
 oracle is evidence for Planner improvement; the oracle is not burdened with
 unconsumed Planner work.
 
-The four implementations and report live in
-[`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs).
+The four implementations and timing loop live in the stable
+[`BodyUseScorecardKernel`](../../tools/AnalysisHarness/BodyUseScorecardKernel.cs)
+assembly. The report host consumes its cells through
+[`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs), so
+report-only growth does not add methods to the timing-kernel assembly.
 NLinq traverses the shared
 [`MethodDefinitionRows`](../../tests/DotnetInspector.PerformanceOracles/MethodDefinitionRows.cs)
 source. Its exact upstream pin and checksums remain in
@@ -410,8 +413,8 @@ Publish and run the scorecard for the target RID:
 ```bash
 dotnet publish tools/BodyUseScorecard -c Release -r <rid> \
   -o artifacts/body-use-scorecard
-artifacts/body-use-scorecard/analysis-harness check <assembly>...
-artifacts/body-use-scorecard/analysis-harness time \
+artifacts/body-use-scorecard/body-use-scorecard check <assembly>...
+artifacts/body-use-scorecard/body-use-scorecard time \
   --rounds 6 --budget-ms 2000 --tsv <path> <assembly>...
 ```
 
