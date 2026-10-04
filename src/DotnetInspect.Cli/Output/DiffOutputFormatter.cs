@@ -16,6 +16,8 @@ using Markout;
 
 using ILInspector.CSharp;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspect.Cli.Output;
 
 /// <summary>

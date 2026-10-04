@@ -816,14 +816,16 @@ public sealed class PolicyEvaluatorTests
             [
                 "$platform",
                 "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
                 "ILInspector.Decompiler",
+                "QuerySpace.Primitives",
             ],
             rule.AllowOnly);
 
         AssertCheckedInRuleRejectsRepositoryDependency(
             "vocabulary-dependencies",
             "DotnetInspector.Vocabulary",
-            "DotnetInspector.Sections");
+            "QuerySpace");
     }
 
     [Fact]

@@ -12,6 +12,8 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research.Tests;
 
 public partial class ResearchProducerSessionTests

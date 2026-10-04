@@ -4,6 +4,8 @@ using ILInspector.Decompiler;
 using Inspector.Findings;
 using ILInspector.Instructions;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 internal static class ResearchProducerSessionValidator

@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 using Markout;
 
 namespace DotnetInspect.Cli.Commands;

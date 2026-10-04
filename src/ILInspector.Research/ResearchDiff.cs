@@ -11,6 +11,8 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using MetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 public sealed record ResearchDiffOptions(
