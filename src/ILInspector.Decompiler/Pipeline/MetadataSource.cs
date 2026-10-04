@@ -1668,7 +1668,12 @@ public sealed class MetadataSource : IDisposable
         EnsureTypeMaps();
         var seen = new HashSet<TypeRef>();
         var pending = new Stack<TypeRef>();
-        for (var current = type; current is not null; current = ResolveBaseType(current))
+        // Same-module metadata can close the base chain into a cycle (a
+        // TypeDef's Extends column pointing back down the chain is malformed
+        // but readable); the walk ends on a repeated definition, which on a
+        // valid hierarchy visits exactly the same types.
+        var definitions = new HashSet<TypeRef>();
+        for (var current = type; current is not null && definitions.Count < 64 && definitions.Add(WalkDefinition(current)); current = ResolveBaseType(current))
             pending.Push(current);
         while (pending.Count > 0)
         {

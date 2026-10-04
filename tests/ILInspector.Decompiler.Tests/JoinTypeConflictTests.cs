@@ -392,6 +392,104 @@ public class JoinTypeConflictTests : IDisposable
         }
     }
 
+    [Fact]
+    public void ReferenceJoin_SameModuleBaseCycle_TerminatesWithAnHonestUnknownJoin()
+    {
+        // Malformed but readable metadata: a TypeDef's Extends column pointing
+        // back down its own chain closes `A : B : A` inside one module. No
+        // compiler emits it and the runtime would refuse it, but the decompiler
+        // reads untrusted assemblies without loading them, so every base-chain
+        // walk it runs must still end — including the shared InterfacesOf walk
+        // that ImplementsForMerge runs first when the other arm is an interface
+        // (adversarial review of #9266, round 4: that walk pushed A, B, A, B...
+        // until the process ran out of memory).
+        var deployment = CompileSameModuleCycleDeployment();
+        _disposables.Push(deployment);
+        var source = MetadataSource.Open(deployment.ConsumerPath);
+        _disposables.Push(source);
+
+        foreach (var method in new[] { "AC", "CA", "AI", "IA", "AID" })
+        {
+            IrFunction? function = null;
+            var worker = new Thread(() => function = IrImporter.Import(source, "S.P", method)) { IsBackground = true };
+            worker.Start();
+            Assert.True(worker.Join(TimeSpan.FromSeconds(60)), $"IrImporter.Import of S.P::{method} did not return within 60 seconds");
+            Assert.NotNull(function);
+            Assert.Contains(function!.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+            Assert.Empty(function.ProvenReferenceWidenings);
+            Assert.NotNull(CSharpPrinter.PrintRaised(function).Output);
+        }
+    }
+
+    /// <summary>
+    /// Compiles one module in which `A : B` and `B : object`, then rewrites B's
+    /// TypeDef <c>Extends</c> column to A so the chain reads `A : B : A`. The
+    /// patch is the case under test (malformed metadata from an untrusted
+    /// source), so it is test-local rather than a cataloged fixture binary.
+    /// </summary>
+    static SkewCycleDeployment CompileSameModuleCycleDeployment()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"same-module-cycle-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(directory);
+        var compilation = CSharpCompilation.Create(
+            "Cyc",
+            [CSharpSyntaxTree.ParseText(
+                "namespace S; public class A : B {} public class B {} public class C {} public interface I {}" +
+                " public static class P {" +
+                " public static string AC(bool c, A a, C cc) => (c ? (object)a : cc).ToString();" +
+                " public static string CA(bool c, A a, C cc) => (c ? (object)cc : a).ToString();" +
+                " public static string AI(bool c, A a, I i) => (c ? (object)a : i).ToString();" +
+                " public static string IA(bool c, A a, I i) => (c ? (object)i : a).ToString();" +
+                " public static string AID(bool c, A a, System.IDisposable d) => (c ? (object)a : d).ToString(); }",
+                new CSharpParseOptions(LanguageVersion.Preview))],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
+        using var stream = new MemoryStream();
+        var emit = compilation.Emit(stream);
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        byte[] bytes = stream.ToArray();
+
+        // Locate B's Extends column: TypeDef row layout is Flags (4), Name
+        // (string index), Namespace (string index), Extends (TypeDefOrRef coded
+        // index), then the field and method list indices. Both index sizes are
+        // 2 bytes in an assembly this small; the row size check pins that.
+        int extendsOffset;
+        int aRow;
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
+        {
+            var reader = pe.GetMetadataReader();
+            Assert.True(reader.GetHeapSize(System.Reflection.Metadata.Ecma335.HeapIndex.String) < 0x10000);
+            int rowSize = reader.GetTableRowSize(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef);
+            Assert.Equal(4 + 2 + 2 + 2 + 2 + 2, rowSize);
+            System.Reflection.Metadata.TypeDefinitionHandle a = default, b = default;
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                string name = reader.GetString(reader.GetTypeDefinition(handle).Name);
+                if (name == "A") a = handle;
+                if (name == "B") b = handle;
+            }
+            aRow = System.Reflection.Metadata.Ecma335.MetadataTokens.GetRowNumber(a);
+            int bRow = System.Reflection.Metadata.Ecma335.MetadataTokens.GetRowNumber(b);
+            extendsOffset = pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef)
+                + (bRow - 1) * rowSize + 4 + 2 + 2;
+            // B currently extends System.Object through a TypeRef (coded tag 1).
+            Assert.Equal(1, BitConverter.ToUInt16(bytes, extendsOffset) & 0x3);
+        }
+        BitConverter.GetBytes((ushort)(aRow << 2)).CopyTo(bytes, extendsOffset);   // TypeDefOrRef tag 0 = TypeDef
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
+        {
+            var reader = pe.GetMetadataReader();
+            var b = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == "B");
+            Assert.Equal(System.Reflection.Metadata.HandleKind.TypeDefinition, b.BaseType.Kind);
+            Assert.Equal("A", reader.GetString(reader.GetTypeDefinition((System.Reflection.Metadata.TypeDefinitionHandle)b.BaseType).Name));
+        }
+
+        string consumerPath = Path.Combine(directory, "Cyc.dll");
+        File.WriteAllBytes(consumerPath, bytes);
+        return new SkewCycleDeployment { Directory = directory, ConsumerPath = consumerPath };
+    }
+
     sealed class SkewCycleDeployment : IDisposable
     {
         public required string Directory { get; init; }
