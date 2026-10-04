@@ -320,9 +320,9 @@ public static partial class ApiSurfaceExtractor
 
     /// <summary>
     /// A hidden (<c>EditorBrowsable(Never)</c>) property or event is omitted
-    /// from the public-facing population. An explicit implementation, one
-    /// whose accessor is a MethodImpl body, is exempt, as its accessor methods
-    /// are.
+    /// from the public-facing population. An explicit implementation, one whose
+    /// private accessor is a MethodImpl body, is exempt, as its accessor methods
+    /// are. Public MethodImpl accessors remain ordinary declarations.
     /// </summary>
     static bool IsHiddenAccessorOwner(
         MetadataReader reader,
@@ -331,8 +331,14 @@ public static partial class ApiSurfaceExtractor
         MethodDefinitionHandle firstAccessor,
         MethodDefinitionHandle secondAccessor,
         Action<int>? beforeMaterialize = null)
-        => !(explicitImplementationBodies.Contains(firstAccessor)
-                || explicitImplementationBodies.Contains(secondAccessor))
+        => !(IsExplicitInterfaceImplementationBody(
+                    reader,
+                    firstAccessor,
+                    explicitImplementationBodies)
+                || IsExplicitInterfaceImplementationBody(
+                    reader,
+                    secondAccessor,
+                    explicitImplementationBodies))
             && IsHiddenMember(reader, attributes, beforeMaterialize);
 
     /// <summary>

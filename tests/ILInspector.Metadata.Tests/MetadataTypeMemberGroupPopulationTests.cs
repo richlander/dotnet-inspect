@@ -369,6 +369,39 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         Assert.Equal(1, Required(population.SelectorCounts).Traits.Interface);
     }
 
+    [Fact]
+    public void HiddenPublicMethodImplAccessorOwnersRequireIncludeHidden()
+    {
+        MetadataTypeMemberGroupPopulation visible = Inspect(
+            BuildClassificationBoundaryImage(),
+            Request(
+                Name("Fixtures", "Target"),
+                includeHidden: false,
+                accessibility: MetadataMethodAccessibilityFilter.All,
+                rows: new(int.MaxValue)));
+        MetadataTypeMemberGroupPopulation all = Inspect(
+            BuildClassificationBoundaryImage(),
+            Request(
+                Name("Fixtures", "Target"),
+                includeHidden: true,
+                accessibility: MetadataMethodAccessibilityFilter.All,
+                rows: new(int.MaxValue)));
+
+        Assert.DoesNotContain(
+            Required(visible.Rows).Items,
+            row => row.Name is "PublicOverride" or "Value" or "Changed");
+        Assert.Equal(
+            MetadataTypeMemberGroupCategory.ExplicitInterfaceImplementation,
+            Assert.Single(
+                Required(visible.Rows).Items,
+                row => row.Name == "Explicit").Category);
+        Assert.All(
+            new[] { "PublicOverride", "Value", "Changed", "Explicit" },
+            name => Assert.Contains(
+                Required(all.Rows).Items,
+                row => row.Name == name));
+    }
+
     [Theory]
     [InlineData(
         "System.Text.Json",
@@ -654,6 +687,29 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             runtime,
             metadata.GetOrAddString("Contracts"),
             metadata.GetOrAddString("IContract"));
+        TypeReferenceHandle editorBrowsable = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.ComponentModel"),
+            metadata.GetOrAddString("EditorBrowsableAttribute"));
+        TypeReferenceHandle editorBrowsableState = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.ComponentModel"),
+            metadata.GetOrAddString("EditorBrowsableState"));
+        var editorBrowsableConstructorSignature = new BlobBuilder();
+        new BlobEncoder(editorBrowsableConstructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Type(
+                    editorBrowsableState,
+                    isValueType: true));
+        MemberReferenceHandle editorBrowsableConstructor =
+            metadata.AddMemberReference(
+                editorBrowsable,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(editorBrowsableConstructorSignature));
 
         metadata.AddTypeDefinition(
             default,
@@ -769,6 +825,22 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             @event,
             MethodSemanticsAttributes.Adder,
             adder);
+        AddEditorBrowsableNever(
+            metadata,
+            publicOverride,
+            editorBrowsableConstructor);
+        AddEditorBrowsableNever(
+            metadata,
+            explicitImplementation,
+            editorBrowsableConstructor);
+        AddEditorBrowsableNever(
+            metadata,
+            property,
+            editorBrowsableConstructor);
+        AddEditorBrowsableNever(
+            metadata,
+            @event,
+            editorBrowsableConstructor);
 
         var image = new BlobBuilder();
         new ManagedPEBuilder(
@@ -799,6 +871,21 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             signature,
             bodyOffset: -1,
             MetadataTokens.ParameterHandle(1));
+
+    static void AddEditorBrowsableNever(
+        MetadataBuilder metadata,
+        EntityHandle parent,
+        EntityHandle constructor)
+    {
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(1);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            parent,
+            constructor,
+            metadata.GetOrAddBlob(value));
+    }
 
     static void ReplaceAsciiOnce(
         byte[] image,
