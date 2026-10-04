@@ -8144,6 +8144,8 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1 && !graphOnlyTarget
       ? memberNavOverloadSourceIndex(group, 0)
       : null;
+  const resetMethodSection =
+    ordinaryMethodGroup(group) && state.memberSection !== "compare";
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex =
@@ -8154,7 +8156,7 @@ function openMemberGroup(key: string) {
     clearMemberGroupDocumentCache();
   }
   state.selectedBodyTarget = graphOnlyTarget;
-  if (!preserveSection) {
+  if (resetMethodSection || !preserveSection) {
     state.memberSection = "overview";
   } else {
     const retainedSection = state.memberSection;
