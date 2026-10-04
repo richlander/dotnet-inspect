@@ -73,15 +73,20 @@ protocol and its composition with the exact-group terminal receipt owner.
 Use the repository-pinned TLA+ tool:
 
 ```bash
-cd docs/models/assembly-context-participant-resource-lifecycle
+repo_root=$(git rev-parse --show-toplevel)
+model_dir="$repo_root/docs/models/assembly-context-participant-resource-lifecycle"
+owner_dir="$repo_root/docs/models/assembly-context-group-lifecycle"
+cd "$model_dir"
 for config in Safety Liveness; do
-  java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
+  java -XX:+UseParallelGC "-DTLA-Library=$owner_dir" \
+    -cp /path/to/tla2tools.jar tlc2.TLC \
     -workers 1 -cleanup -config "$config.cfg" \
     AssemblyContextParticipantResourceLifecycle.tla
 done
 for config in BrokenLateLease BrokenResourceWithLease \
   BrokenSnapshotOrder BrokenSiblingRelease; do
-  java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
+  java -XX:+UseParallelGC "-DTLA-Library=$owner_dir" \
+    -cp /path/to/tla2tools.jar tlc2.TLC \
     -workers 1 -cleanup -noGenerateSpecTE -config "$config.cfg" \
     AssemblyContextParticipantResourceLifecycle.tla
 done
