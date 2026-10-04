@@ -176,6 +176,48 @@ public sealed class ScorecardTests
         Assert.Equal([41, 7], rows.Rows!.Select(static row => row.Association));
     }
 
+    [Fact]
+    public void MethodBodyTraversalColumns_AgreeOnRealAssembly()
+    {
+        IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
+            PreparedMethodBodies.LoadAssets(
+                [typeof(ScorecardTests).Assembly.Location]);
+        try
+        {
+            ScorecardColumn<
+                PreparedMethodBodies,
+                MethodBodyScanSummary>[] columns =
+                    MethodBodyTraversalPrototype.Columns();
+            ScorecardColumn<
+                PreparedMethodBodies,
+                MethodBodyScanSummary> oracle =
+                    columns[0];
+            ScorecardCheck check = Scorecard.Check(
+                assets,
+                oracle,
+                columns,
+                MethodBodyTraversalPrototype.RowText,
+                closings: MethodBodyTraversalPrototype.Closings);
+
+            Assert.True(
+                check.Agrees,
+                string.Join(Environment.NewLine, check.Mismatches));
+            MethodBodyScanSummary summary = Assert.Single(
+                oracle.Answer(
+                    ScorecardClosing.Rows,
+                    assets[0].Asset)
+                .Rows!);
+            Assert.True(summary.Bodies > 0);
+            Assert.True(summary.Instructions > 0);
+            Assert.Equal(0, summary.IncompleteLayer0);
+        }
+        finally
+        {
+            foreach (ScorecardAsset<PreparedMethodBodies> asset in assets)
+                asset.Asset.Dispose();
+        }
+    }
+
     struct StaticMethodSelection : IMethodSelection
     {
         public readonly bool IsSelected(MetadataReader reader, TypeDefinition type, MethodDefinition method) =>
