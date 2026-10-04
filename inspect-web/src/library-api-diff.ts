@@ -1756,10 +1756,16 @@ function renderStringLiteralPresentation(
       && outcome.kind === "Compared")) {
     return null;
   }
-  const rows = content.transitions.filter(
+  const literalRows = content.transitions.filter(
     row => row.finding === "analysis.string-literal-use",
   );
-  if (rows.length === 0) {
+  const failures = literalRows.filter(
+    row => row.transition === "FindingComparison.Failed",
+  );
+  const rows = literalRows.filter(
+    row => row.transition !== "FindingComparison.Failed",
+  );
+  if (rows.length === 0 && failures.length === 0) {
     return {
       status: "Comparison complete. No matching string literals.",
       content: renderCompareEmpty(
@@ -1775,26 +1781,49 @@ function renderStringLiteralPresentation(
       <pre><code>${escapeHtml(value)}</code></pre>
     </section>`;
   const renderedRows = rows.map(row => {
-    const values = row.transition === "Added"
+    const transition = row.transition.startsWith("PairFinding.")
+      ? row.transition.slice("PairFinding.".length)
+      : row.transition;
+    const values = transition === "Added"
       ? renderValue("Current", row.new)
-      : row.transition === "Removed"
+      : transition === "Removed"
         ? renderValue("Target", row.old)
         : row.old === row.new
           ? renderValue("Both", row.old)
           : `${renderValue("Target", row.old)}${renderValue("Current", row.new)}`;
-    return `<li class="string-literal-diff-row" data-transition="${attributeText(row.transition, escapeHtml)}">
+    return `<li class="string-literal-diff-row" data-transition="${attributeText(transition, escapeHtml)}">
       <header>
-        <span class="library-api-diff-state library-api-diff-state-${row.transition.toLowerCase()}">${escapeHtml(row.transition)}</span>
+        <span class="library-api-diff-state library-api-diff-state-${transition.toLowerCase()}">${escapeHtml(transition)}</span>
         <span>${escapeHtml(row.target)}</span>
       </header>
       <div class="string-literal-diff-values">${values}</div>
     </li>`;
   }).join("");
+  const failureNotice = failures.length === 0
+    ? ""
+    : `<section class="diff-analysis-notices" aria-labelledby="string-literal-diff-failures-title">
+      <h2 id="string-literal-diff-failures-title">String literal inspection incomplete</h2>
+      <ul>${failures.map(row => `<li>
+        <strong>${escapeHtml(row.target)}</strong>
+        <span>${escapeHtml(
+          row.detail
+            ?? `Target inspection ${row.old}; current inspection ${row.new}.`,
+        )}</span>
+      </li>`).join("")}</ul>
+    </section>`;
+  const literalList = rows.length === 0
+    ? ""
+    : `<ol class="string-literal-diff-rows" aria-label="Matching string literals">${renderedRows}</ol>`;
+  const matchCount = `${rows.length.toLocaleString()} matching ${
+    rows.length === 1 ? "literal" : "literals"
+  }`;
   return {
-    status: `Comparison complete. ${rows.length.toLocaleString()} matching ${
-      rows.length === 1 ? "literal" : "literals"
-    }.`,
-    content: `<ol class="string-literal-diff-rows" aria-label="Matching string literals">${renderedRows}</ol>`,
+    status: failures.length === 0
+      ? `Comparison complete. ${matchCount}.`
+      : `Comparison incomplete. ${matchCount}; ${failures.length.toLocaleString()} literal inspection ${
+        failures.length === 1 ? "failure" : "failures"
+      }.`,
+    content: `${failureNotice}${literalList}`,
   };
 }
 

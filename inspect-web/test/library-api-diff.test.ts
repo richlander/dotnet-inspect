@@ -1193,7 +1193,7 @@ test("string literal Transitions render complete literals as full-width rows", (
         }],
         transitions: [
           {
-            transition: "Removed",
+            transition: "PairFinding.Removed",
             finding: "analysis.string-literal-use",
             target: "Example",
             from: "1.0.0",
@@ -1203,7 +1203,17 @@ test("string literal Transitions render complete literals as full-width rows", (
             detail: null,
           },
           {
-            transition: "Present",
+            transition: "PairFinding.Added",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "absent",
+            new: "https://new.example",
+            detail: null,
+          },
+          {
+            transition: "PairFinding.Present",
             finding: "analysis.string-literal-use",
             target: "Example",
             from: "1.0.0",
@@ -1219,11 +1229,12 @@ test("string literal Transitions render complete literals as full-width rows", (
 
   const html = renderLibraryApiDiff(readyState(result), String);
 
-  assert.match(html, /2 matching literals/);
+  assert.match(html, /3 matching literals/);
   assert.match(
     html,
     /<code>https:\/\/old\.example and https:\/\/shared\.example<\/code>/,
   );
+  assert.match(html, /<code>https:\/\/new\.example<\/code>/);
   assert.match(
     html,
     /<code>prefix https:\/\/embedded\.example<\/code>/,
@@ -1232,7 +1243,68 @@ test("string literal Transitions render complete literals as full-width rows", (
     html.match(/prefix https:\/\/embedded\.example/g)?.length,
     1,
   );
+  assert.doesNotMatch(html, /<code>absent<\/code>/);
+  assert.match(html, /data-transition="Removed"[\s\S]*>Removed<\/span>/);
+  assert.match(html, /data-transition="Added"[\s\S]*>Added<\/span>/);
   assert.doesNotMatch(html, /changed Types/);
+});
+
+test("failed string literal inspection remains visible and incomplete", () => {
+  const result = {
+    ...succeeded("1.0.0"),
+    inspection: inspection(
+      { outcome: "available", document: {} },
+      {
+        surface: "Library",
+        views: "Transitions",
+        analyses: ["string-literals"],
+        predicate: {
+          key: "Literal",
+          operator: "Contains",
+          value: "https://",
+        },
+        outcomes: [{
+          analysis: "string-literals",
+          kind: "Compared",
+          findings: ["analysis.string-literal-use"],
+        }],
+        transitions: [
+          {
+            transition: "FindingComparison.Failed",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "failed",
+            new: "complete",
+            detail: "String literal scan exceeded its work limit.",
+          },
+          {
+            transition: "PairFinding.Present",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "https://example.test",
+            new: "https://example.test",
+            detail: null,
+          },
+        ],
+      },
+    ),
+  };
+
+  const html = renderLibraryApiDiff(readyState(result), String);
+
+  assert.match(
+    html,
+    /Comparison incomplete\. 1 matching literal; 1 literal inspection failure\./,
+  );
+  assert.match(html, /String literal inspection incomplete/);
+  assert.match(html, /String literal scan exceeded its work limit\./);
+  assert.match(html, /<code>https:\/\/example\.test<\/code>/);
+  assert.doesNotMatch(html, /Comparison complete/);
+  assert.doesNotMatch(html, /<code>failed<\/code>|<code>complete<\/code>/);
 });
 
 test("string literal presentation survives an unavailable API projection", () => {
@@ -1263,7 +1335,7 @@ test("string literal presentation survives an unavailable API projection", () =>
           findings: ["analysis.string-literal-use"],
         }],
         transitions: [{
-          transition: "Present",
+          transition: "PairFinding.Present",
           finding: "analysis.string-literal-use",
           target: "Example",
           from: "1.0.0",
