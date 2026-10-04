@@ -770,6 +770,53 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task ParticipantResourceLease_RetainsSnapshotAccessAfterReleaseRequest()
+    {
+        TestAssembly source = TestAssembly.Create();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var resource =
+            new ParticipantReleaseTrackingResource(group);
+        group.RegisterOwnedResource(resource);
+        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow =
+            group.BorrowOwnedResource(
+                resource,
+                source.Assembly.Registration);
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                source.Assembly,
+                static (_, _) => Task.FromResult(1));
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.Throws<ObjectDisposedException>(
+            () => group.BorrowOwnedResource(
+                resource,
+                source.Assembly.Registration));
+        var borrowedAccess = Assert.IsType<
+            AssemblyImageAccessResult<int>.Available>(
+                borrow.UseSnapshot(
+                    TestContext.Current.CancellationToken,
+                    0,
+                    static (snapshot, _) => snapshot.Content.Length));
+        Assert.True(borrowedAccess.Value > 0);
+        Assert.Equal(0, resource.ParticipantReleaseCount);
+        Assert.True(group.RetainedImageBytes > 0);
+
+        borrow.Dispose();
+
+        Assert.Equal(1, resource.ParticipantReleaseCount);
+        Assert.Equal(0, group.RetainedImageBytes);
+        Assert.Throws<ObjectDisposedException>(
+            () => borrow.UseSnapshot(
+                TestContext.Current.CancellationToken,
+                0,
+                static (snapshot, _) => snapshot.Content.Length));
+    }
+
+    [Fact]
     public async Task ParticipantResourceLease_RequiresExactRegisteredPair()
     {
         TestAssembly source = TestAssembly.Create();

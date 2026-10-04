@@ -5,6 +5,8 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 public enum ImplementationDiffDocumentScope
