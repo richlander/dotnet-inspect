@@ -9,49 +9,50 @@ internal static class MemberExplanationBindings
     private const int ResourceLimit = 256;
     private const int RelationshipLimit = 512;
 
-    private static readonly Lazy<Registration> Registered =
-        new(CreateRegistration);
-
-    internal static InspectionEnvelope<MemberContextualExplanationDocument>
-        ExplainCommand() =>
-        MemberContextualExplanationOperation.ExplainCommand(
-            Registered.Value.Command.Document,
-            Registered.Value.Command.DefaultSections);
-
-    internal static InspectionEnvelope<MemberContextualExplanationDocument>
-        ExplainMemberGroup(
-            ResolvedMemberGroupExplanationBasis basis) =>
-        MemberContextualExplanationOperation.ExplainMemberGroup(
-            Registered.Value.MemberGroup.Document,
-            basis,
-            Registered.Value.MemberGroup.DefaultSections);
-
-    internal static InspectionEnvelope<MemberContextualExplanationDocument>
-        ExplainExactMember(
-            DotnetInspector.Queries.ResolvedMemberInspectionBasis basis) =>
-        MemberContextualExplanationOperation.ExplainExactMember(
-            Registered.Value.ExactMember.Document,
-            basis,
-            Registered.Value.ExactMember.DefaultSections);
-
-    private static Registration CreateRegistration() =>
-        new(
+    private static readonly Lazy<RegisteredResource> RegisteredCommand =
+        new(() =>
             CreateResource(
                 "member",
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.MemberType,
-                    InspectionCatalogIdentity.ApiMember)),
+                    InspectionCatalogIdentity.ApiMember)));
+    private static readonly Lazy<RegisteredResource> RegisteredMemberGroup =
+        new(() =>
             CreateResource(
                 "member-overload",
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.MemberTarget,
                     InspectionCatalogIdentity.ApiMemberOverload),
-                [SectionNames.Methods]),
+                [SectionNames.Methods]));
+    private static readonly Lazy<RegisteredResource> RegisteredExactMember =
+        new(() =>
             CreateResource(
                 "member-detail",
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.MemberTarget,
                     InspectionCatalogIdentity.ApiMemberDetail)));
+
+    internal static InspectionEnvelope<MemberContextualExplanationDocument>
+        ExplainCommand() =>
+        MemberContextualExplanationOperation.ExplainCommand(
+            RegisteredCommand.Value.Document,
+            RegisteredCommand.Value.DefaultSections);
+
+    internal static InspectionEnvelope<MemberContextualExplanationDocument>
+        ExplainMemberGroup(
+            ResolvedMemberGroupExplanationBasis basis) =>
+        MemberContextualExplanationOperation.ExplainMemberGroup(
+            RegisteredMemberGroup.Value.Document,
+            basis,
+            RegisteredMemberGroup.Value.DefaultSections);
+
+    internal static InspectionEnvelope<MemberContextualExplanationDocument>
+        ExplainExactMember(
+            DotnetInspector.Queries.ResolvedMemberInspectionBasis basis) =>
+        MemberContextualExplanationOperation.ExplainExactMember(
+            RegisteredExactMember.Value.Document,
+            basis,
+            RegisteredExactMember.Value.DefaultSections);
 
     private static RegisteredResource CreateResource(
         string catalogName,
@@ -104,11 +105,6 @@ internal static class MemberExplanationBindings
                 ? [.. projection.DefaultSectionNames]
                 : [.. defaultSections]);
     }
-
-    private sealed record Registration(
-        RegisteredResource Command,
-        RegisteredResource MemberGroup,
-        RegisteredResource ExactMember);
 
     private sealed record RegisteredResource(
         ResourceExplanationDocument Document,
