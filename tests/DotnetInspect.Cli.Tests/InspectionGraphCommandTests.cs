@@ -137,6 +137,56 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public void PackagesCommand_ExposesExactPairWithoutTraversal()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "graph",
+                "packages",
+                "--package",
+                "Package.A@1.0.0",
+                "--package",
+                "Package.B@2.0.0",
+                "--tfm",
+                "net10.0",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.DoesNotContain(
+            result.CommandResult.Command.Options,
+            option => option.Name is "--depth"
+                or "--direction"
+                or "--relationship"
+                or "--root-package");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Aliases.Contains("--select"));
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--jsonl");
+    }
+
+    [Fact]
+    public async Task PackagesCommand_DiscoversSharedSectionsWithoutAcquisition()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "packages",
+            "-D");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains(
+            PackagePairCallUseCommand.DirectUseClustersSection,
+            captured.Output);
+        Assert.Contains(
+            PackagePairCallUseCommand.LibraryPairsSection,
+            captured.Output);
+        Assert.Contains(
+            PackagePairCallUseCommand.CallSitesSection,
+            captured.Output);
+    }
+
+    [Fact]
     public void ClusterCommand_ExposesFocusedPairWithoutTraversal()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
@@ -169,6 +219,31 @@ public sealed class InspectionGraphCommandTests
             result.CommandResult.Command.Options,
             option => option.Name == "--fields");
         Assert.Single(result.CommandResult.Command.Arguments);
+    }
+
+    [Fact]
+    public void ClusterCommand_AcceptsExactPackagePair()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "graph",
+                "cluster",
+                "1",
+                "--package",
+                "Package.A@1.0.0",
+                "--package",
+                "Package.B@2.0.0",
+                "--tfm",
+                "net10.0",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--package");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--tfm");
     }
 
     [Fact]

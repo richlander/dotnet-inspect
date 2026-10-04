@@ -340,7 +340,8 @@ stderr rather than mixed into structured output.
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
 | `graph calls TYPE MEMBER` | Explain one package member's supply-chain exits across its dependency graph, retaining highlighted boundaries and their shortest baseline connectors. |
 | `graph libraries` | Discover deterministic direct-use clusters and exact cross-library relationships between two local Libraries. |
-| `graph cluster N` | Inspect exact calls and optional public-entrypoint paths for one pair-local Direct-Use Cluster ordinal. |
+| `graph packages` | Discover deterministic direct-use clusters across the complete implementation-Library matrix of two exact Packages. |
+| `graph cluster N` | Inspect exact calls for one local-Library-pair or Package-pair Direct-Use Cluster ordinal; the local route also supports public-entrypoint paths. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -2017,6 +2018,21 @@ dotnet-inspect graph calls \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
+dotnet-inspect graph packages \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0
+dotnet-inspect graph packages \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0 \
+  -S "Library Pairs,Call Sites" \
+  --json
+dotnet-inspect graph cluster 1 \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0 \
+  --table
 dotnet-inspect graph cluster 3 \
   --library ./Consumer.dll \
   --library ./Provider.dll
@@ -2058,8 +2074,23 @@ graph edge in the completed typed document. Head/Tail and strict Window select
 those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
 or Count lowering; selection does not reduce package acquisition or hide
 retained graph failures. Add `--lines` only to clip rendered text explicitly.
-`graph libraries` and `graph cluster` retain independent section row sets;
-their adopted Direct Use Clusters and Call Sites cohorts are described below.
+`graph libraries`, `graph packages`, and `graph cluster` retain independent
+section row sets; their adopted Direct Use Clusters and Call Sites cohorts are
+described below.
+
+`graph packages` requires exactly two Package coordinates and one explicit
+`--tfm`. It acquires only those Package subjects, enumerates the complete
+cross-Package implementation-Library matrix, and evaluates both call
+directions for each Library pair. The default `Direct Use Clusters` rows use a
+canonical Package-pair-wide cluster ordinal. `Library Pairs` exposes every
+admitted matrix cell, including complete empty pairs, while `Call Sites`
+exposes the physical calls supporting each cluster. Reversing the two
+`--package` values does not change canonical row order or cluster assignment.
+The operation does not traverse Package dependencies; use `graph calls` for
+the dependency-aware member workflow. `graph cluster N` accepts the same
+Package pair and defaults to the selected cluster's `Call Sites`.
+Package-backed `Public Root Paths` is not yet available; that exact section
+continues to require the local-Library route.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
