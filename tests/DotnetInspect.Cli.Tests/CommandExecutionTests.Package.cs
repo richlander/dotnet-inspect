@@ -1864,7 +1864,7 @@ public partial class CommandExecutionTests
             var window = await RunAppAsync(
                 [.. root, "--json", "--rows", "2..2"]);
             var projection = await RunAppAsync(
-                [.. root, "--json", "--columns", "Name,Selector"]);
+                [.. root, "--json", "--columns", "Name,Asset"]);
 
             foreach (var result in new[]
             {
@@ -1924,9 +1924,9 @@ public partial class CommandExecutionTests
                     .GetInt32());
             Assert.All(
                 children,
-                child => Assert.StartsWith(
-                    "package ",
-                    child.GetProperty("selector").GetString()));
+                child => Assert.False(
+                    child.TryGetProperty("selector", out _),
+                    "Child rows carry no host replay selector."));
 
             Assert.Equal(
                 2,
@@ -1975,7 +1975,7 @@ public partial class CommandExecutionTests
             Assert.All(
                 projectedRows,
                 projected => Assert.Equal(
-                    ["name", "selector"],
+                    ["name", "asset"],
                     projected.EnumerateObject()
                         .Select(static property => property.Name)));
         }
@@ -1986,7 +1986,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ChildSelectorsNavigateExactSharedIdentityLibraries()
+    public async Task Package_ChildAssetsNavigateExactSharedIdentityLibraries()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -2018,17 +2018,9 @@ public partial class CommandExecutionTests
             {
                 string asset =
                     child.GetProperty("asset").GetString()!;
-                string selector =
-                    child.GetProperty("selector").GetString()!;
-                Assert.Equal(
-                    "package "
-                        + ShellCommandText.Quote(
-                            Path.GetFullPath(packagePath))
-                        + " --tfm "
-                        + ShellCommandText.Quote("net10.0")
-                        + " --library "
-                        + ShellCommandText.Quote(asset),
-                    selector);
+                Assert.False(
+                    child.TryGetProperty("selector", out _),
+                    "Child rows carry no host replay selector.");
                 var navigation = await RunAppAsync(
                     "package",
                     packagePath,
@@ -2051,7 +2043,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ChildSelectorPreservesExplicitTargetFramework()
+    public async Task Package_ChildRowsCarryExplicitTargetFramework()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -2070,16 +2062,15 @@ public partial class CommandExecutionTests
                 document.RootElement
                     .GetProperty("children")
                     .EnumerateArray());
-            string asset = child.GetProperty("asset").GetString()!;
             Assert.Equal(
-                "package "
-                    + ShellCommandText.Quote(
-                        Path.GetFullPath(packagePath))
-                    + " --tfm "
-                    + ShellCommandText.Quote("net8.0")
-                    + " --library "
-                    + ShellCommandText.Quote(asset),
-                child.GetProperty("selector").GetString());
+                "lib/net8.0/Older.dll",
+                child.GetProperty("asset").GetString());
+            Assert.Equal(
+                "net8.0",
+                child.GetProperty("target").GetString());
+            Assert.False(
+                child.TryGetProperty("selector", out _),
+                "Child rows carry no host replay selector.");
         }
         finally
         {
@@ -2088,7 +2079,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ChildSelectorQuotesHostileAssetAsInertText()
+    public async Task Package_ChildRowsCarryHostileAssetAsInertText()
     {
         const string asset =
             "lib/net10.0/Example.$(id)'s.dll";
@@ -2111,14 +2102,11 @@ public partial class CommandExecutionTests
                     .GetProperty("children")
                     .EnumerateArray());
             Assert.Equal(
-                "package "
-                    + ShellCommandText.Quote(
-                        Path.GetFullPath(packagePath))
-                    + " --tfm "
-                    + ShellCommandText.Quote("net10.0")
-                    + " --library "
-                    + ShellCommandText.Quote(asset),
-                child.GetProperty("selector").GetString());
+                asset,
+                child.GetProperty("asset").GetString());
+            Assert.False(
+                child.TryGetProperty("selector", out _),
+                "Child rows carry no host replay selector.");
         }
         finally
         {
@@ -2127,7 +2115,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ChildSelectorPreservesReplayableSource()
+    public async Task Package_ChildRowsFromConfiguredSourceCarryNoReplaySelector()
     {
         const string packageId = "Test.PackageSelectorSource";
         const string asset =
@@ -2161,19 +2149,15 @@ public partial class CommandExecutionTests
                 document.RootElement
                     .GetProperty("children")
                     .EnumerateArray());
-            string selector =
-                child.GetProperty("selector").GetString()!;
-            Assert.Contains(
-                " --tfm " + ShellCommandText.Quote("net10.0"),
-                selector);
-            Assert.Contains(
-                " --source "
-                    + ShellCommandText.Quote(
-                        Path.GetFullPath(tempDir)),
-                selector);
-            Assert.EndsWith(
-                " --library " + ShellCommandText.Quote(asset),
-                selector);
+            Assert.Equal(
+                asset,
+                child.GetProperty("asset").GetString());
+            Assert.Equal(
+                "net10.0",
+                child.GetProperty("target").GetString());
+            Assert.False(
+                child.TryGetProperty("selector", out _),
+                "Child rows carry no host replay selector.");
         }
         finally
         {
@@ -2182,7 +2166,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_LocalRidChildSelectorsPreserveAdjacentSource()
+    public async Task Package_LocalRidChildRowsCarryNoReplaySelector()
     {
         var (packagePath, _, tempDir) =
             CreateLocalToolPackageSet();
@@ -2211,17 +2195,70 @@ public partial class CommandExecutionTests
                     Assert.Equal(
                         "RID Package",
                         child.GetProperty("kind").GetString());
-                    Assert.Contains(
-                        " --source "
-                            + ShellCommandText.Quote(
-                                Path.GetFullPath(tempDir)),
-                        child.GetProperty("selector").GetString());
+                    Assert.False(
+                        child.TryGetProperty("selector", out _),
+                        "Child rows carry no host replay selector.");
                 });
         }
         finally
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_TreeTitlePrintsIssuedPropertiesOnly()
+    {
+        // The title carries the subject identity plus the owner-issued
+        // properties (source, target, asset root) and nothing else: the
+        // package also ships a buildTransitive directory that the Tree does
+        // not display, so it must not appear in the title.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry props = archive.CreateEntry(
+                    "buildTransitive/Test.LibraryFiles.props");
+                using StreamWriter writer = new(props.Open());
+                writer.Write("<Project />");
+            }
+
+            var result = await RunAppAsync("package", packagePath);
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            string[] lines = result.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(
+                "Test.LibraryFiles 1.0.0 (File; net10.0; lib)",
+                lines[0]);
+            Assert.DoesNotContain("buildTransitive", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_PositionalSectionNameIsRejectedAsPackageReference()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "Target Frameworks");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "'Target Frameworks' is not a package reference",
+            error);
+        Assert.Contains("-S \"Target Frameworks\"", error);
+        Assert.DoesNotContain("Configured-authority", error);
     }
 
     [Fact]

@@ -168,6 +168,21 @@ public static class PackageOptionsParser
         result.GetValue(args.NamesakeLibraryOption)
         || GetExactLibrary(result, args) is not null;
 
+    private static bool IsPlausiblePackageReference(string packageArg)
+    {
+        if (string.IsNullOrWhiteSpace(packageArg))
+            return false;
+        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
+            || File.Exists(packageArg)
+            || Directory.Exists(packageArg))
+        {
+            return true;
+        }
+
+        (string name, _) = PackageExtractor.ParsePackageReference(packageArg);
+        return PackageExtractor.IsValidPackageId(name);
+    }
+
     /// <summary>
     /// Parses package command options.
     /// </summary>
@@ -190,6 +205,22 @@ public static class PackageOptionsParser
         var badOption = GetUnrecognizedOption(parseResult, args);
         if (badOption != null)
             return new UnrecognizedOption(badOption);
+
+        // Every positional is a package reference: a local file or directory,
+        // a .nupkg path, or ID[@version-or-range]. A token that cannot be one
+        // (for example a section name) fails here with the real reason instead
+        // of flowing into multi-package or feed selection.
+        foreach (string packageArg in packageArgs)
+        {
+            if (!IsPlausiblePackageReference(packageArg))
+            {
+                return new InvalidArguments(
+                    $"'{packageArg}' is not a package reference. "
+                        + "Use an ID such as System.Text.Json or "
+                        + "System.Text.Json@10.0.12, or a .nupkg path. "
+                        + $"To select a section, use -S \"{packageArg}\".");
+            }
+        }
 
         string? explicitVersion =
             parseResult.GetValue(args.VersionOption);
