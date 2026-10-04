@@ -7,6 +7,13 @@ namespace DotnetInspect.Cli.Planning;
 
 internal static class MemberInspectionPlanBuilder
 {
+    static readonly ViewFacetId ExactMemberDefaultFacet =
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview)
+            .Id;
+
     internal static MemberInspectionTerminalPlan Create(
         ResolvedAssemblyReference? sourceAssembly,
         string sourcePath,
@@ -37,6 +44,7 @@ internal static class MemberInspectionPlanBuilder
                 typeName,
                 typeDefinition,
                 member),
+            ExactMemberDefaultFacet,
             new InspectionCatalogReference(
                 structuralPlan.Selection.Catalog.ToString(),
                 structuralPlan.Selection.CatalogVersion),
@@ -56,14 +64,7 @@ internal static class MemberInspectionPlanBuilder
                     structuralPlan.Intent.CapabilityRequest.DiscoveryMode)));
 
         if (options.ShareFormat is not null)
-        {
-            ViewFacetId overview = InspectionViewFacetCatalog.Registry
-                .GetRequiredDescriptor(
-                    StructuralSubjectKind.Member,
-                    ViewFacetRole.MemberOverview)
-                .Id;
-            return new ShareProjectionPlan(basis, overview);
-        }
+            return new ShareProjectionPlan(basis);
 
         if (options.EffectiveDiscovery)
             return new EffectiveDiscoveryPlan(basis);

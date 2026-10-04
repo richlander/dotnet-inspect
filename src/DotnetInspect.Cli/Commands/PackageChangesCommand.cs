@@ -50,8 +50,6 @@ internal static class PackageChangesCommand
             fetchOptions.RequestTimeout,
             fetchOptions.OperationTimeout,
             cancellationToken);
-        using IDisposable advisoryAccess =
-            NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData);
         return await ExecuteAsync(
             options,
             catalog,
