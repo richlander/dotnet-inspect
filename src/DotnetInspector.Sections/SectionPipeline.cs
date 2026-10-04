@@ -334,6 +334,12 @@ public sealed class SectionPipeline<TModel>
         EnsureMutable();
         if (!name.StartsWith("@", StringComparison.Ordinal))
             throw new ArgumentException("Section category names must start with '@'.", nameof(name));
+        if (_categories.Any(category =>
+                category.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                $"Category '{name}' is already registered.");
+        }
 
         var known = _entries.Select(e => e.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var unknown = sections.Where(s => !known.Contains(s)).ToArray();

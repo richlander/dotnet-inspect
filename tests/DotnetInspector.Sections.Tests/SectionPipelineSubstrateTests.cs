@@ -104,6 +104,36 @@ public sealed class SectionPipelineSubstrateTests
     }
 
     [Fact]
+    public void PipelineRejectsDuplicateCategoryDoorBeforeFacetMetadataCanDrift()
+    {
+        var dependencies = new ViewFacetSetDescriptor(
+            new ViewFacetSetId("dependencies"),
+            "Dependencies",
+            InspectionViewFacetCatalog.Registry,
+            [new ViewFacetId("package.dependencies")]);
+        var pipeline = new SectionPipeline<TestModel>()
+            .WithoutComputedPoles()
+            .Add<PrimarySection>()
+            .Add<DetailedSection>()
+            .AddFacetSetCategory(
+                "@Dependencies",
+                dependencies,
+                PrimarySection.Name);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            pipeline.AddCategory("@dependencies", DetailedSection.Name));
+
+        SectionCatalog<TestModel> catalog = pipeline.Compile();
+        Assert.Equal(
+            [PrimarySection.Name],
+            catalog.CategoryMap["@Dependencies"]);
+        CompiledSectionCategory category =
+            Assert.Single(catalog.AuthoredCategories);
+        Assert.Same(dependencies, category.FacetSet);
+        Assert.Equal([PrimarySection.Name], category.Sections);
+    }
+
+    [Fact]
     public void CompiledDomainPlansAndExecutesHostNeutralSectionLens()
     {
         var primaryQuery = new InspectionQuery<int>(
