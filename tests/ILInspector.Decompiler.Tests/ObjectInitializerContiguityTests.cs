@@ -55,7 +55,7 @@ public class ObjectInitializerContiguityTests
         Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
         Assert.Empty(function.Descendants.OfType<StoreProperty>());
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = CSharpPrinter.Print(function.BindResidualSlots()).Output!;
         Assert.Contains("new InitTarget { X = Log() }", output);
         Assert.True(
             output.IndexOf("new InitTarget { X = Owner.Log() }", StringComparison.Ordinal)
@@ -70,7 +70,7 @@ public class ObjectInitializerContiguityTests
         Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Add");
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = CSharpPrinter.Print(function.BindResidualSlots()).Output!;
         Assert.Contains("new InitTarget { 1, 2 }", output);
         Assert.True(
             output.IndexOf("new InitTarget { 1, 2 }", StringComparison.Ordinal)
