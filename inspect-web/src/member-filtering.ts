@@ -222,6 +222,15 @@ export function selectedConcreteOverload<T>(
   return overloads[selectedIndex ?? 0];
 }
 
+export function memberGroupUsesFamilySurface(
+  group: {
+    readonly overloads: readonly unknown[];
+    readonly sourceOverloadCount?: number;
+  } | null | undefined,
+): boolean {
+  return (group?.overloads.length ?? 0) > 1;
+}
+
 export function selectedSourceOverload<T>(
   sourceGroups: readonly {
     readonly key: string;

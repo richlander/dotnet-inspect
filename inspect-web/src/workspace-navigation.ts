@@ -48,7 +48,6 @@ export interface WorkspaceView {
   memberTraitFilter: string;
   memberTextFilter: string;
   selectedOverloadIndex: number | null;
-  memberDocumentFingerprint?: string;
   bodyTarget: BodyTarget | null;
   memberSection: MemberSection;
   memberSourceView?: MemberSourceView;
@@ -77,7 +76,6 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     ma: view.memberAccessibilityFilter,
     mr: view.memberTraitFilter,
     o: view.selectedOverloadIndex,
-    mf: view.memberDocumentFingerprint ?? "",
     b: graphTarget ? null : encodeBodyTarget(view.bodyTarget),
     g: graphTarget,
     s: view.memberSection,

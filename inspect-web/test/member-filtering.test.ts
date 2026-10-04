@@ -9,6 +9,7 @@ import {
   invalidateMemberCallGraphWork,
   invalidateSourceDestinationWork,
   memberKindCount,
+  memberGroupUsesFamilySurface,
   memberMatchesTrait,
   memberGroupMatches,
   memberNavTargetIndex,
@@ -269,6 +270,16 @@ test("selecting a filtered source-family parent clears its exact child", () => {
     sourceOverloadCount: 1,
   }), false);
   assert.equal(single.selectedOverloadIndex, 0);
+});
+
+test("only multiple visible declarations use the MemberGroup surface", () => {
+  assert.equal(memberGroupUsesFamilySurface(null), false);
+  assert.equal(memberGroupUsesFamilySurface({ overloads: [{}] }), false);
+  assert.equal(memberGroupUsesFamilySurface({
+    overloads: [{}],
+    sourceOverloadCount: 3,
+  }), false);
+  assert.equal(memberGroupUsesFamilySurface({ overloads: [{}, {}] }), true);
 });
 
 test("member traits use the complete selector vocabulary", () => {
