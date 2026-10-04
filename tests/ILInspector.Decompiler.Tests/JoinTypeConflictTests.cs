@@ -493,10 +493,13 @@ public class JoinTypeConflictTests : IDisposable
         BitConverter.GetBytes((ushort)(aRow << 2)).CopyTo(bytes, extendsOffset);   // TypeDefOrRef tag 0 = TypeDef
 
         // Rewrite IA<T>'s one InterfaceImpl row (IA<T> : IB<List<T>>) to point
-        // at the Interface column of IZ<T>'s row, the TypeSpec IA<List<!0>>:
-        // IA<T> : IA<List<T>>. InterfaceImpl rows are Class (TypeDef index)
-        // then Interface (TypeDefOrRef coded index), 2 bytes each here.
+        // at the Interface column of IZ<T>'s first row, the TypeSpec
+        // IA<List<!0>> (the compiler also emits IZ<T>'s transitive
+        // IB<List<List<T>>> row after it): IA<T> : IA<List<T>>. InterfaceImpl
+        // rows are Class (TypeDef index) then Interface (TypeDefOrRef coded
+        // index), 2 bytes each here.
         int iaInterfaceOffset = -1;
+        int iaRow = 0;
         ushort izInterface = 0;
         using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
         {
@@ -508,13 +511,21 @@ public class JoinTypeConflictTests : IDisposable
             for (int row = 1; row <= rows; row++)
             {
                 int offset = tableOffset + (row - 1) * rowSize;
-                var owner = reader.GetTypeDefinition(System.Reflection.Metadata.Ecma335.MetadataTokens.TypeDefinitionHandle(BitConverter.ToUInt16(bytes, offset)));
+                int ownerRow = BitConverter.ToUInt16(bytes, offset);
+                var owner = reader.GetTypeDefinition(System.Reflection.Metadata.Ecma335.MetadataTokens.TypeDefinitionHandle(ownerRow));
                 string name = reader.GetString(owner.Name);
-                if (name == "IA`1") iaInterfaceOffset = offset + 2;
-                if (name == "IZ`1") izInterface = BitConverter.ToUInt16(bytes, offset + 2);
+                if (name == "IA`1") { Assert.Equal(-1, iaInterfaceOffset); iaInterfaceOffset = offset + 2; iaRow = ownerRow; }
+                if (name == "IZ`1" && izInterface == 0) izInterface = BitConverter.ToUInt16(bytes, offset + 2);
             }
             Assert.True(iaInterfaceOffset > 0 && izInterface != 0);
             Assert.Equal(2, izInterface & 0x3);   // TypeDefOrRef tag 2 = TypeSpec
+            // That TypeSpec is GENERICINST CLASS <IA`1> 1 <arg>: a growing
+            // instance of IA itself.
+            var spec = reader.GetTypeSpecification(System.Reflection.Metadata.Ecma335.MetadataTokens.TypeSpecificationHandle(izInterface >> 2));
+            var blob = reader.GetBlobReader(spec.Signature);
+            Assert.Equal(0x15, blob.ReadByte());   // GENERICINST
+            Assert.Equal(0x12, blob.ReadByte());   // CLASS
+            Assert.Equal(iaRow << 2, blob.ReadCompressedInteger());   // TypeDefOrRefEncoded: TypeDef IA`1
         }
         BitConverter.GetBytes(izInterface).CopyTo(bytes, iaInterfaceOffset);
 
@@ -527,9 +538,8 @@ public class JoinTypeConflictTests : IDisposable
             var ia = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == "IA`1");
             var iz = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == "IZ`1");
             var iaImpl = reader.GetInterfaceImplementation(ia.GetInterfaceImplementations().Single());
-            var izImpl = reader.GetInterfaceImplementation(iz.GetInterfaceImplementations().Single());
             Assert.Equal(System.Reflection.Metadata.HandleKind.TypeSpecification, iaImpl.Interface.Kind);
-            Assert.Equal(izImpl.Interface, iaImpl.Interface);
+            Assert.Contains(iaImpl.Interface, iz.GetInterfaceImplementations().Select(h => reader.GetInterfaceImplementation(h).Interface));
         }
 
         string consumerPath = Path.Combine(directory, "Cyc.dll");
