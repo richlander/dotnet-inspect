@@ -323,6 +323,10 @@ async function installFacades(
   packageLoading: PackageLoadingFixture = {},
   workspaceSources: readonly BrowserWorkspacePackageSourceRequirement[] = [],
   libraryUpload: LibraryUploadFixture = "available",
+  ecosystemAdmission: {
+    holdAdmission?: boolean;
+    holdPostingRecord?: boolean;
+  } = {},
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -2685,6 +2689,7 @@ async function installFacades(
       }`,
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
+      const ecosystemAdmissionOptions = ${JSON.stringify(ecosystemAdmission)};
       const productEcosystems = [{
         id: "ecosystem.fixture-platform",
         title: "Platform fixture",
@@ -2715,6 +2720,8 @@ async function installFacades(
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
       let preparedRetainedWorkspace = null;
+      let ecosystemPackageAdmissionCount = 0;
+      let ecosystemPackageAcknowledgementCount = 0;
       function retainedWorkspacePosting(
         retainedDefinitionId,
         label,
@@ -3266,6 +3273,14 @@ async function installFacades(
             message: null,
           };
         }
+        document.documentElement.dataset.ecosystemPackageAdmissionCount =
+          String(++ecosystemPackageAdmissionCount);
+        if (ecosystemAdmissionOptions.holdAdmission) {
+          document.documentElement.dataset.ecosystemPackageAdmissionPending =
+            "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-ecosystem-package-admission", resolve, { once: true }));
+        }
         const navigation = structuredClone(
           preparedRetainedWorkspace.navigation,
         );
@@ -3296,9 +3311,49 @@ async function installFacades(
           intent: "ecosystem-admission-intent",
           epoch: "ecosystem-admission-epoch",
         };
+        const navigationId =
+          "ecosystem-package-" + ecosystemPackageAdmissionCount;
+        const subject = {
+          id: navigationId,
+          kind: "Package",
+          label: packageId,
+          summary: null,
+          parent: navigation.snapshot.workspace.id,
+        };
+        navigation.snapshot.packages.push({
+          order: navigation.snapshot.packages.length,
+          subject,
+          packageId,
+          version,
+          framework: retainedWorkspaceSurface.activeFramework,
+          runtimeIdentifier: null,
+          realization: "ecosystem-package-realization",
+          realizationFailure: null,
+          state: "Available",
+          isCurrent: false,
+          action: null,
+        });
+        const packageInventory = {
+          navigationId,
+          contextIndex: preparedRetainedWorkspace.packages.length,
+          consumerPackageSubjectId: subject.id,
+          summary: {
+            selectedCompileFramework: retainedWorkspaceSurface.activeFramework,
+            libraryCount: retainedWorkspaceSurface.assemblies.length,
+            typeCount: retainedWorkspaceSurface.types.length,
+            memberCount: retainedWorkspaceSurface.totalMembers,
+            documentCount: retainedWorkspaceSurface.documents.length,
+            hasInspectionNotices:
+              retainedWorkspaceSurface.inspectionErrors.length > 0,
+          },
+        };
         preparedRetainedWorkspace = {
           ...preparedRetainedWorkspace,
           navigation,
+          packages: [
+            ...preparedRetainedWorkspace.packages,
+            packageInventory,
+          ],
         };
         document.documentElement.dataset.ecosystemPackageAdmissions =
           JSON.stringify([
@@ -3337,10 +3392,19 @@ async function installFacades(
       export function validateRetainedWorkspaceNavigationAuthority() {
         return true;
       }
-      export function recordRetainedWorkspaceNavigationPosting() {
+      export async function recordRetainedWorkspaceNavigationPosting() {
+        if (preparedRetainedWorkspace?.navigation.operation === "Scope"
+          && ecosystemAdmissionOptions.holdPostingRecord) {
+          document.documentElement.dataset.ecosystemPackagePostingPending =
+            "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-ecosystem-package-posting", resolve, { once: true }));
+        }
         return "accepted";
       }
       export function acknowledgeRetainedWorkspaceNavigation() {
+        document.documentElement.dataset.ecosystemPackageAcknowledgementCount =
+          String(++ecosystemPackageAcknowledgementCount);
         return "accepted";
       }
       export function abandonRetainedWorkspaceNavigation() {

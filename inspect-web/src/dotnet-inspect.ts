@@ -3572,6 +3572,13 @@ const ecosystemPackageDiscovery: EcosystemPackageDiscoveryState = {
   packageAddStates: new Map(),
   query: initialQueryState(),
 };
+let ecosystemPackageAdmissionInFlight: {
+  readonly ecosystemId: string;
+  readonly retainedDefinitionId: string;
+  readonly realizationId: string;
+  readonly publicationOrdinal: number;
+  readonly key: string;
+} | null = null;
 let ecosystemPackageQueryRenderFrame: number | null = null;
 
 function scheduleEcosystemPackageQueryRender(): void {
@@ -9390,8 +9397,15 @@ async function addEcosystemPackageToWorkspace(
   }
 
   const key = `${row.packageId}\u0000${row.version}`;
-  if ([...ecosystemPackageDiscovery.packageAddStates.values()]
-      .some(addState => addState.status === "adding")) return;
+  if (ecosystemPackageAdmissionInFlight !== null) return;
+  const inFlightAdmission = {
+    ecosystemId,
+    retainedDefinitionId: posting.retainedDefinitionId,
+    realizationId: posting.realizationId,
+    publicationOrdinal: posting.publicationOrdinal,
+    key,
+  };
+  ecosystemPackageAdmissionInFlight = inFlightAdmission;
   ecosystemPackageDiscovery.packageAddStates.set(key, { status: "adding" });
   render({ synchronizeUrl: false });
 
@@ -9410,37 +9424,45 @@ async function addEcosystemPackageToWorkspace(
       admission.basis,
       admission.registration,
     );
-    const sameRealization = () =>
-      activeRetainedWorkspacePosting?.realizationId
-        === posting.realizationId;
+    const sameRealization = () => {
+      const retained = retainedWorkspacePostings.get(
+        posting.retainedDefinitionId);
+      return retainedWorkspaceActivation?.state.activeDefinitionId
+          === posting.retainedDefinitionId
+        && retained?.realizationId === posting.realizationId
+        && retained.publicationOrdinal === posting.publicationOrdinal;
+    };
     const current = () =>
       navigationSequence.isCurrent(navigationSeq)
       && ecosystemPackageDiscovery.ecosystemId === ecosystemId
       && sameRealization();
     if (!current()) {
-      if (result.posting !== null && sameRealization()) {
-        activeRetainedWorkspacePosting = result.posting;
-        retainedWorkspacePostings.set(
-          result.posting.retainedDefinitionId,
-          result.posting,
-        );
+      if (result.posting !== null) {
         if (result.navigation !== null) {
-          const authority = managedNavigationAuthority(
+          navigationAuthority = managedNavigationAuthority(
             result.posting,
             result.navigation,
           );
           await recordManagedNavigationPosting(
             result.navigation,
-            authority,
+            navigationAuthority,
           );
           const acknowledged = await engineClient.catalog
-            .acknowledgeRetainedWorkspaceNavigation(...authority);
+            .acknowledgeRetainedWorkspaceNavigation(...navigationAuthority);
           if (acknowledged !== "accepted") {
             throw new Error(
               `Managed Navigation acknowledgement returned '${acknowledged}'.`,
             );
           }
+          navigationSettled = true;
+        } else if (!sameRealization()) {
+          return;
         }
+        activeRetainedWorkspacePosting = result.posting;
+        retainedWorkspacePostings.set(
+          result.posting.retainedDefinitionId,
+          result.posting,
+        );
         if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
           retainedWorkspacePresentation =
             createNavigationDescriptorPresentation(result.posting);
@@ -9455,11 +9477,6 @@ async function addEcosystemPackageToWorkspace(
           );
           render({ synchronizeUrl: false });
         }
-      } else if (result.posting !== null && result.navigation !== null) {
-        await abandonManagedNavigation(
-          result.posting,
-          result.navigation,
-        );
       } else if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
         ecosystemPackageDiscovery.packageAddStates.set(key, {
           status: "failed",
@@ -9502,6 +9519,41 @@ async function addEcosystemPackageToWorkspace(
         result.navigation,
         navigationAuthority,
       );
+    }
+
+    if (!current()) {
+      if (navigationAuthority !== null) {
+        const acknowledged = await engineClient.catalog
+          .acknowledgeRetainedWorkspaceNavigation(...navigationAuthority);
+        if (acknowledged !== "accepted") {
+          throw new Error(
+            `Managed Navigation acknowledgement returned '${acknowledged}'.`,
+          );
+        }
+        navigationSettled = true;
+      } else if (!sameRealization()) {
+        return;
+      }
+      activeRetainedWorkspacePosting = result.posting;
+      retainedWorkspacePostings.set(
+        result.posting.retainedDefinitionId,
+        result.posting,
+      );
+      if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+        retainedWorkspacePresentation =
+          createNavigationDescriptorPresentation(result.posting);
+        ecosystemPackageDiscovery.packageAddStates.set(
+          key,
+          result.status === "admitted" || result.status === "noEffect"
+            ? { status: "added" }
+            : {
+                status: "failed",
+                message: result.message ?? "Package admission failed.",
+              },
+        );
+        render({ synchronizeUrl: false });
+      }
+      return;
     }
 
     const authorityToAcknowledge = navigationAuthority;
@@ -9559,6 +9611,13 @@ async function addEcosystemPackageToWorkspace(
       });
       render({ synchronizeUrl: false });
     }
+  } finally {
+    if (ecosystemPackageAdmissionInFlight === inFlightAdmission) {
+      ecosystemPackageAdmissionInFlight = null;
+      if (ecosystemPackageDiscovery.ecosystemId !== null) {
+        render({ synchronizeUrl: false });
+      }
+    }
   }
 }
 
@@ -9608,7 +9667,26 @@ function renderRetainedEcosystemView(
               </div>
             </header>
             ${renderEcosystemPackageDiscovery(
-              ecosystemPackageDiscovery,
+              {
+                ...ecosystemPackageDiscovery,
+                admissionPending:
+                  ecosystemPackageAdmissionInFlight !== null,
+                pendingAdmissionKey:
+                  ecosystemPackageAdmissionInFlight?.ecosystemId
+                    === ecosystemPackageDiscovery.ecosystemId
+                  && retainedWorkspaceActivation?.state.activeDefinitionId
+                    === ecosystemPackageAdmissionInFlight.retainedDefinitionId
+                  && retainedWorkspacePostings.get(
+                    ecosystemPackageAdmissionInFlight.retainedDefinitionId)
+                    ?.realizationId
+                    === ecosystemPackageAdmissionInFlight.realizationId
+                  && retainedWorkspacePostings.get(
+                    ecosystemPackageAdmissionInFlight.retainedDefinitionId)
+                    ?.publicationOrdinal
+                    === ecosystemPackageAdmissionInFlight.publicationOrdinal
+                    ? ecosystemPackageAdmissionInFlight.key
+                    : null,
+              },
               escapeHtml)}
           </article>
         </section>

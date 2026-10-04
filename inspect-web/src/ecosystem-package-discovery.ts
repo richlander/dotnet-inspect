@@ -15,6 +15,8 @@ export interface EcosystemPackageDiscoveryViewState {
   readonly pendingCapacity: EcosystemPackageCapacity | null;
   readonly navigationError: string;
   readonly packageAddStates: ReadonlyMap<string, EcosystemPackageAddState>;
+  readonly admissionPending: boolean;
+  readonly pendingAdmissionKey: string | null;
 }
 
 export interface EcosystemPackageDiscoveryActions {
@@ -145,15 +147,19 @@ export function renderEcosystemPackageDiscovery(
   state: EcosystemPackageDiscoveryViewState,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const admissionPending = [...state.packageAddStates.values()]
-    .some(addState => addState.status === "adding");
   const rows = state.query.outcome.rows
-    .map(row => packageRow(
-      row,
-      state.packageAddStates.get(`${row.packageId}\u0000${row.version}`),
-      admissionPending,
-      escapeHtml,
-    ))
+    .map(row => {
+      const key = `${row.packageId}\u0000${row.version}`;
+      return packageRow(
+        row,
+        state.packageAddStates.get(key)
+          ?? (key === state.pendingAdmissionKey
+            ? { status: "adding" }
+            : undefined),
+        state.admissionPending,
+        escapeHtml,
+      );
+    })
     .join("");
   const failures = state.query.outcome.failures
     .map(failure => `<li>${escapeHtml(failure)}</li>`)

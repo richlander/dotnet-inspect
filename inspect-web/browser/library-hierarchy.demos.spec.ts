@@ -14,6 +14,7 @@ import {
   alternatePlatformVersion,
   openProductDestination,
   installFacades,
+  releaseFacade,
   type BrowserAssemblySurface,
   type BrowserPackageSurface,
   type BrowserTypeSurface,
@@ -175,6 +176,10 @@ async function installHomeDemo(
   page: Page,
   section: "Methods" | "Call Graph",
   focusKind: "package" | "platform",
+  ecosystemAdmission?: {
+    holdAdmission?: boolean;
+    holdPostingRecord?: boolean;
+  },
 ): Promise<string> {
   const id = `${focusKind}-${section === "Methods" ? "methods" : "graph"}`;
   await installFacades(
@@ -193,7 +198,12 @@ async function installHomeDemo(
         summary: "Typed product demo",
       }],
       results: { [id]: homeDemoResult(section, focusKind) },
-    });
+    },
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    ecosystemAdmission);
   return id;
 }
 
@@ -216,6 +226,96 @@ async function openHomeDemo(
   const share: unknown = JSON.parse(json);
   return share;
 }
+
+test("Ecosystem Adds stay serialized across a route visit", async ({
+  page,
+}) => {
+  await installHomeDemo(page, "Methods", "package", {
+    holdAdmission: true,
+  });
+  await page.goto("/");
+  await openProductDestination(page, "ecosystems");
+  await page.locator(
+    '[data-ecosystem="ecosystem.fixture-package"] [data-ecosystem-open]',
+  ).click();
+  const additions = page.locator("[data-ecosystem-package-add]");
+  await expect(additions).toHaveCount(24);
+  const initialAcknowledgements = Number(
+    await page.locator("html").getAttribute(
+      "data-ecosystem-package-acknowledgement-count") ?? "0");
+  await additions.first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admission-pending",
+    "true",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admission-count",
+    "1",
+  );
+
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator('[data-product-destination="query"]').click();
+  await expect(page).toHaveURL("/query");
+  await page.goBack();
+  await expect(additions).toHaveCount(24);
+  await expect(additions.first()).toHaveText("Adding\u2026");
+  await expect(additions.first()).toBeDisabled();
+  await expect(additions.nth(1)).toBeDisabled();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admission-count",
+    "1",
+  );
+
+  await releaseFacade(page, "finish-ecosystem-package-admission");
+  await expect(additions.first()).toHaveText("Added");
+  await expect(additions.nth(1)).toBeEnabled();
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("1 loaded coordinate");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-acknowledgement-count",
+    String(initialAcknowledgements + 1),
+  );
+});
+
+test("Ecosystem posting survives navigation during Scope record", async ({
+  page,
+}) => {
+  await installHomeDemo(page, "Methods", "package", {
+    holdPostingRecord: true,
+  });
+  await page.goto("/");
+  await openProductDestination(page, "ecosystems");
+  await page.locator(
+    '[data-ecosystem="ecosystem.fixture-package"] [data-ecosystem-open]',
+  ).click();
+  const additions = page.locator("[data-ecosystem-package-add]");
+  await expect(additions).toHaveCount(24);
+  const initialAcknowledgements = Number(
+    await page.locator("html").getAttribute(
+      "data-ecosystem-package-acknowledgement-count") ?? "0");
+  await additions.first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-posting-pending",
+    "true",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admission-count",
+    "1",
+  );
+
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator('[data-product-destination="query"]').click();
+  await expect(page).toHaveURL("/query");
+  await releaseFacade(page, "finish-ecosystem-package-posting");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-acknowledgement-count",
+    String(initialAcknowledgements + 1),
+  );
+  await page.goBack();
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("1 loaded coordinate");
+  await expect(additions).toHaveCount(24);
+});
 
 test("Ecosystems is a first-class product catalog destination", async ({
   page,

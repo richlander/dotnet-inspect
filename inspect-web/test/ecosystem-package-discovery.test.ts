@@ -50,6 +50,8 @@ test("Ecosystem discovery renders cumulative 24, 48, and 96 capacities", () => {
     pendingCapacity: null,
     navigationError: "",
     packageAddStates: new Map(),
+    admissionPending: false,
+    pendingAdmissionKey: null,
   }, escapeHtml);
 
   assert.match(html, /24 packages shown/);
@@ -76,6 +78,8 @@ test("completed Ecosystem discovery removes capacities that cannot reveal more",
     pendingCapacity: null,
     navigationError: "",
     packageAddStates: new Map(),
+    admissionPending: false,
+    pendingAdmissionKey: null,
   }, escapeHtml);
 
   assert.match(html, /30 packages shown/);
@@ -108,6 +112,8 @@ test("Ecosystem discovery renders distinct Open and Workspace admission states",
     pendingCapacity: null,
     navigationError: "",
     packageAddStates: states,
+    admissionPending: true,
+    pendingAdmissionKey: null,
   }, escapeHtml);
 
   assert.equal((html.match(/>Open</g) ?? []).length, 3);
@@ -116,6 +122,54 @@ test("Ecosystem discovery renders distinct Open and Workspace admission states",
   assert.match(html, />Add to workspace</);
   assert.match(html, /Admission failed visibly\./);
   assert.equal((html.match(/ disabled/g) ?? []).length, 3);
+});
+
+test("in-flight admission survives cleared row state in the rendered Overview", () => {
+  const query = initialQueryState();
+  query.request = createEcosystemQueryRequest("ecosystem.aspire");
+  query.outcome = {
+    rows: [packageRow(1), packageRow(2)],
+    assessments: [],
+    failures: [],
+    progress: [],
+    completion: { kind: "streaming" },
+  };
+  const pending = {
+    query,
+    capacity: 24 as const,
+    pendingCapacity: null,
+    navigationError: "",
+    packageAddStates: new Map(),
+    admissionPending: true,
+    pendingAdmissionKey: "Aspire.Package.1\u00009.0.0",
+  };
+
+  const html = renderEcosystemPackageDiscovery(pending, escapeHtml);
+  assert.match(
+    html,
+    /data-ecosystem-package-add="Aspire\.Package\.1"[^>]* disabled>Adding\u2026<\/button>/,
+  );
+  assert.match(
+    html,
+    /data-ecosystem-package-add="Aspire\.Package\.2"[^>]* disabled>Add to workspace<\/button>/,
+  );
+  assert.equal((html.match(/>Open<\/button>/g) ?? []).length, 2);
+  assert.match(html, /data-ecosystem-package-capacity="48"/);
+  assert.match(html, /data-ecosystem-package-capacity="96"/);
+
+  const settled = renderEcosystemPackageDiscovery({
+    ...pending,
+    admissionPending: false,
+    pendingAdmissionKey: null,
+  }, escapeHtml);
+  assert.doesNotMatch(
+    settled,
+    /data-ecosystem-package-add="[^"]+"[^>]* disabled/,
+  );
+  assert.equal(
+    (settled.match(/>Add to workspace<\/button>/g) ?? []).length,
+    2,
+  );
 });
 
 test("Ecosystem capacity parsing accepts only product capacities", () => {
