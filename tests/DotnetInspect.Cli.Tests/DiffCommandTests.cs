@@ -1279,6 +1279,7 @@ public class DiffCommandTests
         Assert.Equal("failed", row.OldInspection);
         Assert.Equal("complete", row.NewInspection);
         Assert.Contains("render failed", row.Detail);
+        Assert.True(DiffAnalysisInspection.IsFailedComparison(row));
     }
 
     [Fact]
@@ -3714,7 +3715,8 @@ public class DiffCommandTests
                 "2.0.0",
                 AnalysisReportSurfaceKind.Member,
                 DiffAnalysisDocumentViews.Changes,
-                ["api", "call-site"]),
+                ["api", "call-site"],
+                []),
             [
                 new DiffAnalysisDocumentOutcome(
                     "api",
@@ -3817,7 +3819,8 @@ public class DiffCommandTests
                 "2.0.0",
                 AnalysisReportSurfaceKind.Member,
                 DiffAnalysisDocumentViews.Changes,
-                ["api"]),
+                ["api"],
+                []),
             [
                 new DiffAnalysisDocumentOutcome(
                     "api",
@@ -3889,6 +3892,105 @@ public class DiffCommandTests
         Assert.True(JsonElement.DeepEquals(
             json.RootElement,
             envelope.RootElement.GetProperty("content")));
+    }
+
+    [Fact]
+    public async Task AnalysisSet_FailedFindingComparison_PreservesEvidenceAndFails()
+    {
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            DiffAnalysisCommandCapability.Catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Library,
+                targetCount: 1,
+                ["string-literals"]));
+        var document = new DiffAnalysisDocument(
+            new DiffAnalysisComparisonContext(
+                "Sample",
+                "1.0.0",
+                "2.0.0",
+                AnalysisReportSurfaceKind.Library,
+                DiffAnalysisDocumentViews.Transitions,
+                ["string-literals"],
+                [
+                    new DiffAnalysisQueryTermContext(
+                        "Literal",
+                        "Contains",
+                        "https://"),
+                ]),
+            [
+                new DiffAnalysisDocumentOutcome(
+                    "string-literals",
+                    DiffAnalysisDocumentOutcomeKind.Compared,
+                    ["analysis.string-literal-use"],
+                    null),
+            ],
+            changes: null,
+            summary: null,
+            transitions:
+            [
+                new DiffAnalysisTransitionRow(
+                    DiffAnalysisInspection.FailedComparisonTransition,
+                    "analysis.string-literal-use",
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    "failed",
+                    "complete",
+                    "String literal scan exceeded its occurrence work limit.",
+                    "failed",
+                    "complete"),
+            ]);
+        var run = new DiffCommand.AnalysisSetRun(
+            new InspectionEnvelope<DiffAnalysisDocument>(
+                document,
+                new InspectionShare.NonProjectable(
+                    "diff",
+                    "This test does not project a share packet."),
+                [
+                    new InspectionDiagnostic(
+                        "diff-analysis.finding-comparison-failed",
+                        InspectionDiagnosticSeverity.Error,
+                        "Finding comparison 'analysis.string-literal-use' "
+                            + "failed for 'Sample': String literal scan "
+                            + "exceeded its occurrence work limit."),
+                ]));
+        var plan = new DiffCommand.DiffAnalysisPlan(
+            accepted,
+            [DiffSections.Transitions.Name]);
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(() =>
+                Task.FromResult(DiffCommand.WriteAnalysisSet(
+                    "Sample",
+                    new ApiSurface(),
+                    new ApiSurface(),
+                    "1.0.0",
+                    "2.0.0",
+                    new DiffOptions
+                    {
+                        JsonOutput = true,
+                        CompactJson = true,
+                    },
+                    plan,
+                    run)));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            DiffAnalysisInspection.FailedComparisonTransition,
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "String literal scan exceeded its occurrence work limit.",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Finding comparison 'analysis.string-literal-use' failed",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "String literal scan exceeded its occurrence work limit.",
+            error,
+            StringComparison.Ordinal);
     }
 
 }

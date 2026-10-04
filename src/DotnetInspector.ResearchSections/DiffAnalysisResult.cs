@@ -107,7 +107,9 @@ public sealed class DiffAnalysisInput
         Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals,
         Func<ImplementationDiffResult>? prepareImplementation = null,
         ApiFindingComparison? precomputedApiComparison = null,
-        IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability = null)
+        IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability = null,
+        StringLiteralComparisonQueryPlan? stringLiteralQuery = null,
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals = null)
         : this(
             fromSurface,
             toSurface,
@@ -120,6 +122,8 @@ public sealed class DiffAnalysisInput
             prepareImplementation,
             precomputedApiComparison,
             hostUnavailability,
+            stringLiteralQuery,
+            prepareStringLiterals,
             requireApiSurfaces: true)
     {
     }
@@ -136,6 +140,8 @@ public sealed class DiffAnalysisInput
         Func<ImplementationDiffResult>? prepareImplementation,
         ApiFindingComparison? precomputedApiComparison,
         IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability,
+        StringLiteralComparisonQueryPlan? stringLiteralQuery,
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals,
         bool requireApiSurfaces)
     {
         if (requireApiSurfaces)
@@ -153,6 +159,14 @@ public sealed class DiffAnalysisInput
         PrepareBodySignals = prepareBodySignals;
         PrepareImplementation = prepareImplementation;
         PrecomputedApiComparison = precomputedApiComparison;
+        if ((stringLiteralQuery is null)
+            != (prepareStringLiterals is null))
+        {
+            throw new ArgumentException(
+                "String-literal Diff query context and execution must be supplied together.");
+        }
+        StringLiteralQuery = stringLiteralQuery;
+        PrepareStringLiterals = prepareStringLiterals;
         HostUnavailability = (
                 hostUnavailability
                     ?? [])
@@ -170,7 +184,9 @@ public sealed class DiffAnalysisInput
         Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
             prepareBodySignals,
         Func<ImplementationDiffResult>? prepareImplementation,
-        IEnumerable<DiffAnalysisHostUnavailability> hostUnavailability)
+        IEnumerable<DiffAnalysisHostUnavailability> hostUnavailability,
+        StringLiteralComparisonQueryPlan? stringLiteralQuery = null,
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals = null)
         => new(
             fromSurface: null,
             toSurface: null,
@@ -183,6 +199,8 @@ public sealed class DiffAnalysisInput
             prepareImplementation,
             precomputedApiComparison: null,
             hostUnavailability,
+            stringLiteralQuery,
+            prepareStringLiterals,
             requireApiSurfaces: false);
 
     public ApiSurface FromSurface => _fromSurface
@@ -222,6 +240,12 @@ public sealed class DiffAnalysisInput
     /// projected and compared the same endpoint pair.
     /// </summary>
     public ApiFindingComparison? PrecomputedApiComparison { get; }
+
+    /// <summary>The one owner-resolved string-literal predicate, when selected.</summary>
+    public StringLiteralComparisonQueryPlan? StringLiteralQuery { get; }
+
+    /// <summary>Executes the selected string-literal comparison exactly once.</summary>
+    public Func<RetainedFindingComparisonSet>? PrepareStringLiterals { get; }
 
     internal ImmutableDictionary<AnalysisDeclarationId, string>
         HostUnavailability { get; }

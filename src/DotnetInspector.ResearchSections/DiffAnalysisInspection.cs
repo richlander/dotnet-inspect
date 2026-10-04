@@ -44,7 +44,13 @@ public sealed record DiffAnalysisComparisonContext(
     string AfterVersion,
     AnalysisReportSurfaceKind Surface,
     DiffAnalysisDocumentViews Views,
-    ImmutableArray<string> Analyses);
+    ImmutableArray<string> Analyses,
+    ImmutableArray<DiffAnalysisQueryTermContext> Predicates);
+
+public sealed record DiffAnalysisQueryTermContext(
+    string Key,
+    string Operator,
+    string Value);
 
 public sealed record DiffAnalysisDocumentOutcome(
     string Analysis,
@@ -228,6 +234,13 @@ public sealed record DiffAnalysisApiInspectionFailure(
 
 public static class DiffAnalysisInspection
 {
+    public const string FailedComparisonTransition =
+        "FindingComparison.Failed";
+
+    public static bool IsFailedComparison(
+        DiffAnalysisTransitionRow row) =>
+        row.Transition == FailedComparisonTransition;
+
     public static InspectionEnvelope<DiffAnalysisDocument> Execute(
         DiffAnalysisInspectionRequest request)
     {
@@ -243,6 +256,18 @@ public static class DiffAnalysisInspection
         {
             throw new ArgumentException(
                 "The validated analysis surface does not match the resolved input.",
+                nameof(request));
+        }
+        bool requiresStringLiteralQuery =
+            DiffAnalysisCatalog.RequiresStringLiteralQuery(
+                request.Selection);
+        if (requiresStringLiteralQuery
+            != (request.Input.StringLiteralQuery is not null))
+        {
+            throw new ArgumentException(
+                requiresStringLiteralQuery
+                    ? "The selected string-literals analysis requires one predicate."
+                    : "The Diff request supplied a predicate that no selected analysis consumes.",
                 nameof(request));
         }
 
@@ -300,7 +325,16 @@ public static class DiffAnalysisInspection
                 request.AfterVersion,
                 request.Selection.Surface,
                 request.Views,
-                [.. request.Selection.Analyses.Select(analysis => analysis.Id.Value)]),
+                [.. request.Selection.Analyses.Select(analysis => analysis.Id.Value)],
+                request.Input.StringLiteralQuery is { } literal
+                    ? [
+                        new DiffAnalysisQueryTermContext(
+                            literal.Term.Key,
+                            QuerySpace.PortableQueryModel.TextOf(
+                                literal.Term.Operator),
+                            literal.Term.Value),
+                    ]
+                    : []),
             [.. result.Outcomes.Select(ProjectOutcome)],
             selectedApiDiff,
             request.Views.HasFlag(DiffAnalysisDocumentViews.Summary)
@@ -309,7 +343,15 @@ public static class DiffAnalysisInspection
                     projection.Transitions))]
                 : null,
             request.Views.HasFlag(DiffAnalysisDocumentViews.Transitions)
-                ? [.. projections.SelectMany(projection => projection.Transitions)]
+                ? [
+                    .. projections
+                        .Where(projection =>
+                            projection.Outcome.Participation.Projections.Any(
+                                candidate => candidate.Id
+                                    == DiffAnalysisCatalog
+                                        .TransitionsProjection.Id))
+                        .SelectMany(projection => projection.Transitions),
+                ]
                 : null,
             apiResult: apiDiff,
             unclassifiedChanges: unclassifiedApiChanges,
@@ -603,6 +645,22 @@ public static class DiffAnalysisInspection
                             + failed.Diagnostic,
                         outcome.Identity);
                     break;
+                case DiffAnalysisOutcome.Compared
+                {
+                    Comparison: KeyedFindingComparison.Retained retained,
+                }:
+                    foreach (RetainedFindingComparison failure
+                             in retained.Comparisons.Failures)
+                    {
+                        yield return new InspectionDiagnostic(
+                            "diff-analysis.finding-comparison-failed",
+                            InspectionDiagnosticSeverity.Error,
+                            $"Finding comparison '{failure.Descriptor.Id}' "
+                                + $"failed for '{failure.Subject.Display}': "
+                                + failure.Failure,
+                            failure.Subject.Display);
+                    }
+                    break;
             }
         }
 
@@ -636,7 +694,7 @@ public static class DiffAnalysisInspection
                 Count(PairKind.Changed),
                 Count(PairKind.Present),
                 rows.FirstOrDefault(row =>
-                    row.Transition == "FindingComparison.Failed")?.Detail
+                    IsFailedComparison(row))?.Detail
                     ?? (outcome is DiffAnalysisOutcome.Compared
                         {
                             Comparison: KeyedFindingComparison.Api
@@ -838,6 +896,10 @@ public static class DiffAnalysisInspection
                 Rows<UnsafetyOccurrence>(
                     emitEmptyComparison: false,
                     ToUnsafetyTransitionRow),
+            var id when id == StringLiteralUseFindings.Descriptor.Id =>
+                Rows<StringLiteralUseOccurrence>(
+                    emitEmptyComparison: false,
+                    ToStringLiteralTransitionRow),
             var id when id == CSharpFindings.LineDescriptor.Id =>
                 Rows<CSharpCanonicalLine>(
                     emitEmptyComparison: true,
@@ -889,7 +951,7 @@ public static class DiffAnalysisInspection
             string oldInspection = InspectionState(failed.OldInspection);
             string newInspection = InspectionState(failed.NewInspection);
             yield return new(
-                "FindingComparison.Failed",
+                FailedComparisonTransition,
                 descriptor.Id,
                 target,
                 beforeVersion,
@@ -1092,6 +1154,28 @@ public static class DiffAnalysisInspection
             oldFinding is null ? "absent" : "present",
             newFinding is null ? "absent" : "present",
             pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
+    }
+
+    private static DiffAnalysisTransitionRow
+        ToStringLiteralTransitionRow(
+            ResearchSubjectKey subject,
+            PairFinding<StringLiteralUseOccurrence> pair,
+            string beforeVersion,
+            string afterVersion)
+    {
+        Finding<StringLiteralUseOccurrence>? oldFinding =
+            OldSide(pair);
+        Finding<StringLiteralUseOccurrence>? newFinding =
+            NewSide(pair);
+        return new(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            subject.Display,
+            beforeVersion,
+            afterVersion,
+            oldFinding?.Payload.LiteralText.ToString() ?? "absent",
+            newFinding?.Payload.LiteralText.ToString() ?? "absent",
+            pair.Detail);
     }
 
     private static DiffAnalysisTransitionRow ToCSharpTransitionRow(

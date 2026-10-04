@@ -414,6 +414,130 @@ public sealed class BrowserLibraryApiDiffOperationTests
             diagnostic => diagnostic.Code == "diff-analysis.unavailable");
     }
 
+    [Fact]
+    public async Task StringLiteralSelectionExecutesSharedBrowserComparison()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Analyses = ["string-literals"],
+            Views = BrowserDiffAnalysisViews.Transitions,
+            Predicate = new(
+                "Literal",
+                BrowserDiffAnalysisPredicateOperator.Contains,
+                "https://"),
+        };
+
+        BrowserLibraryApiDiffResult result =
+            await fixture.Query(request);
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        JsonElement content = result.Inspection!.Content;
+        JsonElement predicate = Assert.Single(
+            content
+                .GetProperty("comparison")
+                .GetProperty("predicates")
+                .EnumerateArray());
+        Assert.Equal("Literal", predicate.GetProperty("key").GetString());
+        Assert.Equal(
+            "contains",
+            predicate.GetProperty("operator").GetString());
+        Assert.Equal(
+            "https://",
+            predicate.GetProperty("value").GetString());
+        JsonElement[] transitions =
+        [
+            .. content.GetProperty("transitions").EnumerateArray(),
+        ];
+        Assert.Contains(
+            transitions,
+            row => row.GetProperty("old").GetString()
+                == "https://old.example and https://shared.example");
+        Assert.Contains(
+            transitions,
+            row => row.GetProperty("new").GetString()
+                == "https://new.example and https://shared.example");
+        Assert.Contains(
+            transitions,
+            row => row.GetProperty("old").GetString()
+                    == "prefix https://embedded.example"
+                && row.GetProperty("new").GetString()
+                    == "prefix https://embedded.example");
+    }
+
+    [Fact]
+    public async Task StringLiteralStartsWithExcludesEmbeddedOnlyLiteral()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Analyses = ["string-literals"],
+            Views = BrowserDiffAnalysisViews.Transitions,
+            Predicate = new(
+                "Literal",
+                BrowserDiffAnalysisPredicateOperator.StartsWith,
+                "https://"),
+        };
+
+        BrowserLibraryApiDiffResult result =
+            await fixture.Query(request);
+
+        JsonElement[] transitions =
+        [
+            .. result.Inspection!.Content
+                .GetProperty("transitions")
+                .EnumerateArray(),
+        ];
+        Assert.DoesNotContain(
+            transitions,
+            row => row.GetProperty("old").GetString()
+                    == "prefix https://embedded.example"
+                || row.GetProperty("new").GetString()
+                    == "prefix https://embedded.example");
+    }
+
+    [Fact]
+    public async Task StringLiteralPredicateRejectsBeforePackageAcquisition()
+    {
+        BrowserLibraryApiDiffRequest request =
+            Request("Unregistered.Predicate.Package") with
+            {
+                Analyses = ["string-literals"],
+                Views = BrowserDiffAnalysisViews.Transitions,
+                Predicate = new(
+                    "literal",
+                    BrowserDiffAnalysisPredicateOperator.Contains,
+                    "https://"),
+            };
+
+        string requestJson = JsonSerializer.Serialize(
+            request,
+            BrowserMetadataJsonContext.Default
+                .BrowserLibraryApiDiffRequest);
+        string resultJson = await MetadataExports.QueryLibraryApiDiff(
+            Guid.NewGuid().ToString(),
+            requestJson);
+        BrowserLibraryApiDiffResult result =
+            JsonSerializer.Deserialize(
+                resultJson,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffResult)!;
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Failed,
+            result.Kind);
+        Assert.Contains(
+            "exact predicate key 'Literal'",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not registered",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("unknown-analysis")]
     [InlineData("allocation")]

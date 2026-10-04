@@ -408,7 +408,7 @@ namespace DotnetInspect.Web.Interop.Package
                 PackageAssemblyQueryEvent.Completed completed =>
                     new(BrowserPackageQueryEventKind.Completed, null, null,
                         new(
-                            plan.Pattern.Operand.DisplayText.ToString(),
+                            plan.Pattern.Predicate.DisplayText.ToString(),
                             BrowserPackageWorkspace.Gallery.Source.Producer.Display.ToString(),
                             plan.Coordinates.Length, plan.Coordinates.Length,
                             completed.Value.Candidates, completed.Value.Matches,

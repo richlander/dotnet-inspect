@@ -5572,6 +5572,32 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
   font: 10px/1.5 var(--mono);
 }
 .compare-context-separator { color: var(--line-strong); }
+.compare-tools {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: end;
+  gap: 8px;
+}
+.compare-tool {
+  display: grid;
+  gap: 2px;
+  color: var(--dim);
+  font: 9px/1.3 var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.compare-tool select,
+.compare-tool input {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  font: 10px var(--mono);
+}
+.compare-tool select { padding: 0 24px 0 7px; }
+.compare-tool input { width: min(22vw, 220px); padding: 0 7px; }
 .compare-mode-tabs { display: flex; flex: 0 0 auto; align-self: stretch; gap: 16px; }
 .compare-mode-tabs button { min-height: 40px; padding: 6px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font: 12px var(--mono); cursor: pointer; }
 .compare-mode-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); }
@@ -5639,6 +5665,57 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
   text-align: center;
 }
 .compare-empty strong { color: var(--text); font-size: 14px; }
+.string-literal-diff-rows {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--line);
+}
+.string-literal-diff-row {
+  min-width: 0;
+  padding: 12px 18px 16px;
+  background: var(--bg);
+}
+.string-literal-diff-row > header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--dim);
+  font: 10px/1.4 var(--mono);
+}
+.string-literal-diff-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: 10px;
+}
+.string-literal-diff-value {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.string-literal-diff-value > span {
+  color: var(--dim);
+  font: 9px/1.3 var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.string-literal-diff-value pre {
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--text);
+  font: 11px/1.55 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.string-literal-diff-value code { font: inherit; }
 .library-api-diff-members {
   min-width: 0;
   margin: 0;
@@ -5747,7 +5824,11 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 }
 @media (max-width: 640px) {
   .compare-head { flex-wrap: wrap; padding: 8px 12px 0; }
+  .compare-tools { width: 100%; flex-wrap: wrap; align-items: stretch; }
+  .compare-tool { flex: 1 1 140px; }
+  .compare-tool input { width: 100%; }
   .compare-mode-tabs { width: 100%; }
+  .string-literal-diff-row { padding-inline: 12px; }
   .library-api-diff-members { padding-inline: 12px; }
   .library-api-diff-note { margin-inline: 12px; }
   .compare-clone-workbench { padding-inline: 12px; }

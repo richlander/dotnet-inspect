@@ -8,6 +8,7 @@ using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using NuGet.Versioning;
+using QuerySpace;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -46,7 +47,7 @@ public static partial class MetadataExports
         string requestJson)
     {
         BrowserLibraryApiDiffRequest? parsedRequest = null;
-        AnalysisSetValidationResult.Accepted? parsedSelection = null;
+        ValidatedLibraryApiDiffRequest? validatedRequest = null;
         Exception? requestError = null;
         try
         {
@@ -57,7 +58,7 @@ public static partial class MetadataExports
                         .BrowserLibraryApiDiffRequest)
                 ?? throw new ArgumentException(
                     "A Library API diff request is required.");
-            parsedSelection = ValidateLibraryApiDiffRequest(parsedRequest);
+            validatedRequest = ValidateLibraryApiDiffRequest(parsedRequest);
         }
         catch (Exception error) when (
             error is ArgumentException
@@ -85,7 +86,7 @@ public static partial class MetadataExports
                             ?? throw new InvalidOperationException(
                                 "The validated Library API diff request is unavailable.");
                         AnalysisSetValidationResult.Accepted selection =
-                            parsedSelection
+                            validatedRequest?.Selection
                                 ?? throw new InvalidOperationException(
                                     "The validated Diff analysis selection is unavailable.");
                         return new BrowserManagedOperationBodyResult<
@@ -95,6 +96,7 @@ public static partial class MetadataExports
                                 await QueryLibraryApiDiffCore(
                                     request,
                                     selection,
+                                    validatedRequest?.StringLiteralQuery,
                                     token));
                     }
                     catch (Exception error) when (
@@ -194,6 +196,7 @@ public static partial class MetadataExports
     static async Task<BrowserLibraryApiDiffResult> QueryLibraryApiDiffCore(
         BrowserLibraryApiDiffRequest request,
         AnalysisSetValidationResult.Accepted selection,
+        StringLiteralComparisonQueryPlan? stringLiteralQuery,
         CancellationToken cancellationToken)
     {
         await using BrowserScopeLease<BrowserInspectionScope> targetLease =
@@ -265,7 +268,9 @@ public static partial class MetadataExports
                                     PrepareBodySignals: null,
                                     PrepareImplementation: null,
                                     HostUnavailability:
-                                        BrowserHostUnavailability(selection)))));
+                                        BrowserHostUnavailability(selection),
+                                    StringLiteralQuery:
+                                        stringLiteralQuery))));
         cancellationToken.ThrowIfCancellationRequested();
 
         return BrowserLibraryApiDiffWireProjection.Project(
@@ -305,7 +310,11 @@ public static partial class MetadataExports
                     + $"for framework '{coordinate.Framework}'.");
     }
 
-    static AnalysisSetValidationResult.Accepted ValidateLibraryApiDiffRequest(
+    sealed record ValidatedLibraryApiDiffRequest(
+        AnalysisSetValidationResult.Accepted Selection,
+        StringLiteralComparisonQueryPlan? StringLiteralQuery);
+
+    static ValidatedLibraryApiDiffRequest ValidateLibraryApiDiffRequest(
         BrowserLibraryApiDiffRequest request)
     {
         if (request.SchemaVersion != BrowserLibraryApiDiffSchema.Version)
@@ -375,22 +384,76 @@ public static partial class MetadataExports
         {
             DiffAnalysisViewRejectionReason? viewRejection =
                 DiffAnalysisViewAdmission.Validate(accepted, views);
-            if (viewRejection is null)
-                return accepted;
-
-            throw new BrowserLibraryApiDiffRequestException(
-                viewRejection switch
-                {
-                    DiffAnalysisViewRejectionReason.ChangesRequireApi =>
-                        "The Diff analysis view selection was rejected: "
-                            + "Changes requires the 'api' analysis.",
-                    DiffAnalysisViewRejectionReason
-                        .TransitionsRequireTypeOrMember =>
+            if (viewRejection is not null)
+            {
+                throw new BrowserLibraryApiDiffRequestException(
+                    viewRejection switch
+                    {
+                        DiffAnalysisViewRejectionReason.ChangesRequireApi =>
                             "The Diff analysis view selection was rejected: "
-                                + "Transitions requires the Type or Member surface.",
-                    _ => throw new ArgumentOutOfRangeException(
-                        nameof(viewRejection)),
-                });
+                                + "Changes requires the 'api' analysis.",
+                        DiffAnalysisViewRejectionReason
+                            .TransitionsRequireSupportedSurface =>
+                                "The Diff analysis view selection was rejected: "
+                                    + "no selected analysis declares Transitions "
+                                    + "at this report surface.",
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(viewRejection)),
+                    });
+            }
+
+            bool requiresPredicate =
+                DiffAnalysisCatalog.RequiresStringLiteralQuery(accepted);
+            if (requiresPredicate != (request.Predicate is not null))
+            {
+                throw new BrowserLibraryApiDiffRequestException(
+                    requiresPredicate
+                        ? "The string-literals analysis requires one Literal predicate."
+                        : "The request supplied a predicate that no selected analysis consumes.");
+            }
+            StringLiteralComparisonQueryPlan? stringLiteralQuery = null;
+            if (request.Predicate is { } predicate)
+            {
+                RequireBoundedRequestField(
+                    predicate.Key,
+                    nameof(BrowserDiffAnalysisPredicate.Key));
+                RequireBoundedRequestField(
+                    predicate.Value,
+                    nameof(BrowserDiffAnalysisPredicate.Value));
+                PortableQueryOperator @operator = predicate.Operator switch
+                {
+                    BrowserDiffAnalysisPredicateOperator.Contains =>
+                        PortableQueryOperator.Contains,
+                    BrowserDiffAnalysisPredicateOperator.StartsWith =>
+                        PortableQueryOperator.StartsWith,
+                    _ => throw new BrowserLibraryApiDiffRequestException(
+                        "The Diff analysis predicate operator is unsupported."),
+                };
+                PortableQueryIntent intent =
+                    StringLiteralComparisonQuery.CreateIntent(
+                        @operator,
+                        predicate.Value);
+                if (predicate.Key
+                    != StringLiteralComparisonQuery.LiteralKey)
+                {
+                    throw new BrowserLibraryApiDiffRequestException(
+                        "String-literal Diff accepts only the exact predicate "
+                            + "key 'Literal'.");
+                }
+                stringLiteralQuery =
+                    StringLiteralComparisonQuery.ResolveIntent(intent) switch
+                    {
+                        StringLiteralComparisonQueryPlanResult.Accepted
+                            resolved => resolved.Plan,
+                        StringLiteralComparisonQueryPlanResult.Rejected
+                            queryRejected => throw new BrowserLibraryApiDiffRequestException(
+                                "The string-literal Diff predicate was rejected: "
+                                    + queryRejected.Failure.Reason),
+                        _ => throw new InvalidOperationException(
+                            "Unknown string-literal query-plan result."),
+                    };
+            }
+            return new(accepted, stringLiteralQuery);
         }
 
         var rejected = (AnalysisSetValidationResult.Rejected)validation;
