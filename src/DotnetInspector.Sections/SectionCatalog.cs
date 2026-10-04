@@ -10,7 +10,10 @@ public readonly record struct SectionQueryDemand(
 public sealed record CompiledSectionCategory(
     string Name,
     SectionCategoryRole Role,
-    ImmutableArray<string> Sections);
+    ImmutableArray<string> Sections)
+{
+    public ViewFacetSetDescriptor? FacetSet { get; init; }
+}
 
 public sealed class SectionQueryPlan
 {
@@ -65,7 +68,14 @@ public sealed class SectionCatalog<TModel>
                 new CompiledSectionCategory(
                     category.Name,
                     category.Role,
-                    [.. category.Sections]))];
+                    [.. category.Sections])
+                {
+                    FacetSet = category.FacetSet,
+                })];
+        AuthoredFacetSets =
+            [.. AuthoredCategories
+                .Where(static category => category.FacetSet is not null)
+                .Select(static category => category.FacetSet!)];
 
         ImmutableDictionary<string, ImmutableArray<string>>.Builder categories =
             ImmutableDictionary.CreateBuilder<string, ImmutableArray<string>>(
@@ -138,6 +148,8 @@ public sealed class SectionCatalog<TModel>
     public ImmutableArray<string> BareSelectSectionNames { get; }
 
     public ImmutableArray<CompiledSectionCategory> AuthoredCategories { get; }
+
+    public ImmutableArray<ViewFacetSetDescriptor> AuthoredFacetSets { get; }
 
     public ImmutableArray<string> CategoryNames { get; }
 
