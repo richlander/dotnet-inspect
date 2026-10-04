@@ -1685,11 +1685,17 @@ public sealed class MetadataSource : IDisposable
             foreach (var open in impls)
             {
                 var iface = open.Instantiate(arguments, []);
-                if (seen.Add(iface))
-                {
-                    yield return iface;
-                    pending.Push(iface);   // an interface's own base interfaces
-                }
+                if (!seen.Add(iface))
+                    continue;
+                yield return iface;
+                // A malformed InterfaceImpl row can make an interface extend a
+                // growing instance of itself (`IA<T> : IA<List<T>>`), so the
+                // instance set never repeats; cap the expansion like the
+                // cross-assembly resolver does. Every consumer acts only on a
+                // positive answer, so the cap can only decline.
+                if (seen.Count >= 256)
+                    yield break;
+                pending.Push(iface);   // an interface's own base interfaces
             }
         }
     }

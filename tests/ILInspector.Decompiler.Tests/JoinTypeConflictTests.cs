@@ -402,13 +402,20 @@ public class JoinTypeConflictTests : IDisposable
         // walk it runs must still end — including the shared InterfacesOf walk
         // that ImplementsForMerge runs first when the other arm is an interface
         // (adversarial review of #9266, round 4: that walk pushed A, B, A, B...
-        // until the process ran out of memory).
+        // until the process ran out of memory). The same module also carries a
+        // growing interface cycle, `IA<T> : IA<List<T>>` through a rewritten
+        // InterfaceImpl row, whose instances never repeat: the interface
+        // expansion must end too (round 5: it overflowed the stack). The
+        // platform-aware context makes the IDisposable arm a recognized
+        // interface, so AID reaches the implementation walk.
         var deployment = CompileSameModuleCycleDeployment();
         _disposables.Push(deployment);
-        var source = MetadataSource.Open(deployment.ConsumerPath);
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([deployment.ConsumerPath]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(deployment.ConsumerPath, context: metadata);
         _disposables.Push(source);
 
-        foreach (var method in new[] { "AC", "CA", "AI", "IA", "AID" })
+        foreach (var method in new[] { "AC", "CA", "AI", "IA", "AID", "CQ", "QC" })
         {
             IrFunction? function = null;
             var worker = new Thread(() => function = IrImporter.Import(source, "S.P", method)) { IsBackground = true };
@@ -423,9 +430,12 @@ public class JoinTypeConflictTests : IDisposable
 
     /// <summary>
     /// Compiles one module in which `A : B` and `B : object`, then rewrites B's
-    /// TypeDef <c>Extends</c> column to A so the chain reads `A : B : A`. The
-    /// patch is the case under test (malformed metadata from an untrusted
-    /// source), so it is test-local rather than a cataloged fixture binary.
+    /// TypeDef <c>Extends</c> column to A so the chain reads `A : B : A`, and
+    /// rewrites `IA&lt;T&gt;`'s InterfaceImpl row to the module's existing
+    /// `IA&lt;List&lt;T&gt;&gt;` TypeSpec (declared by `IZ&lt;T&gt;`) so the
+    /// interface extends a growing instance of itself. The patches are the
+    /// case under test (malformed metadata from an untrusted source), so they
+    /// are test-local rather than a cataloged fixture binary.
     /// </summary>
     static SkewCycleDeployment CompileSameModuleCycleDeployment()
     {
@@ -435,12 +445,16 @@ public class JoinTypeConflictTests : IDisposable
             "Cyc",
             [CSharpSyntaxTree.ParseText(
                 "namespace S; public class A : B {} public class B {} public class C {} public interface I {}" +
+                " public interface IA<T> : IB<System.Collections.Generic.List<T>> {} public interface IB<T> {}" +
+                " public interface IZ<T> : IA<System.Collections.Generic.List<T>> {} public class D : IA<int> {} public interface Q {}" +
                 " public static class P {" +
                 " public static string AC(bool c, A a, C cc) => (c ? (object)a : cc).ToString();" +
                 " public static string CA(bool c, A a, C cc) => (c ? (object)cc : a).ToString();" +
                 " public static string AI(bool c, A a, I i) => (c ? (object)a : i).ToString();" +
                 " public static string IA(bool c, A a, I i) => (c ? (object)i : a).ToString();" +
-                " public static string AID(bool c, A a, System.IDisposable d) => (c ? (object)a : d).ToString(); }",
+                " public static string AID(bool c, A a, System.IDisposable d) => (c ? (object)a : d).ToString();" +
+                " public static string CQ(bool c, D d, Q q) => (c ? (object)d : q).ToString();" +
+                " public static string QC(bool c, D d, Q q) => (c ? (object)q : d).ToString(); }",
                 new CSharpParseOptions(LanguageVersion.Preview))],
             RoslynTestReferences.TrustedPlatform,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
@@ -477,12 +491,45 @@ public class JoinTypeConflictTests : IDisposable
             Assert.Equal(1, BitConverter.ToUInt16(bytes, extendsOffset) & 0x3);
         }
         BitConverter.GetBytes((ushort)(aRow << 2)).CopyTo(bytes, extendsOffset);   // TypeDefOrRef tag 0 = TypeDef
+
+        // Rewrite IA<T>'s one InterfaceImpl row (IA<T> : IB<List<T>>) to point
+        // at the Interface column of IZ<T>'s row, the TypeSpec IA<List<!0>>:
+        // IA<T> : IA<List<T>>. InterfaceImpl rows are Class (TypeDef index)
+        // then Interface (TypeDefOrRef coded index), 2 bytes each here.
+        int iaInterfaceOffset = -1;
+        ushort izInterface = 0;
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
+        {
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            int rowSize = reader.GetTableRowSize(System.Reflection.Metadata.Ecma335.TableIndex.InterfaceImpl);
+            Assert.Equal(4, rowSize);
+            int tableOffset = pe.PEHeaders.MetadataStartOffset + reader.GetTableMetadataOffset(System.Reflection.Metadata.Ecma335.TableIndex.InterfaceImpl);
+            int rows = reader.GetTableRowCount(System.Reflection.Metadata.Ecma335.TableIndex.InterfaceImpl);
+            for (int row = 1; row <= rows; row++)
+            {
+                int offset = tableOffset + (row - 1) * rowSize;
+                var owner = reader.GetTypeDefinition(System.Reflection.Metadata.Ecma335.MetadataTokens.TypeDefinitionHandle(BitConverter.ToUInt16(bytes, offset)));
+                string name = reader.GetString(owner.Name);
+                if (name == "IA`1") iaInterfaceOffset = offset + 2;
+                if (name == "IZ`1") izInterface = BitConverter.ToUInt16(bytes, offset + 2);
+            }
+            Assert.True(iaInterfaceOffset > 0 && izInterface != 0);
+            Assert.Equal(2, izInterface & 0x3);   // TypeDefOrRef tag 2 = TypeSpec
+        }
+        BitConverter.GetBytes(izInterface).CopyTo(bytes, iaInterfaceOffset);
+
         using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
         {
             var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
             var b = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == "B");
             Assert.Equal(System.Reflection.Metadata.HandleKind.TypeDefinition, b.BaseType.Kind);
             Assert.Equal("A", reader.GetString(reader.GetTypeDefinition((System.Reflection.Metadata.TypeDefinitionHandle)b.BaseType).Name));
+            var ia = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == "IA`1");
+            var iz = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == "IZ`1");
+            var iaImpl = reader.GetInterfaceImplementation(ia.GetInterfaceImplementations().Single());
+            var izImpl = reader.GetInterfaceImplementation(iz.GetInterfaceImplementations().Single());
+            Assert.Equal(System.Reflection.Metadata.HandleKind.TypeSpecification, iaImpl.Interface.Kind);
+            Assert.Equal(izImpl.Interface, iaImpl.Interface);
         }
 
         string consumerPath = Path.Combine(directory, "Cyc.dll");
