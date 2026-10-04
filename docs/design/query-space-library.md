@@ -240,20 +240,39 @@ The five lifetime classes map onto two assemblies:
 
 | Assembly | Lifetime classes | Contents | Dependencies |
 | --- | --- | --- | --- |
-| `QuerySpace.Primitives` | Declaration; Portable request | Facets, row vocabularies, value-vocabulary declarations and snapshot identity, operation registrations, query-space definitions and descriptors, portable intents, row associations, terminal requirements, and every shared structural identity | Platform only, without `System.Text.Json`; listed in `dependency-free-contract-floors` |
-| `QuerySpace` | Resolved plan and binding; Execution context; Result; the portable payload codec | Planners, normalized operands, structural plans, typed accessors, bindings, reference execution, results, receipts, and `PortableQueryPayloadCodec` | Platform, including `System.Text.Json`, and `QuerySpace.Primitives` |
+| `QuerySpace.Primitives` | Declaration; Portable request | Query-space, row-scope, and facet descriptors; row-vocabulary, resource, source-binding, request-association, and operation-route identities; value-vocabulary declarations, terms, maps, and snapshot identity; portable intents, requests, row associations, and terminal requirements; producer-capability identities and declarations; the `IQueryOperationRoute` contract | Platform only, without `System.Text.Json`; listed in `dependency-free-contract-floors` |
+| `QuerySpace` | Resolved plan and binding; Execution context; Result; the portable payload codec; declarations that still carry binders | Planners, normalized operands, structural plans, typed accessors, bindings, reference execution, results, receipts, `PortableQueryPayloadCodec`, and the binder-bearing declarations named below | Platform, including `System.Text.Json`, and `QuerySpace.Primitives` |
 
 `Primitives` contains no planner, binding, evaluator, execution, or codec
-type. A type that holds a live source, enumerator, buffer, or cancellation
-source cannot be placed there. The portable intent and payload *types* are
-Portable-request data and belong to `Primitives`; the codec that gives an
-intent its canonical byte spelling is machinery over that data and stays in
-`QuerySpace`, where [Portable query payload](portable-query-payload.md)
+type, and no type whose construction requires one. A type that holds a live
+source, enumerator, buffer, cancellation source, accessor delegate, or
+comparer factory cannot be placed there. The portable intent and payload
+*types* are Portable-request data and belong to `Primitives`; the codec that
+gives an intent its canonical byte spelling is machinery over that data and
+stays in `QuerySpace`, where [Portable query payload](portable-query-payload.md)
 already places it. The two sit on opposite sides of the split so that the
 floor carries no serializer. This follows
-[`ILInspector.MetadataPrimitives`](library-family-boundaries.md): a
+[`ILInspector.MetadataPrimitives`](../metadata-primitives.md): a
 dependency-free floor of mechanical currencies beneath an assembly that owns
 the semantics built on them.
+
+The lifetime classes name the rule; the current type inventory does not yet
+obey it everywhere, because the plan/binding separation in adoption step 4 has
+not landed for every declaration. The assembly line is therefore drawn by
+rule *and* by these explicit dispositions at the exact head:
+
+| Type family | Assembly | Why |
+| --- | --- | --- |
+| `PortableQueryIdentity` | `QuerySpace` | Its only constructors call `PortableQueryPayloadCodec`; identity is vocabulary plus codec-confirmed canonical bytes. It moves down only if a codec-free construction is designed by the Portable query payload owner. |
+| `RowQueryVocabulary<TRow>`, `RowQueryKey<TRow>`, `RowQueryNamedOrder<TRow>` | `QuerySpace` | They carry typed accessor delegates and comparer factories, which the lifetime table assigns to Resolved plan and binding. Their identities (`RowQueryVocabularyIdentity` and the key and order identities) go down. They move down only after adoption step 4 separates the structural declaration from its binding. |
+| `PortableQueryVocabulary<TPredicate, TPlan>`, `PortableQueryKeyDeclaration<TPredicate>`, `PortableQueryBinding<TPredicate>`, `QueryOperationDefinition<TPredicate, TPlan>`, `QueryOperationRoute<TPredicate, TPlan>` | `QuerySpace` | They bind predicates and plans. `IQueryOperationRoute` and the route and operation identities go down. |
+| Producer-capability satisfaction and plan candidates | `QuerySpace` | Resolved-plan class. Producer-capability identities, requirements, provision declarations, and coverage declarations go down. |
+| Everything else in the Declaration and Portable-request classes | `QuerySpace.Primitives` | Data and identities with no codec, binder, or delegate. |
+
+A type that moves from `QuerySpace` to `Primitives` in a later adoption does
+so by its owner's design, which names the separation that made it eligible.
+`PrimitivesCarriesOnlyDeclarationAndRequestTypes` enforces the rule over the
+assembly's public surface, so a disposition cannot drift silently.
 
 The split exists so that a component can choose how it participates:
 
@@ -279,6 +298,12 @@ queries declare demand on a tier-2 component in `Primitives` types and
 receive typed results; they do not construct the tier-2 component's planning
 or binding types. Adopting that rule for existing Analysis demand belongs to
 the Analysis programs, not to this document.
+
+Tier-1 declarations are composed, not registered. A host composes the
+declarations it ships into the snapshot or catalog that the declarations'
+semantic owner defines, and no component owns the complete list of a
+declaration kind. Adopters such as [Product Vocabulary](vocabulary.md#ownership)
+cite this rule rather than restating it.
 
 ## Data and machinery separation
 
@@ -569,10 +594,15 @@ Implementation proceeds as focused slices:
 8. Complete Package Query and Library Query CLI adoption, then adopt the same
    descriptors and plans in Inspect Web/Browser Wasm and remove superseded
    product-local paths.
-9. Split `QuerySpace.Primitives` from `QuerySpace` along the lifetime
-   classes, placement-only, and add it to `dependency-free-contract-floors`;
-   then let Product Vocabulary adopt it as the first tier-1 declaration under
+9. Split `QuerySpace.Primitives` from `QuerySpace` by the lifetime classes
+   and the explicit dispositions in
+   [Two assemblies and two participation tiers](#two-assemblies-and-two-participation-tiers),
+   moving only codec-free, binder-free types, and add it to
+   `dependency-free-contract-floors`; then let Product Vocabulary adopt it as
+   the first tier-1 declaration under
    [#9250](https://github.com/richlander/dotnet-inspect/issues/9250).
+   Binder-bearing declarations follow step 4, which must land first for any
+   of them to move.
 
 Each step names one semantic owner or this library-boundary owner. A later slice
 does not reopen this document to absorb its adopting owner's semantics.

@@ -46,8 +46,10 @@ not implement a command-local substitute.
 Markdown, plain text, table, TSV, JSONL, and projected JSON lower one typed
 `VocabularyView` through `MarkoutSerializer` and
 `VocabularyViewContext`. Runtime-named sections and runtime-column tables keep
-`VocabularyCatalog` authoritative for names, field labels, stable field IDs,
-and row order. Each runtime section carries its summary as an ordinary
+the composed snapshot authoritative for names, field labels, stable field IDs,
+and row order; today that snapshot is `VocabularyCatalog`, and after
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) it is the
+host-composed snapshot described under [Ownership](#ownership). Each runtime section carries its summary as an ordinary
 Markout paragraph because unwrapped child sections lower their content rather
 than their `DescriptionProperty` metadata. `VocabularyCommandTests` gates these
 formats in Release, including
@@ -84,8 +86,10 @@ removes the former `categories` member from structured vocabulary sections.
 
 Each vocabulary is declared by the owner of its terms as one immutable
 `VocabularyDefinition` beside that owner's catalog. A host composes the
-declarations it ships into one exactly identified snapshot. No component owns
-the complete list of product vocabularies.
+declarations it ships into one exactly identified snapshot, under the tier-1
+composition rule the
+[QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
+states. No component owns the complete list of product vocabularies.
 
 The term owners, and therefore the declaring owners, are:
 

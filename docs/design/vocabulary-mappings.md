@@ -517,9 +517,10 @@ The implementation must gate:
   feature behavior, while the Settings consumer resolves only its explicitly
   bound vocabulary and maps.
 
-The typed construction and identity cases belong in a focused
-`DotnetInspector.Vocabulary` Release suite or the existing CLI suite until that
-suite exists. Existing `VocabularyCommandTests` retain CLI compatibility.
+The typed construction and identity cases belong in the `QuerySpace.Primitives`
+Release suite once [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
+moves the declaration contracts there; until then they stay in the existing
+CLI suite. Existing `VocabularyCommandTests` retain CLI compatibility.
 `BrowserStyleOptionsTests`, strict generated-TypeScript compilation, and the
 Inspect Web test/build gates own the Browser adoption.
 
@@ -533,10 +534,20 @@ semantic authority stays here.
 | Catalog, vocabulary, term, map, and snapshot identities; `VocabularyDefinition`, `VocabularyTerm`, map definitions and entries, scalar values, cardinality, coverage; `VocabularySnapshot` and its construction-time validation | `QuerySpace.Primitives` | A declaration a term owner must be able to produce from any family; the floor is dependency-free under the [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers) |
 | `VocabularyDocument`, sections, fields, operators, rows, the wire document, and `VocabularyJson` | `DotnetInspector.Sections` | Product Vocabulary's declared section schema and compatibility wire projection; not part of the reusable mapping pattern |
 
-Owners declare; hosts compose. A declaration is a value, not an interface the
+Owners declare; hosts compose, under the composition rule the
+[QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
+states for tier-1 declarations. A declaration is a value, not an interface the
 owner implements, and no reflection or plugin discovery assembles the list.
 The composed snapshot's identity derives from its declarations, so hosts that
 ship the same declarations observe the same identity.
+
+The snapshot identity is a `sha256:` digest over a deterministic canonical
+projection of the declarations. Today that projection is written with
+`Utf8JsonWriter`. In `QuerySpace.Primitives` the projection is handwritten,
+because the floor references no serializer, and it must produce the same bytes
+as the current writer so that every existing digest is preserved. The pinned
+digest in `VocabularyMappingsTests` is the gate; it moves with the types to
+the `Primitives` test suite and must pass unchanged across the move.
 
 ## Delivery plan
 
@@ -567,7 +578,7 @@ has been removed without a regression. The existing CLI wire projection is a
 public compatibility surface and remains intentionally; it is not a second
 semantic catalog.
 
-After these three steps,
+After these steps,
 [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md) may bind
 exact schema locations to terms in an exact Vocabulary Mappings snapshot.
 Other catalogs adopt one owner at a time.
