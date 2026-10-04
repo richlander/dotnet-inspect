@@ -147,6 +147,11 @@ public sealed class AssemblyReferenceResolutionWorkLedger
                 exhaustion = _exhaustion;
                 return false;
             }
+            if (ObserveDeadlineLocked() is { } deadlineExhaustion)
+            {
+                exhaustion = deadlineExhaustion;
+                return false;
+            }
 
             (long consumed, long maximum) = kind switch
             {
@@ -249,20 +254,22 @@ public sealed class AssemblyReferenceResolutionWorkLedger
             if (_exhaustion is not null)
                 return _exhaustion;
 
-            DateTimeOffset now = _timeProvider.GetUtcNow();
-            if (now <= Budget.Deadline)
-                return null;
-
-            _exhaustion =
-                new AssemblyReferenceResolutionWorkExhaustion(
-                    AssemblyReferenceResolutionWorkKind.Deadline,
-                    ConfiguredMaximum: null,
-                    Consumed: null,
-                    Requested: null,
-                    Budget.Deadline,
-                    now);
-            return _exhaustion;
+            return ObserveDeadlineLocked();
         }
+    }
+
+    internal CancellationTokenSource CreateDeadlineCancellation()
+    {
+        TimeSpan delay;
+        lock (_gate)
+        {
+            DateTimeOffset now = _timeProvider.GetUtcNow();
+            delay = Budget.Deadline <= now
+                ? TimeSpan.Zero
+                : Budget.Deadline - now;
+        }
+
+        return new(delay, _timeProvider);
     }
 
     internal AssemblyReferenceResolutionWorkReceipt Capture()
@@ -281,6 +288,24 @@ public sealed class AssemblyReferenceResolutionWorkLedger
                 _workspaceReplacements,
                 _exhaustion);
         }
+    }
+
+    AssemblyReferenceResolutionWorkExhaustion?
+        ObserveDeadlineLocked()
+    {
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        if (now < Budget.Deadline)
+            return null;
+
+        _exhaustion =
+            new AssemblyReferenceResolutionWorkExhaustion(
+                AssemblyReferenceResolutionWorkKind.Deadline,
+                ConfiguredMaximum: null,
+                Consumed: null,
+                Requested: null,
+                Budget.Deadline,
+                now);
+        return _exhaustion;
     }
 }
 
@@ -337,14 +362,18 @@ public sealed class AssemblyReferenceResolutionContinuationReceipt
     public AssemblyReferenceResolutionContinuationReceipt(
         AssemblyBindingRequest predecessorRequest,
         AssemblyReferenceResolutionGenerationReceipt predecessorGeneration,
+        AssemblyBindingPolicyVersion predecessorPolicyVersion,
         AssemblyBindingRequest successorRequest,
         AssemblyReferenceResolutionGenerationReceipt successorGeneration,
+        AssemblyBindingPolicyVersion successorPolicyVersion,
         object ownerEvidence)
     {
         ArgumentNullException.ThrowIfNull(predecessorRequest);
         ArgumentNullException.ThrowIfNull(predecessorGeneration);
+        ArgumentNullException.ThrowIfNull(predecessorPolicyVersion);
         ArgumentNullException.ThrowIfNull(successorRequest);
         ArgumentNullException.ThrowIfNull(successorGeneration);
+        ArgumentNullException.ThrowIfNull(successorPolicyVersion);
         ArgumentNullException.ThrowIfNull(ownerEvidence);
         if (!Equals(
                 predecessorRequest.Target,
@@ -381,11 +410,21 @@ public sealed class AssemblyReferenceResolutionContinuationReceipt
                 "A continuation must identify a new physical generation of the same Workspace Scope revision.",
                 nameof(successorGeneration));
         }
+        if (ReferenceEquals(
+                predecessorPolicyVersion,
+                successorPolicyVersion))
+        {
+            throw new ArgumentException(
+                "A continuation must identify the successor generation's fresh binding-policy version.",
+                nameof(successorPolicyVersion));
+        }
 
         PredecessorRequest = predecessorRequest;
         PredecessorGeneration = predecessorGeneration;
+        PredecessorPolicyVersion = predecessorPolicyVersion;
         SuccessorRequest = successorRequest;
         SuccessorGeneration = successorGeneration;
+        SuccessorPolicyVersion = successorPolicyVersion;
         OwnerEvidence = ownerEvidence;
     }
 
@@ -394,10 +433,14 @@ public sealed class AssemblyReferenceResolutionContinuationReceipt
     public AssemblyReferenceResolutionGenerationReceipt PredecessorGeneration
     { get; }
 
+    public AssemblyBindingPolicyVersion PredecessorPolicyVersion { get; }
+
     public AssemblyBindingRequest SuccessorRequest { get; }
 
     public AssemblyReferenceResolutionGenerationReceipt SuccessorGeneration
     { get; }
+
+    public AssemblyBindingPolicyVersion SuccessorPolicyVersion { get; }
 
     public object OwnerEvidence { get; }
 }
@@ -1027,11 +1070,33 @@ public static class AssemblyReferenceResolutionLadder
                 trace);
         }
 
-        AssemblyReferenceResolutionContextOutcome context =
-            await request.RoutePlan.EvaluateContextAsync(
-                    request.Work,
-                    cancellationToken)
-                .ConfigureAwait(false);
+        using CancellationTokenSource deadlineCancellation =
+            request.Work.CreateDeadlineCancellation();
+        using CancellationTokenSource operationCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                deadlineCancellation.Token);
+        CancellationToken operationToken =
+            operationCancellation.Token;
+
+        AssemblyReferenceResolutionContextOutcome context;
+        try
+        {
+            context =
+                await request.RoutePlan.EvaluateContextAsync(
+                        request.Work,
+                        operationToken)
+                    .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (deadlineCancellation.IsCancellationRequested
+                && !cancellationToken.IsCancellationRequested)
+        {
+            return DeadlineIncomplete(
+                request,
+                AssemblyReferenceResolutionRung.ReferencingContext,
+                trace);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         if (context is null)
         {
@@ -1114,12 +1179,25 @@ public static class AssemblyReferenceResolutionLadder
                 trace);
         }
 
-        AssemblyReferenceExternalRouteSetFormationOutcome formation =
-            await request.RoutePlan.FormExternalRoutesAsync(
-                    advancement,
-                    request.Work,
-                    cancellationToken)
-                .ConfigureAwait(false);
+        AssemblyReferenceExternalRouteSetFormationOutcome formation;
+        try
+        {
+            formation =
+                await request.RoutePlan.FormExternalRoutesAsync(
+                        advancement,
+                        request.Work,
+                        operationToken)
+                    .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (deadlineCancellation.IsCancellationRequested
+                && !cancellationToken.IsCancellationRequested)
+        {
+            return DeadlineIncomplete(
+                request,
+                AssemblyReferenceResolutionRung.ExternalSupplier,
+                trace);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         if (request.Work.ObserveExhaustion() is { } routeExhaustion)
         {
@@ -1231,11 +1309,24 @@ public static class AssemblyReferenceResolutionLadder
                 trace);
         }
 
-        AssemblyReferenceExternalRouteOutcome external =
-            await routeSet.ExecuteAsync(
-                    request.Work,
-                    cancellationToken)
-                .ConfigureAwait(false);
+        AssemblyReferenceExternalRouteOutcome external;
+        try
+        {
+            external =
+                await routeSet.ExecuteAsync(
+                        request.Work,
+                        operationToken)
+                    .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (deadlineCancellation.IsCancellationRequested
+                && !cancellationToken.IsCancellationRequested)
+        {
+            return DeadlineIncomplete(
+                request,
+                AssemblyReferenceResolutionRung.ExternalSupplier,
+                trace);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         if (external is null)
         {
@@ -1275,6 +1366,7 @@ public static class AssemblyReferenceResolutionLadder
                     AssemblyReferenceResolutionRung.ExternalSupplier,
                     completed.Request,
                     completed.Generation,
+                    FinalPolicyVersion(request, completed),
                     completed.Selection,
                     completed.SelectedRoute,
                     routeSet,
@@ -1363,6 +1455,7 @@ public static class AssemblyReferenceResolutionLadder
             AssemblyReferenceResolutionRung.ReferencingContext,
             request.BindingRequest,
             request.Generation,
+            request.PolicyVersion,
             ReferenceEquals(validated, selection.Selection)
                 ? selection
                 : new AssemblyBindingSelectionSnapshot(
@@ -1379,6 +1472,7 @@ public static class AssemblyReferenceResolutionLadder
         AssemblyReferenceResolutionRung rung,
         AssemblyBindingRequest finalRequest,
         AssemblyReferenceResolutionGenerationReceipt finalGeneration,
+        AssemblyBindingPolicyVersion expectedPolicyVersion,
         AssemblyBindingSelectionSnapshot selection,
         AssemblyReferenceExternalRoute? route,
         AssemblyReferenceExternalRouteSet? routeSet,
@@ -1386,7 +1480,7 @@ public static class AssemblyReferenceResolutionLadder
     {
         if (!ReferenceEquals(
                 selection.Version,
-                request.PolicyVersion))
+                expectedPolicyVersion))
         {
             return Rejected(
                 request,
@@ -1531,11 +1625,37 @@ public static class AssemblyReferenceResolutionLadder
                 continuation.PredecessorGeneration,
                 expected.Generation)
             && ReferenceEquals(
+                continuation.PredecessorPolicyVersion,
+                expected.PolicyVersion)
+            && ReferenceEquals(
                 continuation.SuccessorRequest,
                 outcome.Request)
             && ReferenceEquals(
                 continuation.SuccessorGeneration,
                 outcome.Generation);
+    }
+
+    static AssemblyBindingPolicyVersion FinalPolicyVersion(
+        AssemblyReferenceResolutionRequest request,
+        AssemblyReferenceExternalRouteOutcome outcome) =>
+        outcome.Continuation?.SuccessorPolicyVersion
+            ?? request.PolicyVersion;
+
+    static AssemblyReferenceResolutionOutcome.Incomplete
+        DeadlineIncomplete(
+        AssemblyReferenceResolutionRequest request,
+        AssemblyReferenceResolutionRung rung,
+        ImmutableArray<AssemblyReferenceResolutionRungAttempt>.Builder trace)
+    {
+        AssemblyReferenceResolutionWorkExhaustion exhaustion =
+            request.Work.ObserveExhaustion()
+            ?? throw new InvalidOperationException(
+                "Deadline cancellation must retain deadline exhaustion.");
+        return Incomplete(
+            request,
+            rung,
+            exhaustion,
+            trace);
     }
 
     static AssemblyReferenceResolutionOutcome.Unavailable Unavailable(
