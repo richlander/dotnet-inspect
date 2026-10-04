@@ -128,8 +128,9 @@ JavaScript Object Notation (JSON) text ...
 
 Selecting several sections composes a Markdown document. Inside it, a
 Hierarchy appears as its tree, a Table as a Markdown table, and a Document as
-its fact row; a Document's body appears only when the Document is the whole
-selection. JSON composes the same selection as structured content.
+its fact row; rendered text shows a Document's body only when the Document is
+the whole selection. JSON composes the same selection as structured content,
+with every Document's content included.
 
 ```console
 $ dotnet-inspect package System.Text.Json -S "Target Frameworks" -S README
@@ -174,8 +175,9 @@ whatever the owner declares — a target framework, a dependency, a type, a
 finding — and nothing in the presentation adds or removes rows.
 
 The native format is the row stream: TSV in the CLI. Permitted lowerings are
-the Markdown table, the pretty table, JSONL, a JSON value that is an array of
-row objects, and the Count and projection steps of the
+the pretty table, JSONL, a JSON value that is an array of row objects, the
+Markdown table under the section heading whether the Table is selected alone
+or composed, and the Count and projection steps of the
 [output-shape ladder](output-shapes.md#the-shape-ladder).
 
 A scalar record such as `Package Info` or single-Library `Library Info` is a
@@ -191,12 +193,13 @@ are the result; the parent chain is how the owner explains them. A directory
 is context for the files beneath it, a package is context for its Libraries, a
 root occurrence is context for the dependency occurrences it reaches.
 
-The native format is the tree. Permitted lowerings are the flat row stream and
-Markdown table, each carrying the parent as a column, JSONL rows with the same
-column, and a nested JSON value in which each row's children are an array. A
-tree node that is only context is never a row: Count, `-n`, `--rows`, and
-every flat lowering see the same rows the tree shows as leaves or as rows of
-their own.
+The native format is the tree. Permitted lowerings are the flat row stream,
+pretty table, and JSONL rows, each carrying the parent as a column; a nested
+JSON value in which each row's children are an array; and Markdown, which
+renders the tree under the section heading whether the Hierarchy is selected
+alone or composed. A Hierarchy has no Markdown-table form. A tree node that is
+only context is never a row: Count, `-n`, `--rows`, and every flat lowering
+see the same rows the tree shows as leaves or as rows of their own.
 
 Mermaid is not a Hierarchy lowering. A result whose identity is the union of
 nodes and typed edges is a Graph, not a Hierarchy;
@@ -222,13 +225,26 @@ payload the command can open through its existing path selection, and the
 opened payload is a Document.
 
 The native format is the text itself, undecorated. Permitted lowerings are a
-JSON value that is an object carrying the facts and the content, and the fact
-row in tabular formats and in a Markdown composition. The body renders only
-when the Document is the whole selection: natively, or as the content of its
-JSON value. A Document's fact row is how it participates in a composition
-without flooding it, and how Documents and Document-row Tables selected
-together remain one homogeneous table: a package's nuspec and README Documents
-and its license and skill Tables all lower to Path/Size rows.
+JSON value that is an object carrying the facts and the content, complete
+whether the Document is selected alone or composed; Markdown, which frames the
+body under the section heading when the Document is the whole selection and
+shows the fact row when it is composed with other sections; and the fact row
+in tabular formats. Rendered text therefore shows the body only for a whole
+selection, while structured output always carries it. A Document's fact row is
+how it participates in a composition without flooding it, and how Documents
+and Document-row Tables selected together remain one homogeneous table: a
+package's nuspec and README Documents and its license and skill Tables all
+lower to Path/Size rows.
+
+The fact row is a presentation row, not an inventory. A Document whose owner
+declares no inventory is scalar under [Section
+cardinality](section-cardinality.md): it has no Count, and `-n` and `--rows`
+do not apply to it. A Document whose owner declares a line inventory, as
+[Source document cardinality](source-document-cardinality.md) does for type
+and member Source, exposes that inventory as its rows: Count, `-n`, `--rows`,
+and the lone row-stream lowering observe lines as that owner specifies, while
+the fact row remains what the Document contributes to a composition or a
+family listing.
 
 A large Document is never clipped silently. Each Document owner supplies its
 own completeness behavior: type and member Source continue through the ordered
@@ -296,7 +312,8 @@ adds a value the owner did not issue.
 
 **Count is shape-invariant.** For an inventory section, Count, `-n`, and
 `--rows` observe the same rows in every permitted lowering of that section.
-Tree context nodes, Markdown headings, and fences are not rows.
+Tree context nodes, Markdown headings, fences, and a Document's fact row are
+presentation, not rows.
 
 **Explicit intent wins.** When the user names a format, the shape's permitted
 lowerings decide only whether the request is admissible. An inadmissible pair
@@ -434,8 +451,9 @@ gates covering, for its command:
   shape-format pair, naming the shape;
 - Count, `-n`, and `--rows` invariance across the tree, flat, and structured
   lowerings of each Hierarchy;
-- the fact-row lowering of each Document in tabular and composition formats,
-  and its body only when the Document is the whole selection;
+- the fact-row lowering of each Document in tabular and composed Markdown
+  output, its framed body in lone Markdown output, its complete JSON value in
+  both, and its bare body natively;
 - the absence of host replay text from structured content;
 - title and heading text composed only from the subject identity and issued
   properties, a bare payload for a native Document, and no properties in row
