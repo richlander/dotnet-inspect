@@ -671,15 +671,9 @@ public partial class DiffCommand
                     fromSurface,
                     toSurface)
                 : [];
-        DiffAnalysisTransitionRow[] failedComparisons =
-        [
-            .. document.Transitions.GetValueOrDefault()
-                .Where(DiffAnalysisInspection.IsFailedComparison),
-        ];
         bool failed = document.Outcomes.Any(static outcome =>
                 outcome.Kind == DiffAnalysisDocumentOutcomeKind.Failed)
             || inspectionFailures.Count > 0
-            || failedComparisons.Length > 0
             || inspection.Diagnostics.Any(static diagnostic =>
                 diagnostic.Severity == InspectionDiagnosticSeverity.Error);
 
