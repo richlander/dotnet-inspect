@@ -30,6 +30,7 @@ test("reciprocal relationship evidence remains independently reachable", async (
   await page.setViewportSize({ width: 1100, height: 700 });
   await page.goto("/browser/library-metrics.html");
   const edges = page.locator("path.metrics-relationship-edge");
+  const activation = page.locator("#metrics-activated-type");
   await expect(edges).toHaveCount(20);
   await page.locator("svg.metrics-relationship-crossing")
     .scrollIntoViewIfNeeded();
@@ -62,6 +63,39 @@ test("reciprocal relationship evidence remains independently reachable", async (
     expect(reachable, `${title} should own at least one pointer position`)
       .toBe(true);
   }
+
+  const detail = page.locator("[data-metrics-relationship-detail]");
+  const forwardEdge = edges.filter({ hasText: forward });
+  const forwardPoint = await forwardEdge.evaluate(element => {
+    if (!(element instanceof SVGPathElement))
+      throw new Error("Relationship edge is not an SVG path.");
+    const matrix = element.getScreenCTM();
+    if (matrix === null) throw new Error("Relationship edge has no screen CTM.");
+    const point = element.getPointAtLength(element.getTotalLength() / 2);
+    const screen = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+    return { x: screen.x, y: screen.y };
+  });
+  await page.mouse.click(forwardPoint.x, forwardPoint.y);
+  await expect(forwardEdge).toHaveAttribute("aria-pressed", "true");
+  await expect(detail.locator("[data-metrics-relationship-source]"))
+    .toHaveText("Example.A");
+  await expect(detail.locator("[data-metrics-relationship-target]"))
+    .toHaveText("Example.B");
+  await expect(detail.locator("[data-metrics-relationship-depth]"))
+    .toHaveText("1 retained call site");
+
+  await detail.locator("[data-metrics-relationship-target]").click();
+  await expect(activation).toHaveText("Example.B");
+
+  const reverseEdge = edges.filter({ hasText: reverse });
+  await reverseEdge.focus();
+  await reverseEdge.press("Enter");
+  await expect(reverseEdge).toHaveAttribute("aria-pressed", "true");
+  await expect(forwardEdge).toHaveAttribute("aria-pressed", "false");
+  await expect(detail.locator("[data-metrics-relationship-source]"))
+    .toHaveText("Example.B");
+  await expect(detail.locator("[data-metrics-relationship-target]"))
+    .toHaveText("Example.A");
 
   const svg = page.locator("svg.metrics-relationship-crossing");
   const viewport = await svg.boundingBox();

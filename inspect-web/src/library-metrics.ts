@@ -267,7 +267,12 @@ function renderRelationshipCrossing(
     const bend = 34 + Math.abs(target - source) * .36 + bendOffset;
     const color = RELATIONSHIP_COLORS[index % RELATIONSHIP_COLORS.length];
     const tooltip = `${edge.sourceTypeDisplay} calls ${edge.targetTypeDisplay} at ${formatCount(edge.callSiteCount, "retained site")}`;
-    return `<path class="metrics-relationship-edge" d="M ${source.toFixed(1)} ${baseline} C ${source.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${baseline}" stroke="${color}" stroke-width="${Math.min(8, 1.5 + Math.log2(edge.callSiteCount + 1))}"><title>${escapeHtml(tooltip)}</title></path>`;
+    const path = `M ${source.toFixed(1)} ${baseline} C ${source.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${baseline}`;
+    const strokeWidth = Math.min(
+      8,
+      1.5 + Math.log2(edge.callSiteCount + 1),
+    );
+    return `<path class="metrics-relationship-edge" d="${path}" data-metrics-relationship data-source-type-key="${escapeHtml(edge.sourceTypeKey)}" data-source-type-display="${escapeHtml(edge.sourceTypeDisplay)}" data-target-type-key="${escapeHtml(edge.targetTypeKey)}" data-target-type-display="${escapeHtml(edge.targetTypeDisplay)}" data-call-site-count="${edge.callSiteCount}" stroke="transparent" stroke-width="${Math.max(14, strokeWidth + 8)}" tabindex="0" role="button" aria-pressed="false" aria-label="${escapeHtml(`Inspect relationship. ${tooltip}`)}"><title>${escapeHtml(tooltip)}</title></path><path class="metrics-relationship-line" d="${path}" stroke="${color}" stroke-width="${strokeWidth}" aria-hidden="true"></path>`;
   }).join("");
   const nodes = types.map(type => {
     const x = positions.get(type.typeKey) ?? 0;
@@ -278,8 +283,25 @@ function renderRelationshipCrossing(
   }).join("");
   return `<section class="document-section metrics-visual-section">
     <div class="metrics-visual-copy"><h2>Relationship Crossing</h2><p>The most entangled types are placed on one line; arcs reveal how often their implementations cross. Each color follows one retained relationship so dense crossings remain separable.</p></div>
-    <svg class="metrics-relationship-crossing" viewBox="0 0 ${RELATIONSHIP_WIDTH} ${RELATIONSHIP_HEIGHT}" role="img" aria-label="Relationship Crossing diagram">${arcs}${nodes}</svg>
-    <p class="metrics-visual-caption">${formatNumber(types.length)} most connected types · ${formatNumber(edges.length)} retained relationships · Hover an arc or type for evidence.</p>
+    <svg class="metrics-relationship-crossing" viewBox="0 0 ${RELATIONSHIP_WIDTH} ${RELATIONSHIP_HEIGHT}" role="group" aria-label="Relationship Crossing diagram">${arcs}${nodes}</svg>
+    <div class="metrics-relationship-detail" data-metrics-relationship-detail aria-live="polite">
+      <p class="metrics-relationship-detail-empty" data-metrics-relationship-detail-empty>Select an arc to inspect its endpoint types and retained depth.</p>
+      <div class="metrics-relationship-detail-selection" data-metrics-relationship-detail-selection hidden>
+        <div>
+          <p class="metrics-relationship-detail-label">Selected relationship</p>
+          <div class="metrics-relationship-route">
+            <button type="button" class="metrics-relationship-type-link" data-metrics-relationship-source></button>
+            <span class="metrics-relationship-arrow" aria-hidden="true">&rarr;</span>
+            <button type="button" class="metrics-relationship-type-link" data-metrics-relationship-target></button>
+          </div>
+        </div>
+        <div class="metrics-relationship-depth">
+          <span>Relationship depth</span>
+          <strong data-metrics-relationship-depth></strong>
+        </div>
+      </div>
+    </div>
+    <p class="metrics-visual-caption">${formatNumber(types.length)} most connected types · ${formatNumber(edges.length)} retained relationships · Select an arc for details.</p>
   </section>`;
 }
 
@@ -483,6 +505,72 @@ export function bindLibraryMetricsInteractions(
     });
   }
 
+  const relationshipDetail = root.querySelector<HTMLElement>(
+    "[data-metrics-relationship-detail]",
+  );
+  const relationshipDetailEmpty = relationshipDetail
+    ?.querySelector<HTMLElement>("[data-metrics-relationship-detail-empty]");
+  const relationshipDetailSelection = relationshipDetail
+    ?.querySelector<HTMLElement>(
+      "[data-metrics-relationship-detail-selection]",
+    );
+  const relationshipSource = relationshipDetail
+    ?.querySelector<HTMLButtonElement>("[data-metrics-relationship-source]");
+  const relationshipTarget = relationshipDetail
+    ?.querySelector<HTMLButtonElement>("[data-metrics-relationship-target]");
+  const relationshipDepth = relationshipDetail
+    ?.querySelector<HTMLElement>("[data-metrics-relationship-depth]");
+  const relationshipEdges = root.querySelectorAll<SVGPathElement>(
+    "[data-metrics-relationship]",
+  );
+  const selectRelationship = (edge: SVGPathElement) => {
+    for (const candidate of relationshipEdges) {
+      candidate.setAttribute(
+        "aria-pressed",
+        candidate === edge ? "true" : "false",
+      );
+    }
+    const sourceKey = edge.dataset.sourceTypeKey ?? "";
+    const sourceDisplay = edge.dataset.sourceTypeDisplay ?? sourceKey;
+    const targetKey = edge.dataset.targetTypeKey ?? "";
+    const targetDisplay = edge.dataset.targetTypeDisplay ?? targetKey;
+    const callSiteCount = Number(edge.dataset.callSiteCount ?? 0);
+    if (relationshipSource) {
+      relationshipSource.textContent = sourceDisplay;
+      relationshipSource.dataset.metricsTypeKey = sourceKey;
+      relationshipSource.setAttribute("aria-label", `Open ${sourceDisplay}`);
+    }
+    if (relationshipTarget) {
+      relationshipTarget.textContent = targetDisplay;
+      relationshipTarget.dataset.metricsTypeKey = targetKey;
+      relationshipTarget.setAttribute("aria-label", `Open ${targetDisplay}`);
+    }
+    if (relationshipDepth) {
+      relationshipDepth.textContent = formatCount(
+        callSiteCount,
+        "retained call site",
+      );
+    }
+    if (relationshipDetailEmpty) relationshipDetailEmpty.hidden = true;
+    if (relationshipDetailSelection) {
+      relationshipDetailSelection.hidden = false;
+    }
+  };
+  for (const edge of relationshipEdges) {
+    edge.addEventListener("click", () => selectRelationship(edge));
+    edge.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectRelationship(edge);
+    });
+  }
+  for (const endpoint of [relationshipSource, relationshipTarget]) {
+    endpoint?.addEventListener("click", () => {
+      const typeKey = endpoint.dataset.metricsTypeKey;
+      if (typeKey) actions.activateType(typeKey);
+    });
+  }
+
   for (const edge of root.querySelectorAll<SVGPathElement>(
     "[data-dependency-edge-index]",
   )) {
@@ -523,7 +611,7 @@ export function renderLibraryMetricsSurface(
   options: LibraryMetricsOptions,
 ): string {
   const {
-    libraryName, requireLibrary, fresh, loading, error, data, escapeHtml,
+    requireLibrary, fresh, loading, error, data, escapeHtml,
   } = options;
   let status: string;
   let content: string;
@@ -570,10 +658,7 @@ export function renderLibraryMetricsSurface(
       content = `${incomplete}
         ${renderTreemap(resolved, escapeHtml)}
         ${renderRelationshipCrossing(resolved, escapeHtml)}
-        ${renderDependencyStructureState(options)}
-        <section class="document-section">
-          <p>Compiled IL metrics for <strong>${escapeHtml(libraryName)}</strong>. These are structural implementation measures, not authored-source complexity.</p>
-        </section>`;
+        ${renderDependencyStructureState(options)}`;
     }
   }
   return renderAnalysisInspector(options, "metrics", status, content);

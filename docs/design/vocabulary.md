@@ -105,7 +105,7 @@ The declaration type lives in the `QuerySpace.Primitives` floor under the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers),
 so an `ILInspector` owner can declare without referencing any product
 assembly. A facet that is bounded by a vocabulary names it by identity on its
-`QuerySpaceDescriptor`, through the opaque value-vocabulary identity that
+facet descriptor, through the opaque value-vocabulary identity that
 [Query Space Composition](query-space-composition.md) already defines; after
 [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 5 the
 Body Shapes `Kind` facet names `csharp.body-kinds`, and today no facet sets
