@@ -1713,8 +1713,9 @@ public sealed class MetadataSource : IDisposable
         // resolved assemblies in version skew can declare `A : B` and `B : A`
         // (each compiled against the other's earlier shape), and a chain that
         // revisits a type would otherwise stop growing the set but never stop
-        // the loop. A revisit ends the walk; the join then falls through to
-        // the caller's family fallback like any chain without a shared ancestor.
+        // the loop. A revisit ends the walk; the join then declines like any
+        // chain without a shared ancestor (an honest unknown unless the
+        // caller's stack-family fallback applies).
         var ancestorsA = new Dictionary<TypeRef, TypeRef>();
         var ancestor = a;
         for (int depth = 0; ancestor is not null && depth < 64; depth++, ancestor = ResolveBaseTypeForMerge(ancestor))

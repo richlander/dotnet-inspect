@@ -339,7 +339,7 @@ public class JoinTypeConflictTests : IDisposable
     }
 
     [Fact]
-    public void ReferenceJoin_CyclicCrossAssemblyBaseChain_TerminatesAndFallsBackToObject()
+    public void ReferenceJoin_CyclicCrossAssemblyBaseChain_TerminatesWithAnHonestUnknownJoin()
     {
         // Version skew can close a base chain into a cycle without any
         // hand-written IL: SkewX v2 declares `A : B` (compiled against a SkewY
@@ -361,12 +361,15 @@ public class JoinTypeConflictTests : IDisposable
             worker.Start();
             Assert.True(worker.Join(TimeSpan.FromSeconds(60)), $"IrImporter.Import of M.P::{method} did not return within 60 seconds");
             Assert.NotNull(function);
-            // No ancestor is shared below object, so the family fallback types
-            // the join as object and the method stays fully raised.
-            Assert.DoesNotContain(function!.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+            // The cycle shares no ancestor with C, the arms are class
+            // definitions outside the ECMA stack-family table, and nothing
+            // proves object: the join stays an honest unknown with no
+            // published widening, and the method renders Partial rather than
+            // guessing.
+            Assert.Contains(function!.Diagnostics, d => (d.Message ?? "").Contains("(join-type)") && ((d.Message ?? "").Contains("A and C") || (d.Message ?? "").Contains("C and A")));
+            Assert.Empty(function.ProvenReferenceWidenings);
             var printed = CSharpPrinter.PrintRaised(function);
-            Assert.Equal(DecompilationFidelity.Full, printed.Fidelity);
-            Assert.All(function.ProvenReferenceWidenings, w => Assert.True(w.To.Equals(TypeRef.CoreLib("System", "Object")), w.ToString()));
+            Assert.Equal(DecompilationFidelity.Partial, printed.Fidelity);
         }
 
         // The hierarchy merge itself declines in both arm orders and returns

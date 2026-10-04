@@ -1139,9 +1139,9 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    ancestor is an arm and declines (honest unknown) an ancestor this module
    never references, so no `TypeRef` enters a function under an identity its
    rows do not share. Each reference join the importer types — a successful
-   reference merge, or the ECMA O-family fallback that types two reference
-   arms with no provable common supertype as `object`, every reference type
-   being assignable to it — publishes the conversions it proved as
+   reference merge, or the ECMA O-family fallback that types two `object`,
+   `string`, or array arms with no provable common supertype as `object`,
+   every reference type being assignable to it — publishes the conversions it proved as
    `IrFunction.ProvenReferenceWidenings` (`From → To`), the only hierarchy
    fact `ReferenceAssignmentTargets` consults when materialization admits a
    subtype store into a join-typed slot; a null-literal arm adopting the
