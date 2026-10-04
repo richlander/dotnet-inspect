@@ -905,6 +905,13 @@ jobs:
           --filter-class
           'ILInspector.Research.Tests.LibraryNameFamilySummaryTests'
 
+      - name: Self-test Library Type-leverage census
+        if: matrix.shard == 'host-policy'
+        run: >-
+          dotnet run -c Release
+          eng/census-library-type-leverage.cs --
+          --self-test
+
       - name: Test CLI runtime flavor across publish modes
         if: matrix.shard == 'host-policy'
         run: bash eng/test-runtime-flavor.sh ${{ matrix.rid }}

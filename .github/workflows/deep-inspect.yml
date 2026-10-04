@@ -98,6 +98,14 @@ jobs:
             --max-examples 3 \
             | tee artifacts/package-sweep/report.md
 
+      - name: Compare signature and body Type leverage
+        run: >-
+          dotnet run -c Release
+          eng/census-library-type-leverage.cs --
+          artifacts/package-sweep/manifest.json
+          artifacts/package-sweep/type-leverage.json
+          artifacts/package-sweep/type-leverage.md
+
       - name: Upload package sweep artifacts
         if: always()
         uses: actions/upload-artifact@v7
