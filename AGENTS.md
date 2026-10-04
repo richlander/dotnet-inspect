@@ -460,8 +460,10 @@ Applied without waiting for CI; full conditions live in
   exact-head trivial-interaction waiver when eligible. A conflict is never a
   waiting state: no status budget, review lock, pending CI, or unreadable API
   defers it, and `waiting` never carries a conflict predicate. Resolve and
-  push the recovery at once; the only pause is a `HELP` to the user when both
-  sides changed the same logic and either choice loses behavior.
+  push the recovery at once. Outside a user decision hold, the only pause is
+  a `HELP` to the user when both sides changed the same logic and either
+  choice loses behavior; a conflict on a head held for a scope-violation or
+  split decision is reported in that pending decision prompt, not resolved.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).

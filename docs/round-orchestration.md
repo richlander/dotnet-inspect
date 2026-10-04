@@ -232,7 +232,7 @@ unrelated members such as `review`. In the table, **status members** means
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
 | Green `ci-required` and positive mergeability at the expected head | Leave the status wait and continue when no other predicate remains. |
 | CI or mergeability is pending or missing | Preserve the unresolved status members and apply the round cadence below. |
-| Rate-limited or transient query failure (including a transient probe fetch failure) | Record the concrete failure and retry-not-before time, preserve the unresolved status members and any recorded local conflict, and apply the round cadence below. |
+| Rate-limited or transient query failure (including a transient probe fetch failure) | Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. A recorded local conflict never lands here: it takes the conflict row above even when the PR read fails. |
 | Terminal query failure | Leave the status wait with `rec=stop`, surface the failure, and end. |
 
 Read the table top-down. Conflict recovery outranks CI, terminal non-green
@@ -247,8 +247,9 @@ values.
 
 Every round attempts one current-head snapshot, starting with the local
 conflict probe. When CI is a reviewer-dispatch prerequisite, pending, missing,
-rate-limited, or transient status enters the 60-minute budget below; expiry publishes the status report and stops without
-dispatch. When CI may remain pending, record that status and continue the
+rate-limited, or transient status enters the 60-minute budget below; expiry
+publishes the status report (or, for a probe failure, the classified failure
+described at the end of this section) and stops without dispatch. When CI may remain pending, record that status and continue the
 current review path. A known conflict leaves the wait immediately for
 conflict recovery — a conflict is never a waiting state, `waiting` never
 carries a conflict predicate, and an unreadable API does not hold it (see
@@ -283,10 +284,10 @@ sleeps, or concurrent status requests.
 When the budget expires with status unresolved, obtain a final snapshot. Do not
 publish the report below unless its fetched live base equals
 `conflict-checked-base`; instead classify and surface a fetch or probe
-failure. A recorded local conflict never reaches expiry: it left the wait for
-conflict recovery when it was found.
-Then clear `schedule`, keep the unresolved predicates, publish the report, set
-`rec=stop`, and end. This is an informational stop: it ends observation only
+failure, with `rec=stop`. A recorded local conflict never reaches expiry: it
+leaves the wait for conflict recovery the moment it is found, including when
+the final snapshot is the one that finds it. Otherwise clear `schedule`, keep
+the unresolved predicates, publish the report, set `rec=stop`, and end. This is an informational stop: it ends observation only
 and neither closes nor abandons the PR.
 
 ### Status budget report

@@ -74,9 +74,14 @@ lifecycle. Still take the PR read below when the API answers, and apply the
 [result table](round-orchestration.md#apply-the-result) top-down: merged,
 closed, draft, and head or base-ref mismatch outrank conflict recovery. When
 the API cannot be read on this attempt, do not hold the conflict: resolve and
-push the recovery against the expected base anyway — the agent that pushed
-the head knows the PR was open at that head and base ref and has received no
-merge or close — and take the lifecycle read on the next attempt. A conflict
+push the recovery against the expected base anyway and take the lifecycle
+read on the next attempt. This holds for the agent that pushed the head (it
+knows the PR was open at that head and base ref and has received no merge or
+close) and for an agent asked to drive a PR it did not push (its last
+successful read is its knowledge). The accepted residual risk is a recovery
+push onto a PR that was closed or retargeted during the outage: the next
+successful read surfaces it through the lifecycle rows, and such a push can
+merge nothing by itself. A conflict
 is never a waiting state; `waiting` never carries a conflict predicate, and a
 status budget cannot expire holding one, because recovery leaves the wait at
 once ([Bounded status waiting](round-orchestration.md#bounded-status-waiting)).
