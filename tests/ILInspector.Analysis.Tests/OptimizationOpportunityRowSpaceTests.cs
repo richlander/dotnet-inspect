@@ -88,6 +88,14 @@ public sealed class OptimizationOpportunityRowSpaceTests
                         Opportunity("Future", "future-shape"),
                     ])
                 .Select(row => row.Method.Name));
+        Assert.True(
+            OptimizationOpportunityRowSpace.Any(
+                OptimizationOpportunityRowSpace.Other,
+                [Opportunity("Future", "future-shape")]));
+        Assert.False(
+            OptimizationOpportunityRowSpace.Any(
+                OptimizationOpportunityRowSpace.Other,
+                [Opportunity("Known", "box-value-type")]));
     }
 
     [Fact]

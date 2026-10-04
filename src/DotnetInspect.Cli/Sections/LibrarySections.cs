@@ -1286,9 +1286,9 @@ public static class LibrarySections
     // Registration supplies the pre-scan method-body applicability gate; these predicates report
     // actual post-scan row effectiveness.
     private static bool HasPerformanceKind(LibraryInspection model, string section)
-        => PerformanceKinds.Select(
+        => PerformanceKinds.Any(
             section,
-            model.PerformanceTriageOpportunities).Length > 0;
+            model.PerformanceTriageOpportunities);
 
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {

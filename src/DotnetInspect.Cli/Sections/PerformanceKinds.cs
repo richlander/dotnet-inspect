@@ -65,6 +65,13 @@ public static class PerformanceKinds
             QueryForSection(section),
             opportunities);
 
+    public static bool Any(
+        string section,
+        IEnumerable<OptimizationOpportunity> opportunities) =>
+        OptimizationOpportunityRowSpace.Any(
+            QueryForSection(section),
+            opportunities);
+
     private static string SectionForKind(
         OptimizationOpportunityKind kind) => kind switch
     {

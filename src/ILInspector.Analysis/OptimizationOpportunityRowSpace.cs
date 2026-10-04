@@ -23,15 +23,19 @@ public sealed class OptimizationOpportunityCuratedQuery
 {
     internal OptimizationOpportunityCuratedQuery(
         string identity,
+        OptimizationOpportunityKind? kind,
         PortableQueryIntent intent)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         ArgumentNullException.ThrowIfNull(intent);
         Identity = identity;
+        Kind = kind;
         Intent = intent;
     }
 
     public string Identity { get; }
+
+    internal OptimizationOpportunityKind? Kind { get; }
 
     public PortableQueryIntent Intent { get; }
 }
@@ -257,6 +261,19 @@ public static class OptimizationOpportunityRowSpace
         return [.. result.Values];
     }
 
+    public static bool Any(
+        OptimizationOpportunityCuratedQuery query,
+        IEnumerable<OptimizationOpportunity> rows)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(rows);
+
+        return query.Kind is not { } kind
+            ? rows.Any()
+            : rows.Any(
+                opportunity => KindForShape(opportunity.Shape) == kind);
+    }
+
     public static ImmutableArray<OptimizationOpportunity>
         PerformanceCandidates(
             IEnumerable<OptimizationOpportunity> opportunities,
@@ -372,6 +389,7 @@ public static class OptimizationOpportunityRowSpace
         OptimizationOpportunityKind? kind) =>
         new(
             identity,
+            kind,
             PortableQueryIntent.Create(
                 [
                     .. kind is { } value
