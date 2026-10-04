@@ -240,21 +240,32 @@ The five lifetime classes map onto two assemblies:
 
 | Assembly | Lifetime classes | Contents | Dependencies |
 | --- | --- | --- | --- |
-| `QuerySpace.Primitives` | Declaration; Portable request | Query-space, row-scope, and facet descriptors; row-vocabulary, resource, source-binding, request-association, and operation-route identities; value-vocabulary declarations, terms, maps, and snapshot identity; portable intents, requests, row associations, and terminal requirements; producer-capability identities and declarations; the `IQueryOperationRoute` contract | Platform only, without `System.Text.Json`; listed in `dependency-free-contract-floors` |
-| `QuerySpace` | Resolved plan and binding; Execution context; Result; the portable payload codec; declarations that still carry binders | Planners, normalized operands, structural plans, typed accessors, bindings, reference execution, results, receipts, `PortableQueryPayloadCodec`, and the binder-bearing declarations named below | Platform, including `System.Text.Json`, and `QuerySpace.Primitives` |
+| `QuerySpace.Primitives` | Declaration; Portable request | Query-space, row-scope, and facet descriptors; row-vocabulary, resource, source-binding, request-association, and operation-route identities; value-vocabulary declarations, terms, maps, and snapshot identity; portable intents, requests, row associations, and terminal requirements; producer-capability identities and declarations; the `IQueryOperationRoute` contract and its delegate-free capability records | Platform only, as for every other contract floor; listed in `dependency-free-contract-floors` |
+| `QuerySpace` | Resolved plan and binding; Execution context; Result; the portable payload codec; declarations that still carry binders | Planners, normalized operands, structural plans, typed accessors, bindings, reference execution, results, receipts, `PortableQueryPayloadCodec`, and the binder-bearing declarations named below | Platform and `QuerySpace.Primitives` |
 
-`Primitives` contains no planner, binding, evaluator, execution, or codec
-type, and no type whose construction requires one. A type that holds a live
-source, enumerator, buffer, cancellation source, accessor delegate, or
-comparer factory cannot be placed there. The portable intent and payload
-*types* are Portable-request data and belong to `Primitives`; the codec that
-gives an intent its canonical byte spelling is machinery over that data and
-stays in `QuerySpace`, where [Portable query payload](portable-query-payload.md)
-already places it. The two sit on opposite sides of the split so that the
-floor carries no serializer. This follows
+`Primitives` contains no planner, evaluator, execution, or codec type, no
+type that carries an accessor delegate, operand evaluator, or comparer
+factory, and no type whose construction requires one of those. A type that
+holds a live source, enumerator, buffer, or cancellation source cannot be
+placed there. "Binding" is judged by content, not by name: a record that only
+declares which terms and orders a route supports is a declaration and belongs
+in `Primitives`; a type that evaluates, accesses, or compares rows is a
+binding and stays in `QuerySpace`. The portable intent and payload *types* are
+Portable-request data and belong to `Primitives`; the codec that gives an
+intent its canonical byte spelling is machinery over that data and stays in
+`QuerySpace`, where [Portable query payload](portable-query-payload.md)
+already places it and where `PortableQueryIdentity`, whose identity rule
+depends on it, also lives. This follows
 [`ILInspector.MetadataPrimitives`](../metadata-primitives.md): a
 dependency-free floor of mechanical currencies beneath an assembly that owns
 the semantics built on them.
+
+Members that cross the assembly line as `internal` today (for example
+`ResolvedRowQueryOrderIdentity`'s constructor, `QuerySpaceRowScopeDescriptor`'s
+facet and order lookups, and the capability-record constructors used by
+`QueryOperationRoute<,>`) use `InternalsVisibleTo` from `Primitives` to
+`QuerySpace`, as `ILInspector.MetadataPrimitives` already does for
+`ILInspector.Metadata`.
 
 The lifetime classes name the rule; the current type inventory does not yet
 obey it everywhere, because the plan/binding separation in adoption step 4 has
@@ -267,6 +278,10 @@ rule *and* by these explicit dispositions at the exact head:
 | `RowQueryVocabulary<TRow>`, `RowQueryKey<TRow>`, `RowQueryNamedOrder<TRow>` | `QuerySpace` | They carry typed accessor delegates and comparer factories, which the lifetime table assigns to Resolved plan and binding. Their identities (`RowQueryVocabularyIdentity` and the key and order identities) go down. They move down only after adoption step 4 separates the structural declaration from its binding. |
 | `PortableQueryVocabulary<TPredicate, TPlan>`, `PortableQueryKeyDeclaration<TPredicate>`, `PortableQueryBinding<TPredicate>`, `QueryOperationDefinition<TPredicate, TPlan>`, `QueryOperationRoute<TPredicate, TPlan>` | `QuerySpace` | They bind predicates and plans. `IQueryOperationRoute` and the route and operation identities go down. |
 | Producer-capability satisfaction and plan candidates | `QuerySpace` | Resolved-plan class. Producer-capability identities, requirements, provision declarations, and coverage declarations go down. |
+| `QueryOperationTermBinding`, `QueryOperationOrderBinding`, `QueryOperationTermCapability`, `QueryOperationOrderCapability`, `QueryOperationRouteCapabilities` | `QuerySpace.Primitives` | Delegate-free declarations of which terms and orders a route supports; `IQueryOperationRoute.Capabilities` requires them. The word "binding" in two of the names describes a declared term-to-operator association, not an accessor. |
+| `PortableQueryModel` | `QuerySpace.Primitives` | Identity texts and the `ScalarOrder` comparer instance over strings that intents and the codec both consume; a fixed comparer over text is a datum, not a comparer factory over rows. |
+| `PortableQueryRowSelection`, `QueryOperationRegistry` | `QuerySpace.Primitives` | Pure mappings and lists over `Primitives` types; no row access or evaluation. |
+| `RowQueryText` | `QuerySpace` | Its `Key<TRow>` helpers take row accessors. |
 | Everything else in the Declaration and Portable-request classes | `QuerySpace.Primitives` | Data and identities with no codec, binder, or delegate. |
 
 A type that moves from `QuerySpace` to `Primitives` in a later adoption does
@@ -502,18 +517,24 @@ owner defines the exact supported modes, fallback behavior, and diagnostics.
 
 ## Dependencies and platforms
 
-`QuerySpace` may depend on .NET platform libraries, including
-`System.Text.Json`, which the canonical payload codec uses to read a payload;
-its canonical writer is handwritten. Neither assembly has an external package,
-product, CLI, Browser, Markout, or Roslyn dependency. STJ-generated witness
-and adapter integration remains outside the core library.
+Both assemblies may depend on .NET platform libraries. `System.Text.Json` is
+one: the canonical payload codec in `QuerySpace` uses it to read a payload (its
+canonical writer is handwritten), and the value-vocabulary snapshot identity in
+`Primitives` uses `Utf8JsonWriter` for its canonical projection, as the
+`Inspector.Findings` floor already does for its comparison documents. Neither
+assembly has an external package, product, CLI, Browser, Markout, or Roslyn
+dependency. STJ-generated witness and adapter integration remains outside the
+core library.
 
-`QuerySpace.Primitives` depends on the platform only and references no
-serializer, `System.Text.Json` included; it holds data and identities, not
-codecs. It is listed in the `dependency-free-contract-floors` rule of
-`eng/dependency-policy.json`, which enforces the dependency claim over the
-project and compiled-assembly graphs. That gate is a fresh evidence choice for
-a new assembly.
+`QuerySpace.Primitives` depends on the platform only. It is listed in the
+`dependency-free-contract-floors` rule of `eng/dependency-policy.json`, which
+enforces platform-only over the project and compiled-assembly graphs; the rule
+admits platform assemblies such as `System.Text.Json` and makes no claim about
+them. That gate is a fresh evidence choice for a new assembly. The operator
+considered and declined a separate serializer-absence claim for `Primitives`:
+the floor is defined by what it declares (data and identities, no planner,
+binder, evaluator, execution, or codec type), not by which platform assemblies
+it reads.
 
 For `QuerySpace` itself, the user's earlier evidence choice stands: its
 negative external-package and product dependency claim has **no automated
@@ -620,7 +641,7 @@ does not reopen this document to absorb its adopting owner's semantics.
 | Focused STJ integration gates | When integration lands, an explicitly supplied runtime witness or post-compilation evidence establishes exact context and root correspondence; direction respects effective generation mode, and an STJ property never creates query semantics implicitly. |
 | Dependency report | The implementation PR reports the core project's evaluated project, package, and platform assembly references; by explicit user choice, no automated absence gate is required and the negative external-package and product dependency claim remains unverified. |
 | `dependency-free-contract-floors` covers `QuerySpace.Primitives` | After the split, a project or package reference added to `Primitives` fails the dependency-policy gate over both graphs. |
-| `PrimitivesCarriesOnlyDeclarationAndRequestTypes` | After the split, a public-surface inventory of `QuerySpace.Primitives` contains no planner, binding, evaluator, execution-context, codec, or result type; the lifetime-class assignment is enforced, not described. |
+| `PrimitivesCarriesOnlyDeclarationAndRequestTypes` | After the split, a public-surface inventory of `QuerySpace.Primitives` contains no planner, evaluator, execution-context, codec, or result type, and no type carrying an accessor delegate, operand evaluator, or comparer factory; the lifetime-class assignment and the disposition table are enforced, not described. The gate judges by content, so delegate-free records named `Binding` pass and a delegate-bearing record under any name fails. |
 
 ## Non-claims
 

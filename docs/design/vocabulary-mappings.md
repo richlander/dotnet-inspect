@@ -542,12 +542,13 @@ The composed snapshot's identity derives from its declarations, so hosts that
 ship the same declarations observe the same identity.
 
 The snapshot identity is a `sha256:` digest over a deterministic canonical
-projection of the declarations. Today that projection is written with
-`Utf8JsonWriter`. In `QuerySpace.Primitives` the projection is handwritten,
-because the floor references no serializer, and it must produce the same bytes
-as the current writer so that every existing digest is preserved. The pinned
-digest in `VocabularyMappingsTests` is the gate; it moves with the types to
-the `Primitives` test suite and must pass unchanged across the move.
+projection of the declarations, written with `Utf8JsonWriter`. The projection
+moves to `QuerySpace.Primitives` unchanged; `System.Text.Json` is a platform
+assembly the floor may reference, as the `Inspector.Findings` floor already
+does, so no rewrite is needed and every existing digest is preserved by
+construction. The pinned digest in `VocabularyMappingsTests` is the gate; it
+moves with the types to the `Primitives` test suite and must pass unchanged
+across the move.
 
 ## Delivery plan
 

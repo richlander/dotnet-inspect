@@ -105,8 +105,11 @@ The declaration type lives in the `QuerySpace.Primitives` floor under the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers),
 so an `ILInspector` owner can declare without referencing any product
 assembly. A facet that is bounded by a vocabulary names it by identity on its
-`QuerySpaceDescriptor`; the Body Shapes `Kind` facet names
-`csharp.body-kinds`. The product vocabulary document, its sections, fields,
+`QuerySpaceDescriptor`, through the opaque value-vocabulary identity that
+[Query Space Composition](query-space-composition.md) already defines; after
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 5 the
+Body Shapes `Kind` facet names `csharp.body-kinds`, and today no facet sets
+one. The product vocabulary document, its sections, fields,
 operators, rows, and wire projection are declared section schemas owned by
 `DotnetInspector.Sections`.
 
@@ -114,7 +117,10 @@ CLI and browser/WASM compose the same declarations and consume the same
 snapshot and wire projection. Hosts may select a section for a purpose-specific
 control, but they do not restate its values, labels, order, defaults, or
 selection semantics. Equal declaration lists yield one snapshot identity, so
-the two hosts cannot drift silently.
+drift between the hosts is detectable by identity; the shared equal-identity
+test that [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
+step 5 adds is the gate that observes it. Until then both hosts run one
+composition and the CLI suite's pinned digest is the only identity gate.
 
 Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) lands,
 `DotnetInspector.Vocabulary` composes the owner catalogs itself and therefore
