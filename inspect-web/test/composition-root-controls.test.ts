@@ -202,6 +202,54 @@ test("implementation evidence remains subtle member-list heat", () => {
     /overloadHeat: memberNavOverloadHeat,[\s\S]*familyHeatCue: memberNavFamilyHeatCue/);
 });
 
+test("explicit Top Leverage activation runs before background heat", () => {
+  const render = sourceText(functionDeclaration("render"));
+  assert.match(
+    render,
+    /scheduleTypeHeat\(\);[\s\S]*scheduleTypeMethodLeverage\(\);/);
+  const scheduleLeverage =
+    sourceText(functionDeclaration("scheduleTypeMethodLeverage"));
+  assert.match(
+    scheduleLeverage,
+    /typeMethodLeverage\.request\(target\.request, target\.isCurrent\)/);
+  assert.doesNotMatch(scheduleLeverage, /currentTypeHeatState/);
+  assert.match(
+    appSource,
+    /const typeMethodLeverage = createTypeMethodLeverageCoordinator\(\{[\s\S]*?whenWorkerIdle:\s*\(\) => Promise\.resolve\(\)/);
+  const target = sourceText(
+    functionDeclaration("typeMethodLeverageTarget"));
+  assert.match(target, /state\.rootKind === "library"/);
+  assert.doesNotMatch(target, /navMode/);
+});
+
+test("Top Leverage preserves source families and restorable intent", () => {
+  const visible = sourceText(functionDeclaration("visibleMemberGroups"));
+  assert.match(
+    visible,
+    /const sourceGroups = selectedMemberGroups\(type\)[\s\S]*const filtered = filterMemberGroups\(sourceGroups, memberFilterState\(\)\)[\s\S]*return filterMemberGroupsByMethodLeverage\(\s*filtered,\s*currentTypeMethodLeverageState\(\)\)/);
+
+  const capture = sourceText(functionDeclaration("captureView"));
+  assert.match(
+    capture,
+    /methodLeverageEnabled: state\.methodLeverageEnabled,[\s\S]*memberLeverageFilter: state\.memberLeverageFilter/);
+  const apply = sourceText(functionDeclaration("applyView"));
+  assert.match(
+    apply,
+    /state\.methodLeverageEnabled = view\.methodLeverageEnabled === true;[\s\S]*state\.memberLeverageFilter = view\.methodLeverageEnabled/);
+  const deepLink = sourceText(functionDeclaration("applyDeepLink"));
+  assert.match(
+    deepLink,
+    /state\.methodLeverageEnabled =\s*deep\?\.memberLeverageFilter === "top-leverage";[\s\S]*state\.memberLeverageFilter = state\.methodLeverageEnabled/);
+  const share = sourceText(
+    functionDeclaration("captureWorkspaceUrlState"));
+  assert.match(
+    share,
+    /memberLeverageFilter: state\.memberLeverageFilter === "top-leverage"\s*\? "top-leverage"\s*: ""/);
+  assert.match(
+    appSource,
+    /onMethodLeverageActivate:[\s\S]*state\.methodLeverageEnabled = true;[\s\S]*navigationHistory\.record\(\);[\s\S]*onMethodLeverageFilterSelect:[\s\S]*state\.memberLeverageFilter = value;[\s\S]*navigationHistory\.record\(\);/);
+});
+
 test("platform call graphs carry the target pack into lazy acquisition", () => {
   assert.equal(
     platformPackFromProvenance(
@@ -1309,7 +1357,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameMedia\.matches\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     binding,
-    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(member\)[\s\S]*openOverload\(selector\)[\s\S]*openMemberDocument\(selector\)/);
+    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(member\)[\s\S]*openOverload\(memberNavOverloadSourceIndex\(member, selector\)\)[\s\S]*openMemberDocument\(selector\)/);
   assert.doesNotMatch(
     binding,
     /onCopyName|currentInspectedSubjectName/);
