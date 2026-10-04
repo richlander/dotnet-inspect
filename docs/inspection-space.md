@@ -448,6 +448,15 @@ execution, stale-ready rejection, retained-image accounting, cleanup order,
 and sibling-independence outcomes remain unchanged while producer-local lease
 coordination is retired.
 
+The second production adoption binds Metadata's target-independent hierarchy
+reverse index to the same participant lifetime. One settled preparation per
+exact participant and preparation policy may serve repeated target analyses;
+each reusable execution retains the group-issued borrow, and the resource
+retires its session and indexes before the participant snapshot. Metadata
+continues to own hierarchy facts, diagnostics, budgets, and terminal
+materialization. QuerySpace provision selection remains separate. Tracks
+[#9300](https://github.com/richlander/dotnet-inspect/issues/9300).
+
 The
 [participant-resource lifecycle model](models/assembly-context-participant-resource-lifecycle/README.md)
 checks lease admission, final-lease retirement, resource-before-snapshot
