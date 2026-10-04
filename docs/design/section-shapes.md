@@ -228,23 +228,28 @@ The native format is the text itself, undecorated. Permitted lowerings are a
 JSON value that is an object carrying the facts and the content, complete
 whether the Document is selected alone or composed; Markdown, which frames the
 body under the section heading when the Document is the whole selection and
-shows the fact row when it is composed with other sections; and the fact row
-in tabular formats. Rendered text therefore shows the body only for a whole
-selection, while structured output always carries it. A Document's fact row is
-how it participates in a composition without flooding it, and how Documents
-and Document-row Tables selected together remain one homogeneous table: a
-package's nuspec and README Documents and its license and skill Tables all
-lower to Path/Size rows.
+shows the fact row when it is composed with other sections; and the row
+formats, whose row unit depends on whether the owner declares an inventory, as
+the next paragraph states. Rendered text therefore shows the body only for a
+whole selection, while structured output always carries it.
 
-The fact row is a presentation row, not an inventory. A Document whose owner
-declares no inventory is scalar under [Section
-cardinality](section-cardinality.md): it has no Count, and `-n` and `--rows`
-do not apply to it. A Document whose owner declares a line inventory, as
-[Source document cardinality](source-document-cardinality.md) does for type
-and member Source, exposes that inventory as its rows: Count, `-n`, `--rows`,
-and the lone row-stream lowering observe lines as that owner specifies, while
-the fact row remains what the Document contributes to a composition or a
-family listing.
+A Document's **fact row** is a summary presentation, not an inventory. It is
+how a Document participates in a composed Markdown document without flooding
+it, and how Documents and Document-row Tables selected together remain one
+homogeneous family listing: a package's nuspec and README Documents and its
+license and skill Tables all lower to Path/Size rows. Row selection never
+applies to a fact row.
+
+A Document whose owner declares no inventory is scalar under
+[Section cardinality](section-cardinality.md): it has no Count, `-n` and
+`--rows` do not apply to it, and its row formats show its fact row. A Document
+whose owner declares a line inventory, as
+[Source document cardinality](source-document-cardinality.md) does for type and
+member Source, exposes that inventory as its rows in every row format: TSV,
+pretty table, and JSONL emit lines, and Count, `-n`, and `--rows` observe those
+lines as that owner specifies. Such a Document still contributes its fact row
+to a composed Markdown document and to a family listing, where no row
+selection is in effect.
 
 A large Document is never clipped silently. Each Document owner supplies its
 own completeness behavior: type and member Source continue through the ordered
@@ -311,9 +316,9 @@ select belong in their own sections, not in a title or heading, and no renderer
 adds a value the owner did not issue.
 
 **Count is shape-invariant.** For an inventory section, Count, `-n`, and
-`--rows` observe the same rows in every permitted lowering of that section.
+`--rows` observe the same rows in every permitted lowering that carries rows.
 Tree context nodes, Markdown headings, fences, and a Document's fact row are
-presentation, not rows.
+presentation, not rows, and a summary presentation carries no row selection.
 
 **Explicit intent wins.** When the user names a format, the shape's permitted
 lowerings decide only whether the request is admissible. An inadmissible pair
@@ -451,9 +456,10 @@ gates covering, for its command:
   shape-format pair, naming the shape;
 - Count, `-n`, and `--rows` invariance across the tree, flat, and structured
   lowerings of each Hierarchy;
-- the fact-row lowering of each Document in tabular and composed Markdown
-  output, its framed body in lone Markdown output, its complete JSON value in
-  both, and its bare body natively;
+- for each Document, its fact row in composed Markdown and family listings,
+  its framed body in lone Markdown output, its complete JSON value alone or
+  composed, its bare body natively, and in row formats either its fact row
+  (no declared inventory) or its owner-declared inventory rows;
 - the absence of host replay text from structured content;
 - title and heading text composed only from the subject identity and issued
   properties, a bare payload for a native Document, and no properties in row
