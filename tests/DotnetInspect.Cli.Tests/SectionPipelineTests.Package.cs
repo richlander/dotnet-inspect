@@ -631,8 +631,6 @@ public partial class SectionPipelineTests
 
         Assert.True(
             PackageCommand.RequiresPackageMetadata(options, pipeline));
-        Assert.True(
-            PackageCommand.AllowsVulnerabilityTraffic(options));
         Assert.Equal(
             Verbosity.Detailed,
             pipeline.GetRequiredVerbosity(options.IncludeSections));

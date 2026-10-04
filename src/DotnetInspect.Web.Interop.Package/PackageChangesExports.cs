@@ -4,7 +4,6 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspect.Web;
 using DotnetInspector.Ecosystems;
-using DotnetInspector.Networking;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -476,9 +475,6 @@ public static partial class PackageExports
                                                 BrowserPackageWorkspace
                                                     .PackageChangesSourceOperationTimeout,
                                         });
-                                using IDisposable advisoryAccess =
-                                    NetworkTelemetry.Allow(
-                                        NetworkTrafficKind.VulnerabilityData);
                                 return await BrowserPackageChangesOperations
                                     .ExecuteAsync(
                                         request,
