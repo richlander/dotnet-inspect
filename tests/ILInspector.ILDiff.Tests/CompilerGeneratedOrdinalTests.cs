@@ -43,6 +43,27 @@ public class CompilerGeneratedOrdinalTests
     }
 
     [Fact]
+    public void LocalFunctionOrdinal_FoldsAcrossNormalizedPlatformSignatureScopes()
+    {
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [Generated("<M>g__L|3_0")],
+            corlibVersion: new Version(10, 0, 0, 0),
+            generatedMembersUsePlatformParameter: true)));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [Generated("<M>g__L|7_0")],
+            corlibVersion: new Version(11, 0, 0, 0),
+            generatedMembersUsePlatformParameter: true)));
+
+        Assert.False(Compare(oldPe, newPe, Ordinals).IsExact);
+        Assert.True(Compare(
+            oldPe,
+            newPe,
+            Ordinals | IlBodyDiffNormalization.NormalizePlatformAssemblyScope).IsExact);
+    }
+
+    [Fact]
     public void StateMachineOrdinal_FoldsWhenTheKeyIsUniqueOnBothSides()
     {
         // A state machine is a *type*. This fixture used to declare the name on a
@@ -2501,7 +2522,9 @@ public class CompilerGeneratedOrdinalTests
         string[]? generatedTypeMethodNames = null,
         string[]? generatedTypeFieldNames = null,
         int fieldsOnGeneratedTypeIndex = 0,
-        string[]? firstGeneratedTypeExtraMethods = null)
+        string[]? firstGeneratedTypeExtraMethods = null,
+        Version? corlibVersion = null,
+        bool generatedMembersUsePlatformParameter = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2520,11 +2543,17 @@ public class CompilerGeneratedOrdinalTests
 
         var corlib = metadata.AddAssemblyReference(
             metadata.GetOrAddString("System.Runtime"),
-            new Version(1, 0, 0, 0),
+            corlibVersion ?? new Version(1, 0, 0, 0),
             default,
             default,
             default,
             default);
+        TypeReferenceHandle platformParameterType = generatedMembersUsePlatformParameter
+            ? metadata.AddTypeReference(
+                corlib,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("String"))
+            : default;
         // Attribute constructors are created on demand so a member can carry an attribute
         // that is deliberately not CompilerGeneratedAttribute.
         var attributeCtors = new Dictionary<(string Namespace, string Name), EntityHandle>();
@@ -2640,6 +2669,18 @@ public class CompilerGeneratedOrdinalTests
         }
 
         var signature = metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 });
+        BlobHandle generatedSignature = signature;
+        if (!platformParameterType.IsNil)
+        {
+            var blob = new BlobBuilder();
+            blob.WriteByte(0x00);
+            blob.WriteCompressedInteger(1);
+            blob.WriteByte(0x01);
+            blob.WriteByte(0x12);
+            blob.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(platformParameterType) << 2) | 1);
+            generatedSignature = metadata.GetOrAddBlob(blob);
+        }
 
         // A generic method's signature carries GENERIC (0x10) and its own parameter count,
         // which is what the operand renderer reads. A member may deliberately omit it to
@@ -2652,7 +2693,7 @@ public class CompilerGeneratedOrdinalTests
                     new byte[] { (byte)(0x10 | member.SignatureHeader), (byte)member.GenericArity, 0x00, 0x01 }),
             { SignatureHeader: not 0x00 }
                 => metadata.GetOrAddBlob(new byte[] { member.SignatureHeader, 0x00, 0x01 }),
-            _ => signature,
+            _ => generatedSignature,
         };
 
         // A reference to a type named `C` scoped to this module renders under the same
@@ -2684,7 +2725,11 @@ public class CompilerGeneratedOrdinalTests
         else if (extraTypes.Length > 0)
             caller.Call(MetadataTokens.MethodDefinitionHandle(members.Length + 2));
         else
+        {
+            if (generatedMembersUsePlatformParameter)
+                caller.OpCode(ILOpCode.Ldnull);
             caller.Call(MetadataTokens.MethodDefinitionHandle(2));
+        }
         caller.OpCode(ILOpCode.Ret);
         int callerOffset = bodies.AddMethodBody(caller);
 

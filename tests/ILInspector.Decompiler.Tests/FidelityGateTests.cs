@@ -44,11 +44,8 @@ public class FidelityGateTests
         // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
         // #4229: the cached local-function argument recompiles with the restored
-        // <>O cache but without csc's bare-method-group stloc/ldloc carrier. The
-        // explicit neighbor retains identical opcodes and differs only in its
-        // reconstructed local-function ordinal. Focused gates below pin both shapes.
+        // <>O cache but without csc's bare-method-group stloc/ldloc carrier.
         "CachedStaticMethodGroupLocalFunction",
-        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -479,6 +476,9 @@ public class FidelityGateTests
         // construction close negative remains allocation-shaped and Exact.
         "CachedStaticMethodGroup",
         "ExplicitStaticMethodGroupArgument",
+        // Platform-scope normalization now composes with generated-ordinal
+        // correspondence, so the explicit local-function construction is Exact.
+        "ExplicitStaticMethodGroupLocalFunction",
         // #3218: receiver- and lambda-output-proven generic argument elision
         // recompiles to the same Enumerable instantiations in the raised C# view.
         "ReceiverInferredExtensionArguments",
@@ -711,7 +711,7 @@ public class FidelityGateTests
         var explicitConstruction = Assert.Single(
             EvaluateFixtures(),
             result => result.Method == "ExplicitStaticMethodGroupLocalFunction");
-        Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, explicitConstruction.Status);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, explicitConstruction.Status);
         Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.OriginalOpcodes);
         Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.RecompiledOpcodes);
     }

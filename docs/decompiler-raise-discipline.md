@@ -117,6 +117,10 @@ review prompt so evidence construction receives its own ownership audit.
   Every changed method gets classified into an intended spelling class
   (`structural`, `paren-equivalent`, or `unparsed`) and a semantic transition
   (`valid->valid`, `invalid->valid`, `valid->invalid`, or `invalid->invalid`).
+  When malformed product output prevents a matching structural projection, the
+  baseline retains the product render, any physical product document, and the
+  explicit unavailability reason; comparison keeps structural review
+  unavailable rather than repairing or replacing the product evidence.
   For expression-moving changes, the semantic lane is required evidence; a
   `valid->invalid` method is gate-fatal even when the body still parses (for
   example `1++`). An unclassified diff is a finding, not noise. The base is the

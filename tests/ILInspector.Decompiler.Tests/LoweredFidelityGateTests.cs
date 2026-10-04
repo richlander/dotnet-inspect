@@ -36,11 +36,8 @@ public class LoweredFidelityGateTests
         // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
         // #4229: the local-function positive restores the <>O cache while csc
-        // drops the bare-method-group carrier; the explicit neighbor preserves
-        // its allocation opcodes. Both import below Full on the lowered rail and
-        // are pinned by the shared focused gates.
+        // drops the bare-method-group carrier.
         "CachedStaticMethodGroupLocalFunction",
-        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -134,7 +131,6 @@ public class LoweredFidelityGateTests
     static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal)
     {
         "CachedStaticMethodGroupLocalFunction",
-        "ExplicitStaticMethodGroupLocalFunction",
     };
 
     /// <summary>
@@ -158,6 +154,9 @@ public class LoweredFidelityGateTests
         // method-group conversion in both official C# views.
         "CachedStaticMethodGroup",
         "ExplicitStaticMethodGroupArgument",
+        // Platform-scope normalization now composes with generated-ordinal
+        // correspondence, so the explicit local-function construction is Exact.
+        "ExplicitStaticMethodGroupLocalFunction",
         // #3218: receiver- and lambda-output-proven generic argument elision
         // recompiles to the same Enumerable instantiations in the lowered C# view.
         "ReceiverInferredExtensionArguments",

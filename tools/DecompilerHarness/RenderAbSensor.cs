@@ -19,7 +19,7 @@ namespace ILInspector.DecompilerHarness;
 
 internal static class RenderAbSensor
 {
-    const int BaselineVersion = 2;
+    const int BaselineVersion = 3;
     const int StructuralArtifactVersion = 1;
     static readonly ResearchFactRegistry s_emptyFactRegistry = new();
 
@@ -115,14 +115,11 @@ internal static class RenderAbSensor
             if (parsed.Methods is null)
                 throw new JsonException("baseline methods are missing");
             if (parsed.Methods.Any(static pair =>
-                    pair.Value.CompileBackUnavailableReason is null
-                    && (pair.Value.SourceDocument?.Source is null
-                        || !MatchesStructuralProjection(
-                            pair.Value.Body,
-                            pair.Value.SourceDocument.Text.Trim()))))
+                    !HasValidBaselineEvidence(pair.Value)))
             {
                 throw new JsonException(
-                    "baseline methods must carry matching product structural documents with physical method provenance");
+                    "baseline methods must carry matching product structural documents "
+                    + "with physical method provenance or explicit structural-unavailability evidence");
             }
 
             return parsed with
@@ -300,7 +297,7 @@ internal static class RenderAbSensor
             {
                 failure =
                     "product structural projection does not match the Render A/B body";
-                return null;
+                return structuralDocument;
             }
 
             failure = null;
@@ -335,8 +332,19 @@ internal static class RenderAbSensor
                 rendered.Body,
                 rendered.ShellContext,
                 SourceDocument: null,
+                SourceDocumentFailure: null,
                 CompileBackUnavailableReason:
                     rendered.CompileBackUnavailableReason);
+        }
+
+        if (rendered.SourceDocumentFailure is not null)
+        {
+            return new BaselineMethod(
+                rendered.Body,
+                rendered.ShellContext,
+                rendered.SourceDocument,
+                rendered.SourceDocumentFailure,
+                CompileBackUnavailableReason: null);
         }
 
         if (rendered.SourceDocument?.Source is null)
@@ -358,7 +366,27 @@ internal static class RenderAbSensor
             rendered.Body,
             rendered.ShellContext,
             rendered.SourceDocument,
+            SourceDocumentFailure: null,
             CompileBackUnavailableReason: null);
+    }
+
+    static bool HasValidBaselineEvidence(BaselineMethod method)
+    {
+        if (method.CompileBackUnavailableReason is not null)
+            return !string.IsNullOrWhiteSpace(
+                method.CompileBackUnavailableReason);
+
+        if (method.SourceDocumentFailure is not null)
+        {
+            return !string.IsNullOrWhiteSpace(method.SourceDocumentFailure)
+                && (method.SourceDocument is null
+                    || method.SourceDocument.Source is not null);
+        }
+
+        return method.SourceDocument?.Source is not null
+            && MatchesStructuralProjection(
+                method.Body,
+                method.SourceDocument.Text.Trim());
     }
 
     internal static int Compare(
@@ -603,6 +631,20 @@ internal static class RenderAbSensor
 
     static StructuralChange CreateStructuralChange(RenderChange change)
     {
+        if (change.Before.SourceDocumentFailure is not null)
+        {
+            return new StructuralChange(
+                change,
+                Document: null,
+                $"baseline: {change.Before.SourceDocumentFailure}");
+        }
+        if (change.Current.SourceDocumentFailure is not null)
+        {
+            return new StructuralChange(
+                change,
+                Document: null,
+                $"current: {change.Current.SourceDocumentFailure}");
+        }
         if (change.Before.SourceDocument is null)
         {
             return new StructuralChange(
@@ -925,6 +967,7 @@ internal static class RenderAbSensor
         string Body,
         ValidityCheck.MethodShellContext ShellContext,
         AnnotatedSourceDocument? SourceDocument = null,
+        string? SourceDocumentFailure = null,
         string? CompileBackUnavailableReason = null);
 
     sealed record RenderChange(
