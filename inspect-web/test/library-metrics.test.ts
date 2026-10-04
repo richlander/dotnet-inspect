@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderLibraryMetricsSurface, type LibraryMetricsOptions } from "../src/library-metrics.ts";
-import type { BrowserLibraryMetrics } from "../src/facades/inspect-web-analysis.d.ts";
+import type {
+  BrowserLibraryDependencyStructure,
+  BrowserLibraryMetrics,
+} from "../src/facades/inspect-web-analysis.d.ts";
 
 const data: BrowserLibraryMetrics = {
   outcome: "available",
@@ -45,7 +48,16 @@ const data: BrowserLibraryMetrics = {
     sourceDegree: 2,
     targetDegree: 1,
   }],
-  dependencyStructure: {
+  diagnostics: ["One method body could not be analyzed."],
+  failure: null,
+  compileLibrary: {
+    status: "Selected",
+    targetFramework: "net10.0",
+    message: null,
+  },
+};
+
+const dependencyData: BrowserLibraryDependencyStructure = {
     outcome: "available",
     methodologyVersion: "library-dependency-structure.v1",
     completeness: "Complete",
@@ -108,14 +120,6 @@ const data: BrowserLibraryMetrics = {
     }],
     diagnostics: [],
     failure: null,
-  },
-  diagnostics: ["One method body could not be analyzed."],
-  failure: null,
-  compileLibrary: {
-    status: "Selected",
-    targetFramework: "net10.0",
-    message: null,
-  },
 };
 
 function render(overrides: Partial<LibraryMetricsOptions> = {}) {
@@ -130,6 +134,10 @@ function render(overrides: Partial<LibraryMetricsOptions> = {}) {
     loading: false,
     error: "",
     data,
+    dependencyFresh: false,
+    dependencyLoading: false,
+    dependencyError: "",
+    dependencyData: null,
     escapeHtml: value => String(value).replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -168,7 +176,10 @@ test("renders the complexity and relationship visual evidence", () => {
 });
 
 test("renders analysis-issued dependency levels, cycles, and explanations", () => {
-  const html = render();
+  const html = render({
+    dependencyFresh: true,
+    dependencyData,
+  });
 
   assert.match(html, /Dependency Structure/);
   assert.match(html, /Level 0/);
@@ -184,18 +195,16 @@ test("renders analysis-issued dependency levels, cycles, and explanations", () =
 
 test("discloses bounded and qualified dependency evidence", () => {
   const html = render({
-    data: {
-      ...data,
-      dependencyStructure: {
-        ...data.dependencyStructure,
-        completeness: "Qualified",
-        totalNamespaceEdgeCount: 8,
-        diagnostics: ["One call target could not be resolved."],
-        population: {
-          ...data.dependencyStructure.population!,
-          unresolvedCallCount: 1,
-          incompleteBodyCount: 1,
-        },
+    dependencyFresh: true,
+    dependencyData: {
+      ...dependencyData,
+      completeness: "Qualified",
+      totalNamespaceEdgeCount: 8,
+      diagnostics: ["One call target could not be resolved."],
+      population: {
+        ...dependencyData.population!,
+        unresolvedCallCount: 1,
+        incompleteBodyCount: 1,
       },
     },
   });
@@ -208,26 +217,62 @@ test("discloses bounded and qualified dependency evidence", () => {
 
 test("keeps dependency failure visible without hiding available metrics", () => {
   const html = render({
-    data: {
-      ...data,
-      dependencyStructure: {
-        outcome: "failed",
-        methodologyVersion: null,
-        completeness: null,
-        population: null,
-        namespaces: [],
-        namespaceEdges: [],
-        totalNamespaceEdgeCount: 0,
-        cycles: [],
-        diagnostics: [],
-        failure: "Dependency selection failed.",
-      },
+    dependencyFresh: true,
+    dependencyData: {
+      outcome: "failed",
+      methodologyVersion: null,
+      completeness: null,
+      population: null,
+      namespaces: [],
+      namespaceEdges: [],
+      totalNamespaceEdgeCount: 0,
+      cycles: [],
+      diagnostics: [],
+      failure: "Dependency selection failed.",
     },
   });
 
   assert.match(html, /Complexity Explorer/);
   assert.match(html, /Dependency structure failed/);
   assert.match(html, /Dependency selection failed\./);
+});
+
+test("requires explicit dependency demand and keeps loading distinct", () => {
+  const initial = render();
+  assert.match(initial, /Load dependency structure/);
+  assert.doesNotMatch(initial, /metrics-dependency-structure/);
+
+  const loading = render({
+    dependencyFresh: true,
+    dependencyLoading: true,
+  });
+  assert.match(loading, /Building dependency structure/);
+  assert.doesNotMatch(loading, /Load dependency structure/);
+});
+
+test("keeps empty and unavailable dependency outcomes distinct", () => {
+  const empty = render({
+    dependencyFresh: true,
+    dependencyData: {
+      ...dependencyData,
+      namespaces: [],
+      namespaceEdges: [],
+      totalNamespaceEdgeCount: 0,
+      cycles: [],
+    },
+  });
+  assert.match(empty, /No namespace dependencies found/);
+
+  const unavailable = render({
+    dependencyFresh: true,
+    dependencyData: {
+      ...dependencyData,
+      outcome: "unavailable",
+      failure: "Call evidence is unavailable.",
+    },
+  });
+  assert.match(unavailable, /Dependency structure unavailable/);
+  assert.match(unavailable, /Call evidence is unavailable/);
 });
 
 test("keeps structural salience out of the Metrics presentation", () => {

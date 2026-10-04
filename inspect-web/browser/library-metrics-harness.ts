@@ -1,4 +1,7 @@
-import type { BrowserLibraryMetrics } from "../src/facades/inspect-web-analysis.d.ts";
+import type {
+  BrowserLibraryDependencyStructure,
+  BrowserLibraryMetrics,
+} from "../src/facades/inspect-web-analysis.d.ts";
 import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
@@ -58,11 +61,19 @@ const data: BrowserLibraryMetrics = {
     allocationCount: index,
   })),
   entangledRelationships,
-  dependencyStructure: {
-    outcome: "available",
-    methodologyVersion: "library-dependency-structure.v1",
-    completeness: "Complete",
-    population: {
+  diagnostics: [],
+  failure: null,
+  compileLibrary: {
+    status: "Selected",
+    targetFramework: "net11.0",
+    message: null,
+  },
+};
+const dependencyData: BrowserLibraryDependencyStructure = {
+  outcome: "available",
+  methodologyVersion: "library-dependency-structure.v1",
+  completeness: "Complete",
+  population: {
       examinedCallCount: 48,
       internalCallCount: 38,
       externalCallCount: 10,
@@ -70,8 +81,8 @@ const data: BrowserLibraryMetrics = {
       incompleteBodyCount: 0,
       typeCount: 5,
       namespaceCount: 4,
-    },
-    namespaces: [{
+  },
+  namespaces: [{
       namespace: "Example.Api",
       isGlobalNamespace: false,
       typeCount: 1,
@@ -99,8 +110,8 @@ const data: BrowserLibraryMetrics = {
       intraNamespaceRelationshipCount: 0,
       cycleIndex: null,
       level: 2,
-    }],
-    namespaceEdges: [{
+  }],
+  namespaceEdges: [{
       sourceNamespace: "Example.Api",
       targetNamespace: "Example.Core",
       counts: { invocations: 6, functionReferences: 1, total: 7 },
@@ -139,47 +150,51 @@ const data: BrowserLibraryMetrics = {
         counts: { invocations: 2, functionReferences: 0, total: 2 },
       }],
       remainingContributorCount: 0,
-    }],
-    totalNamespaceEdgeCount: 3,
-    cycles: [{
-      namespaces: ["Example.Core", "Example.Workflows"],
-    }],
-    diagnostics: [],
-    failure: null,
-  },
+  }],
+  totalNamespaceEdgeCount: 3,
+  cycles: [{
+    namespaces: ["Example.Core", "Example.Workflows"],
+  }],
   diagnostics: [],
   failure: null,
-  compileLibrary: {
-    status: "Selected",
-    targetFramework: "net11.0",
-    message: null,
-  },
 };
-const app = document.querySelector("#app");
-if (!(app instanceof HTMLElement))
+const appElement = document.querySelector("#app");
+if (!(appElement instanceof HTMLElement))
   throw new Error("Library metrics harness root is missing.");
+const app = appElement;
 
-app.innerHTML = renderLibraryMetricsSurface({
-  libraryName: "Example",
-  assemblyIdentity: "Example, Version=1.0.0.0",
-  assetPath: "Example.dll",
-  coordinate: "net11.0 / Example@1.0.0",
-  requireLibrary: false,
-  pickerHtml: "",
-  fresh: true,
-  loading: false,
-  error: "",
-  data,
-  escapeHtml: value => String(value).replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
-});
+function render(
+  dependency: BrowserLibraryDependencyStructure | null,
+): void {
+  app.innerHTML = renderLibraryMetricsSurface({
+    libraryName: "Example",
+    assemblyIdentity: "Example, Version=1.0.0.0",
+    assetPath: "Example.dll",
+    coordinate: "net11.0 / Example@1.0.0",
+    requireLibrary: false,
+    pickerHtml: "",
+    fresh: true,
+    loading: false,
+    error: "",
+    data,
+    dependencyFresh: dependency !== null,
+    dependencyLoading: false,
+    dependencyError: "",
+    dependencyData: dependency,
+    escapeHtml: value => String(value).replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
+  });
 
-const activation = document.createElement("output");
-activation.id = "metrics-activated-type";
-app.append(activation);
-bindLibraryMetricsInteractions(app, {
-  activateType: typeKey => {
-    activation.value = typeKey;
-  },
-});
+  const activation = document.createElement("output");
+  activation.id = "metrics-activated-type";
+  app.append(activation);
+  bindLibraryMetricsInteractions(app, {
+    activateType: typeKey => {
+      activation.value = typeKey;
+    },
+    loadDependencyStructure: () => render(dependencyData),
+  });
+}
+
+render(null);

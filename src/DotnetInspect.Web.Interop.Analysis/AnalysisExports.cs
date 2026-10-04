@@ -609,6 +609,26 @@ public static partial class AnalysisExports
     }
 
     /// <summary>
+    /// Research-owned dependency topology for one exact package library. This
+    /// operation runs only after an explicit Browser request.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageLibraryDependencyStructure(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        BrowserLibraryDependencyStructure structure =
+            await PackageLibraryDependencyStructureAsync(
+                packageId, version, targetFramework, assemblyName);
+        return JsonSerializer.Serialize(
+            structure,
+            BrowserAnalysisJsonContext.Default
+                .BrowserLibraryDependencyStructure);
+    }
+
+    /// <summary>
     /// Signature-only namespace and Type leverage for one exact package
     /// Library. This returns every exact namespace shard without running
     /// implementation profiles or body analysis.
@@ -913,13 +933,51 @@ public static partial class AnalysisExports
                 compileLibrary);
         }
 
-        AssemblyContextEntry<
-            LibraryMetricsAndDependencyStructureResult> entry =
+        AssemblyContextEntry<LibraryMetricsResult> entry =
             scope.UseImplementationParticipant(
                 participant,
-                AssemblyContextLibraryMetricsAndDependencyStructureQuery
+                AssemblyContextLibraryMetricsQuery
                     .ExecuteParticipant);
         return ProjectLibraryMetrics(entry, compileLibrary);
+    }
+
+    static async Task<BrowserLibraryDependencyStructure>
+        PackageLibraryDependencyStructureAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        if (!coordinate.Selection.IsSelected)
+        {
+            return UnavailableLibraryDependencyStructure(
+                "unavailable",
+                "The package has no selected compile library "
+                    + $"({coordinate.Selection.Status}).");
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        if (!scope.ImplementationParticipants.Contains(participant))
+        {
+            return UnavailableLibraryDependencyStructure(
+                "unavailable",
+                "The selected library has no managed implementation assembly.");
+        }
+
+        AssemblyContextEntry<LibraryDependencyStructureResult> entry =
+            scope.UseImplementationParticipant(
+                participant,
+                AssemblyContextLibraryDependencyStructureQuery
+                    .ExecuteParticipant);
+        return ProjectLibraryDependencyStructure(entry);
     }
 
     static async Task<BrowserLibraryStructuralSalience>
@@ -1112,25 +1170,19 @@ public static partial class AnalysisExports
             compileLibrary);
 
     static BrowserLibraryMetrics ProjectLibraryMetrics(
-        AssemblyContextEntry<
-            LibraryMetricsAndDependencyStructureResult> entry,
+        AssemblyContextEntry<LibraryMetricsResult> entry,
         BrowserCompileLibraryAvailability compileLibrary) =>
         entry switch
         {
-            AssemblyContextEntry<
-                LibraryMetricsAndDependencyStructureResult>.Available
-                    available =>
+            AssemblyContextEntry<LibraryMetricsResult>.Available available =>
                 ProjectLibraryMetrics(available.Value, compileLibrary),
-            AssemblyContextEntry<
-                LibraryMetricsAndDependencyStructureResult>.Rejected
-                    rejected =>
+            AssemblyContextEntry<LibraryMetricsResult>.Rejected rejected =>
                 UnavailableLibraryMetrics(
                     "unavailable",
                     $"{rejected.Subject.Identity.Name}: "
                         + $"{rejected.Failure.Kind} ({rejected.Failure.Detail})",
                     compileLibrary),
-            AssemblyContextEntry<
-                LibraryMetricsAndDependencyStructureResult>.Failed failed =>
+            AssemblyContextEntry<LibraryMetricsResult>.Failed failed =>
                 UnavailableLibraryMetrics(
                     "failed",
                     $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
@@ -1140,17 +1192,7 @@ public static partial class AnalysisExports
         };
 
     static BrowserLibraryMetrics ProjectLibraryMetrics(
-        LibraryMetricsAndDependencyStructureResult result,
-        BrowserCompileLibraryAvailability compileLibrary) =>
-        ProjectLibraryMetrics(
-            result.Metrics,
-            ProjectLibraryDependencyStructure(
-                result.DependencyStructure),
-            compileLibrary);
-
-    static BrowserLibraryMetrics ProjectLibraryMetrics(
         LibraryMetricsResult result,
-        BrowserLibraryDependencyStructure dependencyStructure,
         BrowserCompileLibraryAvailability compileLibrary) =>
         result switch
         {
@@ -1206,7 +1248,6 @@ public static partial class AnalysisExports
                                 relationship.SourceDegree,
                                 relationship.TargetDegree)),
                     ],
-                    dependencyStructure,
                     [
                         .. available.Document.Diagnostics.Select(
                             diagnostic => diagnostic.Message),
@@ -1217,22 +1258,44 @@ public static partial class AnalysisExports
                 UnavailableLibraryMetrics(
                     "unavailable",
                     unavailable.Outcome.Message,
-                    dependencyStructure,
                     compileLibrary),
             LibraryMetricsResult.NoMetadata =>
                 UnavailableLibraryMetrics(
                     "unavailable",
                     "The library contains no managed metadata.",
-                    dependencyStructure,
                     compileLibrary),
             LibraryMetricsResult.Failed failed =>
                 UnavailableLibraryMetrics(
                     "failed",
                     failed.Error.Message,
-                    dependencyStructure,
                     compileLibrary),
             _ => throw new InvalidOperationException(
                 "Unknown Library Metrics result."),
+        };
+
+    static BrowserLibraryDependencyStructure
+        ProjectLibraryDependencyStructure(
+            AssemblyContextEntry<LibraryDependencyStructureResult> entry) =>
+        entry switch
+        {
+            AssemblyContextEntry<
+                LibraryDependencyStructureResult>.Available available =>
+                ProjectLibraryDependencyStructure(available.Value),
+            AssemblyContextEntry<
+                LibraryDependencyStructureResult>.Rejected rejected =>
+                UnavailableLibraryDependencyStructure(
+                    "unavailable",
+                    $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})"),
+            AssemblyContextEntry<
+                LibraryDependencyStructureResult>.Failed failed =>
+                UnavailableLibraryDependencyStructure(
+                    "failed",
+                    $"{failed.Subject.Identity.Name}: {failed.Error.Message}"),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Dependency Structure assembly-context "
+                    + "result."),
         };
 
     static BrowserLibraryDependencyStructure
@@ -1379,17 +1442,6 @@ public static partial class AnalysisExports
         string outcome,
         string failure,
         BrowserCompileLibraryAvailability compileLibrary) =>
-        UnavailableLibraryMetrics(
-            outcome,
-            failure,
-            UnavailableLibraryDependencyStructure(outcome, failure),
-            compileLibrary);
-
-    static BrowserLibraryMetrics UnavailableLibraryMetrics(
-        string outcome,
-        string failure,
-        BrowserLibraryDependencyStructure dependencyStructure,
-        BrowserCompileLibraryAvailability compileLibrary) =>
         new(
             outcome,
             null,
@@ -1398,7 +1450,6 @@ public static partial class AnalysisExports
             null,
             [],
             [],
-            dependencyStructure,
             [],
             failure,
             compileLibrary);

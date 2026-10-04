@@ -1,27 +1,19 @@
 using ILInspector.Analysis;
-using ILInspector.Research;
 
 namespace DotnetInspector.Queries;
 
-public sealed record LibraryMetricsAndDependencyStructureResult(
-    LibraryMetricsResult Metrics,
-    LibraryDependencyStructureResult DependencyStructure);
-
 /// <summary>
-/// Composes the Research-owned whole-library metrics and dependency documents
-/// from one implementation participant and one Analysis execution.
+/// Composes the Research-owned whole-library metrics document from one
+/// implementation participant while the query layer owns the image snapshot.
 /// </summary>
-public static class
-    AssemblyContextLibraryMetricsAndDependencyStructureQuery
+public static class AssemblyContextLibraryMetricsQuery
 {
-    public static AssemblyContextEntry<
-        LibraryMetricsAndDependencyStructureResult> ExecuteParticipant(
-            AssemblyContextGroup group,
-            AssemblyContextParticipant participant) =>
+    public static AssemblyContextEntry<LibraryMetricsResult> ExecuteParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant) =>
         ExecuteParticipant(group, participant, CancellationToken.None);
 
-    public static AssemblyContextEntry<
-        LibraryMetricsAndDependencyStructureResult> ExecuteParticipant(
+    public static AssemblyContextEntry<LibraryMetricsResult> ExecuteParticipant(
             AssemblyContextGroup group,
             AssemblyContextParticipant participant,
             CancellationToken cancellationToken)
@@ -45,16 +37,7 @@ public static class
                         LibraryBodyAnalysisRequest
                             .CreateCompleteImplementationProfile(),
                         resolver);
-                return Execute(execution);
+                return LibraryMetricsQuery.Execute(execution);
             });
-    }
-
-    public static LibraryMetricsAndDependencyStructureResult Execute(
-        LibraryBodyAnalysisExecution execution)
-    {
-        ArgumentNullException.ThrowIfNull(execution);
-        return new(
-            LibraryMetricsQuery.Execute(execution),
-            LibraryDependencyStructure.Execute(execution));
     }
 }

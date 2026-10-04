@@ -266,7 +266,6 @@ public sealed record BrowserLibraryMetrics(
     BrowserLibraryMetricsBooleanDisposition? AsyncStateMachinePresence,
     BrowserLibraryMetricsType[] TypeSummaries,
     BrowserLibraryMetricsRelationship[] EntangledRelationships,
-    BrowserLibraryDependencyStructure DependencyStructure,
     string[] Diagnostics,
     string? Failure,
     BrowserCompileLibraryAvailability CompileLibrary);
@@ -590,6 +589,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
+[JsonSerializable(typeof(BrowserLibraryDependencyStructure))]
 [JsonSerializable(typeof(BrowserLibraryStructuralSalience))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserTypeImplementationHeat))]

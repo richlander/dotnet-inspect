@@ -2189,15 +2189,23 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             metrics.CompileLibrary.Status);
+        BrowserLibraryDependencyStructure dependency =
+            Assert.IsType<BrowserLibraryDependencyStructure>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackageLibraryDependencyStructure(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            surface.Asset.Id),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibraryDependencyStructure));
         Assert.Equal(
             "unavailable",
-            metrics.DependencyStructure.Outcome);
+            dependency.Outcome);
         Assert.Contains(
             "no managed implementation assembly",
-            metrics.DependencyStructure.Failure);
-        Assert.Equal(
-            "unavailable",
-            metrics.DependencyStructure.Outcome);
+            dependency.Failure);
 
         BrowserLibraryStructuralSalience salience =
             Assert.IsType<BrowserLibraryStructuralSalience>(
@@ -2251,7 +2259,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task LibraryMetrics_ProjectsBoundedDependencyStructure()
+    public async Task LibraryDependencyStructure_ProjectsBoundedResult()
     {
         const string packageId =
             "Browser.Library.DependencyStructure";
@@ -2266,21 +2274,18 @@ public sealed partial class BrowserEngineBoundaryTests
         string assemblyId = Assert.Single(
             coordinate.Selection.Assets).Id;
 
-        BrowserLibraryMetrics metrics =
-            Assert.IsType<BrowserLibraryMetrics>(
+        BrowserLibraryDependencyStructure dependency =
+            Assert.IsType<BrowserLibraryDependencyStructure>(
                 JsonSerializer.Deserialize(
                     await DotnetInspect.Web.Interop.Analysis
-                        .AnalysisExports.QueryPackageLibraryMetrics(
+                        .AnalysisExports.QueryPackageLibraryDependencyStructure(
                             packageId,
                             "1.0.0",
                             "net11.0",
                             assemblyId),
                     BrowserAnalysisJsonContext.Default
-                        .BrowserLibraryMetrics));
+                        .BrowserLibraryDependencyStructure));
 
-        Assert.Equal("available", metrics.Outcome);
-        BrowserLibraryDependencyStructure dependency =
-            metrics.DependencyStructure;
         Assert.Equal("available", dependency.Outcome);
         Assert.Equal(
             LibraryDependencyStructure.CurrentMethodologyVersion,

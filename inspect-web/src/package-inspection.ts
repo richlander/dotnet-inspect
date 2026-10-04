@@ -10,6 +10,7 @@ import type {
   BrowserPackagePruningResult,
 } from "./facades/inspect-web-package.d.ts";
 import type {
+  BrowserLibraryDependencyStructure,
   BrowserPackageIntegrations,
   BrowserLibraryMetrics,
   BrowserPackageOpportunities,
@@ -28,6 +29,8 @@ import type {
 
 export type PackagePerformance = BrowserPackagePerformance;
 export type PackageLibraryMetrics = BrowserLibraryMetrics;
+export type PackageLibraryDependencyStructure =
+  BrowserLibraryDependencyStructure;
 
 export interface ResolvedPackagePerformanceMember {
   type: AppTypeSurface;
@@ -103,6 +106,11 @@ export interface PackageInspectionState {
   packageLibraryMetricsLoading: boolean;
   packageLibraryMetricsError: string;
   packageLibraryMetricsKey: string;
+  packageLibraryDependencyStructure:
+    PackageLibraryDependencyStructure | null;
+  packageLibraryDependencyStructureLoading: boolean;
+  packageLibraryDependencyStructureError: string;
+  packageLibraryDependencyStructureKey: string;
   packageMetadata: PackageMetadata | null;
   packageMetadataLoading: boolean;
   packageMetadataError: string;
@@ -148,6 +156,10 @@ export interface PackageInspectionDependencies {
     packageModel: AppPackage,
     library: string,
   ): Promise<PackageLibraryMetrics>;
+  queryPackageLibraryDependencyStructure(
+    packageModel: AppPackage,
+    library: string,
+  ): Promise<PackageLibraryDependencyStructure>;
   queryPlatformPerformance(
     framework: string,
     platformVersion: string,
@@ -160,6 +172,12 @@ export interface PackageInspectionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<PackageLibraryMetrics>;
+  queryPlatformLibraryDependencyStructure(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+  ): Promise<PackageLibraryDependencyStructure>;
   queryPackageMetadata(
     packageModel: AppPackage,
     library: string,
@@ -208,6 +226,11 @@ export interface PackageInspectionCoordinator {
     scopedLibrary: string | null,
   ): Promise<void>;
   loadLibraryMetrics(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+  ): Promise<void>;
+  loadLibraryDependencyStructure(
     packageModel: AppPackage,
     signature: string,
     scopedLibrary: string | null,
@@ -337,6 +360,10 @@ export function createPackageInspectionCoordinator(
       state.packageLibraryMetricsLoading = false;
       state.packageLibraryMetricsError = "";
       state.packageLibraryMetricsKey = "";
+      state.packageLibraryDependencyStructure = null;
+      state.packageLibraryDependencyStructureLoading = false;
+      state.packageLibraryDependencyStructureError = "";
+      state.packageLibraryDependencyStructureKey = "";
       state.packageMetadata = null;
       state.packageMetadataLoading = false;
       state.packageMetadataError = "";
@@ -619,6 +646,58 @@ export function createPackageInspectionCoordinator(
       } finally {
         if (ownsRequest()) {
           state.packageLibraryMetricsLoading = false;
+        }
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
+      }
+    },
+
+    async loadLibraryDependencyStructure(
+      packageModel,
+      signature,
+      scopedLibrary,
+    ) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      if (state.packageLibraryDependencyStructureKey === signature
+        && (state.packageLibraryDependencyStructure
+          || state.packageLibraryDependencyStructureLoading)) {
+        dependencies.render();
+        return;
+      }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageLibraryDependencyStructureKey === signature
+        && generation === packageResultGeneration;
+      state.packageLibraryDependencyStructureKey = signature;
+      state.packageLibraryDependencyStructure = null;
+      state.packageLibraryDependencyStructureError = "";
+      state.packageLibraryDependencyStructureLoading = true;
+      dependencies.render();
+      try {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        const result = coordinates
+          ? await dependencies.queryPlatformLibraryDependencyStructure(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack)
+          : await dependencies.queryPackageLibraryDependencyStructure(
+              packageModel,
+              scopedLibrary ?? "");
+        if (ownsRequest()) {
+          state.packageLibraryDependencyStructure = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packageLibraryDependencyStructureError =
+            dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packageLibraryDependencyStructureLoading = false;
         }
         if (generation === packageResultGeneration) {
           dependencies.render();

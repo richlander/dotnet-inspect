@@ -1,4 +1,7 @@
-import type { BrowserLibraryMetrics } from "./facades/inspect-web-analysis.d.ts";
+import type {
+  BrowserLibraryDependencyStructure,
+  BrowserLibraryMetrics,
+} from "./facades/inspect-web-analysis.d.ts";
 import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
 const TREEMAP_WIDTH = 900;
@@ -29,11 +32,16 @@ export interface LibraryMetricsOptions {
   loading: boolean;
   error: string;
   data: BrowserLibraryMetrics | null;
+  dependencyFresh: boolean;
+  dependencyLoading: boolean;
+  dependencyError: string;
+  dependencyData: BrowserLibraryDependencyStructure | null;
   escapeHtml: (value: unknown) => string;
 }
 
 export interface LibraryMetricsInteractionActions {
   activateType: (typeKey: string) => void;
+  loadDependencyStructure: () => void;
 }
 
 function shortTypeName(typeId: string): string {
@@ -288,10 +296,9 @@ function dependencyNamespaceLabel(namespace: string): string {
 }
 
 function renderDependencyStructure(
-  data: BrowserLibraryMetrics,
+  dependency: BrowserLibraryDependencyStructure,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const dependency = data.dependencyStructure;
   if (dependency.outcome !== "available") {
     const status = dependency.outcome === "failed"
       ? "Dependency structure failed"
@@ -398,6 +405,32 @@ function renderDependencyStructure(
   </section>`;
 }
 
+function renderDependencyStructureState(
+  options: LibraryMetricsOptions,
+): string {
+  if (!options.dependencyFresh) {
+    return `<section class="document-section empty-document metrics-dependency-demand">
+      <span class="large-glyph">&#x2197;</span>
+      <h2>Dependency Structure</h2>
+      <p>Build the levelized namespace graph from whole-library call evidence. This additional analysis runs only when requested.</p>
+      <button type="button" class="primary-action" data-load-dependency-structure>Load dependency structure</button>
+    </section>`;
+  }
+  if (options.dependencyLoading) {
+    return `<section class="document-section source-progress metrics-dependency-demand"><span class="loader"></span><h2>Building dependency structure&hellip;</h2><p>Resolving call relationships and deriving namespace levels and cycles.</p></section>`;
+  }
+  if (options.dependencyError) {
+    return `<section class="document-section empty-document metrics-dependency-demand"><span class="large-glyph">&#x25B3;</span><h2>Dependency structure failed</h2><p>${options.escapeHtml(options.dependencyError)}</p><button type="button" class="primary-action" data-load-dependency-structure>Try again</button></section>`;
+  }
+  if (!options.dependencyData) {
+    return `<section class="document-section empty-document metrics-dependency-demand"><h2>Dependency structure unavailable</h2><p>No dependency document was returned.</p><button type="button" class="primary-action" data-load-dependency-structure>Try again</button></section>`;
+  }
+  return renderDependencyStructure(
+    options.dependencyData,
+    options.escapeHtml,
+  );
+}
+
 export function bindLibraryMetricsInteractions(
   root: ParentNode,
   actions: LibraryMetricsInteractionActions,
@@ -463,6 +496,11 @@ export function bindLibraryMetricsInteractions(
     if (!typeKey) continue;
     button.addEventListener("click", () => actions.activateType(typeKey));
   }
+  for (const button of root.querySelectorAll<HTMLButtonElement>(
+    "[data-load-dependency-structure]",
+  )) {
+    button.addEventListener("click", actions.loadDependencyStructure);
+  }
 }
 
 export function renderLibraryMetricsSurface(
@@ -516,7 +554,7 @@ export function renderLibraryMetricsSurface(
       content = `${incomplete}
         ${renderTreemap(resolved, escapeHtml)}
         ${renderRelationshipCrossing(resolved, escapeHtml)}
-        ${renderDependencyStructure(resolved, escapeHtml)}
+        ${renderDependencyStructureState(options)}
         <section class="document-section">
           <p>Compiled IL metrics for <strong>${escapeHtml(libraryName)}</strong>. These are structural implementation measures, not authored-source complexity.</p>
         </section>`;

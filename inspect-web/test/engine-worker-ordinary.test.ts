@@ -194,12 +194,16 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformOpportunities"),
     queryPackagePerformance: () =>
       unexpected("queryPackagePerformance"),
+    queryPackageLibraryDependencyStructure: () =>
+      unexpected("queryPackageLibraryDependencyStructure"),
     queryPackageLibraryMetrics: () =>
       unexpected("queryPackageLibraryMetrics"),
     queryPackageLibraryStructuralSalience: () =>
       unexpected("queryPackageLibraryStructuralSalience"),
     queryPlatformLibraryMetrics: () =>
       unexpected("queryPlatformLibraryMetrics"),
+    queryPlatformLibraryDependencyStructure: () =>
+      unexpected("queryPlatformLibraryDependencyStructure"),
     queryPlatformLibraryStructuralSalience: () =>
       unexpected("queryPlatformLibraryStructuralSalience"),
     queryPlatformPerformance: () =>
@@ -2312,6 +2316,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryCloneCandidates",
       "queryMemberFacts",
       "queryPackageIntegrations",
+      "queryPackageLibraryDependencyStructure",
       "queryPackageLibraryMetrics",
       "queryPackageLibraryStructuralSalience",
       "queryPackageOpportunities",
@@ -2319,6 +2324,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
       "queryPlatformIntegrations",
+      "queryPlatformLibraryDependencyStructure",
       "queryPlatformLibraryMetrics",
       "queryPlatformLibraryStructuralSalience",
       "queryPlatformOpportunities",
@@ -2387,7 +2393,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 108);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 110);
 
   const state = fixture();
   const groups = [

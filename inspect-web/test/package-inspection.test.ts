@@ -97,6 +97,10 @@ function inspectionState(
     packageLibraryMetricsLoading: false,
     packageLibraryMetricsError: "",
     packageLibraryMetricsKey: "",
+    packageLibraryDependencyStructure: null,
+    packageLibraryDependencyStructureLoading: false,
+    packageLibraryDependencyStructureError: "",
+    packageLibraryDependencyStructureKey: "",
     packageMetadata: null,
     packageMetadataLoading: false,
     packageMetadataError: "",
@@ -298,6 +302,21 @@ function metadataFailureResult(): PackageMetadata {
   };
 }
 
+function libraryDependencyStructureResult() {
+  return {
+    outcome: "available" as const,
+    methodologyVersion: "library-dependency-structure.v1",
+    completeness: "Complete",
+    population: null,
+    namespaces: [],
+    namespaceEdges: [],
+    totalNamespaceEdgeCount: 0,
+    cycles: [],
+    diagnostics: [],
+    failure: null,
+  };
+}
+
 function inspectionDependencies(
   state: PackageInspectionState,
   overrides: Partial<Omit<PackageInspectionDependencies, "state">> = {},
@@ -312,6 +331,10 @@ function inspectionDependencies(
     queryPlatformOpportunities: async () => opportunitiesResult(),
     queryPackagePerformance: async () => performanceResult(),
     queryPlatformPerformance: async () => performanceResult(),
+    queryPackageLibraryDependencyStructure: async () =>
+      libraryDependencyStructureResult(),
+    queryPlatformLibraryDependencyStructure: async () =>
+      libraryDependencyStructureResult(),
     queryPackageLibraryMetrics: async () => ({
       outcome: "available",
       methodologyVersion: "library-metrics.v1",
@@ -320,18 +343,6 @@ function inspectionDependencies(
       asyncStateMachinePresence: null,
       typeSummaries: [],
       entangledRelationships: [],
-      dependencyStructure: {
-        outcome: "available",
-        methodologyVersion: "library-dependency-structure.v1",
-        completeness: "Complete",
-        population: null,
-        namespaces: [],
-        namespaceEdges: [],
-        totalNamespaceEdgeCount: 0,
-        cycles: [],
-        diagnostics: [],
-        failure: null,
-      },
       diagnostics: [],
       failure: null,
       compileLibrary: {
@@ -348,18 +359,6 @@ function inspectionDependencies(
       asyncStateMachinePresence: null,
       typeSummaries: [],
       entangledRelationships: [],
-      dependencyStructure: {
-        outcome: "available",
-        methodologyVersion: "library-dependency-structure.v1",
-        completeness: "Complete",
-        population: null,
-        namespaces: [],
-        namespaceEdges: [],
-        totalNamespaceEdgeCount: 0,
-        cycles: [],
-        diagnostics: [],
-        failure: null,
-      },
       diagnostics: [],
       failure: null,
       compileLibrary: {
@@ -391,6 +390,45 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+test("library metrics do not widen into dependency analysis", async () => {
+  const selected = packageModel();
+  const state = inspectionState({ packages: [selected] });
+  const defaults = inspectionDependencies(state);
+  let metricsQueries = 0;
+  let dependencyQueries = 0;
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageLibraryMetrics: async (...args) => {
+        metricsQueries++;
+        return defaults.queryPackageLibraryMetrics(...args);
+      },
+      queryPackageLibraryDependencyStructure: async (...args) => {
+        dependencyQueries++;
+        return defaults.queryPackageLibraryDependencyStructure(...args);
+      },
+    }));
+
+  await coordinator.loadLibraryMetrics(
+    selected,
+    "Example.Package@1.2.3/net10.0/Example.Package",
+    "Example.Package");
+
+  assert.equal(metricsQueries, 1);
+  assert.equal(dependencyQueries, 0);
+  assert.equal(state.packageLibraryDependencyStructure, null);
+
+  await coordinator.loadLibraryDependencyStructure(
+    selected,
+    "Example.Package@1.2.3/net10.0/Example.Package",
+    "Example.Package");
+
+  assert.equal(dependencyQueries, 1);
+  assert.deepEqual(
+    state.packageLibraryDependencyStructure,
+    libraryDependencyStructureResult(),
+  );
+});
 
 test("dependency loading does not start explicit pruning work", async () => {
   const selected = packageModel();
