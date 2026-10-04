@@ -3005,6 +3005,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // The added Type carries its implicit constructor plus First and Second.
     await expect(panel.locator(".compare-status"))
       .toContainText("3 changed Members", { timeout: 60_000 });
+    const changedTypeNavigation = page.locator(
+      '#content-navigation-pane [data-type="LibraryApiDiffFixture.AddedType"]',
+    );
+    await expect(
+      changedTypeNavigation.locator(".item-achievement-glyph.api-diff"),
+    ).toHaveCount(1);
+    await expect(changedTypeNavigation.locator(".item-achievement-rail"))
+      .toHaveAttribute("aria-label", /API differences/);
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator(".library-api-diff-member button")).toHaveCount(3);
     await expect(panel).not.toContainText("Whole type diff");
@@ -3031,6 +3039,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("LibraryApiDiffFixture.AddedType.First");
     await expect(panel.locator(".compare-status"))
       .toContainText("Member added", { timeout: 60_000 });
+    const changedMemberNavigation = page.locator(
+      '#content-navigation-pane [data-nav-member="method:First"]',
+    );
+    await expect(
+      changedMemberNavigation.locator(".item-achievement-glyph.api-diff"),
+    ).toHaveCount(1);
+    await expect(changedMemberNavigation.locator(".item-achievement-rail"))
+      .toHaveAttribute("aria-label", /API differences/);
     await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(0);
     await expect(panel).not.toContainText("Member evidence");
     await expect(panel.locator("#library-api-diff-changes-title")).toHaveText("What changed");
