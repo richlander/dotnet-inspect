@@ -101,7 +101,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
         Assert.Equal(
             "exact-library-api",
             document.RootElement.GetProperty("result_kind").GetString());
-        Assert.Contains("Tips:", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
         Assert.Contains(
             "inspect type members",
             error,

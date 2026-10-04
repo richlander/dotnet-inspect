@@ -90,7 +90,7 @@ dotnet-inspect System.CommandLine@2.0.3 -E .tips
 ```
 
 ```expect-stderr
-Tips:
+package System.CommandLine@2.0.3
 ```
 
 ## 2. Default verbosity (platform library)

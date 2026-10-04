@@ -60,7 +60,7 @@ dotnet-inspect member --package System.CommandLine@2.0.3 Command
 ```
 
 ```expect-stderr
-Tips:
+member Command
 ```
 
 ### 1b. Quiet mode (heading only)
@@ -124,7 +124,7 @@ SetAction
 ```
 
 ```expect-stderr
-Tips:
+member Command
 ```
 
 ```query

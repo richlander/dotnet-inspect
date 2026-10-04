@@ -128,10 +128,11 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -E .tips
 
 `-E .tips` is the available dotted child of the short-only companion family.
 It projects a small deterministic set of applicable CLI invocations to
-`stderr` after successful ordinary output. There is no `--tips` alias and no
-quiet, minimal, or detailed tip level. The complete semantic relationship set
-remains available through contextual explanation rather than a second
-verbosity scale.
+`stderr` after successful ordinary output. The explicit projection supplies
+the semantic label, so the block is headless and begins directly with the
+applicable invocations. There is no `--tips` alias and no quiet, minimal, or
+detailed tip level. The complete semantic relationship set remains available
+through contextual explanation rather than a second verbosity scale.
 
 Ordinary `stdout` completes and flushes before the CLI resolves and writes the
 bounded tip block. On a successful invocation with applicable tips, that block
