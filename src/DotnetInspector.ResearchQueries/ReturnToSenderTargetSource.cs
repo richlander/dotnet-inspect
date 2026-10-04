@@ -128,7 +128,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
                     pe.GetMetadataReader(),
                     candidate,
                     typeFilter,
-                    DecisionMaterialization.Complete));
+                    materializeDecision: true));
         declarationCandidate = evaluation.DeclarationCandidate;
         return evaluation.Decision;
     }
@@ -210,7 +210,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
                             typeHandle,
                             methodHandle),
                         typeFilter,
-                        DecisionMaterialization.None);
+                        materializeDecision: false);
                 if (evaluation.DeclarationCandidate)
                     declarationCandidateCount++;
                 if (evaluation.Eligible)
@@ -247,7 +247,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
                     reader,
                     rankedCandidate.Candidate,
                     typeFilter,
-                    DecisionMaterialization.TargetOnly);
+                    materializeDecision: true);
             if (evaluation.DeclarationCandidate)
                 declarationCandidateCount++;
             if (!evaluation.Eligible)
@@ -283,7 +283,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         MetadataReader reader,
         IrImporter.StableSampleCandidate candidate,
         string? typeFilter,
-        DecisionMaterialization materialization)
+        bool materializeDecision)
     {
         TypeDefinition typeDef =
             reader.GetTypeDefinition(candidate.TypeDefHandle);
@@ -363,8 +363,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
             new(
                 DeclarationCandidate: true,
                 Eligible: false,
-                materialization
-                    == DecisionMaterialization.Complete
+                materializeDecision
                     ? new(
                         null,
                         new(
@@ -542,8 +541,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         return new(
             DeclarationCandidate: true,
             Eligible: true,
-            materialization
-                is not DecisionMaterialization.None
+            materializeDecision
                 ? new(
                     new(
                         _assemblyIdentity,
@@ -573,13 +571,6 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         bool DeclarationCandidate,
         bool Eligible,
         ReturnToSenderTargetDecision? Decision);
-
-    private enum DecisionMaterialization
-    {
-        None,
-        TargetOnly,
-        Complete,
-    }
 
     private CSharpAccessorDeclarationPost CaptureAccessor(
         MetadataReader reader,
