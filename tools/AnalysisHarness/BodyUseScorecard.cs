@@ -101,18 +101,10 @@ public sealed record BodyUseScorecardAnswerHash(
     BodyUseScorecardClosing Closing,
     string Hash);
 
-public sealed record BodyUseScorecardWorkShape(
-    string Asset,
-    BodyUseScorecardClosing Closing,
-    int TerminalValue,
-    BodyUseScorecardDisposition Disposition,
-    AnalysisLibraryBodyUseCoverage Coverage);
-
 public sealed record BodyUseScorecardCheck(
     int Compared,
     IReadOnlyList<BodyUseScorecardMismatch> Mismatches,
-    IReadOnlyList<BodyUseScorecardAnswerHash> AnswerHashes,
-    IReadOnlyList<BodyUseScorecardWorkShape> WorkShapes)
+    IReadOnlyList<BodyUseScorecardAnswerHash> AnswerHashes)
 {
     public bool Agrees => Mismatches.Count == 0;
 }
@@ -196,7 +188,6 @@ public static class BodyUseScorecard
     {
         var mismatches = new List<BodyUseScorecardMismatch>();
         var hashes = new List<BodyUseScorecardAnswerHash>();
-        var workShapes = new List<BodyUseScorecardWorkShape>();
         int compared = 0;
         foreach (BodyUseScorecardAsset asset in assets)
         {
@@ -213,14 +204,6 @@ public static class BodyUseScorecard
                         asset.Name,
                         closing,
                         AnswerHash(oracle)));
-                if (oracle.Answer is { } answer)
-                {
-                    workShapes.Add(
-                        WorkShape(
-                            asset.Name,
-                            closing,
-                            answer));
-                }
                 foreach (BodyUseScorecardColumn column in Columns)
                 {
                     if (column == BodyUseScorecardColumn.NLinq)
@@ -245,7 +228,7 @@ public static class BodyUseScorecard
                 }
             }
         }
-        return new(compared, mismatches, hashes, workShapes);
+        return new(compared, mismatches, hashes);
     }
 
     public static BodyUseScorecardExecution Execute(
@@ -820,20 +803,6 @@ public static class BodyUseScorecard
                 nameof(disposition)),
         };
 
-    static BodyUseScorecardDisposition Normalize(
-        AnalysisLibraryBodyUseDisposition disposition) =>
-        disposition switch
-        {
-            AnalysisLibraryBodyUseDisposition.Complete =>
-                BodyUseScorecardDisposition.Complete,
-            AnalysisLibraryBodyUseDisposition.Qualified =>
-                BodyUseScorecardDisposition.Qualified,
-            AnalysisLibraryBodyUseDisposition.Partial =>
-                BodyUseScorecardDisposition.Partial,
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(disposition)),
-        };
-
     static bool Same(
         BodyUseScorecardExecution left,
         BodyUseScorecardExecution right)
@@ -1233,37 +1202,6 @@ public static class BodyUseScorecard
         }
         text.AppendLine();
     }
-
-    static BodyUseScorecardWorkShape WorkShape(
-        string asset,
-        BodyUseScorecardClosing closing,
-        BodyUseScorecardAnswer answer) =>
-        answer switch
-        {
-            BodyUseScorecardAnswer.Exists exists =>
-                new(
-                    asset,
-                    closing,
-                    exists.Value ? 1 : 0,
-                    exists.Evidence.Disposition,
-                    exists.Evidence.Coverage),
-            BodyUseScorecardAnswer.Count count =>
-                new(
-                    asset,
-                    closing,
-                    count.Value,
-                    count.Evidence.Disposition,
-                    count.Evidence.Coverage),
-            BodyUseScorecardAnswer.Rows rows =>
-                new(
-                    asset,
-                    closing,
-                    rows.Occurrences.Length,
-                    Normalize(rows.Disposition),
-                    rows.Coverage),
-            _ => throw new InvalidOperationException(
-                "The scorecard returned an unknown answer."),
-        };
 
     static ProducerTerminal Terminal(
         BodyUseScorecardClosing closing) =>

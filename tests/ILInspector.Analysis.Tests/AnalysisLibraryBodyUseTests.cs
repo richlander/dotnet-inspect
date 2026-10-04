@@ -771,15 +771,22 @@ public sealed class AnalysisLibraryBodyUseTests
     [Fact]
     public void Scorecard_ChecksEveryClosing()
     {
+        BodyUseScorecardAsset[] assets =
+        [
+            new(
+                "empty",
+                "Empty.dll",
+                BuildIndependentImage([(byte)ILOpCode.Ret])),
+        ];
         BodyUseScorecardCheck check = BodyUseScorecard.Check(
-            [
-                new(
-                    "empty",
-                    "Empty.dll",
-                    BuildIndependentImage([(byte)ILOpCode.Ret])),
-            ],
+            assets,
             cancellationToken:
                 TestContext.Current.CancellationToken);
+        IReadOnlyList<BodyUseScorecardWorkShape> workShapes =
+            BodyUseScorecardWorkShapes.Capture(
+                assets,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
 
         Assert.True(check.Agrees);
         Assert.Equal(9, check.Compared);
@@ -788,7 +795,7 @@ public sealed class AnalysisLibraryBodyUseTests
             check.AnswerHashes.Select(static answer => answer.Closing));
         Assert.Equal(
             Enum.GetValues<BodyUseScorecardClosing>(),
-            check.WorkShapes.Select(static shape => shape.Closing));
+            workShapes.Select(static shape => shape.Closing));
     }
 
     [Fact]

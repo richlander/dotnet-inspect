@@ -38,16 +38,18 @@ IReadOnlyList<BodyUseScorecardCell> cells =
         assets,
         options.Timing,
         progress => Console.Error.WriteLine(progress));
+IReadOnlyList<BodyUseScorecardWorkShape> workShapes =
+    BodyUseScorecardWorkShapes.Capture(assets);
 if (options.TsvPath is { } tsvPath)
 {
     using StreamWriter tsv = File.CreateText(tsvPath);
     BodyUseScorecard.WriteTsv(
         cells,
-        check.WorkShapes,
+        workShapes,
         tsv);
 }
 Console.Write(
     BodyUseScorecard.Report(
         cells,
-        check.WorkShapes));
+        workShapes));
 return 0;
