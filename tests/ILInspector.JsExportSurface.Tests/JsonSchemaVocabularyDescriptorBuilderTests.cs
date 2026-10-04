@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
 using DotnetInspector.JsonSchema;
-using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
