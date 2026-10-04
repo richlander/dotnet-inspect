@@ -390,6 +390,10 @@ invokes the product-owned signature and body shard producers. It does not
 reconstruct relationships, degrees, orders, roles, eligibility, or poles.
 An absent target framework remains valid acquisition provenance when the
 package selector issued a selected assembly without one.
+A selected assembly with no defined Types remains an observed zero population;
+the census retains its provenance and body coverage without constructing a
+namespace batch. Once acquisition succeeds, the census runs independently of
+the bounded decompiler report, while either sensor's failure remains visible.
 
 The census may join rows by exact Type address and report:
 

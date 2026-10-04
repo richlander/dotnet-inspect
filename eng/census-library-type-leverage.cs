@@ -198,16 +198,22 @@ static LeverageAssemblyCensus Measure(
                 new(MetadataOperationPolicy.Unbounded)));
     LibraryStructuralNamespaceLeverageIndex index =
         LibraryStructuralReport.CreateNamespaceLeverageIndex(whole);
-    MetadataLibrarySignatureUseBatchResult batch =
-        AvailableBatch(
-            session.LibrarySignatureUseBatch(
-                new(
-                    MetadataOperationPolicy.Unbounded,
-                    [.. index.Rows.Select(
-                        static row => row.Namespace)])));
+    MetadataLibrarySignatureUseResult[] namespaceInventories =
+        index.Rows.Length == 0
+            ? []
+            :
+            [
+                .. AvailableBatch(
+                    session.LibrarySignatureUseBatch(
+                        new(
+                            MetadataOperationPolicy.Unbounded,
+                            [.. index.Rows.Select(
+                                static row => row.Namespace)])))
+                    .Results,
+            ];
     LibraryStructuralTypeLeverageShard[] signatureShards =
     [
-        .. batch.Results.Select(
+        .. namespaceInventories.Select(
             LibraryStructuralReport.CreateTypeLeverageShard),
     ];
     double signatureMilliseconds =
@@ -227,7 +233,7 @@ static LeverageAssemblyCensus Measure(
     long bodyProjectionStarted = Stopwatch.GetTimestamp();
     LibraryStructuralBodyTypeLeverageShard[] bodyShards =
     [
-        .. batch.Results.Select(inventory =>
+        .. namespaceInventories.Select(inventory =>
             LibraryStructuralReport.CreateBodyTypeLeverageShard(
                 inventory,
                 bodyUse)),
