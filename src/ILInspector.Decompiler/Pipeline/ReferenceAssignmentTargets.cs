@@ -31,7 +31,13 @@ internal readonly record struct ReferenceAssignmentTargets(
             return conditional.CanAssignReferenceArmsTo(target, shapes);
         if (value is Coalesce)
             return ForType(value.AssignmentType, shapes, provenWidenings).Contains(target, shapes);
-        return ForType(value.AssignmentType, shapes, provenWidenings).Contains(target, shapes);
+        if (target.Equals(ObjectType) && CoercionRendering.IsProvenReference(value.AssignmentType, shapes))
+            return true;
+        // The one addition for plain values: a supertype the importer's join
+        // merge proved for this exact type while metadata was live.
+        return value.AssignmentType is { } valueType
+            && provenWidenings is { Count: > 0 }
+            && provenWidenings.Contains(new ReferenceWidening(valueType, target));
     }
 
     internal static ReferenceAssignmentTargets ForArms(

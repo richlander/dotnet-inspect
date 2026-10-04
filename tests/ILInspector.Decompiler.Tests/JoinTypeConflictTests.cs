@@ -246,6 +246,93 @@ public class JoinTypeConflictTests : IDisposable
     }
 
     [Fact]
+    public void ReferenceJoin_FacadeForwardedPair_DisjointnessStaysSameAssemblyAndTheCascadeStaysAnIf()
+    {
+        // XmlTextReader derives from XmlReader; both are referenced through the
+        // System.Xml.ReaderWriter facade and defined in System.Private.Xml.
+        // The cross-assembly reach belongs to the join merge only:
+        // AreProvablyDisjoint keeps its same-assembly contract (a foreign base
+        // yields false, never a false "disjoint"), so PatternSwitchExpressionPass
+        // must not fold the guarded cascade into a switch expression that would
+        // route a guard-failing XmlTextReader to the XmlReader arm.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.GuardedXmlReaderCascade))!;
+
+        var textReader = Assert.Single(function.TypeShapes.Keys, t => t is { Namespace: "System.Xml", Name: "XmlTextReader" });
+        var reader = Assert.Single(function.TypeShapes.Keys, t => t is { Namespace: "System.Xml", Name: "XmlReader" });
+        Assert.False(source.AreProvablyDisjoint(textReader, reader));
+        Assert.False(source.AreProvablyDisjoint(reader, textReader));
+
+        var result = CSharpPrinter.PrintRaised(function);
+        Assert.NotNull(result.Output);
+        Assert.DoesNotContain("switch", result.Output);
+        Assert.Contains("return -1;", result.Output);
+    }
+
+    [Fact]
+    public void ReferenceJoin_CrossAssemblySiblingArms_TypeTheAncestorUnderTheModuleReference()
+    {
+        // XElement and XComment are siblings under XNode, all three declared in
+        // System.Xml.XDocument (reached through its facade). The function
+        // references XNode itself (the local), so the merge types the join as
+        // the module's own XNode reference: not ambiguous, Reference shape, and
+        // both widenings proven.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.SiblingXNodeJoin))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        var load = Assert.Single(
+            function.Descendants.OfType<LoadStackSlot>(),
+            l => l.Type is { Namespace: "System.Xml.Linq", Name: "XNode" });
+        Assert.DoesNotContain(function.AmbiguousTypeFacts, t => t.Equals(load.Type));
+        Assert.Equal(TypeShape.Reference, function.TypeShapes[load.Type!]);
+        Assert.Contains(function.ProvenReferenceWidenings, w => w.From is { Name: "XElement" } && w.To.Equals(load.Type));
+        Assert.Contains(function.ProvenReferenceWidenings, w => w.From is { Name: "XComment" } && w.To.Equals(load.Type));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ReferenceJoin_CrossAssemblySiblingArms_UnreferencedAncestorStaysUnknown()
+    {
+        // XAttribute and XComment meet only at XObject, which this module never
+        // references. The identity rule declines the merge instead of admitting
+        // a TypeRef none of the function's rows share, so the join stays an
+        // honest unknown with its diagnostic.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.UnreferencedAncestorJoin))!;
+
+        Assert.Contains(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)") && (d.Message ?? "").Contains("XAttribute"));
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), l => l.Type is { Name: "XObject" });
+        Assert.DoesNotContain(function.ProvenReferenceWidenings, w => w.To is { Name: "XObject" });
+    }
+
+    [Fact]
+    public void ReferenceJoin_NullLiteralArm_PublishesNoWidening()
+    {
+        // `c ? null : s` adopts string for the null arm. Adoption is not a
+        // proven conversion from System.Object, so nothing may be published.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NullArmJoin))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Empty(function.ProvenReferenceWidenings);
+    }
+
+    [Fact]
     public void ReferenceJoin_NullLiteralAdoptsCrossAssemblyReferenceType()
     {
         // The null arm of a ?. lowering is the null literal, not a hard object

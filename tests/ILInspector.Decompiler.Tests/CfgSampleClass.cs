@@ -5119,6 +5119,48 @@ public class CfgSampleClass
     public static string MergedCrossAssemblyBaseSlot(bool strict, byte[] bytes)
         => (strict ? s_strictUtf8 : System.Text.Encoding.UTF8).GetString(bytes);
 
+    // A guarded type cascade over a facade-forwarded pair: XmlTextReader derives
+    // from XmlReader, both referenced through System.Xml.ReaderWriter and defined
+    // in System.Private.Xml. A guard-failing XmlTextReader (Depth <= min) must
+    // return -1 and never reach the XmlReader arm, so the disjointness oracle
+    // must keep saying "not provably disjoint" and the cascade must stay an if.
+    public static int GuardedXmlReaderCascade(object o, int min)
+    {
+        object v = o;
+        System.Xml.XmlTextReader? t = v as System.Xml.XmlTextReader;
+        if (t is null)
+        {
+            if (v is System.Xml.XmlReader r) return r.Depth + 100;
+            if (v is string s) return s.Length;
+        }
+        else
+        {
+            if (t.Depth > min) return t.Depth;
+        }
+        return -1;
+    }
+
+    // Sibling arms from another assembly whose common ancestor this module
+    // references (NextNode is declared on XNode, so the callvirt is a TypeRef
+    // row for XNode): the join types XNode under the module's own reference
+    // identity and proves both widenings. NodeType would not do: it is
+    // declared on XObject, which must stay unreferenced for the sample below.
+    public static bool SiblingXNodeJoin(bool c, System.Xml.Linq.XElement element, System.Xml.Linq.XComment comment)
+    {
+        System.Xml.Linq.XNode node = c ? element : comment;
+        return node.NextNode is null;
+    }
+
+    // Sibling arms whose common ancestor (XObject) this module never
+    // references: the join stays an honest unknown rather than entering the
+    // IR under an identity none of the function's rows share.
+    public static string UnreferencedAncestorJoin(bool c, System.Xml.Linq.XAttribute attribute, System.Xml.Linq.XComment comment)
+        => (c ? (object)attribute : comment).ToString()!;
+
+    // A null-literal arm adopts the other arm's type; it proves nothing about
+    // System.Object, so no widening may be published for it.
+    public static string? NullArmJoin(bool c, string s) => c ? null : s;
+
     // A ?? join whose arms are a cross-assembly interface and a cross-assembly
     // class that implements it: IEqualityComparer<string> and
     // EqualityComparer<string>. The merge resolves to the interface through the

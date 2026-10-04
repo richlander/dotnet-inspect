@@ -729,10 +729,11 @@ public sealed class IrFunction : IrNode
             InequalityOperatorFreeTypes,
             body.InequalityOperatorFreeTypes);
         ProvenReferenceWidenings = MergeSet(
-            ProvenReferenceWidenings,
-            body.ProvenReferenceWidenings.Where(
-                widening => !ambiguous.Contains(widening.From) && !ambiguous.Contains(widening.To))
-                .ToImmutableHashSet());
+            ProvenReferenceWidenings.Where(Unambiguous).ToImmutableHashSet(),
+            body.ProvenReferenceWidenings.Where(Unambiguous).ToImmutableHashSet());
+
+        bool Unambiguous(ReferenceWidening widening)
+            => !ambiguous.Contains(widening.From) && !ambiguous.Contains(widening.To);
     }
 
     internal void CopyTypeFactsFrom(IrFunction source)

@@ -365,6 +365,31 @@ internal sealed class CrossAssemblyTypeResolver
     /// <c>MetadataSource.ResolveBaseType</c>, whose same-assembly map stops at
     /// the first cross-assembly link of a base chain.
     /// </summary>
+    /// <summary>
+    /// Whether two references denote the same type definition once each is
+    /// resolved through the context, so a facade reference
+    /// (<c>[System.Xml.ReaderWriter]XmlReader</c>) and the implementing
+    /// module's own row (<c>[System.Private.Xml]XmlReader</c>) agree.
+    /// <see cref="MetadataFactState.Unknown"/> when either cannot be located.
+    /// </summary>
+    public MetadataFactState SameDefinition(TypeRef a, TypeRef b)
+    {
+        if (NamedDefinition(a) is not { } definitionA || NamedDefinition(b) is not { } definitionB)
+            return MetadataFactState.Unknown;
+        try
+        {
+            if (Locate(definitionA) is not { } resolvedA || Locate(definitionB) is not { } resolvedB)
+                return MetadataFactState.Unknown;
+            return resolvedA.Address.Equals(resolvedB.Address)
+                ? MetadataFactState.Yes
+                : MetadataFactState.No;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return MetadataFactState.Unknown;
+        }
+    }
+
     public MetadataFactState BaseType(TypeRef type, out TypeRef? baseType)
     {
         baseType = null;

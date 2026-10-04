@@ -1123,13 +1123,24 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    through the shared metadata context (`MetadataSource.ResolveBaseType`,
    `IsInterface`, `Implements` over `CrossAssemblyTypeResolver`), so a
    `UTF8Encoding`/`Encoding` diamond or an `IEqualityComparer<T>` ??
-   `EqualityComparer<T>` join types at import; a base decoded from another
-   module is bound to that module's assembly identity before it enters the
-   IR, and the merge returns the arm instance when the common ancestor is an
-   arm. Each successful reference merge publishes the conversions it proved
-   as `IrFunction.ProvenReferenceWidenings` (`From → To`), the only
-   hierarchy fact `ReferenceAssignmentTargets` consults when materialization
-   admits a subtype store into a join-typed slot. Remaining, by census:
+   `EqualityComparer<T>` join types at import. The cross-assembly reach is
+   merge-private (`ResolveBaseTypeForMerge`, `IsInterfaceForMerge`,
+   `ImplementsForMerge`): `ResolveBaseType` and its other consumers —
+   `AreProvablyDisjoint`, `InterfacesOf`, `SupportsCollectionInitializer`,
+   the importer's declaring-type base, `ConstructorConfinementFacts` — keep
+   their same-assembly contracts, because a facade-forwarded ancestor
+   compared by `TypeRef` equality would otherwise make `AreProvablyDisjoint`
+   claim disjointness it cannot prove. Identity rule: a definition reached
+   through another module enters the IR only under the identity this module
+   itself uses for it (its own TypeRef row, matched through the context as the
+   same definition); the merge returns the arm instance when the common
+   ancestor is an arm and declines (honest unknown) an ancestor this module
+   never references, so no `TypeRef` enters a function under an identity its
+   rows do not share. Each successful reference merge — not a null-literal
+   arm adopting the other arm's type — publishes the conversions it proved as
+   `IrFunction.ProvenReferenceWidenings` (`From → To`), the only hierarchy
+   fact `ReferenceAssignmentTargets` consults when materialization admits a
+   subtype store into a join-typed slot. Remaining, by census:
    cross-assembly enum-likes (width unprovable — recoverable later only with
    sink-context evidence), reference joins with no common supertype below
    `object` (`ISymbolInternal` ?? `ITypeReference` consumed at an `object`
