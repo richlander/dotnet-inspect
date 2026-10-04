@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 
 using ILInspector.Instructions;
 
@@ -27,10 +28,11 @@ public readonly record struct MethodBodyScanSummary(
 /// metadata enumeration, body admission, and MethodBodyBlock construction are
 /// outside every timed terminal.
 /// </summary>
-public sealed class PreparedMethodBodies : IDisposable
+public sealed partial class PreparedMethodBodies : IDisposable
 {
     readonly PEReader _peReader;
     readonly ImmutableArray<MethodBodyBlock> _bodies;
+    readonly ImmutableArray<ImmutableArray<byte>> _bodyIl;
     readonly CallScan _calls = new();
     readonly AllocationScan _allocations = new();
     readonly ThrowScan _throws = new();
@@ -45,6 +47,7 @@ public sealed class PreparedMethodBodies : IDisposable
 
         MetadataReader reader = peReader.GetMetadataReader();
         var bodies = ImmutableArray.CreateBuilder<MethodBodyBlock>();
+        var bodyIl = ImmutableArray.CreateBuilder<ImmutableArray<byte>>();
         foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
         {
             MethodDefinition method = reader.GetMethodDefinition(handle);
@@ -54,10 +57,16 @@ public sealed class PreparedMethodBodies : IDisposable
                 continue;
             }
 
-            bodies.Add(peReader.GetMethodBody(method.RelativeVirtualAddress));
+            MethodBodyBlock body =
+                peReader.GetMethodBody(method.RelativeVirtualAddress);
+            bodies.Add(body);
+            bodyIl.Add(
+                ImmutableCollectionsMarshal.AsImmutableArray(
+                    body.GetILBytes() ?? []));
         }
 
         _bodies = bodies.ToImmutable();
+        _bodyIl = bodyIl.ToImmutable();
     }
 
     public int BodyCount => _bodies.Length;

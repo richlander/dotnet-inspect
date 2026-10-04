@@ -218,6 +218,48 @@ public sealed class ScorecardTests
         }
     }
 
+    [Fact]
+    public void MethodBodyDemandColumns_AgreeOnRealAssembly()
+    {
+        IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
+            PreparedMethodBodies.LoadAssets(
+                [typeof(ScorecardTests).Assembly.Location]);
+        try
+        {
+            Assert.Empty(assets[0].Asset.CheckThrowPresenceAgreement());
+            ScorecardColumn<
+                PreparedMethodBodies,
+                MethodThrowPresenceSummary>[] columns =
+                    MethodBodyDemandPrototype.Columns();
+            ScorecardColumn<
+                PreparedMethodBodies,
+                MethodThrowPresenceSummary> oracle =
+                    columns[0];
+            ScorecardCheck check = Scorecard.Check(
+                assets,
+                oracle,
+                columns,
+                MethodBodyDemandPrototype.RowText,
+                closings: MethodBodyDemandPrototype.Closings);
+
+            Assert.True(
+                check.Agrees,
+                string.Join(Environment.NewLine, check.Mismatches));
+            MethodThrowPresenceSummary summary = Assert.Single(
+                oracle.Answer(
+                    ScorecardClosing.Rows,
+                    assets[0].Asset)
+                .Rows!);
+            Assert.True(summary.Bodies > 0);
+            Assert.InRange(summary.WithThrows, 1, summary.Bodies);
+        }
+        finally
+        {
+            foreach (ScorecardAsset<PreparedMethodBodies> asset in assets)
+                asset.Asset.Dispose();
+        }
+    }
+
     struct StaticMethodSelection : IMethodSelection
     {
         public readonly bool IsSelected(MetadataReader reader, TypeDefinition type, MethodDefinition method) =>
