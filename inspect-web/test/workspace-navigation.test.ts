@@ -426,6 +426,18 @@ test("decompiled member source view survives workspace URL projection", () => {
   assert.equal(parsed.memberSourceView, "decompiler-source");
 });
 
+test("legacy workspace transport treats an omitted source view as authored", () => {
+  const legacyState = structuredClone(workspaceState());
+  Reflect.deleteProperty(legacyState.view, "sourceView");
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=canonical"),
+    () => decoded(legacyState));
+
+  assert.equal(parsed.workspaceNotice, "");
+  assert.equal(parsed.memberSourceView, null);
+});
+
 test("shared Top Leverage filter remains an explicit URL activation", () => {
   const state = workspaceState({
     memberLeverageFilter: "top-leverage",

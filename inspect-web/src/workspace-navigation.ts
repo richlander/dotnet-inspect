@@ -779,10 +779,10 @@ function decodeWorkspaceShareResult(
   const memberSection = section && isMemberSection(section)
     ? section
     : null;
-  const sourceView = state.view.sourceView === null
+  const sourceView = state.view.sourceView == null
     ? null
     : memberSourceView(state.view.sourceView);
-  if (state.view.sourceView !== null && sourceView === null) {
+  if (state.view.sourceView != null && sourceView === null) {
     return {
       error: `The shared member source view '${state.view.sourceView}' is not supported by this browser.`,
     };
