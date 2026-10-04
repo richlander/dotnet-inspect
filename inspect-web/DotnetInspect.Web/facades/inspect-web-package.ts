@@ -116,12 +116,6 @@ export type DocumentationQueryFieldEvidenceKind = "Selected" | "Corroborated" | 
 
 export type DocumentationQueryRequestRejectionReason = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | "AuthoredSourceBindingMismatch" | number;
 
-export type PackageQueryDurableEvidenceScope = "Package" | "Query" | number;
-
-export type PackageQueryDurableManifestIdentityProvenance = "ExpectedCoordinate" | "SelfAttested" | number;
-
-export type PackageQueryDurableRowTier = "SearchMetadata" | "Nuspec" | "PackageContent" | "Assembly" | number;
-
 export interface AuthoredDocumentationObservation {
   readonly code?: string;
   readonly detail?: string;
@@ -1366,83 +1360,6 @@ export interface DocumentationQueryTextFieldEvidence {
   readonly contributions: ReadonlyArray<DocumentationQueryTextFieldContribution>;
 }
 
-export interface PackageQueryDurableAnswer {
-  readonly id: string;
-  readonly value: string;
-  readonly term: PackageQueryDurableTerm | null;
-}
-
-export interface PackageQueryDurableDeclaredDependency {
-  readonly id: string;
-  readonly versionRange: string;
-}
-
-export interface PackageQueryDurableDeclaredDependencyGroup {
-  readonly targetFramework: string;
-  readonly dependencies: ReadonlyArray<PackageQueryDurableDeclaredDependency>;
-  readonly isImplicitManifestGroup: boolean;
-}
-
-export interface PackageQueryDurableEvidence {
-  readonly id: string;
-  readonly scope: PackageQueryDurableEvidenceScope;
-  readonly summary: PackageQueryDurableEvidenceSummary | null;
-  readonly properties: ReadonlyArray<PackageQueryDurableEvidenceProperty>;
-  readonly number: number | null;
-  readonly term: PackageQueryDurableTerm | null;
-}
-
-export interface PackageQueryDurableEvidenceProperty {
-  readonly name: string;
-  readonly value: string;
-}
-
-export interface PackageQueryDurableEvidenceSummary {
-  readonly count: number;
-  readonly preview: ReadonlyArray<string>;
-}
-
-export interface PackageQueryDurableManifest {
-  readonly packageId: string;
-  readonly version: string;
-  readonly manifestVersion: string;
-  readonly description: string | null;
-  readonly authors: string | null;
-  readonly repository: string | null;
-  readonly repositoryType: string | null;
-  readonly repositoryCommit: string | null;
-  readonly license: string | null;
-  readonly licenseUrl: string | null;
-  readonly packageTypes: ReadonlyArray<string>;
-  readonly isToolPackage: boolean;
-  readonly readmeFile: string | null;
-  readonly dependencyGroups: ReadonlyArray<PackageQueryDurableDeclaredDependencyGroup>;
-  readonly iconFile: string | null;
-  readonly iconUrl: string | null;
-  readonly identityProvenance: PackageQueryDurableManifestIdentityProvenance;
-}
-
-export interface PackageQueryDurableRow {
-  readonly packageId: string;
-  readonly version: string;
-  readonly tier: PackageQueryDurableRowTier;
-  readonly answers: ReadonlyArray<PackageQueryDurableAnswer>;
-  readonly evidence: ReadonlyArray<PackageQueryDurableEvidence>;
-  readonly totalDownloads: number | null;
-  readonly verified: boolean | null;
-  readonly producer: string;
-  readonly description: string | null;
-  readonly rootRequest: string | null;
-  readonly owners: ReadonlyArray<string>;
-  readonly manifest: PackageQueryDurableManifest | null;
-}
-
-export interface PackageQueryDurableTerm {
-  readonly key: string;
-  readonly operator: string;
-  readonly value: string;
-}
-
 export interface Absent {
   readonly kind: "absent";
 }
@@ -1578,7 +1495,7 @@ export type DocumentationQueryOutcome = Completed | type_4486029c | type_0808982
 
 export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 
-export const jsonSchemaVocabularyDescriptors = [{"bindings":[{"schemaLocation":"/prefixItems/0","term":"package-id","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/1","term":"version","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/2","term":"tier","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/3","term":"answers","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/4","term":"evidence","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/5","term":"total-downloads","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/6","term":"verified","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/7","term":"producer","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/8","term":"description","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/9","term":"root-request","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/10","term":"owners","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/11","term":"manifest","vocabulary":"package-query.durable-row"}],"contract":"package-query.durable-row","descriptorIdentity":"sha256:6e4d2e724a393f92c752b93b50b5f0f0e70da04675e198b79dea280663ffe087","dialect":"https://json-schema.org/draft/2020-12/schema","direction":"serialize","formatVersion":1,"schema":{"$defs":{"PackageQueryDurableAnswer":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"term":{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableTerm"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["id","term","value"],"type":"object"},"PackageQueryDurableDeclaredDependency":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"versionRange":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["id","versionRange"],"type":"object"},"PackageQueryDurableDeclaredDependencyGroup":{"additionalProperties":false,"properties":{"dependencies":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableDeclaredDependency"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"isImplicitManifestGroup":{"type":"boolean"},"targetFramework":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["dependencies","isImplicitManifestGroup","targetFramework"],"type":"object"},"PackageQueryDurableEvidence":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"number":{"anyOf":[{"maximum":9223372036854775807,"minimum":-9223372036854775808,"type":"integer"},{"type":"null"}]},"properties":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableEvidenceProperty"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"scope":{"$ref":"#/$defs/PackageQueryDurableEvidenceScope"},"summary":{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableEvidenceSummary"},{"type":"null"}]},"term":{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableTerm"},{"type":"null"}]}},"required":["id","number","properties","scope","summary","term"],"type":"object"},"PackageQueryDurableEvidenceProperty":{"additionalProperties":false,"properties":{"name":{"anyOf":[{"type":"string"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["name","value"],"type":"object"},"PackageQueryDurableEvidenceScope":{"anyOf":[{"enum":["Package","Query"],"type":"string"},{"type":"integer"}]},"PackageQueryDurableEvidenceSummary":{"additionalProperties":false,"properties":{"count":{"maximum":2147483647,"minimum":-2147483648,"type":"integer"},"preview":{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]}},"required":["count","preview"],"type":"object"},"PackageQueryDurableManifest":{"additionalProperties":false,"properties":{"authors":{"anyOf":[{"type":"string"},{"type":"null"}]},"dependencyGroups":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableDeclaredDependencyGroup"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"description":{"anyOf":[{"type":"string"},{"type":"null"}]},"iconFile":{"anyOf":[{"type":"string"},{"type":"null"}]},"iconUrl":{"anyOf":[{"type":"string"},{"type":"null"}]},"identityProvenance":{"$ref":"#/$defs/PackageQueryDurableManifestIdentityProvenance"},"isToolPackage":{"type":"boolean"},"license":{"anyOf":[{"type":"string"},{"type":"null"}]},"licenseUrl":{"anyOf":[{"type":"string"},{"type":"null"}]},"manifestVersion":{"anyOf":[{"type":"string"},{"type":"null"}]},"packageId":{"anyOf":[{"type":"string"},{"type":"null"}]},"packageTypes":{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"readmeFile":{"anyOf":[{"type":"string"},{"type":"null"}]},"repository":{"anyOf":[{"type":"string"},{"type":"null"}]},"repositoryCommit":{"anyOf":[{"type":"string"},{"type":"null"}]},"repositoryType":{"anyOf":[{"type":"string"},{"type":"null"}]},"version":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["authors","dependencyGroups","description","iconFile","iconUrl","identityProvenance","isToolPackage","license","licenseUrl","manifestVersion","packageId","packageTypes","readmeFile","repository","repositoryCommit","repositoryType","version"],"type":"object"},"PackageQueryDurableManifestIdentityProvenance":{"anyOf":[{"enum":["ExpectedCoordinate","SelfAttested"],"type":"string"},{"type":"integer"}]},"PackageQueryDurableRowTier":{"anyOf":[{"enum":["SearchMetadata","Nuspec","PackageContent","Assembly"],"type":"string"},{"type":"integer"}]},"PackageQueryDurableTerm":{"additionalProperties":false,"properties":{"key":{"anyOf":[{"type":"string"},{"type":"null"}]},"operator":{"anyOf":[{"type":"string"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["key","operator","value"],"type":"object"}},"$id":"urn:dotnet-inspect:json-schema:sha256:20c7a10b3ed0e78008817df220987dedef82f1f9d9deec7bee1d78bfde377f8a","$schema":"https://json-schema.org/draft/2020-12/schema","items":false,"maxItems":12,"minItems":12,"prefixItems":[{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"$ref":"#/$defs/PackageQueryDurableRowTier"},{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableAnswer"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableEvidence"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"maximum":9223372036854775807,"minimum":-9223372036854775808,"type":"integer"},{"type":"null"}]},{"anyOf":[{"type":"boolean"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"$ref":"#/$defs/PackageQueryDurableManifest"},{"type":"null"}]}],"type":"array"},"schemaIdentity":"sha256:20c7a10b3ed0e78008817df220987dedef82f1f9d9deec7bee1d78bfde377f8a","vocabularyCatalog":"dotnet-inspect.product","vocabularySnapshotIdentity":"sha256:738fb458557d93aa6681947f43cc9ba9315260177f7bbe8af83c02d49b437f36"}] as const;
+export const jsonSchemaVocabularyDescriptors = [{"bindings":[{"schemaLocation":"/prefixItems/0","term":"package-id","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/1","term":"version","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/2","term":"tier","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/3","term":"answers","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/4","term":"evidence","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/5","term":"total-downloads","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/6","term":"verified","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/7","term":"producer","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/8","term":"description","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/9","term":"root-request","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/10","term":"owners","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/11","term":"manifest","vocabulary":"package-query.durable-row"}],"contract":"package-query.durable-row","descriptorIdentity":"sha256:6b2066dd97ba6904ca7e27c83def6e91c87e12e9b225c0ee700db6a93b7ed191","dialect":"https://json-schema.org/draft/2020-12/schema","direction":"serialize","formatVersion":1,"schema":{"$defs":{"BrowserPackageQueryAcquisitionTier":{"anyOf":[{"enum":["Nuspec","PackageContent","SearchMetadata","Assembly"],"type":"string"},{"type":"integer"}]},"BrowserPackageQueryAnswer":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"term":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryTerm"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["id","term","value"],"type":"object"},"BrowserPackageQueryDeclaredDependency":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"versionRange":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["id","versionRange"],"type":"object"},"BrowserPackageQueryDeclaredDependencyGroup":{"additionalProperties":false,"properties":{"dependencies":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryDeclaredDependency"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"isImplicitManifestGroup":{"type":"boolean"},"targetFramework":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["dependencies","isImplicitManifestGroup","targetFramework"],"type":"object"},"BrowserPackageQueryEvidence":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"number":{"anyOf":[{"maximum":9223372036854775807,"minimum":-9223372036854775808,"type":"integer"},{"type":"null"}]},"properties":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryEvidenceProperty"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"scope":{"$ref":"#/$defs/BrowserPackageQueryEvidenceScope"},"summary":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryEvidenceSummary"},{"type":"null"}]},"term":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryTerm"},{"type":"null"}]}},"required":["id","number","properties","scope","summary","term"],"type":"object"},"BrowserPackageQueryEvidenceProperty":{"additionalProperties":false,"properties":{"name":{"anyOf":[{"type":"string"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["name","value"],"type":"object"},"BrowserPackageQueryEvidenceScope":{"anyOf":[{"enum":["Package","Query"],"type":"string"},{"type":"integer"}]},"BrowserPackageQueryEvidenceSummary":{"additionalProperties":false,"properties":{"count":{"maximum":2147483647,"minimum":-2147483648,"type":"integer"},"preview":{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]}},"required":["count","preview"],"type":"object"},"BrowserPackageQueryManifest":{"additionalProperties":false,"properties":{"authors":{"anyOf":[{"type":"string"},{"type":"null"}]},"dependencyGroups":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryDeclaredDependencyGroup"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"description":{"anyOf":[{"type":"string"},{"type":"null"}]},"iconFile":{"anyOf":[{"type":"string"},{"type":"null"}]},"iconUrl":{"anyOf":[{"type":"string"},{"type":"null"}]},"identityProvenance":{"$ref":"#/$defs/BrowserPackageQueryManifestIdentityProvenance"},"isToolPackage":{"type":"boolean"},"license":{"anyOf":[{"type":"string"},{"type":"null"}]},"licenseUrl":{"anyOf":[{"type":"string"},{"type":"null"}]},"manifestVersion":{"anyOf":[{"type":"string"},{"type":"null"}]},"packageId":{"anyOf":[{"type":"string"},{"type":"null"}]},"packageTypes":{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"readmeFile":{"anyOf":[{"type":"string"},{"type":"null"}]},"repository":{"anyOf":[{"type":"string"},{"type":"null"}]},"repositoryCommit":{"anyOf":[{"type":"string"},{"type":"null"}]},"repositoryType":{"anyOf":[{"type":"string"},{"type":"null"}]},"version":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["authors","dependencyGroups","description","iconFile","iconUrl","identityProvenance","isToolPackage","license","licenseUrl","manifestVersion","packageId","packageTypes","readmeFile","repository","repositoryCommit","repositoryType","version"],"type":"object"},"BrowserPackageQueryManifestIdentityProvenance":{"anyOf":[{"enum":["ExpectedCoordinate","SelfAttested"],"type":"string"},{"type":"integer"}]},"BrowserPackageQueryTerm":{"additionalProperties":false,"properties":{"key":{"anyOf":[{"type":"string"},{"type":"null"}]},"operator":{"anyOf":[{"type":"string"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["key","operator","value"],"type":"object"}},"$id":"urn:dotnet-inspect:json-schema:sha256:3566829792f6a69c0926a881346e6312be51d51c3c6eca589bb52b54faf32c22","$schema":"https://json-schema.org/draft/2020-12/schema","items":false,"maxItems":12,"minItems":12,"prefixItems":[{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"$ref":"#/$defs/BrowserPackageQueryAcquisitionTier"},{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryAnswer"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryEvidence"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"maximum":9223372036854775807,"minimum":-9223372036854775808,"type":"integer"},{"type":"null"}]},{"anyOf":[{"type":"boolean"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryManifest"},{"type":"null"}]}],"type":"array"},"schemaIdentity":"sha256:3566829792f6a69c0926a881346e6312be51d51c3c6eca589bb52b54faf32c22","vocabularyCatalog":"dotnet-inspect.product","vocabularySnapshotIdentity":"sha256:738fb458557d93aa6681947f43cc9ba9315260177f7bbe8af83c02d49b437f36"}] as const;
 
 type $ManagedExports = {
   readonly "DotnetInspect": {
