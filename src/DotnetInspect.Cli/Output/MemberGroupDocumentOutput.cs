@@ -276,7 +276,7 @@ internal static class MemberGroupDocumentOutput
             || options.OverloadIndex.HasValue
             || !string.IsNullOrWhiteSpace(options.MemberDigest)
             || options.MemberGenericArity.HasValue
-            || options.KindFilter.Count > 0)
+            || !IsCompatibleMethodKindFilter(options.KindFilter))
         {
             return null;
         }
@@ -294,6 +294,12 @@ internal static class MemberGroupDocumentOutput
             ? null
             : new MemberGroupSubject(definition, canonicalName);
     }
+
+    private static bool IsCompatibleMethodKindFilter(
+        HashSet<string> kindFilter) =>
+        kindFilter.Count == 0
+        || kindFilter.Count == 1
+            && kindFilter.Contains("method");
 
     private static bool RequestsReturnedRowDocumentation(
         MemberOptions options) =>

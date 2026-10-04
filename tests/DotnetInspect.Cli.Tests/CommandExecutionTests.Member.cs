@@ -98,16 +98,23 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Tips:", explained.Error);
     }
 
-    [Fact]
-    public async Task Member_OverloadedBareNameExplainsOneMemberGroup()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_OverloadedBareNameExplainsOneMemberGroup(
+        bool selectMethodKind)
     {
-        var (exit, output, error) = await RunAppAsync(
+        string[] arguments =
+        [
             "member",
             "System.Text.Json.JsonSerializer",
             "--platform",
             "System.Text.Json",
             "Serialize",
-            "--explain");
+            .. selectMethodKind ? new[] { "--kind", "method" } : [],
+            "--explain",
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -119,6 +126,29 @@ public partial class CommandExecutionTests
         Assert.Contains("Default View: member.overview", output);
         Assert.Contains("Selected Content: Methods", output);
         Assert.DoesNotContain("Serialize:1", output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+    }
+
+    [Fact]
+    public async Task Member_SingletonMethodKindExplainsOneMemberGroup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--kind",
+            "method",
+            "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context: MemberGroup", output);
+        Assert.Contains("Selected Content: Methods", output);
+        Assert.DoesNotContain(
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            output);
         Assert.DoesNotContain("Context: Exact Member", output);
     }
 
