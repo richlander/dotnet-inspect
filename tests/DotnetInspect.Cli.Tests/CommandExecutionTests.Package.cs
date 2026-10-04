@@ -733,6 +733,12 @@ public partial class CommandExecutionTests
                 + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
                 + "| table | inventory | rows, count |",
                 output);
+            // The file family is not yet a renderable row stream, so the
+            // category advertises only the composition formats.
+            Assert.Contains(
+                "| @Files | category | package/categories/files "
+                + "| --markdown, --plaintext, --json |  |  |  |",
+                output);
 
             var (jsonExit, json, jsonError) = await RunAppAsync(
                 "package", packagePath, "-D", "Package files", "--details", "--json");

@@ -19,7 +19,10 @@ public static class PackageFileFamily
     /// </summary>
     public static readonly (string Section, Func<PackageFile, bool> Matches)[] Members =
     [
-        (PackageSections.FilesNuspec, static file => HasExtension(file, ".nuspec")),
+        // Exactly one row: the package manifest is the root .nuspec, which the
+        // package format places exactly once. Other .nuspec paths are ordinary
+        // rows of the whole-package listing (docs/design/section-shapes.md#text).
+        (PackageSections.FilesNuspec, static file => HasExtension(file, ".nuspec") && IsRootPath(file.Path)),
         // At most one row: IsReadme is set on the single file that ResolvePackageReadme
         // picked (README.md, then PACKAGE.md, then the declared readme), so the priority
         // chain lives in one place rather than being restated as a predicate here.
@@ -52,6 +55,9 @@ public static class PackageFileFamily
 
     static bool HasExtension(PackageFile file, string extension)
         => file.Path.EndsWith(extension, StringComparison.OrdinalIgnoreCase);
+
+    static bool IsRootPath(string path)
+        => path.IndexOfAny(['/', '\\']) < 0;
 
     /// <summary>
     /// <c>skills/SKILL.md</c> or <c>skills/**/SKILL.md</c>, matching the globs the project
