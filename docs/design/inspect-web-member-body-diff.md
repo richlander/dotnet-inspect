@@ -5,7 +5,9 @@
 This document owns **Member Body** as Browser Compare content: the hierarchy
 that discovers changed implementations and the inline Member reader that shows
 one exact implementation comparison. It is part of the Compare experience
-tracked by
+adopted through
+[#9338](https://github.com/richlander/dotnet-inspect/issues/9338), under the
+end-to-end Compare tracker
 [#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 
 Its normative claim is:
