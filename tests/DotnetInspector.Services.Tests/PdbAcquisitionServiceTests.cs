@@ -1,7 +1,11 @@
+using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Net;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -485,6 +489,1003 @@ public class PdbAcquisitionServiceTests
         Assert.True(Assert.Single(store.OpenedStreams).IsDisposed);
     }
 
+    [Fact]
+    public async Task PlatformSettlement_AcquiresRepeatablePathlessContent()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler = new PlatformSymbolHandler(pdbBytes);
+        using var client = new HttpClient(handler);
+        var request =
+            new PortablePdbSettlementRequest(
+                source.Context,
+                assembly,
+                client,
+                new InMemoryPdbStore(),
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                request,
+                TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(
+                    result);
+        Assert.Equal(
+            PortablePdbSettlementSource.MicrosoftSymbolServer,
+            acquired.Source);
+        Assert.Equal(
+            PortablePdbPositiveStoreDisposition.Published,
+            acquired.PositiveStore);
+        Assert.True(acquired.NetworkOccurred);
+        Assert.Collection(
+            acquired.Receipts,
+            receipt =>
+            {
+                Assert.Equal(
+                    PortablePdbSettlementCandidate.Embedded,
+                    receipt.Candidate);
+                Assert.Equal(
+                    PortablePdbSettlementAttemptOutcome.Unavailable,
+                    receipt.Outcome);
+            },
+            receipt =>
+            {
+                Assert.Equal(
+                    PortablePdbSettlementCandidate.PositiveStore,
+                    receipt.Candidate);
+                Assert.Equal(
+                    PortablePdbSettlementAttemptOutcome.Unavailable,
+                    receipt.Outcome);
+            },
+            receipt =>
+            {
+                Assert.Equal(
+                    PortablePdbSettlementCandidate
+                        .MicrosoftSymbolServer,
+                    receipt.Candidate);
+                Assert.Equal(
+                    PortablePdbSettlementAttemptOutcome.Acquired,
+                    receipt.Outcome);
+            });
+
+        await using Stream first =
+            await acquired.Content.OpenReadAsync(
+                TestContext.Current.CancellationToken);
+        await using Stream second =
+            await acquired.Content.OpenReadAsync(
+                TestContext.Current.CancellationToken);
+        Assert.Equal(pdbBytes, ReadAllBytes(first));
+        Assert.Equal(pdbBytes, ReadAllBytes(second));
+
+        await acquired.LoadIntoAsync(
+            source.Context,
+            TestContext.Current.CancellationToken);
+        Assert.True(source.HasPdb);
+        Assert.Null(source.Context.PortablePdbPath);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_WarmStoreDoesNotRequestNetwork()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        var store = new RecordingPdbStore();
+        var firstHandler =
+            new PlatformSymbolHandler(pdbBytes);
+        using (var firstClient = new HttpClient(firstHandler))
+        using (var firstSource =
+               SourceLinkService.OpenEmbeddedPdbOnly(assembly))
+        {
+            PortablePdbSettlementResult first =
+                await PortablePdbSettlement.SettleAsync(
+                    new PortablePdbSettlementRequest(
+                        firstSource.Context,
+                        assembly,
+                        firstClient,
+                        store,
+                        new UniformPackageSourceAuthorization(
+                            [NuGetFetch.PackageSource.NuGetOrg])),
+                    TestContext.Current.CancellationToken);
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(first);
+            Assert.NotEmpty(firstHandler.RequestUris);
+        }
+
+        var warmHandler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var warmClient = new HttpClient(warmHandler);
+        using var warmSource =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+
+        PortablePdbSettlementResult warm =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    warmSource.Context,
+                    assembly,
+                    warmClient,
+                    store,
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(warm);
+        Assert.Equal(
+            PortablePdbSettlementSource.MicrosoftSymbolServer,
+            acquired.Source);
+        Assert.NotNull(acquired.ProviderCoordinates);
+        Assert.Equal(
+            PortablePdbPositiveStoreDisposition.Reused,
+            acquired.PositiveStore);
+        Assert.False(acquired.NetworkOccurred);
+        Assert.Empty(warmHandler.RequestUris);
+        await acquired.LoadIntoAsync(
+            warmSource.Context,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "msdl.microsoft.com",
+            warmSource.Context.SymbolServer);
+        CodeViewInfo identity =
+            Assert.IsType<CodeViewInfo>(
+                warmSource.Context.PdbId);
+        string expectedKey =
+            "portable/"
+            + identity.Guid.ToString("N").ToUpperInvariant()
+            + identity.Stamp.ToString("X8")
+            + ".pdb";
+        string expectedProvenanceKey =
+            "portable/"
+            + identity.Guid.ToString("N").ToUpperInvariant()
+            + identity.Stamp.ToString("X8")
+            + ".provenance";
+        Assert.NotEmpty(store.Keys);
+        Assert.All(
+            store.Keys,
+            key => Assert.True(
+                key == expectedKey
+                || key == expectedProvenanceKey,
+                $"Unexpected store key: {key}"));
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_RepairsUnprovenancedStoreContent()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        CodeViewInfo identity =
+            Assert.IsType<CodeViewInfo>(
+                source.Context.PdbId);
+        string key =
+            "portable/"
+            + identity.Guid.ToString("N").ToUpperInvariant()
+            + identity.Stamp.ToString("X8")
+            + ".pdb";
+        var store = new RecordingPdbStore();
+        await store.PutAsync(
+            key,
+            new MemoryStream(
+                pdbBytes,
+                writable: false),
+            TestContext.Current.CancellationToken);
+        var handler =
+            new PlatformSymbolHandler(pdbBytes);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    store,
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(result);
+        Assert.Equal(
+            PortablePdbSettlementSource.MicrosoftSymbolServer,
+            acquired.Source);
+        Assert.Equal(
+            PortablePdbPositiveStoreDisposition.Published,
+            acquired.PositiveStore);
+        Assert.True(acquired.NetworkOccurred);
+        Assert.NotEmpty(handler.RequestUris);
+        Assert.Contains(
+            acquired.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate.PositiveStore
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Failed
+                && receipt.StoreFailure
+                    == PortablePdbStoreFailureKind.ProvenanceUnavailable);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_BoundedStoreFailureIsTyped()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(pdbBytes));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(
+                        maxRetainedBytes: 64),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.PositiveStoreFailed,
+            failed.Failure);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.PublicationNotRetained,
+            failed.StoreFailure);
+        Assert.NotEmpty(failed.Receipts);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_InitialStoreReadFailureAllowsProvider()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler =
+            new PlatformSymbolHandler(pdbBytes);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InvalidDataFirstReadPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(result);
+        Assert.Equal(
+            PortablePdbSettlementSource.MicrosoftSymbolServer,
+            acquired.Source);
+        Assert.Contains(
+            acquired.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate.PositiveStore
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Failed
+                && receipt.StoreFailure
+                    == PortablePdbStoreFailureKind.ReadFailed);
+        Assert.Contains(
+            acquired.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .MicrosoftSymbolServer
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Acquired);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_OversizedProvenanceIsTyped()
+    {
+        string pdbFileName =
+            new string('a', 2048) + ".pdb";
+        var (assembly, pdbBytes) =
+            CreateSyntheticPdbAssembly(
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    "10.0.0",
+                    "test"),
+                pdbFileName,
+                embeddedEntryCount: 0,
+                includeCodeView: true);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(assembly);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(pdbBytes));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.PositiveStoreFailed,
+            failed.Failure);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.PublicationNotRetained,
+            failed.StoreFailure);
+        Assert.Contains(
+            failed.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .MicrosoftSymbolServer
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_MetadataOnlyLoadsEmbeddedCandidate()
+    {
+        ResolvedAssemblyReference assembly =
+            CreateEmbeddedTestAssembly(
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    "10.0.0",
+                    "test"));
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(assembly);
+        Assert.True(context.HasEmbeddedPdb);
+        Assert.False(context.HasPdb);
+        var handler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(result);
+        Assert.Equal(
+            PortablePdbSettlementSource.Embedded,
+            acquired.Source);
+        Assert.True(context.HasPdb);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_DuplicateEmbeddedEntriesRemainFailed()
+    {
+        var (assembly, _) =
+            CreateSyntheticPdbAssembly(
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    "10.0.0",
+                    "test"),
+                "Duplicate.pdb",
+                embeddedEntryCount: 2,
+                includeCodeView: true);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(assembly);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(
+                    throwOnRequest: true));
+        var request =
+            new PortablePdbSettlementRequest(
+                context,
+                assembly,
+                client,
+                new InMemoryPdbStore(),
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]));
+
+        PortablePdbSettlementResult first =
+            await PortablePdbSettlement.SettleAsync(
+                request,
+                TestContext.Current.CancellationToken);
+        PortablePdbSettlementResult second =
+            await PortablePdbSettlement.SettleAsync(
+                request,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.InvalidEmbeddedContent,
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(first).Failure);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.InvalidEmbeddedContent,
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(second).Failure);
+        Assert.False(context.HasPdb);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_EmbeddedCancellationIsTyped()
+    {
+        ResolvedAssemblyReference assembly =
+            CreateEmbeddedTestAssembly(
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    "10.0.0",
+                    "test"));
+        using PdbContext context =
+            PdbContext.OpenEmbeddedPdbOnly(assembly);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(
+                    throwOnRequest: true));
+        using var cancellation =
+            new CancellationTokenSource();
+        cancellation.Cancel();
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                cancellation.Token);
+
+        Assert.IsType<
+            PortablePdbSettlementResult.Canceled>(result);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_EmbeddedLimitIsIncomplete()
+    {
+        ResolvedAssemblyReference assembly =
+            CreateEmbeddedTestAssembly(
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    "10.0.0",
+                    "test"));
+        using PdbContext context =
+            PdbContext.OpenEmbeddedPdbOnly(assembly);
+        Assert.True(
+            context.GetPortablePdbImage()!.Value.Length
+            > 64);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(
+                    throwOnRequest: true));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    Limits =
+                        new SymbolAcquisitionLimits(
+                            maxSymbolPackageBytes: 64,
+                            maxPortablePdbBytes: 64,
+                            maxSymbolPackageEntries: 8),
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<
+            PortablePdbSettlementResult.Incomplete>(result);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_EmbeddedOnlyLimitIsIncomplete()
+    {
+        var (assembly, _) =
+            CreateSyntheticPdbAssembly(
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    "10.0.0",
+                    "test"),
+                "EmbeddedOnly.pdb",
+                embeddedEntryCount: 1,
+                includeCodeView: false);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(assembly);
+        Assert.Null(context.PdbId);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(
+                    throwOnRequest: true));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    Limits =
+                        new SymbolAcquisitionLimits(
+                            maxSymbolPackageBytes: 64,
+                            maxPortablePdbBytes: 64,
+                            maxSymbolPackageEntries: 8),
+                },
+                TestContext.Current.CancellationToken);
+
+        var incomplete =
+            Assert.IsType<
+                PortablePdbSettlementResult.Incomplete>(result);
+        Assert.Null(incomplete.PortablePdbIdentity);
+        Assert.Contains(
+            incomplete.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate.Embedded
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Incomplete);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_ReplacesRejectedStoreContent()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        CodeViewInfo identity =
+            Assert.IsType<CodeViewInfo>(
+                source.Context.PdbId);
+        string key =
+            "portable/"
+            + identity.Guid.ToString("N").ToUpperInvariant()
+            + identity.Stamp.ToString("X8")
+            + ".pdb";
+        var store = new RecordingPdbStore();
+        await store.PutAsync(
+            key,
+            new MemoryStream(
+                BuildPortablePdb(
+                    identity.Guid,
+                    identity.Stamp + 1),
+                writable: false),
+            TestContext.Current.CancellationToken);
+        var handler = new PlatformSymbolHandler(pdbBytes);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    store,
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(result);
+        Assert.Equal(
+            PortablePdbSettlementSource.MicrosoftSymbolServer,
+            acquired.Source);
+        Assert.Contains(
+            acquired.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate.PositiveStore
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Failed
+                && receipt.StoreFailure
+                    == PortablePdbStoreFailureKind.InvalidCachedContent);
+        Assert.Contains(
+            acquired.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .MicrosoftSymbolServer
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Acquired);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_RejectsMatchingGuidWithDifferentStamp()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        CodeViewInfo identity =
+            Assert.IsType<CodeViewInfo>(
+                source.Context.PdbId);
+        byte[] mismatched =
+            BuildPortablePdb(
+                identity.Guid,
+                identity.Stamp + 1);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(mismatched));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(
+                    result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind
+                .ExternalProviderFailed,
+            failed.Failure);
+        Assert.Contains(
+            failed.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .MicrosoftSymbolServer
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Rejected);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_StoreFailureIsVisible()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(pdbBytes));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new FailingStoredWritePdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(
+                    result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.PositiveStoreFailed,
+            failed.Failure);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.PublicationNotRetained,
+            failed.StoreFailure);
+        Assert.Contains(
+            failed.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .MicrosoftSymbolServer
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_ProviderLimitIsIncomplete()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler(pdbBytes));
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    Limits =
+                        new SymbolAcquisitionLimits(
+                            maxSymbolPackageBytes: 64,
+                            maxPortablePdbBytes: 64,
+                            maxSymbolPackageEntries: 8),
+                },
+                TestContext.Current.CancellationToken);
+
+        var incomplete =
+            Assert.IsType<
+                PortablePdbSettlementResult.Incomplete>(
+                    result);
+        Assert.Contains(
+            incomplete.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .MicrosoftSymbolServer
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Incomplete);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_CancellationIsTyped()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler = new PlatformSymbolHandler(pdbBytes);
+        using var client = new HttpClient(handler);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                cancellation.Token);
+
+        Assert.IsType<
+            PortablePdbSettlementResult.Canceled>(result);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    [Fact]
+    public async Task PlatformSettlement_DeadlineIsIncomplete()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        using var client =
+            new HttpClient(
+                new DelayedPlatformSymbolHandler());
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    Timeout = TimeSpan.FromMilliseconds(25),
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<
+            PortablePdbSettlementResult.Incomplete>(result);
+    }
+
+    [Fact]
+    public async Task PackageSettlement_DoesNotUseNamePrefixAsProviderAuthority()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "System.Example",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler = new PlatformSymbolHandler(pdbBytes);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.UnsupportedProvenance,
+            failed.Failure);
+        PortablePdbSettlementReceipt skipped =
+            Assert.Single(
+                failed.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .ExternalProviders);
+        Assert.Equal(
+            PortablePdbSettlementAttemptOutcome.Skipped,
+            skipped.Outcome);
+        Assert.False(skipped.Authorized);
+        Assert.Equal(
+            PortablePdbSettlementSkipReason.UnsupportedProvenance,
+            skipped.SkipReason);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    [Fact]
+    public async Task PackageSettlement_CanReuseExactPositiveStoreContent()
+    {
+        var (platformAssembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        var store = new RecordingPdbStore();
+        using (var platformSource =
+               SourceLinkService.OpenEmbeddedPdbOnly(
+                   platformAssembly))
+        using (var platformClient =
+               new HttpClient(
+                   new PlatformSymbolHandler(pdbBytes)))
+        {
+            PortablePdbSettlementResult seeded =
+                await PortablePdbSettlement.SettleAsync(
+                    new PortablePdbSettlementRequest(
+                        platformSource.Context,
+                        platformAssembly,
+                        platformClient,
+                        store,
+                        new UniformPackageSourceAuthorization(
+                            [NuGetFetch.PackageSource.NuGetOrg])),
+                    TestContext.Current.CancellationToken);
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(seeded);
+        }
+
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "System.Example",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    store,
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(result);
+        Assert.Equal(
+            PortablePdbSettlementSource.MicrosoftSymbolServer,
+            acquired.Source);
+        Assert.Equal(
+            PortablePdbPositiveStoreDisposition.Reused,
+            acquired.PositiveStore);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    [Fact]
+    public void SettlementRequest_RequiresExactAssemblyBinding()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        var (otherAssembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        using var client =
+            new HttpClient(
+                new PlatformSymbolHandler([]));
+
+        Assert.Throws<ArgumentException>(
+            () => new PortablePdbSettlementRequest(
+                source.Context,
+                otherAssembly,
+                client,
+                new InMemoryPdbStore(),
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg])));
+    }
+
     private static AssemblyReferenceIdentity ReadIdentity(
         byte[] assemblyBytes)
     {
@@ -495,6 +1496,32 @@ public class PdbAcquisitionServiceTests
         using var reader = new PEReader(stream);
         return AssemblyReferenceIdentity.FromAssemblyDefinition(
             reader.GetMetadataReader());
+    }
+
+    private static byte[] ReadAllBytes(Stream stream)
+    {
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    private static byte[] BuildPortablePdb(
+        Guid id,
+        uint stamp)
+    {
+        var metadata = new MetadataBuilder();
+        var contentId = new BlobContentId(id, stamp);
+        var rowCounts =
+            ImmutableArray.CreateRange(
+                new int[MetadataTokens.TableCount]);
+        var pdbBuilder = new PortablePdbBuilder(
+            metadata,
+            rowCounts,
+            entryPoint: default,
+            idProvider: _ => contentId);
+        var blob = new BlobBuilder();
+        pdbBuilder.Serialize(blob);
+        return blob.ToArray();
     }
 
     private static (
@@ -520,6 +1547,111 @@ public class PdbAcquisitionServiceTests
                     writable: false),
                 provenance),
             File.ReadAllBytes(pdbPath));
+    }
+
+    private static ResolvedAssemblyReference
+        CreateEmbeddedTestAssembly(
+        AssemblyResolutionProvenance provenance)
+    {
+        string assemblyPath =
+            FixtureCatalog.ResearchNameFamilies.AssemblyPath();
+        byte[] assemblyBytes =
+            File.ReadAllBytes(assemblyPath);
+        return ResolvedAssemblyReference.Create(
+            ReadIdentity(assemblyBytes),
+            path: null,
+            () => new MemoryStream(
+                assemblyBytes,
+                writable: false),
+            provenance);
+    }
+
+    private static (
+        ResolvedAssemblyReference Assembly,
+        byte[] PdbBytes)
+        CreateSyntheticPdbAssembly(
+        AssemblyResolutionProvenance provenance,
+        string pdbFileName,
+        int embeddedEntryCount,
+        bool includeCodeView)
+    {
+        Guid pdbGuid = Guid.NewGuid();
+        uint pdbStamp = 0x12345678;
+        byte[] pdbBytes =
+            BuildPortablePdb(
+                pdbGuid,
+                pdbStamp);
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    "SyntheticPdbAssembly.dll"),
+            mvid:
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "SyntheticPdbAssembly"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        var debugDirectory =
+            new DebugDirectoryBuilder();
+        var contentId =
+            new BlobContentId(
+                pdbGuid,
+                pdbStamp);
+        if (includeCodeView)
+        {
+            debugDirectory.AddCodeViewEntry(
+                pdbFileName,
+                contentId,
+                portablePdbVersion: 0x0100);
+        }
+        for (int i = 0; i < embeddedEntryCount; i++)
+        {
+            var pdbBlob = new BlobBuilder();
+            pdbBlob.WriteBytes(pdbBytes);
+            debugDirectory.AddEmbeddedPortablePdbEntry(
+                pdbBlob,
+                portablePdbVersion: 0x0100);
+        }
+
+        var pe =
+            new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                new BlobBuilder(),
+                debugDirectoryBuilder:
+                    debugDirectory,
+                flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        byte[] assemblyBytes = image.ToArray();
+        return (
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(assemblyBytes),
+                path: null,
+                () => new MemoryStream(
+                    assemblyBytes,
+                    writable: false),
+                provenance),
+            pdbBytes);
     }
 
     private static byte[] BuildSnupkg(
@@ -569,6 +1701,55 @@ public class PdbAcquisitionServiceTests
         }
     }
 
+    private sealed class PlatformSymbolHandler : HttpMessageHandler
+    {
+        private readonly byte[] _pdbBytes;
+        private readonly bool _throwOnRequest;
+
+        internal PlatformSymbolHandler(
+            byte[]? pdbBytes = null,
+            bool throwOnRequest = false)
+        {
+            _pdbBytes = pdbBytes ?? [];
+            _throwOnRequest = throwOnRequest;
+        }
+
+        internal List<Uri> RequestUris { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestUris.Add(request.RequestUri!);
+            if (_throwOnRequest)
+            {
+                throw new InvalidOperationException(
+                    "Warm settlement performed network work.");
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(_pdbBytes),
+                });
+        }
+    }
+
+    private sealed class DelayedPlatformSymbolHandler
+        : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            return new HttpResponseMessage(
+                HttpStatusCode.NotFound);
+        }
+    }
+
     private sealed class FailingStoredReadPdbStore : IPdbStore
     {
         private byte[]? _content;
@@ -602,6 +1783,89 @@ public class PdbAcquisitionServiceTests
 
         public string? TryGetLocalPath(string key)
             => null;
+    }
+
+    private sealed class InvalidDataFirstReadPdbStore : IPdbStore
+    {
+        private readonly Dictionary<string, byte[]> _entries =
+            new(StringComparer.Ordinal);
+        private int _openCount;
+
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Interlocked.Increment(ref _openCount) == 1)
+            {
+                return ValueTask.FromException<Stream?>(
+                    new InvalidDataException(
+                        "Injected bounded store read failure."));
+            }
+
+            return ValueTask.FromResult(
+                _entries.TryGetValue(key, out byte[]? content)
+                    ? (Stream)new MemoryStream(
+                        content,
+                        writable: false)
+                    : null);
+        }
+
+        public async ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default)
+        {
+            using var buffer = new MemoryStream();
+            await content.CopyToAsync(
+                buffer,
+                cancellationToken);
+            _entries[key] = buffer.ToArray();
+        }
+
+        public string? TryGetLocalPath(string key)
+            => null;
+    }
+
+    private sealed class RecordingPdbStore : IPdbStore
+    {
+        private readonly Dictionary<string, byte[]> _entries =
+            new(StringComparer.Ordinal);
+
+        internal List<string> Keys { get; } = [];
+
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Keys.Add(key);
+            return ValueTask.FromResult(
+                _entries.TryGetValue(key, out byte[]? content)
+                    ? (Stream)new MemoryStream(
+                        content,
+                        writable: false)
+                    : null);
+        }
+
+        public async ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default)
+        {
+            Keys.Add(key);
+            using var buffer = new MemoryStream();
+            await content.CopyToAsync(
+                buffer,
+                cancellationToken);
+            _entries[key] = buffer.ToArray();
+        }
+
+        public string? TryGetLocalPath(string key)
+        {
+            Keys.Add(key);
+            return null;
+        }
     }
 
     private sealed class FailingStoredWritePdbStore : IPdbStore
