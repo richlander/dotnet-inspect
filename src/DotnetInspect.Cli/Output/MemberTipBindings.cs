@@ -39,6 +39,28 @@ internal static class MemberTipBindings
             packageVersion,
             ShellCommandText.CurrentDialect);
 
+    internal static Tip[] ResolveExact(
+        ApiType type,
+        ApiMember member,
+        string? platformAssembly,
+        string? packagePath,
+        string? assemblyPath,
+        string? packageName,
+        string? packageVersion)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        return Resolve(
+            type,
+            [member],
+            platformAssembly,
+            packagePath,
+            assemblyPath,
+            packageName,
+            packageVersion,
+            ShellCommandText.CurrentDialect);
+    }
+
     internal static Tip[] Resolve(
         ApiType type,
         string? platformAssembly,
@@ -52,8 +74,30 @@ internal static class MemberTipBindings
         if (!Enum.IsDefined(dialect))
             throw new ArgumentOutOfRangeException(nameof(dialect));
 
+        return Resolve(
+            type,
+            type.Members,
+            platformAssembly,
+            packagePath,
+            assemblyPath,
+            packageName,
+            packageVersion,
+            dialect);
+    }
+
+    private static Tip[] Resolve(
+        ApiType type,
+        IEnumerable<ApiMember> members,
+        string? platformAssembly,
+        string? packagePath,
+        string? assemblyPath,
+        string? packageName,
+        string? packageVersion,
+        ShellCommandDialect dialect)
+    {
         MemberTipContext context = CreateContext(
             type,
+            members,
             platformAssembly,
             packagePath,
             assemblyPath,
@@ -67,6 +111,7 @@ internal static class MemberTipBindings
 
     private static MemberTipContext CreateContext(
         ApiType type,
+        IEnumerable<ApiMember> members,
         string? platformAssembly,
         string? packagePath,
         string? assemblyPath,
@@ -75,7 +120,7 @@ internal static class MemberTipBindings
     {
         ImmutableArray<MemberTipOverloadGroup> overloadGroups =
         [
-            .. type.Members
+            .. members
                 .Where(ApiMemberSectionDescriptors.IsMethodLike)
                 .GroupBy(static member => member.Name)
                 .Select(static group =>

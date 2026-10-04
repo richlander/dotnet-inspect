@@ -104,6 +104,67 @@ public partial class CommandExecutionTests
         Assert.Contains("view type tree", error);
     }
 
+    [Fact]
+    public async Task Member_ExactTipsProjection_UsesStdoutAndMatchesCompanion()
+    {
+        string[] subject =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+        ];
+
+        var primary =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companion =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, primary.Exit);
+        Assert.Empty(primary.Error);
+        Assert.Contains("view member detail (source, IL)", primary.Output);
+        Assert.Contains("view type tree", primary.Output);
+        Assert.DoesNotContain("Context: Exact Member", primary.Output);
+        Assert.DoesNotContain("## Signature", primary.Output);
+        Assert.Equal(
+            primary.Output.Trim(),
+            companion.Error.Trim());
+    }
+
+    [Fact]
+    public async Task Member_PrimaryTips_ComposesWithCompanionExplanation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            ".tips",
+            "-E");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("view member detail (source, IL)", output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+        Assert.Contains("Context: Exact Member", error);
+        Assert.DoesNotContain("Tips:", output);
+    }
+
+    [Fact]
+    public async Task Member_CommandTipsProjection_RequiresExactSubject()
+    {
+        var (exit, output, error) =
+            await RunAppAsync("member", "--explain", ".tips");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires one exact Member subject and source",
+            error);
+    }
+
     [Theory]
     [InlineData("-E", "same complete explanation twice")]
     [InlineData("-S", "terminal content operation")]
@@ -128,6 +189,25 @@ public partial class CommandExecutionTests
         Assert.NotEqual(0, exit);
         Assert.Empty(output);
         Assert.Contains(expectedError, error);
+    }
+
+    [Fact]
+    public async Task Member_Explain_RejectsDuplicateTipsProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            ".tips",
+            "-E",
+            ".tips");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("same contextual tips twice", error);
     }
 
     [Theory]
