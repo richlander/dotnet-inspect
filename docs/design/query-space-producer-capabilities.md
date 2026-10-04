@@ -8,15 +8,18 @@ It defines the reusable contract through which Query Space communicates a
 complete structural requirement set to one producer and the producer chooses
 one plan that satisfies those requirements.
 
-The first production adoption is the replacement Package Tree stack following
+The first production adoption is
+[#9201](https://github.com/richlander/dotnet-inspect/pull/9201), the replacement
+Package Tree stack following
 [#9056](https://github.com/richlander/dotnet-inspect/pull/9056). That adoption
 uses the same host-neutral requirement set for CLI and Browser/Wasm and retires
-the eager Package-child path it replaces. The existing PR remains the exact
-behavioral and NativeAOT evidence source until the replacement is published.
+the eager Package-child path it replaces.
 
-This contract is unimplemented. Every property in
-[Required evidence](#required-evidence) remains **unverified** until its named
-implementation or adoption gate lands in Release.
+The reusable contract and Graph Libraries reference adopter are implemented by
+[#9198](https://github.com/richlander/dotnet-inspect/pull/9198). The Package
+adoption and its production work-reduction gates are implemented by #9201.
+Each property in [Required evidence](#required-evidence) is verified only by
+its named Release gate.
 
 The merged Method-body demand stack in
 [#9165](https://github.com/richlander/dotnet-inspect/pull/9165),
@@ -140,8 +143,13 @@ replacement uses capability demand to let the Package producer distinguish:
 
 - exact child Count;
 - child identity and display rows;
-- nested measurements requested for returned child rows; and
 - exact-child work requested after navigation.
+
+The Package adoption deliberately stops at identity rows. The primary-subject
+summary contract rejects nested child-population measurements such as a
+Library's Type Count, so ordinary Package rows do not open Library binaries.
+This does not narrow the reusable capability model: Type Count, Name, and
+Signature remain the motivating deeper-capability adoption.
 
 The same request and producer plan serve the CLI and Browser/Wasm. Hosts choose
 gestures and presentation but do not assemble different capability sets for
@@ -500,8 +508,9 @@ The approved stack has three slices:
    semantics.
 3. **Package Tree replacement.** Branch from the capability slice, replace the
    eager Package-child work with Package-owned capabilities and strategies,
-   exercise the same host-neutral plan through CLI and Browser/Wasm, reproduce
-   the exact #9056 behavior and pathological cases, and publish exact
+   exercise the same host-neutral plan through CLI and Browser/Wasm, apply the
+   primary-subject summary-row boundary, reproduce the pathological cases, and
+   publish exact
    NativeAOT before/after evidence. Publish the replacement before closing
    #9056 as superseded.
 

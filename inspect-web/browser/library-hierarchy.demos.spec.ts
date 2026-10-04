@@ -419,6 +419,8 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   };
   await installFacades(page, jsonSurface);
   await page.goto(`/?package=System.Text.Json&version=${platformVersion}&framework=netstandard2.0`);
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
   const sharedLibraryUrl = page.url();
