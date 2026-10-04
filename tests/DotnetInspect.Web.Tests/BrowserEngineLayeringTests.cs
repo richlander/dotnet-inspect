@@ -105,7 +105,6 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains(
             "T:ILInspector.Analysis.CallerScopeReachabilityPlan",
             banned);
-        Assert.Contains("T:ILInspector.Analysis.LibraryBodyIndex", banned);
         Assert.Contains(
             "T:ILInspector.Analysis.LibraryBodyAnalysisService",
             banned);

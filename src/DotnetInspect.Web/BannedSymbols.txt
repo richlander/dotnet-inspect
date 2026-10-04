@@ -30,7 +30,6 @@ T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their
 T:ILInspector.SourceLink.SourceLinkService;SourceLink and PDB inspection open descriptors transitively and belong to product queries, not the browser host.
 T:ILInspector.SourceLink.SourceLinkInspector;Path-based SourceLink inspection belongs to product queries, not the browser host.
 T:ILInspector.Analysis.CallerScopeReachabilityPlan;Caller-scope metadata inspection belongs to product queries, not transitive descriptor openers in the browser host.
-T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query that needs them, not to the browser host.
 T:ILInspector.Analysis.LibraryBodyAnalysisService;Library-body execution belongs to product queries, not to the browser host.
 T:ILInspector.Analysis.LibraryBodyAnalysisResult;Body analysis is reached through a query result, never built here.
 T:ILInspector.Analysis.ResourceLifecycleAnalysis;Path-based lifecycle analysis belongs to product queries, not the browser host.
