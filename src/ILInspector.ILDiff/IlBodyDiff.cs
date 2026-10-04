@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
-namespace ILInspector.Instructions;
+using ILInspector.Instructions;
+
+namespace ILInspector.ILDiff;
 
 
 public enum IlDiffKind
