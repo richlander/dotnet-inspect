@@ -275,17 +275,20 @@ request. `maximumRows` remains an execution bound: a ready source can return
 visible incompleteness before allocating or traversing Rows.
 
 Queries performs participant-session and exact-binding source preparation with
-participant-local single-flight. It publishes both into the group-owned store
-before the active snapshot callback ends, so concurrent group release either
-observes and disposes them or prevents publication. Sources remain lazy by
-requested TypeDef rather than eagerly walking the participant. Warm terminal
-preparation opens one execution lease over that owned store. Count and Rows
-then reuse the already-established borrow without reopening the snapshot or
-re-entering group lifetime synchronization. Disposing the prepared Sections
-inspection releases the borrow; group release waits for that lease, then closes
-the store and each participant session before releasing any participant
-snapshot. Terminal streaming release removes that participant's prepared
-sources and closes its shared session before releasing and unaccounting its
-snapshot. If an explicit prepared execution remains live, new execution is
-rejected and the snapshot stays retained and accounted until the last execution
-ends or whole-group release completes.
+participant-local single-flight through InspectionSpace's typed participant
+prepared-resource handle. The handle admits the exact participant/resource
+pair before snapshot access and invokes one settlement callback for either the
+available snapshot or its typed acquisition rejection. Queries maps and
+publishes that settled outcome before the borrow closes, so participant
+retirement cannot run first or miss subsequently published state. Sources
+remain lazy by requested TypeDef rather than eagerly walking the participant.
+
+The producer store is reachable only inside that settlement callback or
+through a live execution borrow. Warm Count and Rows reuse the prepared source
+without reopening the snapshot. Disposing the prepared Sections inspection
+releases the borrow; group release waits for that lease, then has the typed
+handle retire the participant's sources and shared session before releasing
+its snapshot. Terminal streaming release rejects new execution while a live
+execution keeps the snapshot retained and accounted until its final borrow
+ends or whole-group release completes. Tracks
+[#9321](https://github.com/richlander/dotnet-inspect/issues/9321).
