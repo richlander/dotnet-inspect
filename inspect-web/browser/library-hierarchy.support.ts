@@ -1772,7 +1772,7 @@ async function installFacades(
         return {
           schemaVersion: 1,
           outcome: "available",
-          methodologyVersion: "structural-salience.v2",
+          methodologyVersion: "structural-salience.v3",
           evidenceMode: "signature",
           namespaceIndex: {
             disposition: qualified ? "partial" : "complete",
