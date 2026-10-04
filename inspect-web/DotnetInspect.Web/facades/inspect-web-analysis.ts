@@ -516,6 +516,65 @@ export interface BrowserIntegrationSignal {
   readonly shape: string;
 }
 
+export interface BrowserLibraryDependencyCounts {
+  readonly invocations: number;
+  readonly functionReferences: number;
+  readonly total: number;
+}
+
+export interface BrowserLibraryDependencyCycle {
+  readonly namespaces: ReadonlyArray<string>;
+}
+
+export interface BrowserLibraryDependencyNamespace {
+  readonly namespace: string;
+  readonly isGlobalNamespace: boolean;
+  readonly typeCount: number;
+  readonly intraNamespaceRelationshipCount: number;
+  readonly cycleIndex: number | null;
+  readonly level: number;
+}
+
+export interface BrowserLibraryDependencyNamespaceEdge {
+  readonly sourceNamespace: string;
+  readonly targetNamespace: string;
+  readonly counts: BrowserLibraryDependencyCounts;
+  readonly contributingTypeEdgeCount: number;
+  readonly explainingTypeEdges: ReadonlyArray<BrowserLibraryDependencyTypeEdge>;
+  readonly remainingContributorCount: number;
+}
+
+export interface BrowserLibraryDependencyPopulation {
+  readonly examinedCallCount: number;
+  readonly internalCallCount: number;
+  readonly externalCallCount: number;
+  readonly unresolvedCallCount: number;
+  readonly incompleteBodyCount: number;
+  readonly typeCount: number;
+  readonly namespaceCount: number;
+}
+
+export interface BrowserLibraryDependencyStructure {
+  readonly outcome: string;
+  readonly methodologyVersion: string | null;
+  readonly completeness: string | null;
+  readonly population: BrowserLibraryDependencyPopulation | null;
+  readonly namespaces: ReadonlyArray<BrowserLibraryDependencyNamespace>;
+  readonly namespaceEdges: ReadonlyArray<BrowserLibraryDependencyNamespaceEdge>;
+  readonly totalNamespaceEdgeCount: number;
+  readonly cycles: ReadonlyArray<BrowserLibraryDependencyCycle>;
+  readonly diagnostics: ReadonlyArray<string>;
+  readonly failure: string | null;
+}
+
+export interface BrowserLibraryDependencyTypeEdge {
+  readonly sourceTypeKey: string;
+  readonly sourceTypeDisplay: string;
+  readonly targetTypeKey: string;
+  readonly targetTypeDisplay: string;
+  readonly counts: BrowserLibraryDependencyCounts;
+}
+
 export interface BrowserLibraryMetrics {
   readonly outcome: string;
   readonly methodologyVersion: string | null;
@@ -524,6 +583,7 @@ export interface BrowserLibraryMetrics {
   readonly asyncStateMachinePresence: BrowserLibraryMetricsBooleanDisposition | null;
   readonly typeSummaries: ReadonlyArray<BrowserLibraryMetricsType>;
   readonly entangledRelationships: ReadonlyArray<BrowserLibraryMetricsRelationship>;
+  readonly dependencyStructure: BrowserLibraryDependencyStructure;
   readonly diagnostics: ReadonlyArray<string>;
   readonly failure: string | null;
   readonly compileLibrary: BrowserCompileLibraryAvailability;

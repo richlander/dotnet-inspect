@@ -266,6 +266,7 @@ public sealed record BrowserLibraryMetrics(
     BrowserLibraryMetricsBooleanDisposition? AsyncStateMachinePresence,
     BrowserLibraryMetricsType[] TypeSummaries,
     BrowserLibraryMetricsRelationship[] EntangledRelationships,
+    BrowserLibraryDependencyStructure DependencyStructure,
     string[] Diagnostics,
     string? Failure,
     BrowserCompileLibraryAvailability CompileLibrary);
@@ -313,6 +314,58 @@ public sealed record BrowserLibraryMetricsRelationship(
     int CallSiteCount,
     int SourceDegree,
     int TargetDegree);
+
+public sealed record BrowserLibraryDependencyStructure(
+    string Outcome,
+    string? MethodologyVersion,
+    string? Completeness,
+    BrowserLibraryDependencyPopulation? Population,
+    BrowserLibraryDependencyNamespace[] Namespaces,
+    BrowserLibraryDependencyNamespaceEdge[] NamespaceEdges,
+    int TotalNamespaceEdgeCount,
+    BrowserLibraryDependencyCycle[] Cycles,
+    string[] Diagnostics,
+    string? Failure);
+
+public sealed record BrowserLibraryDependencyPopulation(
+    int ExaminedCallCount,
+    int InternalCallCount,
+    int ExternalCallCount,
+    int UnresolvedCallCount,
+    int IncompleteBodyCount,
+    int TypeCount,
+    int NamespaceCount);
+
+public sealed record BrowserLibraryDependencyNamespace(
+    string Namespace,
+    bool IsGlobalNamespace,
+    int TypeCount,
+    int IntraNamespaceRelationshipCount,
+    int? CycleIndex,
+    int Level);
+
+public sealed record BrowserLibraryDependencyNamespaceEdge(
+    string SourceNamespace,
+    string TargetNamespace,
+    BrowserLibraryDependencyCounts Counts,
+    int ContributingTypeEdgeCount,
+    BrowserLibraryDependencyTypeEdge[] ExplainingTypeEdges,
+    int RemainingContributorCount);
+
+public sealed record BrowserLibraryDependencyTypeEdge(
+    string SourceTypeKey,
+    string SourceTypeDisplay,
+    string TargetTypeKey,
+    string TargetTypeDisplay,
+    BrowserLibraryDependencyCounts Counts);
+
+public sealed record BrowserLibraryDependencyCounts(
+    int Invocations,
+    int FunctionReferences,
+    int Total);
+
+public sealed record BrowserLibraryDependencyCycle(
+    string[] Namespaces);
 
 public sealed record BrowserLibraryStructuralSalience(
     int SchemaVersion,

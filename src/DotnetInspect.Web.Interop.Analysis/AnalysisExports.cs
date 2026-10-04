@@ -4,9 +4,12 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 using ILAnalysis = ILInspector.Analysis;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
@@ -26,6 +29,7 @@ namespace DotnetInspect.Web.Interop.Analysis;
 public static partial class AnalysisExports
 {
     private const int BrowserLibraryStructuralSalienceSchemaVersion = 1;
+    private const int BrowserDependencyStructureEdgeLimit = 64;
 
     /// <summary>
     /// Exact method-body Analysis and metadata evidence for one implementation participant. The
@@ -909,10 +913,12 @@ public static partial class AnalysisExports
                 compileLibrary);
         }
 
-        AssemblyContextEntry<LibraryMetricsResult> entry =
+        AssemblyContextEntry<
+            LibraryMetricsAndDependencyStructureResult> entry =
             scope.UseImplementationParticipant(
                 participant,
-                AssemblyContextLibraryMetricsQuery.ExecuteParticipant);
+                AssemblyContextLibraryMetricsAndDependencyStructureQuery
+                    .ExecuteParticipant);
         return ProjectLibraryMetrics(entry, compileLibrary);
     }
 
@@ -1106,19 +1112,25 @@ public static partial class AnalysisExports
             compileLibrary);
 
     static BrowserLibraryMetrics ProjectLibraryMetrics(
-        AssemblyContextEntry<LibraryMetricsResult> entry,
+        AssemblyContextEntry<
+            LibraryMetricsAndDependencyStructureResult> entry,
         BrowserCompileLibraryAvailability compileLibrary) =>
         entry switch
         {
-            AssemblyContextEntry<LibraryMetricsResult>.Available available =>
+            AssemblyContextEntry<
+                LibraryMetricsAndDependencyStructureResult>.Available
+                    available =>
                 ProjectLibraryMetrics(available.Value, compileLibrary),
-            AssemblyContextEntry<LibraryMetricsResult>.Rejected rejected =>
+            AssemblyContextEntry<
+                LibraryMetricsAndDependencyStructureResult>.Rejected
+                    rejected =>
                 UnavailableLibraryMetrics(
                     "unavailable",
                     $"{rejected.Subject.Identity.Name}: "
                         + $"{rejected.Failure.Kind} ({rejected.Failure.Detail})",
                     compileLibrary),
-            AssemblyContextEntry<LibraryMetricsResult>.Failed failed =>
+            AssemblyContextEntry<
+                LibraryMetricsAndDependencyStructureResult>.Failed failed =>
                 UnavailableLibraryMetrics(
                     "failed",
                     $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
@@ -1128,7 +1140,17 @@ public static partial class AnalysisExports
         };
 
     static BrowserLibraryMetrics ProjectLibraryMetrics(
+        LibraryMetricsAndDependencyStructureResult result,
+        BrowserCompileLibraryAvailability compileLibrary) =>
+        ProjectLibraryMetrics(
+            result.Metrics,
+            ProjectLibraryDependencyStructure(
+                result.DependencyStructure),
+            compileLibrary);
+
+    static BrowserLibraryMetrics ProjectLibraryMetrics(
         LibraryMetricsResult result,
+        BrowserLibraryDependencyStructure dependencyStructure,
         BrowserCompileLibraryAvailability compileLibrary) =>
         result switch
         {
@@ -1184,6 +1206,7 @@ public static partial class AnalysisExports
                                 relationship.SourceDegree,
                                 relationship.TargetDegree)),
                     ],
+                    dependencyStructure,
                     [
                         .. available.Document.Diagnostics.Select(
                             diagnostic => diagnostic.Message),
@@ -1194,20 +1217,160 @@ public static partial class AnalysisExports
                 UnavailableLibraryMetrics(
                     "unavailable",
                     unavailable.Outcome.Message,
+                    dependencyStructure,
                     compileLibrary),
             LibraryMetricsResult.NoMetadata =>
                 UnavailableLibraryMetrics(
                     "unavailable",
                     "The library contains no managed metadata.",
+                    dependencyStructure,
                     compileLibrary),
             LibraryMetricsResult.Failed failed =>
                 UnavailableLibraryMetrics(
                     "failed",
                     failed.Error.Message,
+                    dependencyStructure,
                     compileLibrary),
             _ => throw new InvalidOperationException(
                 "Unknown Library Metrics result."),
         };
+
+    static BrowserLibraryDependencyStructure
+        ProjectLibraryDependencyStructure(
+            LibraryDependencyStructureResult result)
+    {
+        LibraryDependencyStructureQueryResult selected =
+            LibraryDependencyStructureInspection.Select(
+                result,
+                BrowserDependencyStructureRequest);
+        return selected switch
+        {
+            LibraryDependencyStructureQueryResult.Available available =>
+                ProjectLibraryDependencyStructure(available),
+            LibraryDependencyStructureQueryResult.Unavailable unavailable =>
+                UnavailableLibraryDependencyStructure(
+                    "unavailable",
+                    unavailable.Outcome.Message),
+            LibraryDependencyStructureQueryResult.SelectionFailed failed =>
+                UnavailableLibraryDependencyStructure(
+                    "failed",
+                    failed.Detail),
+            LibraryDependencyStructureQueryResult.Failed failed =>
+                UnavailableLibraryDependencyStructure(
+                    "failed",
+                    failed.Error.Message),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Dependency Structure query result."),
+        };
+    }
+
+    static BrowserLibraryDependencyStructure
+        ProjectLibraryDependencyStructure(
+            LibraryDependencyStructureQueryResult.Available available)
+    {
+        LibraryDependencyStructureDocument document = available.Document;
+        IReadOnlyDictionary<string, LibraryDependencyTypeNode> types =
+            document.Types.ToDictionary(
+                static type => type.TypeKey,
+                StringComparer.Ordinal);
+        return new(
+            "available",
+            document.MethodologyVersion,
+            document.Completeness.ToString(),
+            new(
+                document.Population.ExaminedCallCount,
+                document.Population.InternalCallCount,
+                document.Population.ExternalCallCount,
+                document.Population.UnresolvedCallCount,
+                document.Population.IncompleteBodyCount,
+                document.Population.TypeCount,
+                document.Population.NamespaceCount),
+            [
+                .. document.Namespaces.Select(
+                    node => new BrowserLibraryDependencyNamespace(
+                        node.Namespace,
+                        node.IsGlobalNamespace,
+                        node.TypeCount,
+                        node.IntraNamespaceRelationshipCount,
+                        node.CycleIndex,
+                        node.Level)),
+            ],
+            [
+                .. available.Rows.NamespaceEdges.Select(
+                    edge => new BrowserLibraryDependencyNamespaceEdge(
+                        edge.SourceNamespace,
+                        edge.TargetNamespace,
+                        ProjectLibraryDependencyCounts(edge.Counts),
+                        edge.ContributingTypeEdgeCount,
+                        [
+                            .. edge.ExplainingTypeEdges.Select(
+                                explanation =>
+                                    new BrowserLibraryDependencyTypeEdge(
+                                        explanation.SourceTypeKey,
+                                        types[explanation.SourceTypeKey]
+                                            .Type
+                                            .ToQualifiedDisplayString(),
+                                        explanation.TargetTypeKey,
+                                        types[explanation.TargetTypeKey]
+                                            .Type
+                                            .ToQualifiedDisplayString(),
+                                        ProjectLibraryDependencyCounts(
+                                            explanation.Counts))),
+                        ],
+                        edge.RemainingContributorCount)),
+            ],
+            document.NamespaceEdges.Length,
+            [
+                .. document.Cycles.Select(
+                    cycle => new BrowserLibraryDependencyCycle(
+                        [.. cycle.Namespaces])),
+            ],
+            [
+                .. document.Diagnostics.Select(
+                    diagnostic => diagnostic.Message),
+            ],
+            null);
+    }
+
+    static BrowserLibraryDependencyCounts
+        ProjectLibraryDependencyCounts(
+            LibraryDependencyCounts counts) =>
+        new(
+            counts.Invocations,
+            counts.FunctionReferences,
+            counts.Total);
+
+    static BrowserLibraryDependencyStructure
+        UnavailableLibraryDependencyStructure(
+            string outcome,
+            string failure) =>
+        new(
+            outcome,
+            null,
+            null,
+            null,
+            [],
+            [],
+            0,
+            [],
+            [],
+            failure);
+
+    private static QuerySpaceRequest BrowserDependencyStructureRequest =>
+        BrowserDependencyStructureRegistration.Request;
+
+    private static class BrowserDependencyStructureRegistration
+    {
+        internal static QuerySpaceRequest Request { get; } =
+            LibraryDependencyStructureQuery.CreateRequest(
+                LibraryDependencyStructureQuery.NamespaceEdgesRowSet,
+                RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Top(
+                        BrowserDependencyStructureEdgeLimit),
+                ]),
+                QuerySpaceTerminalRequirement.Rows);
+    }
 
     internal static string LibraryMetricsTypeKey(ILAnalysis.TypeRef type) =>
         LibraryStructuralReport.TypeKey(type);
@@ -1215,6 +1378,17 @@ public static partial class AnalysisExports
     static BrowserLibraryMetrics UnavailableLibraryMetrics(
         string outcome,
         string failure,
+        BrowserCompileLibraryAvailability compileLibrary) =>
+        UnavailableLibraryMetrics(
+            outcome,
+            failure,
+            UnavailableLibraryDependencyStructure(outcome, failure),
+            compileLibrary);
+
+    static BrowserLibraryMetrics UnavailableLibraryMetrics(
+        string outcome,
+        string failure,
+        BrowserLibraryDependencyStructure dependencyStructure,
         BrowserCompileLibraryAvailability compileLibrary) =>
         new(
             outcome,
@@ -1224,6 +1398,7 @@ public static partial class AnalysisExports
             null,
             [],
             [],
+            dependencyStructure,
             [],
             failure,
             compileLibrary);

@@ -8,6 +8,11 @@ const RELATIONSHIP_WIDTH = 900;
 const RELATIONSHIP_HEIGHT = 480;
 const RELATIONSHIP_LABEL_SPACE = 190;
 const RECIPROCAL_BEND_SEPARATION = 16;
+const DEPENDENCY_MIN_WIDTH = 900;
+const DEPENDENCY_COLUMN_WIDTH = 210;
+const DEPENDENCY_NODE_WIDTH = 168;
+const DEPENDENCY_NODE_HEIGHT = 42;
+const DEPENDENCY_ROW_HEIGHT = 66;
 const RELATIONSHIP_COLORS = [
   "#b9aaee", "#7ed8dc", "#9cc8f1", "#e5b567", "#d98a70",
   "#8ebb76", "#c795e9", "#87aeca",
@@ -270,6 +275,129 @@ function renderRelationshipCrossing(
   </section>`;
 }
 
+interface DependencyNodePosition {
+  readonly x: number;
+  readonly y: number;
+}
+
+function dependencyNamespaceLabel(namespace: string): string {
+  if (!namespace) return "(global)";
+  return namespace.length <= 25
+    ? namespace
+    : `\u2026${namespace.slice(-24)}`;
+}
+
+function renderDependencyStructure(
+  data: BrowserLibraryMetrics,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const dependency = data.dependencyStructure;
+  if (dependency.outcome !== "available") {
+    const status = dependency.outcome === "failed"
+      ? "Dependency structure failed"
+      : "Dependency structure unavailable";
+    return `<section class="document-section empty-document"><h2>${status}</h2><p>${escapeHtml(dependency.failure || "The dependency structure document could not be produced.")}</p></section>`;
+  }
+  if (!dependency.namespaces.length) {
+    return `<section class="document-section empty-document"><h2>No namespace dependencies found</h2><p>The available call evidence did not issue any namespace nodes for this library.</p></section>`;
+  }
+
+  const levelValues = [...new Set(
+    dependency.namespaces.map(node => node.level),
+  )].sort((left, right) => left - right);
+  const nodesByLevel = new Map(levelValues.map(level => [
+    level,
+    dependency.namespaces
+      .filter(node => node.level === level)
+      .sort((left, right) => left.namespace.localeCompare(right.namespace)),
+  ]));
+  const maximumRows = Math.max(
+    1,
+    ...[...nodesByLevel.values()].map(nodes => nodes.length),
+  );
+  const width = Math.max(
+    DEPENDENCY_MIN_WIDTH,
+    60 + levelValues.length * DEPENDENCY_COLUMN_WIDTH,
+  );
+  const height = Math.max(300, 76 + maximumRows * DEPENDENCY_ROW_HEIGHT);
+  const columnSpacing = (width - 60 - DEPENDENCY_NODE_WIDTH)
+    / Math.max(1, levelValues.length - 1);
+  const positions = new Map<string, DependencyNodePosition>();
+  levelValues.forEach((level, column) => {
+    const nodes = nodesByLevel.get(level) ?? [];
+    nodes.forEach((node, row) => {
+      positions.set(node.namespace, {
+        x: 30 + column * columnSpacing,
+        y: 54 + row * DEPENDENCY_ROW_HEIGHT,
+      });
+    });
+  });
+
+  const columns = levelValues.map((level, index) => {
+    const x = 30 + index * columnSpacing + DEPENDENCY_NODE_WIDTH / 2;
+    return `<text class="metrics-dependency-level" x="${x.toFixed(1)}" y="26" text-anchor="middle">Level ${formatNumber(level)}</text>`;
+  }).join("");
+  const edgePaths = dependency.namespaceEdges.map((edge, index) => {
+    const source = positions.get(edge.sourceNamespace);
+    const target = positions.get(edge.targetNamespace);
+    if (!source || !target) return "";
+    const sourceX = source.x + DEPENDENCY_NODE_WIDTH;
+    const sourceY = source.y + DEPENDENCY_NODE_HEIGHT / 2;
+    const targetX = target.x;
+    const targetY = target.y + DEPENDENCY_NODE_HEIGHT / 2;
+    const sameColumn = Math.abs(source.x - target.x) < 1;
+    const controlX = sameColumn
+      ? sourceX + 62 + index % 3 * 14
+      : (sourceX + targetX) / 2;
+    const path = `M ${sourceX.toFixed(1)} ${sourceY.toFixed(1)} C ${controlX.toFixed(1)} ${sourceY.toFixed(1)}, ${controlX.toFixed(1)} ${targetY.toFixed(1)}, ${targetX.toFixed(1)} ${targetY.toFixed(1)}`;
+    const label = `${edge.sourceNamespace || "(global)"} depends on ${edge.targetNamespace || "(global)"} through ${formatCount(edge.counts.total, "relationship")}`;
+    return `<path class="metrics-dependency-edge" d="${path}" marker-end="url(#metrics-dependency-arrow)" data-dependency-edge-index="${index}" tabindex="0" role="button" aria-label="${escapeHtml(`${label}. Show explaining types.`)}"><title>${escapeHtml(label)}</title></path>`;
+  }).join("");
+  const nodes = dependency.namespaces.map(node => {
+    const position = positions.get(node.namespace);
+    if (!position) return "";
+    const cycle = node.cycleIndex === null
+      ? ""
+      : `<text class="metrics-dependency-cycle-label" x="${position.x + DEPENDENCY_NODE_WIDTH - 8}" y="${position.y + 14}" text-anchor="end">cycle ${formatNumber(node.cycleIndex + 1)}</text>`;
+    const classes = node.cycleIndex === null
+      ? "metrics-dependency-node"
+      : "metrics-dependency-node metrics-dependency-node-cycle";
+    const evidence = `${node.namespace || "(global)"} · level ${formatNumber(node.level)} · ${formatCount(node.typeCount, "type")} · ${formatCount(node.intraNamespaceRelationshipCount, "internal relationship")}${node.cycleIndex === null ? "" : ` · cycle ${formatNumber(node.cycleIndex + 1)}`}`;
+    return `<g class="${classes}"><title>${escapeHtml(evidence)}</title><rect x="${position.x.toFixed(1)}" y="${position.y.toFixed(1)}" width="${DEPENDENCY_NODE_WIDTH}" height="${DEPENDENCY_NODE_HEIGHT}" rx="5"></rect><text class="metrics-dependency-node-label" x="${(position.x + 9).toFixed(1)}" y="${(position.y + 26).toFixed(1)}">${escapeHtml(dependencyNamespaceLabel(node.namespace))}</text>${cycle}</g>`;
+  }).join("");
+
+  const details = dependency.namespaceEdges.map((edge, index) => {
+    const source = edge.sourceNamespace || "(global)";
+    const target = edge.targetNamespace || "(global)";
+    const explanations = edge.explainingTypeEdges.length
+      ? `<ul class="metrics-dependency-explanations">${edge.explainingTypeEdges.map(explanation =>
+        `<li><span><button type="button" class="metrics-dependency-type" data-dependency-type-key="${escapeHtml(explanation.sourceTypeKey)}">${escapeHtml(explanation.sourceTypeDisplay)}</button> <span aria-hidden="true">\u2192</span> <button type="button" class="metrics-dependency-type" data-dependency-type-key="${escapeHtml(explanation.targetTypeKey)}">${escapeHtml(explanation.targetTypeDisplay)}</button></span><span>${formatCount(explanation.counts.total, "relationship")}</span></li>`).join("")}</ul>`
+      : `<p>No explaining type edge was retained for this namespace relationship.</p>`;
+    const remaining = edge.remainingContributorCount > 0
+      ? `<p class="metrics-dependency-remaining">${formatCount(edge.remainingContributorCount, "additional contributing type edge")} not shown.</p>`
+      : "";
+    return `<details class="metrics-dependency-detail" id="metrics-dependency-edge-${index}" data-dependency-edge-detail="${index}">
+      <summary><span>${escapeHtml(source)} <span aria-hidden="true">\u2192</span> ${escapeHtml(target)}</span><span>${formatCount(edge.counts.total, "relationship")}</span></summary>
+      <div><p>${formatCount(edge.counts.invocations, "invocation")} · ${formatCount(edge.counts.functionReferences, "function reference")} · ${formatCount(edge.contributingTypeEdgeCount, "contributing type edge")}</p>${explanations}${remaining}</div>
+    </details>`;
+  }).join("");
+  const population = dependency.population;
+  const qualified = dependency.completeness !== "Complete"
+    ? `<section class="document-section metadata-warning"><strong>&#x26A0; Dependency evidence is qualified</strong><p>${formatCount(population?.unresolvedCallCount ?? 0, "unresolved call")} and ${formatCount(population?.incompleteBodyCount ?? 0, "incomplete body")} may hide relationships.</p>${dependency.diagnostics.length ? `<ul>${dependency.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</section>`
+    : "";
+  const retained = dependency.namespaceEdges.length;
+  const selection = retained < dependency.totalNamespaceEdgeCount
+    ? ` Showing the ${formatNumber(retained)} highest-volume edges of ${formatNumber(dependency.totalNamespaceEdgeCount)}; expand an edge for its bounded type explanations.`
+    : " Expand an edge for its bounded type explanations.";
+
+  return `${qualified}<section class="document-section metrics-visual-section">
+    <div class="metrics-visual-copy"><h2>Dependency Structure</h2><p>Namespaces are arranged by analysis-issued level. Marked nodes belong to analysis-issued cycles; arrows show the selected dependency edges.</p></div>
+    <div class="metrics-dependency-viewport"><svg class="metrics-dependency-structure" viewBox="0 0 ${width} ${height}" role="group" aria-label="Levelized namespace dependency structure"><defs><marker id="metrics-dependency-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>${columns}${edgePaths}${nodes}</svg></div>
+    <p class="metrics-visual-caption">${formatCount(dependency.namespaces.length, "namespace")} · ${formatCount(dependency.cycles.length, "cycle")} · ${formatCount(retained, "selected edge")}.${selection}</p>
+    <div class="metrics-dependency-details">${details || "<p>No cross-namespace dependency edges were issued.</p>"}</div>
+  </section>`;
+}
+
 export function bindLibraryMetricsInteractions(
   root: ParentNode,
   actions: LibraryMetricsInteractionActions,
@@ -306,6 +434,35 @@ export function bindLibraryMetricsInteractions(
     });
   }
 
+  for (const edge of root.querySelectorAll<SVGPathElement>(
+    "[data-dependency-edge-index]",
+  )) {
+    const openDetails = () => {
+      const index = edge.dataset.dependencyEdgeIndex;
+      if (index === undefined) return;
+      const details = root.querySelector<HTMLDetailsElement>(
+        `[data-dependency-edge-detail="${index}"]`,
+      );
+      if (!details) return;
+      details.open = true;
+      details.querySelector<HTMLElement>("summary")?.focus();
+      details.scrollIntoView({ block: "nearest" });
+    };
+    edge.addEventListener("click", openDetails);
+    edge.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openDetails();
+    });
+  }
+
+  for (const button of root.querySelectorAll<HTMLButtonElement>(
+    "[data-dependency-type-key]",
+  )) {
+    const typeKey = button.dataset.dependencyTypeKey;
+    if (!typeKey) continue;
+    button.addEventListener("click", () => actions.activateType(typeKey));
+  }
 }
 
 export function renderLibraryMetricsSurface(
@@ -359,6 +516,7 @@ export function renderLibraryMetricsSurface(
       content = `${incomplete}
         ${renderTreemap(resolved, escapeHtml)}
         ${renderRelationshipCrossing(resolved, escapeHtml)}
+        ${renderDependencyStructure(resolved, escapeHtml)}
         <section class="document-section">
           <p>Compiled IL metrics for <strong>${escapeHtml(libraryName)}</strong>. These are structural implementation measures, not authored-source complexity.</p>
         </section>`;

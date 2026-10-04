@@ -85,3 +85,45 @@ test("reciprocal relationship evidence remains independently reachable", async (
     );
   }
 });
+
+test("dependency edges reveal exact-type explanations", async ({ page }) => {
+  await page.goto("/browser/library-metrics.html");
+  const edge = page.locator('[data-dependency-edge-index="0"]');
+  const detail = page.locator('[data-dependency-edge-detail="0"]');
+  const activation = page.locator("#metrics-activated-type");
+
+  await edge.focus();
+  await edge.press("Enter");
+  await expect(detail).toHaveAttribute("open", "");
+  await expect(detail).toContainText("Example.A");
+  await expect(detail).toContainText("Example.B");
+
+  await detail.locator(
+    '[data-dependency-type-key="Example.B"]',
+  ).click();
+  await expect(activation).toHaveText("Example.B");
+});
+
+test("dependency layout preserves issued levels and cycles responsively", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto("/browser/library-metrics.html");
+
+  await expect(page.locator(".metrics-dependency-level")).toHaveText([
+    "Level 0",
+    "Level 1",
+    "Level 2",
+  ]);
+  await expect(page.locator(".metrics-dependency-node-cycle")).toHaveCount(2);
+  const viewport = page.locator(".metrics-dependency-viewport");
+  const geometry = await viewport.evaluate(element => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    right: element.getBoundingClientRect().right,
+    documentWidth: document.documentElement.clientWidth,
+  }));
+
+  expect(geometry.scrollWidth).toBeGreaterThanOrEqual(geometry.clientWidth);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.documentWidth + .5);
+});

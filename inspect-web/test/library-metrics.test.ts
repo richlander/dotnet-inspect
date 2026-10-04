@@ -45,6 +45,70 @@ const data: BrowserLibraryMetrics = {
     sourceDegree: 2,
     targetDegree: 1,
   }],
+  dependencyStructure: {
+    outcome: "available",
+    methodologyVersion: "library-dependency-structure.v1",
+    completeness: "Complete",
+    population: {
+      examinedCallCount: 12,
+      internalCallCount: 9,
+      externalCallCount: 3,
+      unresolvedCallCount: 0,
+      incompleteBodyCount: 0,
+      typeCount: 3,
+      namespaceCount: 3,
+    },
+    namespaces: [{
+      namespace: "Example.Api",
+      isGlobalNamespace: false,
+      typeCount: 1,
+      intraNamespaceRelationshipCount: 0,
+      cycleIndex: null,
+      level: 0,
+    }, {
+      namespace: "Example.Core",
+      isGlobalNamespace: false,
+      typeCount: 1,
+      intraNamespaceRelationshipCount: 1,
+      cycleIndex: 0,
+      level: 1,
+    }, {
+      namespace: "Example.Storage",
+      isGlobalNamespace: false,
+      typeCount: 1,
+      intraNamespaceRelationshipCount: 0,
+      cycleIndex: 0,
+      level: 1,
+    }],
+    namespaceEdges: [{
+      sourceNamespace: "Example.Api",
+      targetNamespace: "Example.Core",
+      counts: {
+        invocations: 3,
+        functionReferences: 1,
+        total: 4,
+      },
+      contributingTypeEdgeCount: 2,
+      explainingTypeEdges: [{
+        sourceTypeKey: "Example.Api.Endpoint",
+        sourceTypeDisplay: "Example.Api.Endpoint",
+        targetTypeKey: "Example.Core.Engine",
+        targetTypeDisplay: "Example.Core.Engine",
+        counts: {
+          invocations: 3,
+          functionReferences: 0,
+          total: 3,
+        },
+      }],
+      remainingContributorCount: 1,
+    }],
+    totalNamespaceEdgeCount: 1,
+    cycles: [{
+      namespaces: ["Example.Core", "Example.Storage"],
+    }],
+    diagnostics: [],
+    failure: null,
+  },
   diagnostics: ["One method body could not be analyzed."],
   failure: null,
   compileLibrary: {
@@ -101,6 +165,69 @@ test("renders the complexity and relationship visual evidence", () => {
   assert.match(html, /Example\.Core\.Engine/);
   assert.match(html, /Relationship Crossing/);
   assert.match(html, /Example\.Core\.Store/);
+});
+
+test("renders analysis-issued dependency levels, cycles, and explanations", () => {
+  const html = render();
+
+  assert.match(html, /Dependency Structure/);
+  assert.match(html, /Level 0/);
+  assert.match(html, /Level 1/);
+  assert.match(html, /cycle 1/);
+  assert.match(html, /Example\.Api\.Endpoint/);
+  assert.match(
+    html,
+    /data-dependency-type-key="Example\.Core\.Engine"/,
+  );
+  assert.match(html, /1 additional contributing type edge not shown/);
+});
+
+test("discloses bounded and qualified dependency evidence", () => {
+  const html = render({
+    data: {
+      ...data,
+      dependencyStructure: {
+        ...data.dependencyStructure,
+        completeness: "Qualified",
+        totalNamespaceEdgeCount: 8,
+        diagnostics: ["One call target could not be resolved."],
+        population: {
+          ...data.dependencyStructure.population!,
+          unresolvedCallCount: 1,
+          incompleteBodyCount: 1,
+        },
+      },
+    },
+  });
+
+  assert.match(html, /Dependency evidence is qualified/);
+  assert.match(html, /1 unresolved call and 1 incomplete body/);
+  assert.match(html, /highest-volume edges of 8/);
+  assert.match(html, /One call target could not be resolved\./);
+});
+
+test("keeps dependency failure visible without hiding available metrics", () => {
+  const html = render({
+    data: {
+      ...data,
+      dependencyStructure: {
+        outcome: "failed",
+        methodologyVersion: null,
+        completeness: null,
+        population: null,
+        namespaces: [],
+        namespaceEdges: [],
+        totalNamespaceEdgeCount: 0,
+        cycles: [],
+        diagnostics: [],
+        failure: "Dependency selection failed.",
+      },
+    },
+  });
+
+  assert.match(html, /Complexity Explorer/);
+  assert.match(html, /Dependency structure failed/);
+  assert.match(html, /Dependency selection failed\./);
 });
 
 test("keeps structural salience out of the Metrics presentation", () => {
@@ -202,7 +329,7 @@ test("treemap rectangle area remains proportional to instruction volume", () => 
     },
   });
   const rectangles = [...html.matchAll(
-    /<rect x="[^"]+" y="[^"]+" width="([^"]+)" height="([^"]+)"/g,
+    /class="metrics-treemap-cell"[^>]*>.*?<rect x="[^"]+" y="[^"]+" width="([^"]+)" height="([^"]+)"/g,
   )].map(match => Number(match[1]) * Number(match[2]));
 
   assert.equal(rectangles.length, 2);

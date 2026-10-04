@@ -134,27 +134,13 @@ public static partial class AnalysisExports
                 assemblyFileName,
                 pack))
         {
-            LibraryMetricsResult result =
+            AssemblyContextEntry<
+                LibraryMetricsAndDependencyStructureResult> result =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
                     static (group, participant) =>
-                        AssemblyContextLibraryMetricsQuery
-                            .ExecuteParticipant(group, participant))
-                    switch
-                    {
-                        AssemblyContextEntry<LibraryMetricsResult>.Available
-                            available => available.Value,
-                        AssemblyContextEntry<LibraryMetricsResult>.Rejected rejected =>
-                            new LibraryMetricsResult.Failed(
-                                new InvalidOperationException(
-                                    $"{rejected.Subject.Identity.Name}: "
-                                        + $"{rejected.Failure.Kind} "
-                                        + $"({rejected.Failure.Detail})")),
-                        AssemblyContextEntry<LibraryMetricsResult>.Failed failed =>
-                            new LibraryMetricsResult.Failed(failed.Error),
-                        _ => throw new InvalidOperationException(
-                            "Unknown platform Library Metrics result."),
-                    };
+                        AssemblyContextLibraryMetricsAndDependencyStructureQuery
+                            .ExecuteParticipant(group, participant));
             metrics = AnalysisExports.ProjectLibraryMetrics(
                 result,
                 new BrowserCompileLibraryAvailability(

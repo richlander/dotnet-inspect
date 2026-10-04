@@ -1613,6 +1613,74 @@ kbd {
 .metrics-relationship-edge:hover { opacity: 1; }
 .metrics-relationship-node circle { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
 .metrics-relationship-node text { fill: var(--muted); font-size: 10px; }
+.metrics-dependency-viewport {
+  max-width: 100%; overflow-x: auto; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--panel);
+}
+.metrics-dependency-structure {
+  display: block; width: max(100%, 900px); height: auto; min-height: 300px;
+}
+.metrics-dependency-level {
+  fill: var(--dim); font: 600 10px var(--mono); letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.metrics-dependency-edge {
+  fill: none; stroke: var(--muted); stroke-width: 2; opacity: .72;
+  cursor: pointer; transition: opacity .15s ease, stroke .15s ease;
+}
+.metrics-dependency-edge:is(:hover, :focus-visible) {
+  stroke: var(--accent); opacity: 1; outline: none;
+}
+#metrics-dependency-arrow path { fill: var(--muted); }
+.metrics-dependency-node rect {
+  fill: var(--chrome); stroke: var(--line-strong); stroke-width: 1;
+}
+.metrics-dependency-node-cycle rect {
+  fill: color-mix(in srgb, var(--accent) 12%, var(--chrome));
+  stroke: var(--accent);
+}
+.metrics-dependency-node-label {
+  fill: var(--text); font: 600 11px var(--mono); pointer-events: none;
+}
+.metrics-dependency-cycle-label {
+  fill: var(--accent); font: 8px var(--mono); pointer-events: none;
+}
+.metrics-dependency-details {
+  margin-top: 14px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel);
+}
+.metrics-dependency-details > p { margin: 0; padding: 14px; color: var(--muted); }
+.metrics-dependency-detail + .metrics-dependency-detail { border-top: 1px solid var(--line); }
+.metrics-dependency-detail summary {
+  min-width: 0; display: flex; justify-content: space-between; gap: 16px;
+  padding: 12px 14px; color: var(--text); font: 600 11px/1.4 var(--mono);
+  cursor: pointer;
+}
+.metrics-dependency-detail summary span:first-child {
+  min-width: 0; overflow-wrap: anywhere;
+}
+.metrics-dependency-detail summary span:last-child {
+  flex: none; color: var(--dim); font-weight: 400;
+}
+.metrics-dependency-detail > div {
+  padding: 0 14px 14px; color: var(--muted); font: 11px/1.5 var(--mono);
+}
+.metrics-dependency-detail > div > p { margin: 0 0 10px; }
+.metrics-dependency-explanations { margin: 0; padding: 0; list-style: none; }
+.metrics-dependency-explanations li {
+  min-width: 0; display: flex; justify-content: space-between; gap: 16px;
+  padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere;
+}
+.metrics-dependency-explanations li > span:last-child { flex: none; color: var(--dim); }
+.metrics-dependency-type {
+  max-width: 100%; padding: 0; border: 0; background: transparent;
+  color: var(--accent); font: inherit; text-align: left; cursor: pointer;
+}
+.metrics-dependency-type:hover { text-decoration: underline; }
+.metrics-dependency-type:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.metrics-dependency-remaining { color: var(--dim); }
 .metrics-visual-caption { margin: 10px 0 0; color: var(--dim); font: 10px/1.5 var(--mono); }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }
