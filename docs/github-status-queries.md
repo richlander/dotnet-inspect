@@ -34,9 +34,10 @@ request: the eligibility check before reviewer dispatch, every bounded-wait
 snapshot, every scheduled check-in, and merge preflight. The probe needs only
 `git fetch` against the repository remote, so it runs when the GitHub API is
 rate-limited, returns `mergeable: null` while GitHub is still computing the
-test merge, or reports a stale value for a head it has not re-evaluated. For
-conflict detection those API fields confirm the probe; they never replace it.
-An agent that spends a status budget on CI reads while the candidate already
+test merge, or reports a stale value for a head it has not re-evaluated. A
+local conflict is decisive and `mergeable: null` or `true` never clears it; a
+GitHub-reported conflict (`mergeable: false`, below) still counts as one. The
+API fields never substitute for the probe. An agent that spends a status budget on CI reads while the candidate already
 conflicts with `main` has skipped this step.
 
 ```bash
@@ -75,7 +76,9 @@ closed, draft, and head or base-ref mismatch outrank conflict recovery. When
 the API cannot be read on this attempt, start conflict recovery only against
 the last successfully observed open, non-draft PR at the expected head and
 base ref; otherwise keep the recorded conflict and retry the read under the
-round cadence.
+round cadence. If the budget expires in that state, surface the recorded
+conflict together with the lifecycle-read failure instead of the status
+budget report, which describes an unobserved result.
 
 Fetch on every attempt so base movement is discovered, but rerun the test
 merge only for an unrecorded tip. Base movement alone does not invalidate the
@@ -86,9 +89,9 @@ authorization.
 
 ## Routine REST snapshot
 
-After a clean local probe, repository policy queries the PR before checks so
-lifecycle, head mismatch, and a GitHub-reported conflict can short-circuit a
-second request. Run each request as a separate agent tool call so a failure is
+After the local probe (and, on a recorded conflict, without the checks
+request), repository policy queries the PR before checks so lifecycle, head
+mismatch, and a GitHub-reported conflict can short-circuit a second request. Run each request as a separate agent tool call so a failure is
 classified before another request spends capacity:
 
 ```bash

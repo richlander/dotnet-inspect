@@ -573,10 +573,11 @@ approves keeping the PR intact. Full checkpoint mechanics:
   instead of polling. Every status attempt — before reviewer dispatch, at each
   bounded-wait snapshot, at a check-in, and in merge preflight — begins with
   the local conflict probe: fetch the live base and test-merge the candidate
-  head against any base tip not yet probed, before any GitHub query. The
-  local result decides whether the candidate conflicts; GitHub's mergeability
-  fields can be rate-limited, `null`, or stale, so they confirm the probe and
-  never replace it. Lifecycle outcomes from the same attempt's PR read
+  head against any base tip not yet probed, before any GitHub query. A local
+  conflict is decisive, and GitHub's `mergeable` of `null` or `true` never
+  clears it; a GitHub-reported conflict (`mergeable: false`) still counts as
+  one. The API fields can be rate-limited, `null`, or stale, so they never
+  substitute for the probe. Lifecycle outcomes from the same attempt's PR read
   (merged, closed, draft, head or base-ref mismatch) still outrank conflict
   recovery; when the API cannot be read, a recorded local conflict starts
   recovery only against the last successfully observed open, non-draft PR at
