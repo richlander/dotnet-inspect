@@ -8144,7 +8144,6 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1 && !graphOnlyTarget
       ? memberNavOverloadSourceIndex(group, 0)
       : null;
-  const methodGroup = ordinaryMethodGroup(group);
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex =
@@ -8155,7 +8154,7 @@ function openMemberGroup(key: string) {
     clearMemberGroupDocumentCache();
   }
   state.selectedBodyTarget = graphOnlyTarget;
-  if (methodGroup || !preserveSection) {
+  if (!preserveSection) {
     state.memberSection = "overview";
   } else {
     const retainedSection = state.memberSection;

@@ -749,7 +749,8 @@ test("moving between members keeps sections sticky without section-driven profil
     /const preserveSection =\s*state\.memberBrowseTypeId === type\?\.id && Boolean\(state\.selectedMemberKey\)/);
   assert.match(
     openMemberGroupBody,
-    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
+    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(!preserveSection\) \{\s*state\.memberSection = "overview"/);
+  assert.doesNotMatch(openMemberGroupBody, /ordinaryMethodGroup/);
   assert.doesNotMatch(
     openMemberGroupBody,
     /openMemberDocument|memberBaselineOrdinal/);

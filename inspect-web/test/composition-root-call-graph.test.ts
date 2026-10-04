@@ -1004,7 +1004,7 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /function renderMember\(type: AppTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverload = selectedMemberOverload\(type, member\);[\s\S]*?const hasSelectedOverload =\s*state\.selectedOverloadIndex != null\s*&& selectedOverload !== undefined;[\s\S]*?const overload = selectedOverload \?\? member\.overloads\[0\];/);
 });
 
-test("member family re-entry leaves exact ordinary methods for the shared document", () => {
+test("member family re-entry resets overview without resetting cross-member sections", () => {
   const selection =
     appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
     ?? "";
@@ -1018,12 +1018,10 @@ test("member family re-entry leaves exact ordinary methods for the shared docume
   const openMemberGroup =
     appSource.match(/function openMemberGroup\([\s\S]*?\n}\n\nfunction enterMemberScope/)?.[0]
     ?? "";
+  assert.doesNotMatch(openMemberGroup, /ordinaryMethodGroup/);
   assert.match(
     openMemberGroup,
-    /const methodGroup = ordinaryMethodGroup\(group\)/);
-  assert.match(
-    openMemberGroup,
-    /const singletonSourceIndex =[\s\S]*memberNavOverloadSourceIndex\(group, 0\)[\s\S]*state\.selectedOverloadIndex =\s*graphOnlyTarget \? 0 : singletonSourceIndex;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
+    /const singletonSourceIndex =[\s\S]*memberNavOverloadSourceIndex\(group, 0\)[\s\S]*state\.selectedOverloadIndex =\s*graphOnlyTarget \? 0 : singletonSourceIndex;[\s\S]*if \(!preserveSection\) \{\s*state\.memberSection = "overview";/);
 });
 
 test("fallback ordinary families load the shared document", () => {
