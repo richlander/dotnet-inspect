@@ -168,19 +168,23 @@ public static class PackageOptionsParser
         result.GetValue(args.NamesakeLibraryOption)
         || GetExactLibrary(result, args) is not null;
 
-    private static bool IsPlausiblePackageReference(string packageArg)
+    /// <summary>
+    /// Returns the coordinate validator's reason when <paramref name="packageArg"/>
+    /// cannot be a package reference (a local file or directory, a .nupkg path,
+    /// or ID[@version-or-range]), or <see langword="null"/> when it can.
+    /// </summary>
+    private static string? InvalidPackageReferenceReason(string packageArg)
     {
-        if (string.IsNullOrWhiteSpace(packageArg))
-            return false;
         if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
             || File.Exists(packageArg)
             || Directory.Exists(packageArg))
         {
-            return true;
+            return null;
         }
 
         (string name, _) = PackageExtractor.ParsePackageReference(packageArg);
-        return PackageExtractor.IsValidPackageId(name);
+        return PackageCoordinateResolver.Validate(new PackageCoordinate(name))
+            ?.Message;
     }
 
     /// <summary>
@@ -212,12 +216,11 @@ public static class PackageOptionsParser
         // of flowing into multi-package or feed selection.
         foreach (string packageArg in packageArgs)
         {
-            if (!IsPlausiblePackageReference(packageArg))
+            if (InvalidPackageReferenceReason(packageArg) is { } reason)
             {
                 return new InvalidArguments(
-                    $"'{packageArg}' is not a package reference. "
-                        + "Use an ID such as System.Text.Json or "
-                        + "System.Text.Json@10.0.12, or a .nupkg path. "
+                    $"'{packageArg}' is not a package reference. {reason} "
+                        + "Correct the package command input and retry. "
                         + $"To select a section, use -S \"{packageArg}\".");
             }
         }
