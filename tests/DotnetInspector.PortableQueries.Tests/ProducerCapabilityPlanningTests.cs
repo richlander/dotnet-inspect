@@ -13,7 +13,9 @@ public sealed class ProducerCapabilityPlanningTests
         ProducerCapabilityPlan plan =
             Accept(fixture.Validate(
                 [
-                    fixture.RequireRows(fixture.RowsAssociation),
+                    fixture.RequireRows(
+                        fixture.RowsAssociation,
+                        fixture.RowDemand),
                     fixture.RequireCount(fixture.CountAssociation),
                 ],
                 [fixture.RowsProvision, fixture.CountProvision],
@@ -37,6 +39,10 @@ public sealed class ProducerCapabilityPlanningTests
                 static satisfaction =>
                     satisfaction.Requirement.Association));
         Assert.Single(plan.Provisions);
+        Assert.Same(
+            fixture.RowDemand,
+            plan.Requirements[0].Parameters);
+        Assert.Null(plan.Requirements[1].Parameters);
         Assert.Equal(
             [
                 ProducerCapabilitySatisfactionKind.Direct,
@@ -88,10 +94,14 @@ public sealed class ProducerCapabilityPlanningTests
             ProducerCapabilityCompletionIdentity.Create(fixture.Domain);
         QuerySpaceResourceIdentity foreignResource =
             QuerySpaceResourceIdentity.Create(fixture.ResourceDomain);
+        ProducerCapabilityDomainIdentity foreignDomain =
+            ProducerCapabilityDomainIdentity.Create();
         ProducerCapabilityScopeIdentity foreignScope =
             ProducerCapabilityScopeIdentity.Create(
                 fixture.Domain,
                 foreignResource);
+        ProducerCapabilityParameterIdentity foreignParameters =
+            ProducerCapabilityParameterIdentity.Create(foreignDomain);
 
         AssertRejected(
             fixture.Validate(
@@ -142,6 +152,24 @@ public sealed class ProducerCapabilityPlanningTests
                 fixture.DirectCountCandidate),
             ProducerCapabilityPlanRejectionReason
                 .InsufficientCompletion);
+        AssertRejected(
+            fixture.Validate(
+                [
+                    new(
+                        fixture.CountAssociation,
+                        fixture.Resource,
+                        fixture.Scope,
+                        fixture.Count,
+                        fixture.Complete,
+                        fixture.CountOutcome,
+                        ProducerCapabilityProperties.ExactCardinality,
+                        foreignParameters),
+                ],
+                [fixture.CountProvision],
+                [],
+                fixture.DirectCountCandidate),
+            ProducerCapabilityPlanRejectionReason
+                .ProducerDomainMismatch);
 
         ProducerCapabilityProvisionIdentity first =
             ProducerCapabilityProvisionIdentity.Create(fixture.Domain);
@@ -420,6 +448,8 @@ public sealed class ProducerCapabilityPlanningTests
                 Resource);
             Rows = ProducerCapabilityIdentity.Create(Domain);
             Count = ProducerCapabilityIdentity.Create(Domain);
+            RowDemand =
+                ProducerCapabilityParameterIdentity.Create(Domain);
             Complete =
                 ProducerCapabilityCompletionIdentity.Create(Domain);
             RowsOutcome =
@@ -488,6 +518,8 @@ public sealed class ProducerCapabilityPlanningTests
 
         internal ProducerCapabilityIdentity Count { get; }
 
+        internal ProducerCapabilityParameterIdentity RowDemand { get; }
+
         internal ProducerCapabilityCompletionIdentity Complete
         { get; }
 
@@ -525,14 +557,16 @@ public sealed class ProducerCapabilityPlanningTests
         { get; }
 
         internal ProducerCapabilityRequirementCandidate RequireRows(
-            QuerySpaceRequestAssociationIdentity association) =>
+            QuerySpaceRequestAssociationIdentity association,
+            ProducerCapabilityParameterIdentity? parameters = null) =>
             new(
                 association,
                 Resource,
                 Scope,
                 Rows,
                 Complete,
-                RowsOutcome);
+                RowsOutcome,
+                Parameters: parameters);
 
         internal ProducerCapabilityRequirementCandidate RequireCount(
             QuerySpaceRequestAssociationIdentity association) =>

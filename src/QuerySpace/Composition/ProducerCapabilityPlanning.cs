@@ -63,6 +63,28 @@ public sealed class ProducerCapabilityIdentity
     internal ProducerCapabilityDomainIdentity Domain { get; }
 }
 
+/// <summary>
+/// Opaque owner-issued identity for one immutable capability-parameter set.
+/// </summary>
+public sealed class ProducerCapabilityParameterIdentity
+{
+    ProducerCapabilityParameterIdentity(
+        ProducerCapabilityDomainIdentity domain)
+    {
+        Domain = domain;
+    }
+
+    /// <summary>Creates one capability-parameter identity.</summary>
+    public static ProducerCapabilityParameterIdentity Create(
+        ProducerCapabilityDomainIdentity domain)
+    {
+        ArgumentNullException.ThrowIfNull(domain);
+        return new(domain);
+    }
+
+    internal ProducerCapabilityDomainIdentity Domain { get; }
+}
+
 /// <summary>Opaque owner-issued completion identity.</summary>
 public sealed class ProducerCapabilityCompletionIdentity
 {
@@ -248,7 +270,8 @@ public sealed record ProducerCapabilityRequirementCandidate(
     ProducerCapabilityIdentity? Capability,
     ProducerCapabilityCompletionIdentity? Completion,
     ProducerCapabilityOutcomeIdentity? Outcome,
-    ProducerCapabilityProperties Properties = ProducerCapabilityProperties.None);
+    ProducerCapabilityProperties Properties = ProducerCapabilityProperties.None,
+    ProducerCapabilityParameterIdentity? Parameters = null);
 
 /// <summary>One validated producer capability requirement.</summary>
 public sealed record ProducerCapabilityRequirement(
@@ -258,7 +281,8 @@ public sealed record ProducerCapabilityRequirement(
     ProducerCapabilityIdentity Capability,
     ProducerCapabilityCompletionIdentity Completion,
     ProducerCapabilityOutcomeIdentity Outcome,
-    ProducerCapabilityProperties Properties);
+    ProducerCapabilityProperties Properties,
+    ProducerCapabilityParameterIdentity? Parameters);
 
 /// <summary>One producer-owned provision declaration.</summary>
 public sealed record ProducerCapabilityProvisionDeclaration(
@@ -698,7 +722,8 @@ public static class ProducerCapabilityPlanValidator
                     candidate.Scope,
                     candidate.Capability,
                     candidate.Completion,
-                    candidate.Outcome))
+                    candidate.Outcome,
+                    candidate.Parameters))
             {
                 rejections.Add(new(
                     index,
@@ -728,7 +753,8 @@ public static class ProducerCapabilityPlanValidator
                 candidate.Capability,
                 candidate.Completion,
                 candidate.Outcome,
-                candidate.Properties));
+                candidate.Properties,
+                candidate.Parameters));
         }
         return requirements.ToImmutable();
     }
@@ -1347,11 +1373,14 @@ public static class ProducerCapabilityPlanValidator
         ProducerCapabilityScopeIdentity scope,
         ProducerCapabilityIdentity capability,
         ProducerCapabilityCompletionIdentity completion,
-        ProducerCapabilityOutcomeIdentity outcome) =>
+        ProducerCapabilityOutcomeIdentity outcome,
+        ProducerCapabilityParameterIdentity? parameters = null) =>
         ReferenceEquals(scope.Domain, domain)
         && ReferenceEquals(capability.Domain, domain)
         && ReferenceEquals(completion.Domain, domain)
-        && ReferenceEquals(outcome.Domain, domain);
+        && ReferenceEquals(outcome.Domain, domain)
+        && (parameters is null
+            || ReferenceEquals(parameters.Domain, domain));
 
     static ProducerCapabilityPlanResult Rejected(
         ImmutableArray<ProducerCapabilityPlanRejection>.Builder
