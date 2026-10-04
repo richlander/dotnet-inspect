@@ -45,7 +45,7 @@ public sealed record DiffAnalysisComparisonContext(
     AnalysisReportSurfaceKind Surface,
     DiffAnalysisDocumentViews Views,
     ImmutableArray<string> Analyses,
-    ImmutableArray<DiffAnalysisQueryTermContext> Predicates = default);
+    ImmutableArray<DiffAnalysisQueryTermContext> Predicates);
 
 public sealed record DiffAnalysisQueryTermContext(
     string Key,

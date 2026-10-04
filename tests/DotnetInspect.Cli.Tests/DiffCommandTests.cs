@@ -3714,7 +3714,8 @@ public class DiffCommandTests
                 "2.0.0",
                 AnalysisReportSurfaceKind.Member,
                 DiffAnalysisDocumentViews.Changes,
-                ["api", "call-site"]),
+                ["api", "call-site"],
+                []),
             [
                 new DiffAnalysisDocumentOutcome(
                     "api",
@@ -3817,7 +3818,8 @@ public class DiffCommandTests
                 "2.0.0",
                 AnalysisReportSurfaceKind.Member,
                 DiffAnalysisDocumentViews.Changes,
-                ["api"]),
+                ["api"],
+                []),
             [
                 new DiffAnalysisDocumentOutcome(
                     "api",
