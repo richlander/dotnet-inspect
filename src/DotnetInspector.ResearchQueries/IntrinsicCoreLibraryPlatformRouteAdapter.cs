@@ -1,3 +1,4 @@
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
@@ -13,9 +14,18 @@ public sealed class IntrinsicCoreLibraryPlatformExternalRoute :
     internal IntrinsicCoreLibraryPlatformExternalRoute(
         AssemblyBindingRequest request,
         AssemblyReferenceResolutionGenerationReceipt generation,
+        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+            context,
         IntrinsicCoreLibraryRouteApplicabilityReceipt applicability)
-        : base(request, generation) =>
+        : base(request, generation)
+    {
+        Context = context;
         Applicability = applicability;
+    }
+
+    public PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+        Context
+    { get; }
 
     public IntrinsicCoreLibraryRouteApplicabilityReceipt Applicability
     { get; }
@@ -90,11 +100,14 @@ public static class IntrinsicCoreLibraryPlatformRouteAdapter
     public static IntrinsicCoreLibraryPlatformRouteAdaptationOutcome Adapt(
         AssemblyBindingRequest request,
         AssemblyReferenceResolutionGenerationReceipt generation,
+        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+            context,
         MemberCallGraphFocalScopeReceipt focalScope,
         IntrinsicCoreLibraryRouteDecision decision)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(focalScope);
         ArgumentNullException.ThrowIfNull(decision);
         if (request.Target
@@ -102,6 +115,16 @@ public static class IntrinsicCoreLibraryPlatformRouteAdapter
         {
             throw new ArgumentException(
                 "The intrinsic Platform route requires an intrinsic CoreLib binding target.",
+                nameof(request));
+        }
+        if (request.Origin
+                is not AssemblyBindingOrigin.RequestingAssembly origin
+            || !ReferenceEquals(
+                origin.Registration,
+                context.Occurrence.Origin.Registration))
+        {
+            throw new ArgumentException(
+                "The intrinsic Platform route request must retain the exact occurrence's requesting-assembly registration.",
                 nameof(request));
         }
         if (!ReferenceEquals(
@@ -112,10 +135,11 @@ public static class IntrinsicCoreLibraryPlatformRouteAdapter
                 "The intrinsic Platform route generation and focal scope must retain the exact Workspace Scope revision.",
                 nameof(focalScope));
         }
-        if (!ReferenceEquals(FocalScope(decision), focalScope))
+        if (!ReferenceEquals(Context(decision), context)
+            || !ReferenceEquals(FocalScope(decision), focalScope))
         {
             throw new ArgumentException(
-                "The intrinsic Platform decision must retain the exact focal scope.",
+                "The intrinsic Platform decision must retain the exact occurrence context and focal scope.",
                 nameof(decision));
         }
 
@@ -127,6 +151,7 @@ public static class IntrinsicCoreLibraryPlatformRouteAdapter
                         new(
                             request,
                             generation,
+                            context,
                             applicable.Receipt)),
             IntrinsicCoreLibraryRouteDecision.Unavailable unavailable =>
                 new IntrinsicCoreLibraryPlatformRouteAdaptationOutcome
@@ -159,6 +184,24 @@ public static class IntrinsicCoreLibraryPlatformRouteAdapter
                 incomplete.Plan.FocalScope,
             IntrinsicCoreLibraryRouteDecision.Rejected rejected =>
                 rejected.FocalScope,
+            _ => throw new InvalidOperationException(
+                "Unknown intrinsic CoreLib Platform applicability decision."),
+        };
+
+    static PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+        Context(IntrinsicCoreLibraryRouteDecision decision) =>
+        decision switch
+        {
+            IntrinsicCoreLibraryRouteDecision.Applicable applicable =>
+                applicable.Receipt.Context,
+            IntrinsicCoreLibraryRouteDecision.OutsideOperationScope outside =>
+                outside.Context,
+            IntrinsicCoreLibraryRouteDecision.Unavailable unavailable =>
+                unavailable.Plan.Context,
+            IntrinsicCoreLibraryRouteDecision.Incomplete incomplete =>
+                incomplete.Plan.Context,
+            IntrinsicCoreLibraryRouteDecision.Rejected rejected =>
+                rejected.Context,
             _ => throw new InvalidOperationException(
                 "Unknown intrinsic CoreLib Platform applicability decision."),
         };

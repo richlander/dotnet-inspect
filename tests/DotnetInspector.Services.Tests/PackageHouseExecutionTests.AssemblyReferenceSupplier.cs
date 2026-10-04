@@ -715,6 +715,50 @@ public sealed partial class PackageHouseExecutionTests
         MemberCallGraphPlatformPopulationScope population =
             Assert.Single(
                 resolution.FocalScope.PlatformPopulations);
+        PackageHouseSettlement.Acquired foreignAcquired =
+            await ExecuteFrameworkReferencesAsync(
+                PackageHouseTargetContext.Exact("net8.0"),
+                FrameworkArchive(
+                    """
+                    <group targetFramework="net8.0">
+                      <frameworkReference name="Microsoft.NETCore.App" />
+                    </group>
+                    """,
+                    ($"lib/net8.0/{MaterializedPackageId}.dll", [])));
+        var foreignFramework = Assert.IsType<
+            PackageHouseFrameworkReferenceOutcome.Selected>(
+                PackageHouseFrameworkReferenceProjection.Project(
+                    foreignAcquired));
+        RealizedPackageDependencyContext foreignRoot =
+            await RouteRootContextAsync(
+                Assert.IsType<
+                    PackageHouseRootContributionOutcome.Contributed>(
+                        PackageHouseRootContributionAdapter.Create(
+                            foreignAcquired))
+                    .Contribution.Binding);
+        var foreignEligibility =
+            new PlatformAssemblyReferenceFamilyEligibility
+                .PackageFrameworkReference(
+                    foreignFramework.Evidence,
+                    Assert.Single(
+                        foreignFramework.Evidence.Occurrences),
+                    foreignRoot);
+        Assert.Throws<ArgumentException>(
+            "families",
+            () => new PlatformAssemblyReferenceExternalRoute(
+                BindingRequest(CallGraphTargetIdentity()),
+                resolution.Generation,
+                resolution.FocalScope,
+                [
+                    new(
+                        [
+                            new PlatformAssemblyReferenceFamilyEligibility
+                                .WorkspacePopulation(population),
+                            foreignEligibility,
+                        ],
+                        platformRequest),
+                ],
+                projected.Receipt));
         var platformRoute =
             new PlatformAssemblyReferenceExternalRoute(
                 BindingRequest(CallGraphTargetIdentity()),

@@ -239,7 +239,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
             await CompletePlatformRouteAsync(
                 input.Request,
                 platform,
-                request);
+                request,
+                package.Route);
 
         var completed = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.PlatformOwned>(
@@ -300,7 +301,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
         PlatformAssemblyReferenceBindingOutcome platformRoute =
             await CompletePlatformRouteAsync(
                 input.Request,
-                platform);
+                platform,
+                packageRoutes: package.Route);
 
         var missing = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.NameOwnedNoMatch>(
@@ -357,7 +359,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
         PlatformAssemblyReferenceBindingOutcome platformRoute =
             await CompletePlatformRouteAsync(
                 platformRequest,
-                platform);
+                platform,
+                packageRoutes: package.Route);
 
         var missing = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.NoSupplier>(
@@ -401,7 +404,11 @@ public sealed class PlatformAssemblyReferenceResolverTests
         AssemblyBindingRequest request = BindingRequest(input.Request);
         PackageAssemblyReferenceSupplierAssociation package =
             await EmptyPackageAssociationAsync(
-                PackageDependencyTraversalRootCompletion.Complete);
+                PackageDependencyTraversalRootCompletion.Complete,
+                PlatformFamily.DotNetRuntime);
+        var packageRoutes = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                package.RouteProjection);
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(
                 static _ => throw new InvalidOperationException(
@@ -412,7 +419,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
         PlatformAssemblyReferenceBindingOutcome platformRoute =
             await CompletePlatformRouteAsync(
                 input.Request,
-                platform);
+                platform,
+                packageRoutes: packageRoutes.Receipt);
 
         var completed = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.PlatformOwned>(
@@ -524,10 +532,31 @@ public sealed class PlatformAssemblyReferenceResolverTests
             new ExternalAssemblyReferencePlatformResult(
                 first.Request,
                 firstOutcome);
+        AssemblyBindingRequest firstBinding =
+            BindingRequest(first.Request);
+        PackageAssemblyReferenceSupplierOutcome.Missing firstPackage =
+            await CompletePackageMissAsync(
+                firstBinding,
+                cancellationToken);
         PlatformAssemblyReferenceBindingOutcome firstPlatform =
             await CompletePlatformRouteAsync(
                 first.Request,
-                firstOutcome);
+                firstOutcome,
+                packageRoutes: firstPackage.Route);
+        PackageAssemblyReferenceSupplierOutcome.Missing foreignRoutePackage =
+            await CompletePackageMissAsync(
+                firstBinding,
+                cancellationToken);
+        Assert.NotSame(
+            firstPackage.Route,
+            foreignRoutePackage.Route);
+        Assert.Throws<ArgumentException>(
+            "platform",
+            () => ExternalAssemblyReferenceSupplierAssociation
+                .CompletePlatform(
+                    firstBinding,
+                    foreignRoutePackage,
+                    firstPlatform));
         PlatformHouseRequest secondRequest = Request(
             firstIdentity with { Name = "Different.Assembly" },
             PlatformSourceCapabilityIdentity.Create("second-source"),
@@ -2239,7 +2268,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
     {
         PackageAssemblyReferenceSupplierAssociation association =
                 await EmptyPackageAssociationAsync(
-                PackageDependencyTraversalRootCompletion.Complete);
+                PackageDependencyTraversalRootCompletion.Complete,
+                PlatformFamily.DotNetRuntime);
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(
                 static _ => throw new InvalidOperationException(
@@ -2259,16 +2289,26 @@ public sealed class PlatformAssemblyReferenceResolverTests
         CompletePlatformRouteAsync(
             PlatformHouseRequest request,
             PlatformHouseOutcome<AssemblyBindingDecision> outcome,
-            AssemblyBindingRequest? ladderRequest = null)
+            AssemblyBindingRequest? ladderRequest = null,
+            PackageAssemblyReferenceRouteEligibilityReceipt? packageRoutes =
+                null)
     {
         PlatformFamilyTarget target =
             Assert.IsType<PlatformTargetDemand.Exact>(
                 request.Target).Target;
-        ResolutionEnvironment resolution =
-            await ResolutionEnvironment.CreateAsync(target.Family);
+        ResolutionEnvironment? resolution =
+            packageRoutes is null
+                ? await ResolutionEnvironment.CreateAsync(target.Family)
+                : null;
+        AssemblyReferenceResolutionGenerationReceipt generation =
+            packageRoutes?.Generation
+            ?? resolution!.Generation;
+        MemberCallGraphFocalScopeReceipt focalScope =
+            packageRoutes?.FocalScope
+            ?? resolution!.FocalScope;
         MemberCallGraphPlatformPopulationScope population =
             Assert.Single(
-                resolution.FocalScope.PlatformPopulations,
+                focalScope.PlatformPopulations,
                 candidate => candidate.Family == target.Family);
         var family = new PlatformAssemblyReferenceFamilyRoute(
             [
@@ -2278,9 +2318,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
             request);
         var route = new PlatformAssemblyReferenceExternalRoute(
             ladderRequest ?? BindingRequest(request),
-            resolution.Generation,
-            resolution.FocalScope,
-            [family]);
+            generation,
+            focalScope,
+            [family],
+            packageRoutes);
         return PlatformAssemblyReferenceRouteAdapter.Complete(
             route,
             [new ExternalAssemblyReferencePlatformResult(request, outcome)]);
@@ -2329,7 +2370,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
 
     static async Task<PackageAssemblyReferenceSupplierAssociation>
         EmptyPackageAssociationAsync(
-            PackageDependencyTraversalRootCompletion completion)
+            PackageDependencyTraversalRootCompletion completion,
+            params PlatformFamily[] platformFamilies)
     {
         var traversal = new PackageDependencyTraversalOutcome(
             TraversalTargetFrameworkPolicy.ProductDefault,
@@ -2369,7 +2411,7 @@ public sealed class PlatformAssemblyReferenceResolverTests
                 SourceBoundedRoots: 0,
                 PartialRoots: 0));
         ResolutionEnvironment resolution =
-            await ResolutionEnvironment.CreateAsync();
+            await ResolutionEnvironment.CreateAsync(platformFamilies);
         return PackageAssemblyReferenceSupplierAssociation.Create(
                 new PackageAssemblyReferenceSupplierAssociationRequest(
                     resolution.Generation,

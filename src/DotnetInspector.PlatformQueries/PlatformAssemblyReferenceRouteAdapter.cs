@@ -43,10 +43,12 @@ public abstract class PlatformAssemblyReferenceFamilyEligibility
     {
         public PackageFrameworkReference(
             PackageHouseFrameworkReferenceEvidence evidence,
-            PackageFrameworkReferenceOccurrence occurrence)
+            PackageFrameworkReferenceOccurrence occurrence,
+            RealizedPackageDependencyContext root)
             : base(FamilyFor(occurrence))
         {
             ArgumentNullException.ThrowIfNull(evidence);
+            ArgumentNullException.ThrowIfNull(root);
             if (!evidence.Occurrences.Any(
                     candidate => ReferenceEquals(candidate, occurrence)))
             {
@@ -54,14 +56,24 @@ public abstract class PlatformAssemblyReferenceFamilyEligibility
                     "The framework-reference occurrence must belong to the exact package evidence.",
                     nameof(occurrence));
             }
+            if (!root.Subject.MatchesCompileSelection(
+                    evidence.Association.CompileSelection))
+            {
+                throw new ArgumentException(
+                    "Framework-reference evidence must belong to the exact realized Package root and compile selection.",
+                    nameof(root));
+            }
 
             Evidence = evidence;
             Occurrence = occurrence;
+            Root = root;
         }
 
         public PackageHouseFrameworkReferenceEvidence Evidence { get; }
 
         public PackageFrameworkReferenceOccurrence Occurrence { get; }
+
+        public RealizedPackageDependencyContext Root { get; }
 
         static PlatformFamily FamilyFor(
             PackageFrameworkReferenceOccurrence occurrence)
@@ -215,6 +227,16 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
                 "The Platform route supports only the currently implemented Everything focal scope.",
                 nameof(focalScope));
         }
+        if (packageRoutes is not null
+            && (!ReferenceEquals(packageRoutes.Generation, generation)
+                || !ReferenceEquals(
+                    packageRoutes.FocalScope,
+                    focalScope)))
+        {
+            throw new ArgumentException(
+                "Package route evidence must retain the exact Platform route generation and focal scope.",
+                nameof(packageRoutes));
+        }
 
         var familySet = new HashSet<PlatformFamily>();
         var workspaceEligibility =
@@ -270,6 +292,22 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
                             nameof(families));
                     }
                 }
+                else if (eligibility
+                    is PlatformAssemblyReferenceFamilyEligibility
+                        .PackageFrameworkReference framework)
+                {
+                    if (packageRoutes?.Root.Occurrence.Source
+                            is not PackageDependencyTraversalRootSource
+                                .RealizedPackage root
+                        || !ReferenceEquals(
+                            framework.Root,
+                            root.Context))
+                    {
+                        throw new ArgumentException(
+                            "Package framework-reference eligibility must belong to the exact realized Package route root.",
+                            nameof(families));
+                    }
+                }
             }
         }
         if (focalScope.PlatformPopulations.Any(
@@ -278,17 +316,6 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
             throw new ArgumentException(
                 "The Platform family composition must retain every Platform population in the focal scope.",
                 nameof(families));
-        }
-
-        if (packageRoutes is not null
-            && (!ReferenceEquals(packageRoutes.Generation, generation)
-                || !ReferenceEquals(
-                    packageRoutes.FocalScope,
-                    focalScope)))
-        {
-            throw new ArgumentException(
-                "Package route evidence must retain the exact Platform route generation and focal scope.",
-                nameof(packageRoutes));
         }
 
         ImmutableArray<PackageAssemblyReferenceRouteOccurrence>

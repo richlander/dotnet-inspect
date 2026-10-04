@@ -172,13 +172,12 @@ public sealed partial class PackageHouseExecutionTests
                 AssemblyReferenceResolutionGenerationReceipt.Capture(
                     scope.Snapshot,
                     graph.FocalScope);
+            TypeResolutionOutcome.Unavailable unresolved =
+                Assert.IsType<TypeResolutionOutcome.Unavailable>(
+                    occurrence.Occurrence.Correspondence.Outcome);
             var request = new AssemblyBindingRequest(
                 AssemblyBindingTarget.CoreLibrary(),
-                AssemblyBindingOrigin.FromAssembly(
-                    ResolvedAssemblyReference.CreateFromPath(
-                        SystemTextJsonNetStandardPath,
-                        AssemblyResolutionProvenance.Local(
-                            "intrinsic Platform route adapter test"))),
+                unresolved.Origin,
                 AssemblyResolutionScope.Any);
 
             var completed = Assert.IsType<
@@ -186,6 +185,7 @@ public sealed partial class PackageHouseExecutionTests
                     IntrinsicCoreLibraryPlatformRouteAdapter.Adapt(
                         request,
                         generation,
+                        occurrence,
                         graph.FocalScope,
                         applicable));
 
@@ -196,7 +196,43 @@ public sealed partial class PackageHouseExecutionTests
                 completed.Route.Applicability);
             Assert.Same(
                 occurrence,
+                completed.Route.Context);
+            Assert.Same(
+                occurrence,
                 completed.Route.Applicability.Context);
+
+            var foreignRequest = new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromAssembly(
+                    ResolvedAssemblyReference.CreateFromPath(
+                        SystemTextJsonNetStandardPath,
+                        AssemblyResolutionProvenance.Local(
+                            "foreign intrinsic Platform route adapter test"))),
+                AssemblyResolutionScope.Any);
+            Assert.Throws<ArgumentException>(
+                "request",
+                () => IntrinsicCoreLibraryPlatformRouteAdapter.Adapt(
+                    foreignRequest,
+                    generation,
+                    occurrence,
+                    graph.FocalScope,
+                    applicable));
+
+            PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+                foreignOccurrence =
+                    graph.IntrinsicCoreLibraryContextNonParticipation.First(
+                        candidate =>
+                        !ReferenceEquals(candidate, occurrence)
+                        && candidate.Occurrence.Correspondence.Type
+                            == occurrence.Occurrence.Correspondence.Type);
+            Assert.Throws<ArgumentException>(
+                "decision",
+                () => IntrinsicCoreLibraryPlatformRouteAdapter.Adapt(
+                    request,
+                    generation,
+                    foreignOccurrence,
+                    graph.FocalScope,
+                    applicable));
         }
         finally
         {

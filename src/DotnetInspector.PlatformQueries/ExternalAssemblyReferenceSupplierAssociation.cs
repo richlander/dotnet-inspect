@@ -302,6 +302,14 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 "The Platform stage must retain the unchanged Metadata binding request.",
                 nameof(platform));
         }
+        if (!ReferenceEquals(
+                platform.Route.PackageRoutes,
+                package.Route))
+        {
+            throw new ArgumentException(
+                "The Package and Platform stages must retain the exact Package route receipt.",
+                nameof(platform));
+        }
 
         return platform switch
         {
