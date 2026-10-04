@@ -33,6 +33,17 @@ namespace ILInspector.Metadata.InterfaceImplFixtures
         string contracts::ILInspector.Metadata.InterfaceImplContracts
             .IConstructed<string>.Echo(string value) => value;
     }
+
+    public sealed class MultipleConstructedImplementation :
+        contracts::ILInspector.Metadata.InterfaceImplContracts.IConstructed<int>,
+        contracts::ILInspector.Metadata.InterfaceImplContracts.IConstructed<string>
+    {
+        int contracts::ILInspector.Metadata.InterfaceImplContracts
+            .IConstructed<int>.Echo(int value) => value;
+
+        string contracts::ILInspector.Metadata.InterfaceImplContracts
+            .IConstructed<string>.Echo(string value) => value;
+    }
 }
 
 namespace ILInspector.Metadata.InterfaceImplContracts.Collision
