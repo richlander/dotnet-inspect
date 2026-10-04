@@ -597,6 +597,16 @@ as the fast path. After that candidate misses, it uses complete selected-role
 filename inventory to nominate namesake files; boundary-aligned package-family
 prefix affinity ranks those fallback candidates.
 
+Before correlating one `AssemblyRef`, the Package owner issues a request-neutral
+route projection for one exact traversal root. Its eligibility receipt retains
+the exact ladder generation, focal-scope receipt, traversal, root occurrence,
+and prepared execution for every admitted resolved-candidate edge in
+root-relative order. Platform-delegated edges remain explicit in that receipt
+but are not Package candidates. A non-complete traversal or an admitted edge
+without exact candidate evidence produces typed incomplete projection evidence;
+missing, duplicate, foreign-root, or non-admitted executions are malformed
+correspondence and are rejected rather than interpreted as Package absence.
+
 Each `PackageDependencyAssemblyRoute` carries:
 
 - the exact referencing-origin association;

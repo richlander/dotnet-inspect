@@ -834,6 +834,7 @@ export interface BrowserWorkspaceShareView {
   readonly memberSignature: string | null;
   readonly section: string | null;
   readonly libraries: ReadonlyArray<string>;
+  readonly sourceView: string | null;
 }
 
 export interface BrowserVocabularyAvailableShare {

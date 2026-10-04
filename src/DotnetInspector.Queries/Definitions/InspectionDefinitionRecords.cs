@@ -708,7 +708,8 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         string? memberKey = null,
         string? section = null,
         string? library = null,
-        IReadOnlyList<string>? libraries = null)
+        IReadOnlyList<string>? libraries = null,
+        string? sourceView = null)
         : base(schemaVersion, id)
     {
         if (schemaVersion != InspectionDefinitionSchema.Version1)
@@ -725,6 +726,7 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         memberSignature = DefinitionText.NormalizeOptional(memberSignature, nameof(memberSignature));
         memberKey = DefinitionText.NormalizeOptional(memberKey, nameof(memberKey));
         section = DefinitionText.NormalizeOptional(section, nameof(section));
+        sourceView = DefinitionText.NormalizeOptional(sourceView, nameof(sourceView));
         library = DefinitionText.NormalizeOptional(library, nameof(library));
         if (library is not null && libraries is not null)
         {
@@ -754,6 +756,7 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         MemberSignature = memberSignature;
         MemberKey = memberKey;
         Section = section;
+        SourceView = sourceView;
         if (libraries is null)
         {
             Libraries = library is null
@@ -806,6 +809,8 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
     public string? MemberKey { get; }
 
     public string? Section { get; }
+
+    public string? SourceView { get; }
 
     /// <summary>
     /// Legacy single-library projection. Null when the view has zero or

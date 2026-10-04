@@ -6,8 +6,8 @@ using DotnetInspector.Queries;
 namespace DotnetInspector.PackageQueries;
 
 /// <summary>
-/// One admitted traversal edge occurrence selected for Workspace destination
-/// composition.
+/// One admitted root-relative traversal edge occurrence retained for
+/// destination or route composition.
 /// </summary>
 public sealed class PackageDependencyWorkspaceRouteSubject
 {

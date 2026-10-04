@@ -381,7 +381,7 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     input.Consumed));
         AssemblyBindingRequest request = BindingRequest(input.Request);
         PackageAssemblyReferenceSupplierAssociation package =
-            EmptyPackageAssociation(
+            await EmptyPackageAssociationAsync(
                 PackageDependencyTraversalRootCompletion.Complete);
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(
@@ -437,8 +437,15 @@ public sealed class PlatformAssemblyReferenceResolverTests
             bindingDemand: true);
         AssemblyBindingRequest request = BindingRequest(input.Request);
         PackageAssemblyReferenceSupplierAssociation package =
-            EmptyPackageAssociation(
+            await EmptyPackageAssociationAsync(
                 PackageDependencyTraversalRootCompletion.DepthBounded);
+        var routeProjection = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Incomplete>(
+                package.RouteProjection);
+        Assert.Equal(
+            PackageAssemblyReferenceRouteProjectionIncompleteReason
+                .TraversalIncomplete,
+            routeProjection.Reason);
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(
                 static _ => throw new InvalidOperationException(
@@ -1963,7 +1970,7 @@ public sealed class PlatformAssemblyReferenceResolverTests
             CancellationToken cancellationToken)
     {
         PackageAssemblyReferenceSupplierAssociation association =
-            EmptyPackageAssociation(
+                await EmptyPackageAssociationAsync(
                 PackageDependencyTraversalRootCompletion.Complete);
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(
@@ -1980,8 +1987,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     operation));
     }
 
-    static PackageAssemblyReferenceSupplierAssociation
-        EmptyPackageAssociation(
+    static async Task<PackageAssemblyReferenceSupplierAssociation>
+        EmptyPackageAssociationAsync(
             PackageDependencyTraversalRootCompletion completion)
     {
         var traversal = new PackageDependencyTraversalOutcome(
@@ -2021,11 +2028,39 @@ public sealed class PlatformAssemblyReferenceResolverTests
                             : 0,
                 SourceBoundedRoots: 0,
                 PartialRoots: 0));
+        ResolutionEnvironment resolution =
+            await ResolutionEnvironment.CreateAsync();
         return PackageAssemblyReferenceSupplierAssociation.Create(
                 new PackageAssemblyReferenceSupplierAssociationRequest(
+                    resolution.Generation,
+                    resolution.FocalScope,
                     traversal,
                     rootOccurrenceIndex: 0,
                     []));
+    }
+
+    sealed record ResolutionEnvironment(
+        AssemblyReferenceResolutionGenerationReceipt Generation,
+        MemberCallGraphFocalScopeReceipt FocalScope)
+    {
+        internal static async Task<ResolutionEnvironment> CreateAsync()
+        {
+            await using var workspace = new InspectionWorkspace();
+            var scope = Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync());
+            var registrations =
+                Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                    workspace.GetRegistrationSnapshot());
+            MemberCallGraphFocalScopeReceipt focalScope =
+                MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                    scope.Snapshot,
+                    registrations.Revision);
+            return new(
+                AssemblyReferenceResolutionGenerationReceipt.Capture(
+                    scope.Snapshot,
+                    focalScope),
+                focalScope);
+        }
     }
 
     sealed class UnusedPackageAuthorization :

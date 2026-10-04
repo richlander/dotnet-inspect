@@ -107,7 +107,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     }
 
     [Fact]
-    public async Task MemberSourceExport_ExplicitDecompilerHasNoAuthoredParts()
+    public async Task MemberSourceExport_ExplicitDecompilerHasAvailableParts()
     {
         await using Pair pair = await Pair.OpenAsync();
         MemberSelection selection =
@@ -134,7 +134,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             ?? throw new InvalidOperationException(
                 "The member source export returned no payload.");
         Assert.Equal("decompiled", source.Source.Provider);
-        Assert.Empty(source.Parts);
+        Assert.NotEmpty(source.Parts);
         Assert.Contains("public int Count", source.Source.Text);
     }
 
