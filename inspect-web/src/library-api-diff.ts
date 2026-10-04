@@ -85,6 +85,38 @@ export type LibraryApiDiffState =
       readonly error: string;
     };
 
+export interface LibraryApiDiffPresence {
+  readonly typeIdentifiers: ReadonlySet<string>;
+  readonly memberFingerprints: ReadonlySet<string>;
+}
+
+const emptyLibraryApiDiffPresence: LibraryApiDiffPresence = {
+  typeIdentifiers: new Set(),
+  memberFingerprints: new Set(),
+};
+
+export function libraryApiDiffPresence(
+  state: LibraryApiDiffState,
+): LibraryApiDiffPresence {
+  if (state.status !== "ready"
+    || state.result.kind !== "Succeeded"
+    || state.result.value === null) {
+    return emptyLibraryApiDiffPresence;
+  }
+
+  const typeIdentifiers = new Set<string>();
+  const memberFingerprints = new Set<string>();
+  for (const type of state.result.value.types) {
+    if (type.after !== null)
+      typeIdentifiers.add(type.after.identifier);
+    for (const member of type.members) {
+      if (member.after !== null)
+        memberFingerprints.add(member.after.fingerprint);
+    }
+  }
+  return { typeIdentifiers, memberFingerprints };
+}
+
 export interface LibraryApiDiffStateHost {
   libraryApiDiff: LibraryApiDiffState;
 }

@@ -10,6 +10,7 @@ using System.Text;
 using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -36,6 +37,7 @@ using BrowserAnalysisCompileLibraryStatus = DotnetInspect.Web.Interop.Analysis.B
 using BrowserPackageIntegrations = DotnetInspect.Web.Interop.Analysis.BrowserPackageIntegrations;
 using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPackageOpportunities;
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
+using BrowserLibraryDependencyStructure = DotnetInspect.Web.Interop.Analysis.BrowserLibraryDependencyStructure;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
@@ -1095,6 +1097,52 @@ public sealed partial class BrowserEngineBoundaryTests
                     assembly.PublicKeyToken,
                     item.SourceAssemblyPublicKeyToken);
             });
+    }
+
+    [Fact]
+    public async Task
+        PlatformLibraryDependencyStructure_UsesFocusedManagedOperation()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.98";
+        const string framework = "net11.0-dependency-structure";
+        string assemblyPath =
+            FixtureCatalog.ResearchDependencyStructure.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        byte[] nupkg = PlatformPackage(
+            (assemblyName, File.ReadAllBytes(assemblyPath)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        await using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                assemblyName,
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        BrowserLibraryDependencyStructure dependency =
+            Assert.IsType<BrowserLibraryDependencyStructure>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPlatformLibraryDependencyStructure(
+                            framework,
+                            assemblyName,
+                            "netcore.app"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibraryDependencyStructure));
+
+        Assert.Equal("available", dependency.Outcome);
+        Assert.NotEmpty(dependency.Namespaces);
+        Assert.NotEmpty(dependency.NamespaceEdges);
     }
 
     [Theory]
