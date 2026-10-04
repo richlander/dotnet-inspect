@@ -173,7 +173,8 @@ independence, and eventual release. This API does not change those semantics,
 so it does not claim a new model result. Runtime gates must continue to exercise
 the same properties through the typed handle.
 
-Implementation stages separately:
+The pattern rollout is three independently mergeable slices: this design, then
+the two implementation stages:
 
 1. [#9322](https://github.com/richlander/dotnet-inspect/issues/9322)
    adds the typed handle and direct gates while migrating the declared-Method
@@ -188,3 +189,15 @@ operation is the production-host witness for the first adoption. The hierarchy
 scorecard over pinned framework assemblies is the second, materially different
 witness. Each adoption preserves its own typed outcomes and exact NativeAOT
 terminal evidence.
+
+The first planned CLI and Browser/Wasm enablement follows the existing
+18-step [Subject Relations adoption
+plan](subject-relations-workflows.md#adoption-and-retirement). Its Metadata
+hierarchy adapters are step 9, shared section and Markout projection is step
+14, CLI adoption is step 16, and Inspect Web/Browser-Wasm adoption is step 17.
+When that request set justifies the prepared hierarchy capability, it consumes
+the same typed handle rather than introducing host-local lifetime coordination.
+The direct targeted hierarchy producer remains the cold reference and
+QuerySpace provision selection remains economics-driven. This pattern does not
+redefine Subject Relations composition, host gestures, rendering, or
+presentation.
