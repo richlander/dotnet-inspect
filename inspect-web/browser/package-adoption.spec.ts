@@ -3858,6 +3858,9 @@ test.describe("bounded network-backed Worker smoke", () => {
       { waitUntil: "domcontentloaded" },
     );
     await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("[data-package-child-library]").filter({
+      hasText: "System.Text.Json",
+    }).click();
     await page.locator("button").filter({
       hasText: /^20System\.Text\.Json$/,
     }).click();
