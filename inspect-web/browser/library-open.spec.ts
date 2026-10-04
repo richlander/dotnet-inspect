@@ -320,9 +320,18 @@ test("uploaded Library method family renders owner-backed receiver kinds", async
   await page.locator(
     `#type-list [data-type="${widget.id}"]`,
   ).click();
+  const methodLeverageStatus = page.locator(
+    '[data-method-leverage-status="unavailable"]',
+  );
+  await expect(methodLeverageStatus)
+    .toHaveText("Top Leverage is unavailable for uploaded Libraries.");
+  await expect(methodLeverageStatus.locator("[data-method-leverage-retry]"))
+    .toHaveCount(0);
   await page.locator("[data-member]", { hasText: "Run" }).click();
 
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
+  await expect(methodLeverageStatus)
+    .toHaveText("Top Leverage is unavailable for uploaded Libraries.");
   await expect(page.locator(".member-surface-list"))
     .toContainText("public static void Run(int value)");
   await expect(page.locator(".member-surface-list"))

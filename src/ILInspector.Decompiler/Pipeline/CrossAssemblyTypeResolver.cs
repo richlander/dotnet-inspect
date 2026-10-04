@@ -42,6 +42,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly ConcurrentDictionary<(FieldRef Field, TypeResolutionCoordinates Type), ResolvedFieldFacts?> _fieldFactCache = new();
     readonly ConcurrentDictionary<(MethodFactCacheIdentity Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
     readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface, AssemblyReferenceIdentity? InterfaceAssembly), MetadataFactState> _interfaceCache = new();
+    readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type), (MetadataFactState State, TypeRef? BaseType)> _baseTypeCache = new();
     readonly ConcurrentDictionary<(TypeResolutionCoordinates Type, string MethodName), MetadataFactState> _operatorHierarchyCache = new();
 
     readonly record struct EnumFactsResolution(EnumMetadataFacts? Facts);
@@ -351,6 +352,89 @@ internal sealed class CrossAssemblyTypeResolver
 
         _interfaceCache[key] = result;
         return result;
+    }
+
+    /// <summary>
+    /// Whether two references denote the same type definition once each is
+    /// resolved through the context, so a facade reference
+    /// (<c>[System.Xml.ReaderWriter]XmlReader</c>) and the implementing
+    /// module's own row (<c>[System.Private.Xml]XmlReader</c>) agree.
+    /// <see cref="MetadataFactState.Unknown"/> when either cannot be located.
+    /// </summary>
+    public MetadataFactState SameDefinition(TypeRef a, TypeRef b)
+    {
+        if (NamedDefinition(a) is not { } definitionA || NamedDefinition(b) is not { } definitionB)
+            return MetadataFactState.Unknown;
+        try
+        {
+            if (Locate(definitionA) is not { } resolvedA || Locate(definitionB) is not { } resolvedB)
+                return MetadataFactState.Unknown;
+            return resolvedA.Address.Equals(resolvedB.Address)
+                ? MetadataFactState.Yes
+                : MetadataFactState.No;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return MetadataFactState.Unknown;
+        }
+    }
+
+    /// <summary>
+    /// The base type of a referenced (cross-assembly) type, decoded through the
+    /// shared metadata context with a generic instance's arguments substituted.
+    /// <see cref="MetadataFactState.Yes"/> carries the base in
+    /// <paramref name="baseType"/>; <see cref="MetadataFactState.No"/> means the
+    /// definition resolved and declares no base (<c>System.Object</c> or an
+    /// interface); unreachable metadata or a same-assembly type returns
+    /// <see cref="MetadataFactState.Unknown"/> and never a guess. Serves the
+    /// merge-private <c>MetadataSource.ResolveBaseTypeForMerge</c>, which
+    /// continues a base chain past the first cross-assembly link; the shared
+    /// same-assembly <c>ResolveBaseType</c> never calls it.
+    /// </summary>
+    public MetadataFactState BaseType(TypeRef type, out TypeRef? baseType)
+    {
+        baseType = null;
+        if (NamedDefinition(type) is not { } definition
+            || string.IsNullOrEmpty(definition.Assembly)
+            || IsSelf(definition)
+            || !TryCoordinates(definition, out TypeResolutionCoordinates coordinates))
+        {
+            return MetadataFactState.Unknown;
+        }
+
+        var key = (type, coordinates);
+        if (_baseTypeCache.TryGetValue(key, out var cached))
+        {
+            baseType = cached.BaseType;
+            return cached.State;
+        }
+
+        var result = (State: MetadataFactState.Unknown, BaseType: (TypeRef?)null);
+        try
+        {
+            if (Locate(definition) is { } resolved
+                && _context.Open(resolved, out var handle) is { } assembly)
+            {
+                var reader = assembly.Reader;
+                var typeDef = reader.GetTypeDefinition(handle);
+                var typeArguments = type.Kind == TypeRefKind.GenericInstance ? type.TypeArguments : [];
+                var decoded = DecodeBaseType(reader, typeDef, typeArguments);
+                result = decoded is null
+                    ? (MetadataFactState.No, null)
+                    : (MetadataFactState.Yes, BindModuleDefinitions(
+                        decoded,
+                        TypeRefDecoder.CanonicalSelf(reader),
+                        resolved.Assembly.Assembly.Identity));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            result = (MetadataFactState.Unknown, null);
+        }
+
+        _baseTypeCache[key] = result;
+        baseType = result.BaseType;
+        return result.State;
     }
 
     /// <summary>
@@ -1452,6 +1536,32 @@ internal sealed class CrossAssemblyTypeResolver
             var iface = reader.GetInterfaceImplementation(implHandle).Interface;
             if (DecodeType(reader, iface, scope) is { } decoded)
                 yield return decoded.Instantiate(typeArguments, []);
+        }
+    }
+
+    /// <summary>
+    /// A definition decoded from another module's own TypeDef rows carries that
+    /// module's canonical assembly name but no resolution assembly, so the
+    /// referencing function would key it under a different definition identity
+    /// than its own TypeRef rows for the same type. Bind every such definition in
+    /// <paramref name="type"/> to the module's assembly identity; references the
+    /// module makes to third assemblies already carry theirs.
+    /// </summary>
+    static TypeRef BindModuleDefinitions(TypeRef type, string moduleCanonical, AssemblyReferenceIdentity module)
+    {
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                return type.Assembly == moduleCanonical ? type.WithResolutionAssembly(module) : type;
+            case TypeRefKind.GenericInstance when type.ElementType is { } definition:
+                return type.WithComponents(
+                    BindModuleDefinitions(definition, moduleCanonical, module),
+                    [.. type.TypeArguments.Select(argument => BindModuleDefinitions(argument, moduleCanonical, module))]);
+            case TypeRefKind.SzArray or TypeRefKind.Array or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned
+                when type.ElementType is { } element:
+                return type.WithComponents(BindModuleDefinitions(element, moduleCanonical, module));
+            default:
+                return type;
         }
     }
 

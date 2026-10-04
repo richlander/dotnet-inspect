@@ -210,8 +210,8 @@ public sealed class MethodClassificationQueryTests
         using var planReader = new PEReader(File.OpenRead(path));
         WorkDescription plan = Assert.IsType<ProducerPlanResult.Accepted>(ProducerPlanner.Plan(
         [
-            new ProducerRequest(PointerSignatureAnalyzer.Instance),
-            new ProducerRequest(PInvokeAnalyzer.Instance),
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance),
+            new ProducerRequest(PInvokeClassificationProducer.Instance),
         ])).Description;
         Assert.Equal((MethodDefinitionLayers)0, MethodDefinitionExecution.FieldsRead(plan) & MethodDefinitionLayers.IdentityText);
         Assert.False(MethodDefinitionExecution.Execute(plan, "fixture", planReader).Receipt.IdentityBudgetArmed);
@@ -460,8 +460,8 @@ public sealed class MethodClassificationQueryTests
         Assert.Same(aborted.Critical, aggregate.Critical);
         Assert.Equal(
             [
-                PInvokeAnalyzer.Instance.Identity,
-                AsyncAnalyzer.Instance.Identity,
+                PInvokeClassificationProducer.Instance.Identity,
+                AsyncClassificationProducer.Instance.Identity,
             ],
             aggregate.Producers.Select(
                 static participation =>
@@ -487,7 +487,7 @@ public sealed class MethodClassificationQueryTests
                 Assert.Single(result.Receipts);
             Assert.Equal(ClassificationClosing.Exists, execution.Closing);
             Assert.Equal(
-                [AsyncAnalyzer.Instance.Identity],
+                [AsyncClassificationProducer.Instance.Identity],
                 receipt.Producers.Select(static participation => participation.Producer));
         }
 

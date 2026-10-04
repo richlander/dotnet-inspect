@@ -303,6 +303,32 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: surface.activeFramework,
+        libraries: surface.assemblies.map(assembly => ({
+          assetId: assembly.id,
+          assetPath: assembly.asset,
+          assemblyName: assembly.name,
+          role: "Compile",
+        })),
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
     surface,
   };
 }
@@ -640,7 +666,11 @@ function harness() {
         capacity);
     },
     createPackageAcquisition,
-    inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
+    inspectPackageSummary: (
+      ...coordinate: Parameters<
+        PackageAcquisitionDependencies["queryPackageSummary"]
+      >
+    ) => {
       queries.push(coordinate);
       return controls.queryPackage(...coordinate);
     },
@@ -718,6 +748,7 @@ function harness() {
       state.packages.push(pkg);
       return pkg;
     },
+    loadDeepPackageSurface: async () => {},
     applyLoadedPackageLibraryScope: () => null,
     applyDeepLink: (deep: ParsedWorkspaceLocation) => {
       effects.push("deep-link");
@@ -2062,7 +2093,10 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
+    diff: { kind: "previous" },
+    diffContent: { kind: "api" },
+    clone: { kind: "workspace" },
+    mode: "diff",
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });

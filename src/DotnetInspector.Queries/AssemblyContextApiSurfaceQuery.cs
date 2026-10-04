@@ -358,7 +358,7 @@ public static class AssemblyContextApiSurfaceQuery
                     snapshot);
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(snapshot);
-                ApiSurface surface = session.ApiSurface(
+                ApiSurface surface = session.CompatibilityApiSurface(
                     participant.Assembly,
                     catalog,
                     participant.BindingPolicy,
@@ -489,7 +489,7 @@ public static class AssemblyContextApiSurfaceQuery
                             using var catalog = new TypeResolutionCatalog();
                             catalog.RegisterRetainedSnapshot(participant.Assembly, snapshot);
                             using AssemblyInspectionSession session = AssemblyInspectionSession.Open(snapshot);
-                            return session.BoundedApiSurface(
+                            return session.BoundedCompatibilityApiSurface(
                                 participant.Assembly, catalog, participant.BindingPolicy,
                                 ExtractionScope(scope), bounds);
                         })
@@ -600,7 +600,8 @@ public static class AssemblyContextApiSurfaceQuery
         AssemblyInspectionSession session,
         ApiSurfaceScope scope)
     {
-        ApiSurface surface = session.ApiSurface(ExtractionScope(scope));
+        ApiSurface surface =
+            session.CompatibilityApiSurface(ExtractionScope(scope));
         return new AssemblyApiSurface(surface, [.. surface.InspectionFailures]);
     }
 
@@ -609,7 +610,9 @@ public static class AssemblyContextApiSurfaceQuery
         AssemblyInspectionSession session,
         ApiSurfaceScope scope,
         ApiSurfaceExtractionBounds bounds)
-        => session.BoundedApiSurface(ExtractionScope(scope), bounds);
+        => session.BoundedCompatibilityApiSurface(
+            ExtractionScope(scope),
+            bounds);
 
     /// <summary>
     /// Carries a participant outcome that produced no surface across to the projected result's

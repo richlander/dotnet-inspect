@@ -14,6 +14,8 @@ using Inspector.Text;
 using ILInspector.Research.Tests.TypeFixtures;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research.Tests;
 
 public class ResearchDiffTests
@@ -72,6 +74,39 @@ public class ResearchDiffTests
             AnalysisFindings.CallSiteDescriptor));
         Assert.Throws<InvalidOperationException>(() =>
             retained.Get<DirectCall>(AnalysisFindings.AllocationDescriptor));
+    }
+
+    [Fact]
+    public void FindingRetention_IndexesOnlyFailedComparisons()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var findingSubject = new FindingSubject(subject.Id, subject.Display);
+        var failed = new RetainedFindingComparison<AllocationOccurrence>(
+            subject,
+            AnalysisFindings.AllocationDescriptor,
+            FindingComparison.Compare<AllocationOccurrence>(
+                new FindingInspection<AllocationOccurrence>.Failed(
+                    new InspectionError(
+                        findingSubject,
+                        AnalysisFindings.AllocationDescriptor,
+                        "allocation inspection failed")),
+                new FindingInspection<AllocationOccurrence>.Complete([])));
+        var retained = new RetainedFindingComparisonSet(
+        [
+            failed,
+            new RetainedFindingComparison<UnsafetyOccurrence>(
+                subject,
+                AnalysisFindings.UnsafetyDescriptor,
+                AnalysisFindings.CompareUnsafety([], [], findingSubject)),
+        ]);
+
+        Assert.Same(failed, Assert.Single(retained.Failures));
+        Assert.Equal(
+            "old: allocation inspection failed",
+            failed.Failure);
     }
 
     [Fact]

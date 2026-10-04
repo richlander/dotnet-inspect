@@ -318,7 +318,7 @@ internal sealed record BrowserRetainedWorkspacePosting(
     InspectionWorkspaceIdentity Realization,
     string RealizationId,
     long PublicationOrdinal,
-    CommittedScenarioDefinitionSet Definition,
+    CommittedScenarioDefinitionSet? Definition,
     NavigationConsumerResult Navigation,
     ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages,
     ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms,
@@ -439,7 +439,7 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
     string CanonicalLocation,
     CompleteRestorationRequestBasis RestorationRequest,
     CompleteRestorationProjection Projection,
-    CommittedScenarioDefinitionSet Definition,
+    CommittedScenarioDefinitionSet? Definition,
     NavigationOperationInitialization Navigation,
     ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages,
     ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms,
@@ -468,6 +468,11 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                 (CompleteRestorationRequestBasis.DefinitionInput expected,
                     CompleteRestorationRequestBasis.DefinitionInput actual) =>
                     ReferenceEquals(expected, actual),
+                (CompleteRestorationRequestBasis
+                        .RegistrationOnlyEcosystemInput expected,
+                    CompleteRestorationRequestBasis
+                        .RegistrationOnlyEcosystemInput actual) =>
+                    ReferenceEquals(expected, actual),
                 _ => false,
             };
         if (!exactRequest)
@@ -482,7 +487,7 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                     + "effect authority.");
         }
 
-        CommittedScenarioDefinitionSet definition =
+        CommittedScenarioDefinitionSet? definition =
             workspace.Snapshot.Resolved switch
             {
                 CompleteRestorationResolvedState.Version2 version2 =>
@@ -493,6 +498,8 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                     version4.Definitions,
                 CompleteRestorationResolvedState.Version5 version5 =>
                     version5.Definitions,
+                CompleteRestorationResolvedState.RegistrationOnlyEcosystem =>
+                    null,
                 _ => throw new InvalidOperationException(
                     "Unknown complete restoration resolved state."),
             };
@@ -1800,6 +1807,13 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                         definition,
                         intent,
                         cancellationToken),
+                CompleteRestorationRequestBasis
+                        .RegistrationOnlyEcosystemInput ecosystem =>
+                    CompleteRestorationPreparation
+                        .FromRegistrationOnlyEcosystem(
+                            ecosystem,
+                            intent,
+                            cancellationToken),
                 _ => throw new InvalidOperationException(
                     "Unknown retained Workspace restoration source."),
             };

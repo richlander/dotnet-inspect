@@ -39,6 +39,7 @@ import {
   type OperationSession,
 } from "../src/operation-authority.ts";
 import {
+  createEcosystemQueryRequest,
   createQueryRequest,
   withTerm,
   type QueryTermDescriptor,
@@ -1086,6 +1087,46 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   harness.host.dispose();
 });
 
+test("Package Query Worker routes Ecosystem input to the existing operation", async () => {
+  const terminal = deferred<BrowserPackageQueryResult>();
+  const runs: unknown[][] = [];
+  const facade: EngineWorkerPackageQueryFacade = {
+    cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
+    requestPackageQueryMatches: () => ({
+      kind: "NotActive",
+      additionalMatchCredit: null,
+    }),
+    runPackageQuery: () => {
+      throw new Error("Generic Package Query should not run.");
+    },
+    runEcosystemPackageQuery: (...args) => {
+      runs.push(args);
+      return terminal.promise;
+    },
+  };
+  const harness = createHarness(facade);
+  await startReady(harness);
+
+  const { handle } = startQuery(
+    harness.adapter,
+    createEcosystemQueryRequest("ecosystem.aspire"));
+  await harness.environment.flushAsync();
+  assert.deepEqual(runs[0]?.slice(0, 6), [
+    "package-query-operation",
+    "ecosystem.aspire",
+    200,
+    96,
+    false,
+    24,
+  ]);
+
+  terminal.resolve(inspected([completionEvent]));
+  await harness.environment.flushAsync();
+  assert.equal((await handle.outcome).kind, "succeeded");
+  harness.host.dispose();
+  await handle.quiesced;
+});
+
 test("Package Query Worker routes whitespace-only library literals as ordinary terms", async () => {
   const runs: unknown[][] = [];
   const assemblyProgress: EngineWorkerPackageQueryDurableEvent = {
@@ -1480,6 +1521,14 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
   assert.equal(engineWorkerPackageQueryInput.decode({
     ...queryInput,
     terms,
+  }).kind, "decoded");
+  assert.equal(engineWorkerPackageQueryInput.decode({
+    kind: "ecosystem",
+    ecosystemId: "ecosystem.aspire",
+    maximumCandidates: 200,
+    maximumMatches: 96,
+    includePrerelease: false,
+    initialMatchCredit: 24,
   }).kind, "decoded");
   assert.equal(engineWorkerPackageQueryInput.decode({
     ...queryInput,

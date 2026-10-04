@@ -207,7 +207,8 @@ public static class AssemblyContextImplementationProfileFamilyQuery
         ImplementationProfileFamilySelection selection)
     {
         ApiSurface surface =
-            session.ApiSurface(ApiSurfaceExtractionScope.Public);
+            session.CompatibilityApiSurface(
+                ApiSurfaceExtractionScope.Public);
         ApiType[] matchingTypes =
         [
             .. surface.Types.Where(type =>

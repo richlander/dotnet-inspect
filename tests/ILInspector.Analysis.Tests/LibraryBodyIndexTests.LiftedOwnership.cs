@@ -1133,7 +1133,7 @@ public partial class LibraryBodyIndexTests
                 candidate => candidate.Caller == source
                     && candidate.StateMachineFieldSource
                         is not null);
-            AssertCompilerPositiveSuppressedByCensus(index.CompatibilityIndex());
+            AssertCompilerPositiveSuppressedByCensus(index);
         }
         finally
         {
@@ -1330,7 +1330,7 @@ public partial class LibraryBodyIndexTests
                 index.JsonWireContracts.ResultSinks,
                 sink => sink.Caller == source
                     && sink.StateMachineFieldSource is not null);
-            AssertCompilerPositiveSuppressedByCensus(index.CompatibilityIndex());
+            AssertCompilerPositiveSuppressedByCensus(index);
         }
         finally
         {

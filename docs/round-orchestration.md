@@ -103,7 +103,9 @@ unusable review does not spend a round and may be retried on the unchanged head.
 | Failed-gate restart | Required fix pushed, one status attempt, applicable CI rule below, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-A non-Markdown candidate requires green current-head `ci-required` before
+An observed conflict does not make a round wait: it enters conflict recovery
+immediately, and the pushed resolution head satisfies the conflict-recovery
+row. A non-Markdown candidate requires green current-head `ci-required` before
 reviewer dispatch unless the user authorized parallel review or conflict
 recovery applies. A Markdown-only candidate (every changed file is `*.md`)
 substitutes pre-commit `markdownlint` at non-boundary rounds. Only these
@@ -179,7 +181,10 @@ ruleset. Keep GitHub auto-merge unarmed while gates are pending. After a green
 preflight, exercise a recorded authorization through a direct merge using the
 [exact-head precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
 If an auto-merge request exists, disable it before any recovery mutation or
-head-moving push.
+head-moving push; when the API cannot be read, the conflict-recovery push
+still proceeds (a conflict is never a waiting state) and names the request
+known from the last successful read, as [Probe the live base locally,
+first](github-status-queries.md#probe-the-live-base-locally-first) states.
 
 For stacks, every open layer must meet its applicable eligibility row above. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -194,10 +199,17 @@ snapshot runs and how its result changes round state.
 
 ### Obtain one snapshot
 
-Follow [GitHub status queries](github-status-queries.md) for API selection,
-request ordering, live-base conflict probing, fixed-head checks, and response
-classification. This document does not restate those mechanics. It consumes
-one classified snapshot and applies the round transition below.
+Every snapshot begins with the local live-base conflict probe and only then
+reads GitHub; a rate-limited or stale API never skips the probe. A local
+conflict is decisive and GitHub's `mergeable` of `null` or `true` never clears
+it, while a GitHub-reported conflict still counts as one; the table below
+still ranks the PR read's lifecycle and head/base outcomes above conflict
+recovery. Follow
+[GitHub status queries](github-status-queries.md#probe-the-live-base-locally-first)
+for the probe and the rest of that document for API selection, request
+ordering, fixed-head checks, and response classification. This document does
+not restate those mechanics. It consumes one classified snapshot and applies
+the round transition below.
 
 ### Apply the result
 
@@ -217,13 +229,13 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
-| GitHub reports a conflict, or the local live-base test merge conflicts | Leave the status wait; apply conflict recovery before considering CI. |
+| The local live-base test merge conflicts, or GitHub reports a conflict | Leave the status wait at once; apply conflict recovery before considering CI, never after a budget. A local conflict is decisive and a GitHub `mergeable` of `null` or `true` does not clear it; the rows above still outrank it. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
 | Green `ci-required` and positive mergeability at the expected head | Leave the status wait and continue when no other predicate remains. |
 | CI or mergeability is pending or missing | Preserve the unresolved status members and apply the round cadence below. |
-| Rate-limited or transient query failure | Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. |
+| Rate-limited or transient query failure (including a transient probe fetch failure) | Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. A recorded local conflict never lands here: it takes the conflict row above even when the PR read fails. |
 | Terminal query failure | Leave the status wait with `rec=stop`, surface the failure, and end. |
 
 Read the table top-down. Conflict recovery outranks CI, terminal non-green
@@ -236,12 +248,17 @@ values.
 
 *This section defines repository policy, not GitHub timing guarantees.*
 
-Every round attempts one current-head snapshot. When CI is a reviewer-dispatch
-prerequisite, pending, missing, rate-limited, or transient status enters the
-60-minute budget below; expiry publishes the status report and stops without
-dispatch. When CI may remain pending, record that status and continue the
-current review path. A known conflict, required CI completed without success,
-or terminal query failure still takes its transition.
+Every round attempts one current-head snapshot, starting with the local
+conflict probe. When CI is a reviewer-dispatch prerequisite, pending, missing,
+rate-limited, or transient status enters the 60-minute budget below; expiry
+publishes the status report (or, for a probe failure, the classified failure
+described at the end of this section) and stops without dispatch. When CI may remain pending, record that status and continue the
+current review path. A known conflict leaves the wait immediately for
+conflict recovery — a conflict is never a waiting state, `waiting` never
+carries a conflict predicate, and an unreadable API does not hold it (see
+[GitHub status queries](github-status-queries.md#probe-the-live-base-locally-first)).
+Required CI completed without success or a terminal query failure still takes
+its transition.
 
 A reviewer-dispatch CI prerequisite spends up to a 60-minute status budget
 before dispatch. Every third round, and any merge or readiness goal, may use the
@@ -267,10 +284,13 @@ choose a conservative delay and never schedule beyond the deadline. Do not use
 `gh run watch`, `gh pr checks --watch`, fixed-rate schedules, synchronous
 sleeps, or concurrent status requests.
 
-When the budget expires with status unresolved, obtain a final snapshot. Do not
-publish the report below unless its fetched live base equals
-`conflict-checked-base`; classify and surface a fetch or probe failure instead.
-Then clear `schedule`, keep the unresolved predicates, publish the report, set
+When the budget expires with status unresolved, obtain a final snapshot. If
+its probe records a conflict, leave the wait for conflict recovery at once and
+publish no report: a recorded local conflict never reaches expiry, including
+when the final snapshot is the one that finds it. If its fetched live base
+differs from `conflict-checked-base` (a fetch or probe failure), clear
+`schedule`, classify and surface the failure, and set `rec=stop`. Otherwise
+clear `schedule`, keep the unresolved predicates, publish the report, set
 `rec=stop`, and end. This is an informational stop: it ends observation only
 and neither closes nor abandons the PR.
 
@@ -467,7 +487,9 @@ response in the terminal, filling every field and choosing exactly one feedback
 classification. Do not emit it through a shell command such as `printf`, leave
 it only in tool output, collapse it behind a tool-call summary, or replace it
 with a shorter completion summary. Do not put it in an interactive approval
-prompt:
+prompt. Emit it once at that boundary; after merge, do not replay it or collect
+earlier reports into the forward-looking
+[theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff):
 
 ```text
 Round <n> is complete for PR <number>.
@@ -611,9 +633,13 @@ the path applies.
      already-merged result as terminal. Then remove `review-clean`, integrate
      the tip, re-run the claimed validation, push, obtain current-head CI, and
      re-dispatch the required reviewers at the new head as a normal round.
-   - *Conflict requiring semantic resolution:* expire merge authorization,
-     disable any armed auto-merge first, and handle an already-merged result as
-     terminal. Then remove `review-clean` and resolve it as an author change under
+   - *Conflict requiring semantic resolution:* expire merge authorization;
+     when the API can be read, disable any armed auto-merge first and handle
+     an already-merged result as terminal, and when it cannot, the recovery
+     push still proceeds and names the request known from the last successful
+     read ([Probe the live base locally,
+     first](github-status-queries.md#probe-the-live-base-locally-first)).
+     Then remove `review-clean` and resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 

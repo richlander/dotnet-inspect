@@ -210,7 +210,7 @@ public sealed class SlotMaterializationPass : IIrPass
             if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
             {
                 bool supportedStorage = candidate.Stores.All(store =>
-                        HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes))
+                        HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes, function.ProvenReferenceWidenings))
                     && (slotType.Kind == TypeRefKind.Definition
                         && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                             || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
@@ -227,7 +227,7 @@ public sealed class SlotMaterializationPass : IIrPass
                     candidate.Vetoes |= SlotMaterializationVeto.PendingStorageSwap;
             }
             if (candidate.Stores.Any(store =>
-                    !HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes)
+                    !HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes, function.ProvenReferenceWidenings)
                     && !CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
                 candidate.Vetoes |= SlotMaterializationVeto.UnrenderableStoreType;
@@ -270,9 +270,10 @@ public sealed class SlotMaterializationPass : IIrPass
         static bool HasSupportedStorageAssignment(
             IrExpression value,
             TypeRef target,
-            IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+            IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+            IReadOnlySet<ReferenceWidening>? provenWidenings = null)
             => CoercionDomain.IsAtTarget(value, target)
-                || ReferenceAssignmentTargets.CanAssignStorageTo(value, target, shapes);
+                || ReferenceAssignmentTargets.CanAssignStorageTo(value, target, shapes, provenWidenings);
 
         static TypeRef? UnanimousManagedReferenceStoreType(
             IReadOnlyList<StoreStackSlot> stores)

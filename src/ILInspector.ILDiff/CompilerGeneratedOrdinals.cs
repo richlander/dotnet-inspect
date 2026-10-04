@@ -5,7 +5,9 @@ using System.Runtime.CompilerServices;
 
 using ILInspector.Metadata;
 
-namespace ILInspector.Instructions;
+using ILInspector.Instructions;
+
+namespace ILInspector.ILDiff;
 
 /// <summary>
 /// A two-sided correspondence over Roslyn compiler-generated members whose mangled

@@ -185,11 +185,19 @@ public abstract class IntrinsicCoreLibraryRouteDecision
         IntrinsicCoreLibraryRouteDecision
     {
         internal OutsideOperationScope(
+            PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+                context,
             MemberCallGraphFocalScopeReceipt focalScope)
         {
+            ArgumentNullException.ThrowIfNull(context);
             ArgumentNullException.ThrowIfNull(focalScope);
+            Context = context;
             FocalScope = focalScope;
         }
+
+        public PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+            Context
+        { get; }
 
         public MemberCallGraphFocalScopeReceipt FocalScope { get; }
     }
@@ -339,11 +347,19 @@ public abstract class IntrinsicCoreLibraryPlatformApplicabilityPlanResult
         IntrinsicCoreLibraryPlatformApplicabilityPlanResult
     {
         internal OutsideOperationScope(
+            PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+                context,
             MemberCallGraphFocalScopeReceipt focalScope)
         {
+            ArgumentNullException.ThrowIfNull(context);
             ArgumentNullException.ThrowIfNull(focalScope);
+            Context = context;
             FocalScope = focalScope;
         }
+
+        public PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+            Context
+        { get; }
 
         public MemberCallGraphFocalScopeReceipt FocalScope { get; }
     }
@@ -402,7 +418,9 @@ public static class IntrinsicCoreLibraryPlatformApplicabilityQuery
             IntrinsicCoreLibraryPlatformApplicabilityPlanResult
                 .OutsideOperationScope outside =>
                 new IntrinsicCoreLibraryRouteDecision
-                    .OutsideOperationScope(outside.FocalScope),
+                    .OutsideOperationScope(
+                        outside.Context,
+                        outside.FocalScope),
             IntrinsicCoreLibraryPlatformApplicabilityPlanResult.Rejected
                 rejected =>
                 new IntrinsicCoreLibraryRouteDecision.Rejected(
@@ -457,7 +475,7 @@ public static class IntrinsicCoreLibraryPlatformApplicabilityQuery
         if (populations.IsEmpty)
         {
             return new IntrinsicCoreLibraryPlatformApplicabilityPlanResult
-                .OutsideOperationScope(focalScope);
+                .OutsideOperationScope(context, focalScope);
         }
 
         return new IntrinsicCoreLibraryPlatformApplicabilityPlanResult.Eligible(

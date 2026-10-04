@@ -523,6 +523,10 @@ public class FindCommand
                 CommandError.Write(failure);
                 failures = true;
             }
+            finally
+            {
+                tsv?.Flush();
+            }
         }
         if (completion == FindSearchCompletion.Exhausted
             && (failures || incomplete))

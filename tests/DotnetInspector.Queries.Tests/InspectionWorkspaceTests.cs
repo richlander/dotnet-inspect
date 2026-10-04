@@ -721,6 +721,221 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task ParticipantResourceRelease_WaitsForFinalLease()
+    {
+        TestAssembly source = TestAssembly.Create();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var resource =
+            new ParticipantReleaseTrackingResource(group);
+        var idleResource =
+            new ParticipantReleaseTrackingResource(group);
+        group.RegisterOwnedResource(resource);
+        group.RegisterOwnedResource(idleResource);
+        AssemblyAcquisitionRegistration registration =
+            source.Assembly.Registration;
+        AssemblyContextGroup.AssemblyContextGroupResourceBorrow first =
+            group.BorrowOwnedResource(resource, registration);
+        AssemblyContextGroup.AssemblyContextGroupResourceBorrow second =
+            group.BorrowOwnedResource(resource, registration);
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                source.Assembly,
+                static (_, _) => Task.FromResult(1));
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.Equal(0, resource.ParticipantReleaseCount);
+        Assert.Equal(1, idleResource.ParticipantReleaseCount);
+        Assert.True(idleResource.SawRetainedImageDuringRelease);
+        Assert.True(group.RetainedImageBytes > 0);
+        Assert.Throws<ObjectDisposedException>(
+            () => group.BorrowOwnedResource(
+                resource,
+                registration));
+
+        first.Dispose();
+
+        Assert.Equal(0, resource.ParticipantReleaseCount);
+        Assert.True(group.RetainedImageBytes > 0);
+
+        second.Dispose();
+
+        Assert.Equal(1, resource.ParticipantReleaseCount);
+        Assert.True(resource.SawRetainedImageDuringRelease);
+        Assert.Equal(1, idleResource.ParticipantReleaseCount);
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
+    public async Task ParticipantResourceLease_RetainsSnapshotAccessAfterReleaseRequest()
+    {
+        TestAssembly source = TestAssembly.Create();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var resource =
+            new ParticipantReleaseTrackingResource(group);
+        group.RegisterOwnedResource(resource);
+        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow =
+            group.BorrowOwnedResource(
+                resource,
+                source.Assembly.Registration);
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                source.Assembly,
+                static (_, _) => Task.FromResult(1));
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.Throws<ObjectDisposedException>(
+            () => group.BorrowOwnedResource(
+                resource,
+                source.Assembly.Registration));
+        var borrowedAccess = Assert.IsType<
+            AssemblyImageAccessResult<int>.Available>(
+                borrow.UseSnapshot(
+                    TestContext.Current.CancellationToken,
+                    0,
+                    static (snapshot, _) => snapshot.Content.Length));
+        Assert.True(borrowedAccess.Value > 0);
+        Assert.Equal(0, resource.ParticipantReleaseCount);
+        Assert.True(group.RetainedImageBytes > 0);
+
+        borrow.Dispose();
+
+        Assert.Equal(1, resource.ParticipantReleaseCount);
+        Assert.Equal(0, group.RetainedImageBytes);
+        Assert.Throws<ObjectDisposedException>(
+            () => borrow.UseSnapshot(
+                TestContext.Current.CancellationToken,
+                0,
+                static (snapshot, _) => snapshot.Content.Length));
+    }
+
+    [Fact]
+    public async Task ParticipantResourceLease_RequiresExactRegisteredPair()
+    {
+        TestAssembly source = TestAssembly.Create();
+        TestAssembly outsider = TestAssembly.Create();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var registered =
+            new ParticipantReleaseTrackingResource(group);
+        var unregistered =
+            new ParticipantReleaseTrackingResource(group);
+        group.RegisterOwnedResource(registered);
+
+        Assert.Throws<ArgumentException>(
+            () => group.BorrowOwnedResource(
+                registered,
+                outsider.Assembly.Registration));
+        Assert.Throws<ArgumentException>(
+            () => group.BorrowOwnedResource(
+                unregistered,
+                source.Assembly.Registration));
+    }
+
+    [Fact]
+    public async Task ParticipantResourceCleanup_DoesNotHoldGroupLifetimeGate()
+    {
+        TestAssembly first = TestAssembly.Create();
+        TestAssembly second = TestAssembly.Create();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [first.Participant, second.Participant]);
+        using var releaseEntered = new ManualResetEventSlim();
+        using var releaseResume = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var resource = new BlockingParticipantReleaseResource(
+            first.Assembly.Registration,
+            releaseEntered,
+            releaseResume,
+            cancellationToken);
+        group.RegisterOwnedResource(resource);
+        Task<AssemblyImageAccessResult<int>> release =
+            StartConcurrent(
+                () => group.UseAndReleaseAssemblySessionAsync(
+                        first.Assembly,
+                        static (_, _) => Task.FromResult(1))
+                    .GetAwaiter()
+                    .GetResult());
+        Assert.True(
+            releaseEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+
+        Task<AssemblyContextGroup.AssemblyContextGroupResourceBorrow>
+            siblingBorrow =
+                StartConcurrent(
+                    () => group.BorrowOwnedResource(
+                        resource,
+                        second.Assembly.Registration));
+        try
+        {
+            using AssemblyContextGroup.AssemblyContextGroupResourceBorrow
+                borrow =
+                    await siblingBorrow.WaitAsync(
+                        TimeSpan.FromSeconds(10),
+                        cancellationToken);
+        }
+        finally
+        {
+            releaseResume.Set();
+        }
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(
+            await release);
+    }
+
+    [Fact]
+    public async Task ParticipantResourceCleanupFailure_IsRetainedForGroupClose()
+    {
+        TestAssembly source = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var resource = new ThrowingParticipantReleaseResource();
+        group.RegisterOwnedResource(resource);
+
+        AggregateException operationFailure =
+            await Assert.ThrowsAsync<AggregateException>(
+                () => group.UseAndReleaseAssemblySessionAsync(
+                    source.Assembly,
+                    static (_, _) => Task.FromResult(1)));
+
+        Assert.Same(
+            resource.Failure,
+            Assert.Single(
+                operationFailure.Flatten().InnerExceptions));
+        Assert.Equal(1, resource.ParticipantReleaseCount);
+        Assert.True(group.RetainedImageBytes > 0);
+
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync();
+        Exception? closeFailure =
+            Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+                Assert.Single(report.Groups))
+                .Failure;
+        IReadOnlyCollection<Exception> closeFailures =
+            Assert.IsType<AggregateException>(closeFailure)
+                .Flatten()
+                .InnerExceptions;
+
+        Assert.Same(resource.Failure, Assert.Single(closeFailures));
+        Assert.Equal(1, resource.DisposeCount);
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
     public async Task WorkspaceClose_RejectsAdmissionAndRoutesLateGroupToRelease()
     {
         TestAssembly source = TestAssembly.Create();
@@ -2081,6 +2296,88 @@ public sealed class InspectionWorkspaceTests
         {
             Assert.True(group.RetainedImageBytes > 0);
             IsDisposed = true;
+        }
+    }
+
+    sealed class ParticipantReleaseTrackingResource(
+        AssemblyContextGroup group)
+        : IAssemblyContextParticipantOwnedResource
+    {
+        int _participantReleaseCount;
+
+        internal int ParticipantReleaseCount =>
+            Volatile.Read(ref _participantReleaseCount);
+
+        internal bool SawRetainedImageDuringRelease { get; private set; }
+
+        public void ReleaseParticipant(
+            AssemblyAcquisitionRegistration registration)
+        {
+            Assert.NotNull(registration);
+            SawRetainedImageDuringRelease =
+                group.RetainedImageBytes > 0;
+            Interlocked.Increment(
+                ref _participantReleaseCount);
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    sealed class BlockingParticipantReleaseResource(
+        AssemblyAcquisitionRegistration blockedRegistration,
+        ManualResetEventSlim entered,
+        ManualResetEventSlim resume,
+        CancellationToken cancellationToken)
+        : IAssemblyContextParticipantOwnedResource
+    {
+        public void ReleaseParticipant(
+            AssemblyAcquisitionRegistration registration)
+        {
+            if (!ReferenceEquals(
+                    registration,
+                    blockedRegistration))
+            {
+                return;
+            }
+
+            entered.Set();
+            resume.Wait(cancellationToken);
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    sealed class ThrowingParticipantReleaseResource
+        : IAssemblyContextParticipantOwnedResource
+    {
+        int _disposeCount;
+        int _participantReleaseCount;
+
+        internal InvalidOperationException Failure { get; } =
+            new("Synthetic participant-resource cleanup failure.");
+
+        internal int DisposeCount =>
+            Volatile.Read(ref _disposeCount);
+
+        internal int ParticipantReleaseCount =>
+            Volatile.Read(ref _participantReleaseCount);
+
+        public void ReleaseParticipant(
+            AssemblyAcquisitionRegistration registration)
+        {
+            Assert.NotNull(registration);
+            Interlocked.Increment(
+                ref _participantReleaseCount);
+            throw Failure;
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Increment(ref _disposeCount);
         }
     }
 }

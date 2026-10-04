@@ -21,6 +21,398 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
+    public async Task Member_CommandExplanation_IsAcquisitionFree()
+    {
+        var (exit, output, error) =
+            await RunAppAsync("member", "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# Explain member", output);
+        Assert.Contains("Context: Member command", output);
+        Assert.Contains("Selected Content:", output);
+        Assert.DoesNotContain("Related Operations", output);
+    }
+
+    [Fact]
+    public async Task Member_ExactExplanation_UsesResolvedSubject()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context: Exact Member", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+        Assert.Contains("Default View: member.overview", output);
+        Assert.Contains("Selected Content: Signature", output);
+        Assert.Contains("member.inspect", output);
+        Assert.Contains("type.hierarchy", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_BareExplanation_PreservesStdoutAndUsesStderr(
+        bool selectOverload)
+    {
+        string[] arguments =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            selectOverload
+                ? $"{nameof(MemberCallGraphFixture.RootCall)}:1"
+                : nameof(MemberCallGraphFixture.RootCall),
+        ];
+
+        var ordinary = await RunAppAsync(arguments);
+        var explained = await RunAppAsync([.. arguments, "-E"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, explained.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(ordinary.Output, explained.Output);
+        Assert.Contains(
+            selectOverload
+                ? "Context: Exact Member"
+                : "Context: MemberGroup",
+            explained.Error);
+        Assert.Contains(
+            selectOverload
+                ? "Selected Content: Signature"
+                : "Selected Content: Methods",
+            explained.Error);
+        if (!selectOverload)
+        {
+            Assert.DoesNotContain(
+                $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+                explained.Error);
+        }
+        Assert.DoesNotContain("Tips:", explained.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_OverloadedBareNameExplainsOneMemberGroup(
+        bool selectMethodKind)
+    {
+        string[] arguments =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize",
+            .. selectMethodKind ? new[] { "--kind", "method" } : [],
+            "--explain",
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# Explain System.Text.Json.JsonSerializer.Serialize",
+            output);
+        Assert.Contains("Context: MemberGroup", output);
+        Assert.Contains("Subject: Method / Declared", output);
+        Assert.Contains("Default View: member.overview", output);
+        Assert.Contains("Selected Content: Methods", output);
+        Assert.DoesNotContain("Serialize:1", output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+    }
+
+    [Fact]
+    public async Task Member_SingletonMethodKindExplainsOneMemberGroup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--kind",
+            "method",
+            "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context: MemberGroup", output);
+        Assert.Contains("Selected Content: Methods", output);
+        Assert.DoesNotContain(
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+    }
+
+    [Fact]
+    public async Task Member_OverloadedGroupCompanionsPreserveTreeAndProjection()
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize",
+        ];
+
+        var ordinary = await RunAppAsync(subject);
+        var explanation = await RunAppAsync([.. subject, "-E"]);
+        var primaryTips =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companionTips =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, explanation.Exit);
+        Assert.Equal(0, primaryTips.Exit);
+        Assert.Equal(0, companionTips.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(ordinary.Output, explanation.Output);
+        Assert.Equal(ordinary.Output, companionTips.Output);
+        Assert.Contains("Context: MemberGroup", explanation.Error);
+        Assert.DoesNotContain("Serialize:1", explanation.Error);
+        Assert.Equal(
+            primaryTips.Output.Trim(),
+            companionTips.Error.Trim());
+    }
+
+    [Theory]
+    [InlineData("Serialize:7", "System.IO.Stream")]
+    [InlineData("Serialize~1dc14dd1fb", "Serialize~1dc14dd1fb")]
+    public async Task Member_ExactSelectorsRemainExactExplanationSubjects(
+        string selector,
+        string expectedSelector)
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            selector,
+        ];
+        var ordinary = await RunAppAsync(subject);
+        var primary = await RunAppAsync([.. subject, "--explain"]);
+        var companion = await RunAppAsync([.. subject, "-E"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, primary.Exit);
+        Assert.Equal(0, companion.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Empty(primary.Error);
+        Assert.Equal(ordinary.Output, companion.Output);
+        Assert.Contains("Context: Exact Member", primary.Output);
+        Assert.Contains(
+            "# Explain System.Text.Json.JsonSerializer.Serialize~",
+            primary.Output);
+        Assert.Contains(expectedSelector, primary.Output);
+        Assert.DoesNotContain(
+            "Context: MemberGroup",
+            primary.Output);
+        Assert.Contains(
+            "Context: Exact Member",
+            companion.Error);
+        Assert.Contains(expectedSelector, companion.Error);
+    }
+
+    [Fact]
+    public async Task Member_ExactExplanation_ComposesWithTips()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            "-E",
+            ".tips");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Context: Exact Member", output);
+        Assert.DoesNotContain("Tips:", error);
+        Assert.Contains("view member detail (source, IL)", error);
+        Assert.Contains("view type tree", error);
+    }
+
+    [Fact]
+    public async Task Member_ExactTipsProjection_UsesStdoutAndMatchesCompanion()
+    {
+        string[] subject =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+        ];
+
+        var primary =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companion =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, primary.Exit);
+        Assert.Empty(primary.Error);
+        Assert.Contains("view member detail (source, IL)", primary.Output);
+        Assert.Contains("view type tree", primary.Output);
+        Assert.DoesNotContain("Context: Exact Member", primary.Output);
+        Assert.DoesNotContain("## Signature", primary.Output);
+        Assert.Equal(
+            primary.Output.Trim(),
+            companion.Error.Trim());
+    }
+
+    [Fact]
+    public async Task Member_NonFirstOverloadTipsPreserveExactSelector()
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize:7",
+        ];
+
+        var primary =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companion =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, primary.Exit);
+        Assert.Equal(0, companion.Exit);
+        Assert.Empty(primary.Error);
+        Assert.Contains("Serialize:7", primary.Output);
+        Assert.DoesNotContain("Serialize:1", primary.Output);
+        Assert.Equal(primary.Output.Trim(), companion.Error.Trim());
+        Assert.Contains("System.IO.Stream utf8Json", companion.Output);
+    }
+
+    [Fact]
+    public async Task Member_PrimaryTips_ComposesWithCompanionExplanation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            ".tips",
+            "-E");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("view member detail (source, IL)", output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+        Assert.Contains("Context: Exact Member", error);
+        Assert.DoesNotContain("Tips:", output);
+    }
+
+    [Fact]
+    public async Task Member_CommandTipsProjection_RequiresSubject()
+    {
+        var (exit, output, error) =
+            await RunAppAsync("member", "--explain", ".tips");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires one Member subject and source",
+            error);
+    }
+
+    [Theory]
+    [InlineData("-E", "same complete explanation twice")]
+    [InlineData("-S", "terminal content operation")]
+    public async Task Member_Explain_RejectsCompetingContentOperations(
+        string option,
+        string expectedError)
+    {
+        string[] tail = option == "-E"
+            ? [option]
+            : [option, SectionNames.Signature];
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "member",
+                typeof(MemberCallGraphFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+                "--explain",
+                .. tail,
+            ]);
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+    }
+
+    [Fact]
+    public async Task Member_Explain_RejectsDuplicateTipsProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            ".tips",
+            "-E",
+            ".tips");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("same contextual tips twice", error);
+    }
+
+    [Theory]
+    [InlineData("DefinitelyMissing", "No members matched")]
+    public async Task Member_Explain_UnresolvedSubjectDoesNotFallBackToCommand(
+        string member,
+        string expectedError)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            member,
+            "--explain");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+        Assert.DoesNotContain("Explain member", error);
+    }
+
+    [Fact]
+    public async Task Member_Explain_PartialSubjectDoesNotFallBackToCommand()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "--explain");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires one Member selector", error);
+        Assert.DoesNotContain("Explain member", error);
+    }
+
+    [Fact]
     public async Task Member_JsonTipsPreserveStdoutAndUseStderr()
     {
         string[] arguments =
@@ -52,6 +444,76 @@ public partial class CommandExecutionTests
         Assert.Contains("dotted member syntax", withTips.Error);
         using var document = JsonDocument.Parse(withTips.Output);
         Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+    }
+
+    [Theory]
+    [InlineData("--explain")]
+    [InlineData("-E")]
+    public async Task Member_BareExplanationAfterInlineLibraryRetainsExactMember(
+        string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            $"--library={TestAssemblyPath}",
+            option,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Unknown", error);
+        Assert.Contains("Exact Member", option == "--explain" ? output : error);
+    }
+
+    [Fact]
+    public async Task Member_NativeGroupTipsPreserveStdoutAndUseStderr()
+    {
+        string[] arguments =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+        ];
+
+        var withoutTips = await RunAppAsync(arguments);
+        var primaryTips =
+            await RunAppAsync([.. arguments, "--explain", ".tips"]);
+        var withTips = await RunAppAsync([.. arguments, "-E", ".tips"]);
+
+        Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, primaryTips.Exit);
+        Assert.Equal(0, withTips.Exit);
+        Assert.Empty(withoutTips.Error);
+        Assert.Empty(primaryTips.Error);
+        Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.Equal(primaryTips.Output.Trim(), withTips.Error.Trim());
+        Assert.DoesNotContain("Tips:", withTips.Error);
+        Assert.Contains("view member detail (source, IL)", withTips.Error);
+        Assert.Contains("view type tree", withTips.Error);
+        Assert.Contains("dotted member syntax", withTips.Error);
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedOverloadTipsRemainPresent()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+            "-S",
+            SectionNames.Signature,
+            "-E",
+            ".tips");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(SectionNames.Signature, output);
+        Assert.Contains("view member detail (source, IL)", error);
+        Assert.Contains(
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            error);
     }
 
     [Fact]

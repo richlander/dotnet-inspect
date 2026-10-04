@@ -149,7 +149,8 @@ public static class AssemblyContextImplementationProfilesQuery
         AssemblyInspectionSession session)
     {
         ApiSurface surface =
-            session.ApiSurface(ApiSurfaceExtractionScope.Public);
+            session.CompatibilityApiSurface(
+                ApiSurfaceExtractionScope.Public);
         var byBodyToken =
             new Dictionary<
                 int,

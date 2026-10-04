@@ -1173,6 +1173,13 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PerformanceOracles.Tests -c Release
 
+      - name: Check Subject Relations constructed-generic oracle
+        if: matrix.shard == 'contracts'
+        run: >
+          dotnet run --project tools/SubjectRelationsScorecard -c Release
+          --no-build -- check
+          'tests/ILInspector.Metadata.Tests/bin/Release/net11.0/PinnedArtifacts/System.Private.CoreLib.dll|interface|System.Collections.Generic.IEnumerable`1'
+
       - name: Run decoded-text tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/Inspector.Text.Tests -c Release
@@ -1918,14 +1925,15 @@ jobs:
 
       - name: Smoke test - package quiet
         run: |
-          dotnet-inspect package System.Text.Json@10.0.0 -v:q > smoke-package.md
-          cat smoke-package.md
-          grep -q "System.Text.Json" smoke-package.md
-          grep -q "Library" smoke-package.md
+          dotnet-inspect package System.Text.Json@10.0.0 -v:q > smoke-package.txt
+          cat smoke-package.txt
+          grep -q "System.Text.Json" smoke-package.txt
+          grep -q "System.Text.Json.dll" smoke-package.txt
 
       - name: Smoke test - package normal
         run: |
-          dotnet-inspect package System.Text.Json@10.0.0 -v:n > smoke-package-normal.md
+          dotnet-inspect package System.Text.Json@10.0.0 -v:n \
+            -S "Package Info,Signature" > smoke-package-normal.md
           cat smoke-package-normal.md
           grep -q "## Package Info" smoke-package-normal.md
           grep -q "## Signature" smoke-package-normal.md

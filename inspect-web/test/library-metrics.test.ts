@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderLibraryMetricsSurface, type LibraryMetricsOptions } from "../src/library-metrics.ts";
-import type { BrowserLibraryMetrics } from "../src/facades/inspect-web-analysis.d.ts";
+import type {
+  BrowserLibraryDependencyStructure,
+  BrowserLibraryMetrics,
+} from "../src/facades/inspect-web-analysis.d.ts";
 
 const data: BrowserLibraryMetrics = {
   outcome: "available",
@@ -54,6 +57,93 @@ const data: BrowserLibraryMetrics = {
   },
 };
 
+const dependencyData: BrowserLibraryDependencyStructure = {
+    outcome: "available",
+    methodologyVersion: "library-dependency-structure.v1",
+    completeness: "Complete",
+    population: {
+      examinedCallCount: 12,
+      internalCallCount: 9,
+      externalCallCount: 3,
+      unresolvedCallCount: 0,
+      incompleteBodyCount: 0,
+      typeCount: 3,
+      namespaceCount: 3,
+    },
+    namespaces: [{
+      namespace: "Example.Api",
+      isGlobalNamespace: false,
+      typeCount: 1,
+      intraNamespaceRelationshipCount: 0,
+      cycleIndex: null,
+      level: 1,
+    }, {
+      namespace: "Example.Core",
+      isGlobalNamespace: false,
+      typeCount: 1,
+      intraNamespaceRelationshipCount: 1,
+      cycleIndex: 0,
+      level: 0,
+    }, {
+      namespace: "Example.Storage",
+      isGlobalNamespace: false,
+      typeCount: 1,
+      intraNamespaceRelationshipCount: 0,
+      cycleIndex: 0,
+      level: 0,
+    }],
+    namespaceEdges: [{
+      sourceNamespace: "Example.Api",
+      targetNamespace: "Example.Core",
+      counts: {
+        invocations: 3,
+        functionReferences: 1,
+        total: 4,
+      },
+      contributingTypeEdgeCount: 2,
+      explainingTypeEdges: [{
+        sourceTypeKey: "Example.Api.Endpoint",
+        sourceTypeDisplay: "Example.Api.Endpoint",
+        targetTypeKey: "Example.Core.Engine",
+        targetTypeDisplay: "Example.Core.Engine",
+        counts: {
+          invocations: 3,
+          functionReferences: 0,
+          total: 3,
+        },
+      }],
+      remainingContributorCount: 1,
+    }, {
+      sourceNamespace: "Example.Core",
+      targetNamespace: "Example.Storage",
+      counts: {
+        invocations: 2,
+        functionReferences: 0,
+        total: 2,
+      },
+      contributingTypeEdgeCount: 1,
+      explainingTypeEdges: [],
+      remainingContributorCount: 1,
+    }, {
+      sourceNamespace: "Example.Storage",
+      targetNamespace: "Example.Core",
+      counts: {
+        invocations: 1,
+        functionReferences: 0,
+        total: 1,
+      },
+      contributingTypeEdgeCount: 1,
+      explainingTypeEdges: [],
+      remainingContributorCount: 1,
+    }],
+    totalNamespaceEdgeCount: 3,
+    cycles: [{
+      namespaces: ["Example.Core", "Example.Storage"],
+    }],
+    diagnostics: [],
+    failure: null,
+};
+
 function render(overrides: Partial<LibraryMetricsOptions> = {}) {
   return renderLibraryMetricsSurface({
     libraryName: "Example.Core",
@@ -66,6 +156,10 @@ function render(overrides: Partial<LibraryMetricsOptions> = {}) {
     loading: false,
     error: "",
     data,
+    dependencyFresh: false,
+    dependencyLoading: false,
+    dependencyError: "",
+    dependencyData: null,
     escapeHtml: value => String(value).replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -103,6 +197,162 @@ test("renders the complexity and relationship visual evidence", () => {
   assert.match(html, /Example\.Core\.Store/);
 });
 
+test("renders analysis-issued dependency levels, cycles, and explanations", () => {
+  const html = render({
+    dependencyFresh: true,
+    dependencyData,
+  });
+
+  assert.match(html, /Dependency Structure/);
+  assert.match(html, /Level 0/);
+  assert.match(html, /Level 1/);
+  assert.match(html, /cycle 1/);
+  assert.match(
+    html,
+    /Example\.Core depends on Example\.Storage through 2 relationships/,
+  );
+  assert.match(
+    html,
+    /Example\.Storage depends on Example\.Core through 1 relationship/,
+  );
+  assert.match(html, /Example\.Api\.Endpoint/);
+  assert.match(
+    html,
+    /data-dependency-type-key="Example\.Core\.Engine"/,
+  );
+  assert.match(html, /1 additional contributing type edge not shown/);
+  const reciprocalPaths = [...html.matchAll(
+    /<path class="metrics-dependency-edge" d="([^"]+)"[^>]*><title>([^<]+)<\/title><\/path>/g,
+  )].filter(match =>
+    match[2]?.includes("Example.Core depends on Example.Storage")
+    || match[2]?.includes("Example.Storage depends on Example.Core"));
+  assert.equal(reciprocalPaths.length, 2);
+  for (const path of reciprocalPaths) {
+    assert.doesNotMatch(path[1]!, /(?:^|[ ,])-/);
+  }
+});
+
+test("discloses bounded and qualified dependency evidence", () => {
+  const html = render({
+    dependencyFresh: true,
+    dependencyData: {
+      ...dependencyData,
+      completeness: "Qualified",
+      totalNamespaceEdgeCount: 8,
+      diagnostics: ["One call target could not be resolved."],
+      population: {
+        ...dependencyData.population!,
+        unresolvedCallCount: 1,
+        incompleteBodyCount: 1,
+      },
+    },
+  });
+
+  assert.match(html, /Dependency evidence is qualified/);
+  assert.match(html, /1 unresolved call and 1 incomplete body/);
+  assert.match(html, /highest-volume edges of 8/);
+  assert.match(html, /One call target could not be resolved\./);
+});
+
+test("keeps dependency failure visible without hiding available metrics", () => {
+  const html = render({
+    dependencyFresh: true,
+    dependencyData: {
+      outcome: "failed",
+      methodologyVersion: null,
+      completeness: null,
+      population: null,
+      namespaces: [],
+      namespaceEdges: [],
+      totalNamespaceEdgeCount: 0,
+      cycles: [],
+      diagnostics: [],
+      failure: "Dependency selection failed.",
+    },
+  });
+
+  assert.match(html, /Complexity Explorer/);
+  assert.match(html, /Dependency structure failed/);
+  assert.match(html, /Dependency selection failed\./);
+});
+
+test("requires explicit dependency demand and keeps loading distinct", () => {
+  const initial = render();
+  assert.match(initial, /Load dependency structure/);
+  assert.doesNotMatch(initial, /metrics-dependency-structure/);
+
+  const loading = render({
+    dependencyFresh: true,
+    dependencyLoading: true,
+  });
+  assert.match(loading, /Building dependency structure/);
+  assert.doesNotMatch(loading, /Load dependency structure/);
+});
+
+test("preserves relationship interaction state across dependency renders", () => {
+  const relationshipState = {
+    visibleCount: 1,
+    selectedSourceTypeKey: "Example.Core.Engine",
+    selectedTargetTypeKey: "Example.Core.Store",
+  };
+  const variants = [
+    render({ relationshipState }),
+    render({
+      relationshipState,
+      dependencyFresh: true,
+      dependencyLoading: true,
+    }),
+    render({
+      relationshipState,
+      dependencyFresh: true,
+      dependencyData,
+    }),
+    render({
+      relationshipState,
+      dependencyFresh: true,
+      dependencyError: "Dependency selection failed.",
+    }),
+  ];
+
+  for (const html of variants) {
+    assert.match(
+      html,
+      /data-source-type-key="Example\.Core\.Engine"[^>]*aria-pressed="true"/,
+    );
+    assert.match(
+      html,
+      /data-metrics-relationship-detail-selection>/,
+    );
+    assert.match(html, />1\/1 most connected<\/strong>/);
+    assert.match(html, />4 retained call sites<\/strong>/);
+  }
+});
+
+test("keeps empty and unavailable dependency outcomes distinct", () => {
+  const empty = render({
+    dependencyFresh: true,
+    dependencyData: {
+      ...dependencyData,
+      namespaces: [],
+      namespaceEdges: [],
+      totalNamespaceEdgeCount: 0,
+      cycles: [],
+    },
+  });
+  assert.match(empty, /No namespace dependencies found/);
+
+  const unavailable = render({
+    dependencyFresh: true,
+    dependencyData: {
+      ...dependencyData,
+      outcome: "unavailable",
+      failure: "Call evidence is unavailable.",
+    },
+  });
+  assert.match(unavailable, /Dependency structure unavailable/);
+  assert.match(unavailable, /Call evidence is unavailable/);
+});
+
 test("keeps structural salience out of the Metrics presentation", () => {
   const html = render();
   assert.doesNotMatch(
@@ -111,11 +361,14 @@ test("keeps structural salience out of the Metrics presentation", () => {
   );
 });
 
-test("keeps detailed distributions out of the website presentation", () => {
+test("keeps detailed distributions and redundant summary copy out of Metrics", () => {
   const html = render();
 
   assert.doesNotMatch(html, /Detailed distributions|metrics-table/);
-  assert.match(html, /Compiled IL metrics for <strong>Example\.Core<\/strong>/);
+  assert.doesNotMatch(
+    html,
+    /Compiled IL metrics for|not authored-source complexity/,
+  );
 });
 
 test("treemap cells expose exact type activation and evidence semantics", () => {
@@ -202,7 +455,7 @@ test("treemap rectangle area remains proportional to instruction volume", () => 
     },
   });
   const rectangles = [...html.matchAll(
-    /<rect x="[^"]+" y="[^"]+" width="([^"]+)" height="([^"]+)"/g,
+    /class="metrics-treemap-cell"[^>]*>.*?<rect x="[^"]+" y="[^"]+" width="([^"]+)" height="([^"]+)"/g,
   )].map(match => Number(match[1]) * Number(match[2]));
 
   assert.equal(rectangles.length, 2);
@@ -238,6 +491,58 @@ test("relationship topology keeps same-display generic arities distinct", () => 
   assert.ok(edge);
   assert.notEqual(edge[1], edge[2]);
   assert.match(html, /2 most connected types/);
+});
+
+test("relationship arcs expose exact selection evidence and a detail surface", () => {
+  const html = render();
+
+  assert.match(
+    html,
+    /data-metrics-relationship data-relationship-rank="1" data-source-type-key="Example\.Core\.Engine" data-source-type-display="Example\.Core\.Engine" data-target-type-key="Example\.Core\.Store" data-target-type-display="Example\.Core\.Store" data-call-site-count="4"[^>]*tabindex="0" role="button" aria-pressed="false"/,
+  );
+  assert.match(html, /data-metrics-relationship-detail aria-live="polite"/);
+  assert.match(html, /data-metrics-relationship-source/);
+  assert.match(html, /data-metrics-relationship-target/);
+  assert.match(html, /data-metrics-relationship-rank/);
+  assert.match(html, /Relationship depth/);
+  assert.match(html, />Rank<\/span>/);
+  assert.match(html, /Select an arc for details/);
+});
+
+test("relationship disclosure defaults to half capped at 24 and expands by quartiles", () => {
+  const types = Array.from({ length: 9 }, (_, index) => `Type${index}`);
+  const relationships = types.flatMap(source => types
+    .filter(target => target !== source)
+    .map(target => ({
+      sourceTypeKey: `Example.${source}`,
+      sourceTypeDisplay: `Example.${source}`,
+      targetTypeKey: `Example.${target}`,
+      targetTypeDisplay: `Example.${target}`,
+      sourceDegree: 8,
+      targetDegree: 8,
+    }))).map((relationship, index, all) => ({
+      ...relationship,
+      callSiteCount: all.length - index,
+    }));
+  const html = render({
+    data: {
+      ...data,
+      entangledRelationships: relationships,
+    },
+  });
+  const edgeTags = [...html.matchAll(
+    /<path class="metrics-relationship-edge"[^>]*>/g,
+  )].map(match => match[0]);
+
+  assert.equal(edgeTags.length, 72);
+  assert.equal(edgeTags.filter(tag => !tag.includes(" hidden")).length, 24);
+  assert.match(
+    html,
+    /data-metrics-relationship-limit data-limit-levels="18,24,36,54,72"/,
+  );
+  assert.match(html, /type="range" min="0" max="4" value="1"/);
+  assert.match(html, /Showing top <span[^>]*>24<\/span> of 72/);
+  assert.match(html, /data-relationship-rank="72"[^>]* hidden/);
 });
 
 test("reciprocal relationships use distinct geometry independent of insertion lanes", () => {
@@ -280,7 +585,7 @@ test("relationship topology renders the complete Research projection", () => {
     sourceTypeDisplay: "Example.Hub",
     targetTypeKey: `Example.Leaf${index}`,
     targetTypeDisplay: `Example.Leaf${index}`,
-    callSiteCount: index + 1,
+    callSiteCount: 16 - index,
     sourceDegree: 16,
     targetDegree: 1,
   }));
@@ -295,5 +600,8 @@ test("relationship topology renders the complete Research projection", () => {
     html.match(/class="metrics-relationship-edge"/g)?.length,
     relationships.length,
   );
-  assert.match(html, /17 most connected types · 16 retained relationships/);
+  assert.match(
+    html,
+    /17 most connected types · Showing top <span[^>]*>8<\/span> of 16 retained relationships/,
+  );
 });

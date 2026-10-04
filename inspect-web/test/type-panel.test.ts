@@ -351,10 +351,6 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onMemberGroupOpen: value => calls.push(`member-open:${value}`),
     onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
-    onMethodLeverageActivate: () =>
-      calls.push("method-leverage-activate"),
-    onMethodLeverageFilterSelect: value =>
-      calls.push(`method-leverage-filter:${value}`),
     onMethodLeverageRetry: () =>
       calls.push("method-leverage-retry"),
     onMemberOverloadOpen: value => calls.push(`member-overload:${value}`),
@@ -404,7 +400,7 @@ test("type panel binds the qualified Type leverage retry", () => {
   assert.deepEqual(calls, ["type-leverage-retry"]);
 });
 
-test("type panel bindings dispatch member filters without eager work", () => {
+test("type panel bindings dispatch member filters and leverage retry", () => {
   const root = new FakeRoot();
   const kind = new FakeElement();
   kind.value = "method";
@@ -418,12 +414,6 @@ test("type panel bindings dispatch member filters without eager work", () => {
   root.addAll("[data-member-access-filter]", accessibility);
   root.addAll("[data-member-spelling]", spelling);
   root.addAll("[data-member-trait-filter]", trait);
-  const leverage = new FakeElement();
-  leverage.value = "top-leverage";
-  root.addAll("[data-method-leverage-filter]", leverage);
-  const leverageActivate = root.add(
-    "[data-method-leverage-activate]",
-    new FakeElement());
   const leverageRetry = root.add(
     "[data-method-leverage-retry]",
     new FakeElement());
@@ -458,8 +448,6 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-spelling:metadata",
     "member-trait:static",
   ]);
-  leverageActivate.dispatch("click");
-  leverage.dispatch("change");
   leverageRetry.dispatch("click");
   filter.dispatch("input");
   disclosure.open = true;
@@ -472,8 +460,6 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-access:protected",
     "member-spelling:metadata",
     "member-trait:static",
-    "method-leverage-activate",
-    "method-leverage-filter:top-leverage",
     "method-leverage-retry",
     "member-filter:parse",
     "member-filter-disclosure:true",
@@ -899,12 +885,10 @@ test("the type nav renders exclusive accessible pole cues", () => {
       ...typeSelectorOptions,
       namespaceCount: 1,
       namespaceOptionsHtml: "",
-      leverageControlHtml:
-        '<button data-type-leverage-filter="sea-level">sea level</button>',
       library: "System.Text.Json",
       parentSubject: "library",
       filtersExpanded: true,
-      filterSummary: "sea level",
+      filterSummary: "public",
       escapeHtml,
       typeDisplayName,
       typeLibraryLabel: noTypeLibraryLabel,
@@ -936,7 +920,7 @@ test("the type nav renders exclusive accessible pole cues", () => {
       },
     });
 
-    assert.match(html, /data-type-leverage-filter="sea-level"/);
+    assert.doesNotMatch(html, /data-type-leverage-filter/);
     assert.match(html, /type-row selected sea-level/);
     assert.match(html, /class="item-achievement-glyph sea-level"/);
     assert.match(html, /class="item-achievement-glyph mountain-peak"/);
@@ -1061,6 +1045,42 @@ test("the member nav marks the active group and its selected overload", () => {
     /data-nav-selection="overload:method:Serialize:1"/);
   assert.match(html, /id="member-filters"/);
   assert.match(html, /←→ sections/);
+});
+
+test("the member nav renders one active declaration as an exact member", () => {
+  const group = {
+    key: "method:Run",
+    name: "Run",
+    kind: "method",
+    overloads: [{
+      signature: "public void Run(int value)",
+      parameters: [{ name: "value", type: "int" }],
+    }],
+    sourceOverloadCount: 2,
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: group.key,
+    selectedOverloadIndex: 1,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /<span class="type-name"><span class="sig-name">Run<\/span><span class="sig-punct">\(.*<span class="sig-keyword">int<\/span><span class="sig-punct">\)<\/span><\/span>/);
+  assert.doesNotMatch(html, /family-name|family-count|data-nav-overload/);
+  assert.match(
+    html,
+    /data-nav-member="method:Run" role="option" aria-selected="true"/);
+  assert.match(html, /data-nav-selection="member:method:Run"/);
 });
 
 test("the member nav labels a selected graph-only target", () => {
@@ -2533,9 +2553,13 @@ test("member rows say what a member is rather than which kind it is", () => {
     }),
     memberAchievements: (group, index) =>
       (group.key === "method:WriteTo" && index === 0)
-      || (group.key === "method:Parse" && index === 1)
         ? [{ kind: "top-leverage", description: "Top Leverage" }]
-        : [],
+        : group.key === "method:Parse" && index === 1
+          ? [
+              { kind: "top-leverage", description: "Top Leverage" },
+              { kind: "api-diff", description: "API differences" },
+            ]
+          : [],
   });
 
   // A single method shows its compact parameter list; a property its type.
@@ -2556,11 +2580,15 @@ test("member rows say what a member is rather than which kind it is", () => {
   );
   assert.match(
     html,
+    /item-achievement-glyph api-diff/,
+  );
+  assert.match(
+    html,
     /item-achievement-glyph implementation-hub/,
   );
   assert.match(
     html,
-    /aria-label="Top Leverage; implementation hub"/,
+    /aria-label="Top Leverage; API differences; implementation hub"/,
   );
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
   assert.match(html, /aria-description="8 instructions"/);
@@ -2571,7 +2599,7 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
 });
 
-test("filtered overload rows retain their exact source index", () => {
+test("a filtered singleton retains exact selection without an overload row", () => {
   const group = {
     key: "method:Parse",
     name: "Parse",
@@ -2585,10 +2613,7 @@ test("filtered overload rows retain their exact source index", () => {
   };
   const html = renderMemberNav({
     type: jsonDocument,
-    entries: [
-      { kind: "member", group },
-      { kind: "overload", group, index: 0 },
-    ],
+    entries: [{ kind: "member", group }],
     memberCount: 3,
     visibleMemberCount: 1,
     filterControlsHtml: "",
@@ -2598,7 +2623,6 @@ test("filtered overload rows retain their exact source index", () => {
     typeDisplayName,
     shortKind,
     highlight,
-    overloadSourceIndex: () => 2,
     memberAchievements: (_group, index) => index === null
       ? []
       : [{
@@ -2607,14 +2631,14 @@ test("filtered overload rows retain their exact source index", () => {
         }],
   });
 
+  assert.match(html, /data-nav-selection="member:method:Parse"/);
   assert.match(
     html,
-    /data-nav-overload="2" role="option" aria-selected="true"/,
-  );
+    /data-nav-member="method:Parse" role="option" aria-selected="true"/);
+  assert.doesNotMatch(html, /data-nav-overload|family-count/);
   assert.equal(
     html.match(/item-achievement-glyph top-leverage/g)?.length,
     1,
-    "the family parent must not inherit its exact winner's achievement",
+    "the exact member row retains its declaration achievement",
   );
-  assert.match(html, /family-count">3×/);
 });

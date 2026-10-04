@@ -560,15 +560,50 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
-dotted token, for up to three contextual suggestions on `stderr`. Bare `-E`
-and `-E .references` are reserved and currently fail before acquisition.
+Tips are off by default. Member uses one dotted explanation-projection
+namespace at two placements: `--explain` replaces ordinary output with a
+primary result on `stdout`, while short-only `-E` preserves ordinary output and
+writes a companion to `stderr`. Bare selects the complete explanation;
+`.tips`, as a separate dotted token, selects up to three contextual
+suggestions:
+
+```bash
+dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
+  --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
+  --explain .tips
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
+  -E .tips
+```
+
+Command-level `member --explain` is acquisition-free. Subject-bearing
+`--explain` resolves exactly one semantic subject and writes its explanation as
+the terminal stdout document instead of ordinary inspection output. A bare
+ordinary method name is one MemberGroup subject regardless of overload count;
+an ordinal or digest selector is one exact Member subject. Singleton groups
+remain MemberGroups, and an overloaded group is not rejected as several
+subjects or reduced to its first overload. Resolved-subject
+`--explain .tips` writes only the headless plain-text suggestions to stdout; it
+does not produce ordinary Member Content. Command-level `.tips` requires a
+MemberGroup or exact Member because the command resource has no applicable
+gesture context. Resolved-subject bare `-E` preserves ordinary stdout
+byte-for-byte, flushes it, then writes the same explanation Content to
+`stderr`. `--explain -E` and
+`--explain .tips -E .tips` are duplicate projections and are rejected;
+different primary and companion projections compose. Bare `-E` remains
+reserved on other commands. Both `.references` placements remain reserved
+until reusable inspection references are available.
 Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
-`-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
-unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
-token after `-E` remains positional. Option-like filenames and other required
-option values retain that option's ownership; for example, `--out --tips`
-names an output path rather than invoking the retired option. `E`
+`-E references` / `--explain tips` / `--explain references`, attached or
+inline `-E.tips` / `-E=.tips` / `-E:.tips` / `--explain=.tips`, unknown dotted
+children, and repeated placement options are invalid. An unrelated undotted
+token after either option remains positional. Option-like filenames and other
+required option values retain that option's ownership; for example,
+`--out --tips` names an output path rather than invoking the retired option. `E`
 suggests *explain* and can also remind users that the companion is written to
 the error stream; the latter is a mnemonic, not an error classification.
 
@@ -597,7 +632,8 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
-| Show contextual tips | `-E .tips` |
+| Explain the Member command, one MemberGroup, or one exact Member | `member --explain`, subject-bearing `member ... --explain`, or `member ... -E` |
+| Show contextual tips | Subject-bearing `member ... --explain .tips` on stdout or `-E .tips` on stderr |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
@@ -705,6 +741,38 @@ dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+Bare `package ID[@VERSION]` output and bare `--tree` render the Package's
+native children Tree. Ordinary packages list every Library in the selected
+compile population by identity without opening the Library binary or
+summarizing its Type population. `--tfm` selects an explicit target; otherwise
+the Package selection default chooses the target. Tool pointer packages list
+their RID packages, managed tool payloads list the entry-point Library before
+their dependencies, and native tool payloads state that they contain no managed
+Libraries. Minimal implicit Tree output may collapse a managed tool's
+dependency Libraries into one counted branch that names `-v:n` as the
+full-inventory gesture. Normal, Detailed, and explicit output formats list
+every Library.
+
+Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
+all consume that same Package children document. JSON carries subject,
+completion, total and selected Counts, and typed child rows. Row formats expose
+the exact asset ID, asset path, child role, and a copyable, shell-quoted
+`selector` for the same Library occurrence or RID Package. Library selectors
+retain the selected target and replayable
+source/configuration options; a local tool pointer's RID selectors retain its
+adjacent Package directory as a local source. Output fails visibly when replay
+context cannot be disclosed safely. Package children output does not run the
+unrelated all-binary Signals scan or inspect selected Libraries. `--count`
+counts the owner-issued child population without producing rows; `--rows`
+windows the same ordered identities, and `--fields` or `--columns` projects
+child-row columns. Windows retain the
+complete population Count and original child ordinals; a window selecting no
+rows from a non-empty Package does not claim that the Package has no Libraries.
+
+Select `Package Info` explicitly for Package facts. A bare Package Tree is
+distinct from the dependency graph: select `Dependency Hierarchy` together
+with `--tree` for rooted transitive dependencies.
 
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
 in the packet's selected context, independently of its focused tab, and reuses
@@ -1343,6 +1411,11 @@ dotnet-inspect type string --tree
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
+dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize --explain .tips
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize -E
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
@@ -1360,8 +1433,8 @@ dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
-An exact method name selects its MemberGroup. Its default output is a native
-Tree rooted at one compact identity line and containing every public,
+A bare ordinary method name selects its MemberGroup. Its default output is a
+native Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.
 This remains a MemberGroup when the selected version has one overload.
 Use `--columns "Signature;Description"` to request compiled documentation for
@@ -1679,17 +1752,30 @@ not compose with those comparison views.
 It takes one or more analysis identities, comma-separated or repeated, and
 `-S` then selects views of their result. `diff -D`, `--help`, and
 `explain analyses` list the identities: `api`, `api-attribute`,
-`allocation`, `call-site`, `unsafety`, `csharp`, and `il`. The request's
-surface comes from its filters: any `--member` is Member, otherwise `--type`
-is Type, otherwise Library. The body analyses (`allocation`, `call-site`,
-`unsafety`, `csharp`, `il`) take exactly one `--member`; `api-attribute`
-takes `--type`.
+`allocation`, `call-site`, `unsafety`, `csharp`, `il`, and
+`string-literals`. The request's surface comes from its filters: any
+`--member` is Member, otherwise `--type` is Type, otherwise Library. The body
+analyses (`allocation`, `call-site`, `unsafety`, `csharp`, `il`) take exactly
+one `--member`; `api-attribute` takes `--type`; `string-literals` takes the
+Library surface and exactly one `--where` predicate.
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --member "Serialize:1" \
   --analysis api,call-site,allocation
+
+dotnet-inspect diff --package Microsoft.Identity.Client@4.89.0..4.90.0 \
+  --analysis string-literals --where "Literal contains https://"
+
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
+  --analysis string-literals --where "Literal starts-with https://" --json
 ```
+
+String-literal predicates use exact ordinal UTF-16 matching. The key is
+case-sensitive `Literal`; the supported operators are `contains` and
+`starts-with`. Each Transition row retains the complete decoded literal. Two
+matching positions within one literal still produce one row, while separate
+physical `ldstr` instructions remain separate occurrences.
 
 Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to
@@ -1698,7 +1784,9 @@ with its outcome (`Compared`, `Unavailable`, or `Failed`) and its `Added`,
 `Removed`, `Changed`, and `Present` counts. `-S Transitions` lists each
 selected analysis's per-Finding transitions in selection order; at the Type
 surface `api` shows its `api.type` rows and then its `api.member` rows.
-`Changes` requires `api`, and `Transitions` requires `--type` or `--member`.
+`Changes` requires `api`. `Transitions` requires a selected analysis that
+declares it at the request surface: Type and Member analyses do so at their
+surfaces, while `string-literals` declares Library Transitions.
 `--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
 only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
 entries are all reported before acquisition.
@@ -1707,8 +1795,10 @@ Pairwise `--finding` and `-S "Finding Transitions"` are retired: they fail
 with guidance naming the `--analysis` identity and `-S Transitions`.
 `--history` keeps `--finding` and does not accept `--analysis` yet.
 `--analysis` does not combine with `Analysis Diff`, `Implementation Diff`,
-`Complexity Context`, or `Structural Context`, and `--json` and `--envelope`
-are rejected with it until the result's JSON transport lands.
+`Complexity Context`, or `Structural Context`. `--json` emits the shared
+`DiffAnalysisDocument`; `--envelope` emits that same Content plus Share and
+diagnostics. Both retain the exact string-literal predicate in the comparison
+context.
 
 Select `Implementation Diff` directly to inspect body-level C#, IL, and
 normal-flow complexity evidence. Select `Complexity Context` directly for a

@@ -1120,11 +1120,51 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    expression, and coalesce arms alike, family-guarded so the underlying cast
    can never truncate. Join-census over the 15-assembly corpus:
    `Partial`-by-unknown-join methods 155 → 119; the enum/int bucket for
-   same-assembly int-backed enums is zero. Remaining, by census: cross-assembly
-   enum-likes (width unprovable — recoverable later only with sink-context
-   evidence), the reference-merge lane (cross-assembly base chains and
-   constructed-generic interfaces, SRM-boundary work), and the `void*`/`nuint`
-   native clique. The full RyuJIT typed-temp model (spill and re-import) stays
+   same-assembly int-backed enums is zero. The reference-merge lane now reads
+   cross-assembly base chains, interface-ness, and interface implementations
+   through the shared metadata context (`CrossAssemblyTypeResolver.BaseType`,
+   `Implements`, `SameDefinition`), so a `UTF8Encoding`/`Encoding` diamond or
+   an `IEqualityComparer<T>` ?? `EqualityComparer<T>` join types at import.
+   The cross-assembly reach is merge-private (`ResolveBaseTypeForMerge`,
+   `IsInterfaceForMerge`, `ImplementsForMerge`), and every chain walk the merge runs — the
+   merge-private walks and the shared `InterfacesOf` walk behind `Implements`
+   — ends on a revisited definition (the generic definition for an instance)
+   within 64 steps, and `InterfacesOf` expands an interface only while its
+   definition is absent from its own expansion path, yielding at most 256
+   distinct interfaces (a malformed InterfaceImpl row can make
+   `IA<T> : IA<List<T>>` or the doubling `IA<T> : IA<Tuple<T,T>>`, whose
+   instances never repeat and grow too fast even to hash); the bounds are
+   exact on any valid hierarchy within them and can only decline beyond
+   them, because two resolved assemblies in version skew can
+   declare `A : B` and `B : A`, or `GA<T> : GB<Tuple<T,T>>` and
+   `GB<T> : GA<Tuple<T,T>>` whose instances never repeat and double at every
+   step (each compiled against the other's earlier shape), and malformed
+   same-module metadata can point a TypeDef's `Extends` back down its own
+   chain; `ResolveBaseType` and its other consumers —
+   `AreProvablyDisjoint`, `InterfacesOf`, `SupportsCollectionInitializer`,
+   the importer's declaring-type base, `ConstructorConfinementFacts` — keep
+   their same-assembly contracts, because a facade-forwarded ancestor
+   compared by `TypeRef` equality would otherwise make `AreProvablyDisjoint`
+   claim disjointness it cannot prove. Identity rule: a definition reached
+   through another module enters the IR only under the identity this module
+   itself uses for it (its own TypeRef row, matched through the context as the
+   same definition); the merge returns the arm instance when the common
+   ancestor is an arm and declines (honest unknown) an ancestor this module
+   never references, so no `TypeRef` enters a function under an identity its
+   rows do not share. Each reference join the importer types — a successful
+   reference merge, or the ECMA O-family fallback that types two `object`,
+   `string`, or array arms with no provable common supertype as `object`,
+   every reference type being assignable to it — publishes the conversions it proved as
+   `IrFunction.ProvenReferenceWidenings` (`From → To`), the only hierarchy
+   fact `ReferenceAssignmentTargets` consults when materialization admits a
+   subtype store into a join-typed slot; a null-literal arm adopting the
+   other arm's type publishes nothing. Remaining, by census:
+   cross-assembly enum-likes (width unprovable — recoverable later only with
+   sink-context evidence), reference joins with no common supertype below
+   `object` (`ISymbolInternal` ?? `ITypeReference` consumed at an `object`
+   sink — a sink-typed join plus an arm cast, not a merge), sibling joins
+   whose common ancestor this module never references (declined under the
+   identity rule), and the `void*`/`nuint` native clique. The full RyuJIT typed-temp model (spill and re-import) stays
    open here for instance 2.
 5. **Materialize stack-slot locals (instance 2).** On the step-4 propagation, emit
    each slot's live ranges as typed local IR nodes and **delete

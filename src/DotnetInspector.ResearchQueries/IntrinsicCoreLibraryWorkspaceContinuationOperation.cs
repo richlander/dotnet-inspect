@@ -601,8 +601,8 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
                 candidate.OriginPlan,
                 predecessor.Definition.Plan)
             || !SameLogicalScope(
-                predecessor.Scope,
-                scope.Snapshot)
+                predecessor.Scope.Revision,
+                scope.Snapshot.Revision)
             || ReferenceEquals(
                 successor.Context.ScopeRevision,
                 applicability.Context.ScopeRevision)
@@ -850,52 +850,11 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
     }
 
     static bool SameLogicalScope(
-        WorkspaceScopeSnapshot predecessor,
-        WorkspaceScopeSnapshot successor)
-    {
-        if (predecessor.Packages.Length != successor.Packages.Length)
-            return false;
-
-        for (int index = 0; index < predecessor.Packages.Length; index++)
-        {
-            WorkspacePackageDescriptor first =
-                predecessor.Packages[index].Occurrence.Package;
-            WorkspacePackageDescriptor second =
-                successor.Packages[index].Occurrence.Package;
-            if (first.Coordinate != second.Coordinate
-                || !StringComparer.OrdinalIgnoreCase.Equals(
-                    first.PackageId,
-                    second.PackageId)
-                || !StringComparer.OrdinalIgnoreCase.Equals(
-                    first.PackageVersion,
-                    second.PackageVersion)
-                || !string.Equals(
-                    first.TargetFramework,
-                    second.TargetFramework,
-                    StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(
-                    first.RequestedTargetFramework,
-                    second.RequestedTargetFramework,
-                    StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(
-                    first.SelectedTargetFramework,
-                    second.SelectedTargetFramework,
-                    StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(
-                    first.RuntimeIdentifier,
-                    second.RuntimeIdentifier,
-                    StringComparison.OrdinalIgnoreCase)
-                || first.SelectionStatus != second.SelectionStatus
-                || ReferenceEquals(
-                    predecessor.Packages[index].Occurrence.Identity,
-                    successor.Packages[index].Occurrence.Identity))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+        WorkspaceScopeRevision predecessor,
+        WorkspaceScopeRevision successor) =>
+        WorkspaceLogicalScopeCorrespondence.Matches(
+            predecessor,
+            successor);
 
     static async ValueTask<
         IntrinsicCoreLibraryWorkspaceContinuationOutcome.Rejected>

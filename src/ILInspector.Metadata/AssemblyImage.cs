@@ -51,7 +51,6 @@ public sealed class AssemblyImage : IDisposable
                 throw;
             }
         }
-
         MetadataReader? metadataReader = null;
         if (format is MetadataImageFormatResult.SupportedEcma335)
         {

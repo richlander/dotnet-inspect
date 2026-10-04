@@ -157,9 +157,9 @@ function context(
     types: [type],
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     request: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -170,6 +170,7 @@ function context(
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
     kind: "Succeeded",
     value: document,

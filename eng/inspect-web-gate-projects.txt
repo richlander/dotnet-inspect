@@ -39,6 +39,7 @@ src/DotnetInspector.Platforms.Packages
 src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
 src/QuerySpace
+src/QuerySpace.Primitives
 src/DotnetInspector.ResearchQueries
 src/DotnetInspector.ResearchSections
 src/DotnetInspector.Sections

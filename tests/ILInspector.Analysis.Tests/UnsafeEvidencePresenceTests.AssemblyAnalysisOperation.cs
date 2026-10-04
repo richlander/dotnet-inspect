@@ -34,6 +34,90 @@ public partial class UnsafeEvidencePresenceTests
     }
 
     [Fact]
+    public void
+        MethodQuerySource_ExecutesFocusedProducerDependencyClosure()
+    {
+        ImmutableArray<byte> image =
+            BuildCustomModifiedPointerLocalAssembly();
+        ImmutableArray<MethodDefinitionHandle> methods =
+            [.. ReadAllMethodHandles(image).Take(2)];
+        var prerequisite = new UnitValueProducer(
+            "MethodSourceDependency");
+        var focused = new FactSummingProducer(
+            "MethodSourceFocused",
+            prerequisite);
+        WorkDescription work =
+            Assert.IsType<ProducerPlanResult.Accepted>(
+                    ProducerPlanner.Plan(
+                        [new ProducerRequest(focused)]))
+                .Description;
+        MethodDefinitionSourceRequest<int> request =
+            MethodDefinitionSourceRequest<int>.Create(
+                work,
+                focused,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    methods));
+        var operation = AssemblyAnalysisOperation<int>.Create(
+            "DependencyClosure.dll",
+            request);
+        using AssemblyInspectionSession session = OpenSession(image);
+
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(2, work.Producers.Length);
+        Assert.False(work.WasRequested(prerequisite));
+        Assert.True(work.WasRequested(focused));
+        Assert.Equal(
+            new ProducerResult<int>(
+                ProducerOutcome.Complete,
+                methods.Length),
+            execution.ResultOf(focused));
+        Assert.Equal(
+            [
+                prerequisite.Identity,
+                focused.Identity,
+            ],
+            execution.WorkReceipt.Producers.Select(
+                participation => participation.Producer));
+        AssertCoverage(
+            methods,
+            execution.SourceReceipt.Coverage);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_RejectsUnrelatedRequestedProducer()
+    {
+        var prerequisite = new UnitValueProducer(
+            "MethodSourceDependency");
+        var focused = new FactSummingProducer(
+            "MethodSourceFocused",
+            prerequisite);
+        var unrelated = new UnitValueProducer(
+            "MethodSourceUnrelated");
+        WorkDescription work =
+            Assert.IsType<ProducerPlanResult.Accepted>(
+                    ProducerPlanner.Plan(
+                        [
+                            new ProducerRequest(focused),
+                            new ProducerRequest(unrelated),
+                        ]))
+                .Description;
+
+        ProducerContractException exception =
+            Assert.Throws<ProducerContractException>(
+                () => MethodDefinitionSourceRequest<int>.Create(
+                    work,
+                    focused));
+
+        Assert.Contains(
+            "exactly one requested producer plus its dependency closure",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MethodQuerySource_NormalizesExactBreadthWithoutReadingSubject()
     {
         string nonexistent = Path.Combine(
@@ -653,7 +737,17 @@ public partial class UnsafeEvidencePresenceTests
             MethodDefinitionSourceCompletion.Satisfied,
             execution.SourceReceipt.Completion);
         Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            1,
+            execution.SourceReceipt.Coverage.BodiesAttempted.Count);
         Assert.Equal(1, execution.SourceReceipt.BodiesAcquired);
+        Assert.Equal(
+            1,
+            execution.SourceReceipt.Coverage.ModuleLookupMethods.Count);
+        Assert.Equal(1, execution.SourceReceipt.ModuleLookups);
+        Assert.True(
+            execution.SourceReceipt.Coverage.ModuleLookupMethods.Contains(
+                MetadataTokens.MethodDefinitionHandle(1)));
     }
 
     [Fact]
@@ -874,6 +968,75 @@ public partial class UnsafeEvidencePresenceTests
         }
 
         public static CoverageOnlyProducer Instance { get; } = new();
+    }
+
+    sealed class UnitValueProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        internal UnitValueProducer(string identity)
+            : base(
+                identity,
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Declaration)
+        {
+        }
+
+        internal override int Visit(
+            scoped MethodDefinitionView view) =>
+            1;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(
+            int accumulator,
+            int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    sealed class FactSummingProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        readonly UnitValueProducer _dependency;
+
+        internal FactSummingProducer(
+            string identity,
+            UnitValueProducer dependency)
+            : base(
+                identity,
+                version: 1,
+                tier: 1,
+                MethodDefinitionLayers.Declaration,
+                dependencies: () =>
+                    [
+                        new ProducerDependency(
+                            dependency,
+                            ProducerDependencyKind.VisitNeedsVisit),
+                    ])
+        {
+            _dependency = dependency;
+        }
+
+        internal override int Visit(
+            scoped MethodDefinitionView view) =>
+            view.FactOf(_dependency);
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(
+            int accumulator,
+            int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
     }
 
     static AssemblyInspectionSession OpenSession(

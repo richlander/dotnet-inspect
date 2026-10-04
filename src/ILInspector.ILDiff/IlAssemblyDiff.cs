@@ -7,7 +7,9 @@ using System.Security.Cryptography;
 using Inspector.Findings;
 using ILInspector.Metadata;
 
-namespace ILInspector.Instructions;
+using ILInspector.Instructions;
+
+namespace ILInspector.ILDiff;
 
 public sealed record IlDiffBucket(string Name, int Count);
 
