@@ -3698,13 +3698,17 @@ scope-and-slot identities do not equal the entry and retained web sets.
 accepted/retained neighbors. This is C2 entry evidence, not a correctness gate; use
 `--corpus-method-cap N` for a quick bounded read.
 
-**Slot unifier census** (`--slot-unifier-census`): the C2/#2209 reduction view
-from the printer's own stack-slot unifier path. It runs the full product
-pipeline, then asks `CSharpPrinter` to collect its stack-slot naming/type
-telemetry without emitting C#. The key lines are `Multi-candidate slots unified
-by printer`, `Un-unified split slots`, and `Direct slot-copy stores reaching
-printer`; C2 slices should drive them down until no
-`LoadStackSlot`/`StoreStackSlot` reaches the printer.
+**Residual binding census** (`--residual-binding-census`): the C2/#2095
+terminus view from `ResidualSlotBindingPass`. It runs the full product pipeline
+and groups every residual-bound web by `IrFunction.ResidualSlotBindings`
+provenance: binding kind (`Unified` or `Split`) and the
+`SlotMaterializationVeto` flags the web carried at the pass position, with
+bound-local counts and an example method per group. `Late-decidable webs (no
+veto at the pass position)` must stay at zero: a web the materialization
+analysis would now accept is a hand-off defect, not residual policy. A web the
+frozen policy cannot type is a visible pass failure (counted as a pass bug), not
+rendered output. C2 slices drive the grouped population down to the named floor
+in [docs/design/value-typed-emission.md](../../docs/design/value-typed-emission.md).
 
 **Gaps** (`--gaps`): the *self-contained* real-gap view. It inspects only the raised tree: a method is a gap iff it still holds **unstructured control flow** — a `Branch`/`ConditionalBranch`/`SwitchBranch` the structuring passes could not consume, or an EH `Leave` (a surviving `goto`) — or an `UnsupportedNode`. A fully-raised tree holds only structured nodes (`IfStatement`, loops, `Switch`, `TryCatch`), so the residual is exact: reading the tree alone tells you the gap, no recompile or comparison needed. It reports "fully raised" (the metric to drive up) and a residual-kind docket (the prioritized work). It measures completeness, not correctness, so pair it with `--fidelity-check` for fidelity.
 
