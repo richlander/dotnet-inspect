@@ -217,12 +217,16 @@ public abstract record PackageAssemblyReferenceSupplierOutcome
 public sealed record PackageAssemblyReferenceSupplierAssociationRequest
 {
     public PackageAssemblyReferenceSupplierAssociationRequest(
+        AssemblyReferenceResolutionGenerationReceipt generation,
+        MemberCallGraphFocalScopeReceipt focalScope,
         PackageDependencyTraversalOutcome traversal,
         int rootOccurrenceIndex,
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
             edgeExecutions,
         PackageAssemblyReferenceSupplierLimits? limits = null)
     {
+        ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(focalScope);
         ArgumentNullException.ThrowIfNull(traversal);
         ArgumentOutOfRangeException.ThrowIfNegative(rootOccurrenceIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
@@ -236,19 +240,19 @@ public sealed record PackageAssemblyReferenceSupplierAssociationRequest
                 nameof(edgeExecutions));
         }
 
-        Traversal = traversal;
-        RootOccurrenceIndex = rootOccurrenceIndex;
-        EdgeExecutions = edgeExecutions;
+        RouteProjection =
+            PackageAssemblyReferenceRouteProjection.Project(
+                new(
+                    generation,
+                    focalScope,
+                    traversal,
+                    rootOccurrenceIndex,
+                    edgeExecutions));
         Limits = limits ?? new();
         Limits.Validate();
     }
 
-    public PackageDependencyTraversalOutcome Traversal { get; }
-
-    public int RootOccurrenceIndex { get; }
-
-    public ImmutableArray<PackageDependencyEdgeRealizationExecution>
-        EdgeExecutions
+    public PackageAssemblyReferenceRouteProjectionOutcome RouteProjection
     { get; }
 
     public PackageAssemblyReferenceSupplierLimits Limits { get; }
@@ -272,47 +276,32 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
         ImmutableArray<CandidateState> candidates,
         PackageHouseOperation acquireOperation,
         PackageAssemblyReferenceSupplierLimits limits,
-        string? incompleteReason)
+        string? incompleteReason,
+        PackageAssemblyReferenceRouteProjectionOutcome routeProjection)
     {
         _candidates = candidates;
         _acquireOperation = acquireOperation;
         _limits = limits;
         _incompleteReason = incompleteReason;
+        RouteProjection = routeProjection;
     }
+
+    public PackageAssemblyReferenceRouteProjectionOutcome RouteProjection
+    { get; }
 
     public static PackageAssemblyReferenceSupplierAssociation Create(
         PackageAssemblyReferenceSupplierAssociationRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        PackageDependencyTraversalOutcome traversal = request.Traversal;
-        if (traversal.RootReachability.Length != traversal.Roots.Length
-            || traversal.Roots[request.RootOccurrenceIndex].OccurrenceIndex
-                != request.RootOccurrenceIndex)
-        {
-            throw new ArgumentException(
-                "Traversal reachability must align with its root occurrences.",
-                nameof(request));
-        }
-
-        var provided =
-            new Dictionary<int, PackageDependencyEdgeRealizationExecution>();
+        PackageAssemblyReferenceRouteProjectionOutcome routeProjection =
+            request.RouteProjection;
         PackageHouseOperation? operation = null;
         PackageHouseTargetContext? target = null;
-        foreach (PackageDependencyEdgeRealizationExecution execution
-            in request.EdgeExecutions)
+        foreach (PackageAssemblyReferenceRouteOccurrence route
+            in routeProjection.Routes)
         {
-            PackageDependencyEdgeRealizationSubject subject =
-                execution.Subject;
-            if (!ReferenceEquals(subject.Traversal, traversal)
-                || subject.RootOccurrenceIndex
-                    != request.RootOccurrenceIndex
-                || !provided.TryAdd(subject.EdgeIndex, execution))
-            {
-                throw new ArgumentException(
-                    "Each edge execution must belong to one unique admitted edge of the requested traversal root.",
-                    nameof(request));
-            }
-
+            PackageDependencyEdgeRealizationExecution execution =
+                route.Execution;
             PackageHouseTargetContext executionTarget =
                 execution.Request.TargetContext
                 ?? throw new ArgumentException(
@@ -345,44 +334,16 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
             new Dictionary<
                 PackageAcquisitionCandidateCorrespondence,
                 CandidateState>();
-        string? incompleteReason = traversal.Roots[
-            request.RootOccurrenceIndex].Completion
-            == PackageDependencyTraversalRootCompletion.Complete
-                ? null
-                : "The reachable PackageRef snapshot is not complete.";
-        PackageDependencyTraversalReachability reachability =
-            traversal.RootReachability[request.RootOccurrenceIndex];
-        for (int edgeIndex = 0;
-            edgeIndex < traversal.Edges.Length;
-            edgeIndex++)
+        foreach (PackageAssemblyReferenceRouteOccurrence route
+            in routeProjection.Routes)
         {
-            if (!reachability.IsEdgeAdmitted(edgeIndex, out _))
+            if (route.Disposition
+                != PackageAssemblyReferenceRouteDisposition
+                    .PackageCandidate)
                 continue;
 
-            PackageDependencyTraversalEdge edge =
-                traversal.Edges[edgeIndex];
-            if (edge.Authority
-                != PackageDependencyTraversalEdgeEmissionAuthority
-                    .ResolvedCandidate)
-            {
-                incompleteReason ??=
-                    "The reachable PackageRef snapshot contains an admitted edge without exact candidate evidence.";
-                continue;
-            }
-
-            if (!provided.Remove(
-                    edgeIndex,
-                    out PackageDependencyEdgeRealizationExecution?
-                        execution))
-            {
-                throw new ArgumentException(
-                    "Every admitted resolved-candidate edge requires one exact prepared execution.",
-                    nameof(request));
-            }
-
-            if (execution.DelegatesToPlatform)
-                continue;
-
+            PackageDependencyEdgeRealizationExecution execution =
+                route.Execution;
             PackageAcquisitionCandidate candidate =
                 execution.Subject.Candidate;
             if (!retained.TryGetValue(
@@ -397,12 +358,6 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                 candidates.Add(state);
             }
         }
-        if (provided.Count != 0)
-        {
-            throw new ArgumentException(
-                "Edge executions may name only admitted resolved-candidate edges for the requested root.",
-                nameof(request));
-        }
 
         return new(
             candidates.ToImmutable(),
@@ -411,7 +366,12 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                 operation.RequestTimeout,
                 operation.OperationTimeout),
             request.Limits,
-            incompleteReason);
+            routeProjection
+                is PackageAssemblyReferenceRouteProjectionOutcome
+                    .Incomplete incomplete
+                    ? incomplete.Description
+                    : null,
+            routeProjection);
     }
 
     public async ValueTask<PackageAssemblyReferenceSupplierOutcome>
