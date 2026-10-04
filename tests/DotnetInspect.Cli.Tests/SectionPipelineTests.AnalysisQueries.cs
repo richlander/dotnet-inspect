@@ -785,7 +785,7 @@ public partial class SectionPipelineTests
             context,
             trace.RecordQueryExecution);
 
-        Assert.IsType<ResourceTriageResult.Available>(
+        Assert.IsType<ResourceTriageResult.Incomplete>(
             results.Get(ResourceTriageQuery.Definition));
         Assert.IsType<TopLeverageResult.Available>(
             results.Get(TopLeverageQuery.Definition));
@@ -1401,6 +1401,42 @@ public partial class SectionPipelineTests
 
         Assert.Contains("Async Methods", effective);
         Assert.Contains("Async Methods", selected);
+    }
+
+    [Fact]
+    public void CanRender_PInvokeMethods_ExactApplicabilityOverridesBroadPresence()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasPInvokeImports = true,
+            PInvokeMethodPresence = false,
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Detailed);
+
+        Assert.DoesNotContain("P/Invoke Methods", effective);
+    }
+
+    [Fact]
+    public void CanRender_AsyncMethods_ExactApplicabilityOverridesBroadPresence()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasRuntimeAsync = true,
+            AsyncMethodPresence = false,
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Detailed);
+
+        Assert.DoesNotContain("Async Methods", effective);
     }
 
     [Fact]

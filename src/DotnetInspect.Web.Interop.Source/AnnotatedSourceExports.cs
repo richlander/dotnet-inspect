@@ -122,7 +122,15 @@ public static partial class SourceExports
             metadataToken,
             styleOptionsJson,
             factRows: true);
-        BrowserMemberFindingCensus census = BrowserMemberFindingCensus.Create(
+        return JsonSerializer.Serialize(
+            CreateFindingCensus(source),
+            BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
+    }
+
+    static BrowserMemberFindingCensus CreateFindingCensus(
+        MemberSourceProjection source)
+    {
+        return BrowserMemberFindingCensus.Create(
             source.Projection.FactCensusReceipt,
             source.Projection.Facts,
             source.Document,
@@ -147,8 +155,43 @@ public static partial class SourceExports
             source.AllocationExceptionPathsUnavailableReason,
             source.LocalThrowPaths,
             source.LocalThrowPathsUnavailableReason);
+    }
+
+    /// <summary>
+    /// One platform member's Research-issued Finding census projected through
+    /// its Facts and Annotated Source views.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPlatformMemberFindingCensus(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string typeQueryId,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        string styleOptionsJson,
+        string? contextId = null)
+    {
+        MemberSourceProjection source = await ProjectPlatformMemberAsync(
+            targetFramework,
+            platformVersion,
+            assemblyName,
+            pack,
+            typeIdentity,
+            typeQueryId,
+            memberName,
+            memberSignature,
+            selectorKey,
+            metadataToken,
+            styleOptionsJson,
+            factRows: true,
+            contextId: contextId);
         return JsonSerializer.Serialize(
-            census,
+            CreateFindingCensus(source),
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
     }
 
@@ -180,10 +223,8 @@ public static partial class SourceExports
         BrowserInspectionScope scope = resolved.Scope;
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
         Analysis.CallGraphMemberResolution resolution = resolved.Member;
-        InertString signature = MemberDeclaration(resolution);
-
-        AssemblyMemberProjection projection = BrowserSurfaceProjection.Require(
-            scope.UseImplementationParticipant(
+        return ProjectResolvedMember(
+            () => scope.UseImplementationParticipant(
                 participant,
                 (group, member) => AssemblyContextMemberProjectionQuery.ExecuteParticipant(
                     group,
@@ -207,6 +248,94 @@ public static partial class SourceExports
                         AwaitCompletionPaths: factRows,
                         AllocationExceptionPaths: factRows,
                         LocalThrowPaths: factRows))),
+            resolution,
+            typeQueryId,
+            memberName,
+            participant.Assembly.Identity,
+            scope.SurfaceParticipants,
+            platformPackForAssembly: null,
+            PackageProvenance("Annotated by dotnet-inspect from", participant));
+    }
+
+    static async Task<MemberSourceProjection> ProjectPlatformMemberAsync(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string typeQueryId,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        string styleOptionsJson,
+        bool factRows,
+        string? contextId)
+    {
+        _ = memberSignature;
+        using BrowserSourceOperationLease operation =
+            await BrowserSourceOperationCoordinator.BeginAsync();
+        await using BrowserMemberResolution.ScopedPlatformResolution resolved =
+            await BrowserMemberResolution.PlatformImplementationMemberAsync(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken,
+                contextId,
+                operation.CancellationToken);
+        return ProjectResolvedMember(
+            () => resolved.Scope.UseParticipant(
+                resolved.Participant,
+                (group, member) => AssemblyContextMemberProjectionQuery.ExecuteParticipant(
+                    group,
+                    member,
+                    new AssemblyContextMemberProjectionRequest(
+                        typeQueryId,
+                        memberName,
+                        MethodToken: resolved.Member.BodyToken,
+                        SourceDocument: true,
+                        FactRows: factRows,
+                        FindingEvidence: factRows,
+                        InvocationDestinations: true,
+                        AnalysisFeatures: factRows
+                            ? Analysis.LibraryBodyAnalysisFeatures.Default
+                                | Analysis.LibraryBodyAnalysisFeatures.LocalThrows
+                            : Analysis.LibraryBodyAnalysisFeatures.Default,
+                        PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
+                        CallRelationships: factRows,
+                        CallCycles: factRows,
+                        SynchronousCompletions: factRows,
+                        AwaitCompletionPaths: factRows,
+                        AllocationExceptionPaths: factRows,
+                        LocalThrowPaths: factRows))),
+            resolved.Member,
+            typeQueryId,
+            memberName,
+            resolved.Participant.Participant.Assembly.Identity,
+            surfaceParticipants: null,
+            resolved.Scope.PlatformPackForAssembly,
+            PlatformProvenance(
+                "Annotated by dotnet-inspect from",
+                resolved.Participant));
+    }
+
+    static MemberSourceProjection ProjectResolvedMember(
+        Func<AssemblyContextEntry<AssemblyMemberProjection>> project,
+        Analysis.CallGraphMemberResolution resolution,
+        string typeQueryId,
+        string memberName,
+        ILInspector.Metadata.AssemblyReferenceIdentity participantIdentity,
+        IReadOnlyList<BrowserWorkspaceParticipant>? surfaceParticipants,
+        Func<string, string?>? platformPackForAssembly,
+        InertString provenance)
+    {
+        InertString signature = MemberDeclaration(resolution);
+        AssemblyMemberProjection projection = BrowserSurfaceProjection.Require(
+            project(),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -230,9 +359,9 @@ public static partial class SourceExports
                             BrowserSourceWireProjection.Project(
                                 BrowserCallGraphProjection.Target(
                                     destination.Target,
-                                    [participant.Assembly.Identity],
-                                    null,
-                                    scope.SurfaceParticipants)))),
+                                    [participantIdentity],
+                                    platformPackForAssembly,
+                                    surfaceParticipants)))),
                 ]
                 : null;
         BrowserAnnotatedSourceFindingEvidenceDocument[]?
@@ -252,9 +381,10 @@ public static partial class SourceExports
                         BrowserSourceWireProjection.Project(
                             BrowserCallGraphProjection.Target(
                                 evidence.Member,
-                                participant.Assembly.Identity,
+                                participantIdentity,
                                 $"finding-{evidence.FactId}",
-                                scope.SurfaceParticipants));
+                                surfaceParticipants,
+                                platformPackForAssembly));
                     BrowserCalleeEvidenceDocumentReference documentReference =
                         BrowserCalleeEvidenceDocumentProjection.Reference(
                             evidence,
@@ -304,9 +434,9 @@ public static partial class SourceExports
                             BrowserSourceWireProjection.Project(
                                 BrowserCallGraphProjection.Target(
                                     relationship.Target,
-                                    [participant.Assembly.Identity],
-                                    null,
-                                    scope.SurfaceParticipants)))),
+                                    [participantIdentity],
+                                    platformPackForAssembly,
+                                    surfaceParticipants)))),
             ];
         }
         BrowserAnnotatedSourceCallCycleInspection? callCycles = null;
@@ -331,9 +461,9 @@ public static partial class SourceExports
                                     BrowserSourceWireProjection.Project(
                                         BrowserCallGraphProjection.Target(
                                             target,
-                                            [participant.Assembly.Identity],
-                                            null,
-                                            scope.SurfaceParticipants))),
+                                            [participantIdentity],
+                                            platformPackForAssembly,
+                                            surfaceParticipants))),
                             ])),
                 ]);
         }
@@ -415,9 +545,9 @@ public static partial class SourceExports
                                         BrowserSourceWireProjection.Project(
                                             BrowserCallGraphProjection.Target(
                                                 target,
-                                                [participant.Assembly.Identity],
-                                                null,
-                                                scope.SurfaceParticipants))),
+                                                [participantIdentity],
+                                                platformPackForAssembly,
+                                                surfaceParticipants))),
                                 ],
                                 [
                                     .. path.TerminalThrows.Select(site =>
@@ -437,7 +567,7 @@ public static partial class SourceExports
             projection.Projection,
             document,
             signature,
-            PackageProvenance("Annotated by dotnet-inspect from", participant),
+            provenance,
             projection.ContextLimitation is { } limitation
                 ? $"{limitation.Kind}: {limitation.Detail}"
                 : null,

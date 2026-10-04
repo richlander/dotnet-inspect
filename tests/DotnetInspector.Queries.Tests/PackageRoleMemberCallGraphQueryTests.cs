@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 
 using DotnetInspector.Fixtures;
@@ -678,11 +680,27 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         string typeName,
         string methodName)
     {
-        Analysis.LibraryBodyIndex index =
-            Analysis.LibraryBodyIndex.Open(assemblyPath);
-        return index.Methods.Single(
-            method => method.DeclaringType.Name == typeName
-                && method.Name == methodName).MetadataToken;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(assemblyPath);
+        return session.InspectImage(reader =>
+        {
+            MetadataReader metadata = reader.GetMetadataReader();
+            TypeDefinitionHandle type =
+                metadata.TypeDefinitions.Single(handle =>
+                    metadata.GetString(
+                        metadata.GetTypeDefinition(handle).Name)
+                        == typeName);
+            MethodDefinitionHandle method =
+                metadata.GetTypeDefinition(type).GetMethods().Single(handle =>
+                {
+                    MethodDefinition definition =
+                        metadata.GetMethodDefinition(handle);
+                    return definition.RelativeVirtualAddress != 0
+                        && metadata.GetString(definition.Name)
+                            == methodName;
+                });
+            return MetadataTokens.GetToken(method);
+        });
     }
 
     private static Analysis.MemberRef Member(

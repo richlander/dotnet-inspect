@@ -3,6 +3,7 @@ export const ROUTED_ENTRY_PATHS = {
   credits: "/credits",
   demos: "/demos",
   diagnostics: "/diagnostics",
+  ecosystems: "/ecosystems",
   packageQuery: "/query",
   typeExplorer: "/type-explorer",
 } as const;
@@ -14,6 +15,7 @@ export const ENTRY_DOCUMENT_PATHS = [
   ROUTED_ENTRY_PATHS.credits,
   ROUTED_ENTRY_PATHS.demos,
   ROUTED_ENTRY_PATHS.diagnostics,
+  ROUTED_ENTRY_PATHS.ecosystems,
   ROUTED_ENTRY_PATHS.packageQuery,
   ROUTED_ENTRY_PATHS.typeExplorer,
 ] as const;

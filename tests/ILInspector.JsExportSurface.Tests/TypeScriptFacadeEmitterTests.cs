@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.JsonSchema;
-using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
@@ -1859,12 +1859,12 @@ public sealed class TypeScriptFacadeEmitterTests
         ];
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [fixture];
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         global::ILInspector.JsExportSurface.JsExportSurface surface =
-            JsExportSurfaceBuilder.Build(extracted, bodyIndex);
+            JsExportSurfaceBuilder.Build(extracted, bodyAnalysis);
 
         string source = TypeScriptFacadeEmitter.Emit(
             surface,
@@ -3614,11 +3614,11 @@ public sealed class TypeScriptFacadeEmitterTests
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface =
             ApiSurfaceExtractor.Extract(peReader, includeAll: true);
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis);
     }
 
     private static global::ILInspector.JsExportSurface.JsExportSurface

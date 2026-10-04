@@ -62,7 +62,8 @@ public static partial class MetadataExports
                                 group,
                                 member,
                                 AssemblyContextLibraryRole.ApiOnly,
-                                s_memberGroupMaterializationLimits,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
                     spelling,
@@ -98,7 +99,8 @@ public static partial class MetadataExports
                                 group,
                                 member,
                                 AssemblyContextLibraryRole.Implementation,
-                                s_memberGroupMaterializationLimits,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
                                 CancellationToken.None)),
                     typeIdentity,
                     spelling,
@@ -123,7 +125,8 @@ public static partial class MetadataExports
                         declaredName,
                         ImmutableArray.CreateRange(content),
                         AssemblyContextLibraryRole.Implementation,
-                        s_memberGroupMaterializationLimits),
+                        BrowserExactMemberPolicy
+                            .MaterializationLimits),
                     typeIdentity,
                     spelling,
                     accessibility)
@@ -140,7 +143,8 @@ public static partial class MetadataExports
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         MetadataTypeMemberPopulationRequest request = new(
-            ParseTypeIdentity(typeIdentity),
+            BrowserExactMemberPolicy.ParseTypeIdentity(
+                typeIdentity),
             ParseSpelling(spelling),
             includeHidden: false,
             ParseAccessibility(accessibility));
@@ -157,7 +161,8 @@ public static partial class MetadataExports
                                         new(
                                             reference,
                                             request,
-                                            s_memberGroupBounds),
+                                            BrowserExactMemberPolicy
+                                                .Bounds),
                                         lease)))
                     .ConfigureAwait(false);
         if (run.Failure is { } failure)
@@ -242,9 +247,32 @@ public static partial class MetadataExports
                     composition.Static,
                     composition.This,
                     composition.Extension),
+                new(
+                    [
+                        .. population.SelectorCounts.Kinds.Select(count =>
+                            new BrowserTypeMemberFacetCount(
+                                count.Value,
+                                count.Count)),
+                    ],
+                    new(
+                        population.SelectorCounts.Traits.All,
+                        population.SelectorCounts.Traits.Static,
+                        population.SelectorCounts.Traits.Instance,
+                        population.SelectorCounts.Traits.Virtual,
+                        population.SelectorCounts.Traits.Interface,
+                        population.SelectorCounts.Traits.Extensions)),
                 [
-                    .. population.Groups.Select(group => new
-                        BrowserTypeMemberPopulationGroup(
+                    .. population.Groups.Select(group =>
+                    {
+                        bool hasExactSelectors =
+                            population.Accessibility
+                                == MetadataMethodAccessibilityFilter.Public
+                            && group.Kind == "method"
+                            && group.Members.All(member =>
+                                member.MethodSemantics
+                                    is null
+                                    or ApiMethodSemanticsKind.None);
+                        return new BrowserTypeMemberPopulationGroup(
                             group.Key,
                             group.Name,
                             group.Kind,
@@ -256,14 +284,15 @@ public static partial class MetadataExports
                                             population.Subject,
                                             member)) with
                                     {
-                                        BaselineOrdinal =
-                                            population.Accessibility
-                                                == MetadataMethodAccessibilityFilter
-                                                    .Public
-                                                    ? index + 1
-                                                    : null,
+                                        BaselineOrdinal = hasExactSelectors
+                                            ? index + 1
+                                            : null,
+                                        IsExplicitInterfaceImplementation =
+                                            member
+                                                .IsExplicitInterfaceImplementation,
                                     }),
-                            ])),
+                            ]);
+                    }),
                 ]),
             diagnostics);
     }
@@ -291,12 +320,13 @@ public static partial class MetadataExports
         string accessibility) =>
         accessibility.Trim().ToLowerInvariant() switch
         {
+            "all" => MetadataMethodAccessibilityFilter.All,
             "public" => MetadataMethodAccessibilityFilter.Public,
             "protected" => MetadataMethodAccessibilityFilter.Protected,
             "internal" => MetadataMethodAccessibilityFilter.Internal,
             "private" => MetadataMethodAccessibilityFilter.Private,
             _ => throw new ArgumentException(
-                "Accessibility must be public, protected, internal, or private.",
+                "Accessibility must be all, public, protected, internal, or private.",
                 nameof(accessibility)),
         };
 

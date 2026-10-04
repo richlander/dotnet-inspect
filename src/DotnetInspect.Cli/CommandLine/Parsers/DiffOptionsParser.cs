@@ -70,7 +70,7 @@ public static class DiffOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(DiffOptions Options, Verbosity Verbosity, TipLevel TipLevel) : DiffParseResult;
+    public record Success(DiffOptions Options, Verbosity Verbosity, CompanionOutput CompanionOutput) : DiffParseResult;
 
     /// <summary>
     /// Parses diff command options.
@@ -181,6 +181,7 @@ public static class DiffOptionsParser
             Analysis = ParseAnalysisSet(
                 parseResult.GetResult(args.AnalysisOption) is { Implicit: false },
                 parseResult.GetValue(args.AnalysisOption)),
+            Where = parseResult.GetValue(opts.RowWhere) ?? [],
             Legend = parseResult.GetValue(args.LegendOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
@@ -198,9 +199,9 @@ public static class DiffOptionsParser
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = opts.ParseTipLevel(parseResult);
+        var companionOutput = opts.ParseCompanionOutput(parseResult);
 
-        return new Success(options, verbosity, tipLevel);
+        return new Success(options, verbosity, companionOutput);
     }
 
     /// <summary>

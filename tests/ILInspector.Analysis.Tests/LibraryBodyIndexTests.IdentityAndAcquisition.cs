@@ -37,36 +37,36 @@ public partial class LibraryBodyIndexTests
             AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
             reader.GetGuid(reader.GetModuleDefinition().Mvid));
 
-        LibraryBodyIndex ordinary =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution ordinary =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "ordinary-label.dll",
                 image,
                 LibraryBodyAnalysisFeatures.MethodEvidence);
-        LibraryBodyIndex capabilityLimited =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution capabilityLimited =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "capability-label.dll",
                 image,
                 LibraryBodyAnalysisFeatures.None);
-        LibraryBodyIndex filtered =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution filtered =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "filtered-label.dll",
                 image,
                 LibraryBodyAnalysisFeatures.MethodEvidence,
                 bodyScope:
                     new HashSet<int> { 0x0600FFFF });
 
-        Assert.NotEmpty(ordinary.DeclaredMethods);
-        Assert.NotEmpty(ordinary.DirectCalls);
+        Assert.NotEmpty(ordinary.CallGraph.DeclaredMethods);
+        Assert.NotEmpty(ordinary.CallGraph.DirectCalls);
         Assert.Equal(
             LibraryBodyAnalysisFeatures.None,
-            capabilityLimited.Features);
+            capabilityLimited.Receipt.Features);
         Assert.Equal(
             LibraryBodyAnalysisFeatures.MethodEvidence,
-            filtered.Features);
-        Assert.Empty(filtered.DirectCalls);
-        Assert.Equal(expected, ordinary.ModuleIdentity);
-        Assert.Equal(expected, capabilityLimited.ModuleIdentity);
-        Assert.Equal(expected, filtered.ModuleIdentity);
+            filtered.Receipt.Features);
+        Assert.Empty(filtered.CallGraph.DirectCalls);
+        Assert.Equal(expected, ordinary.Receipt.ModuleIdentity);
+        Assert.Equal(expected, capabilityLimited.Receipt.ModuleIdentity);
+        Assert.Equal(expected, filtered.Receipt.ModuleIdentity);
     }
 
     [Fact]
@@ -80,23 +80,23 @@ public partial class LibraryBodyIndexTests
                 static _ => { },
                 moduleVersionId)];
 
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "not-the-assembly-name.dll",
                 image,
                 LibraryBodyAnalysisFeatures.MethodEvidence);
 
-        Assert.Empty(index.DeclaredMethods);
+        Assert.Empty(index.CallGraph.DeclaredMethods);
         Assert.Equal(
             new AssemblyReferenceIdentity(
                 "MethodlessIdentity",
                 new Version(1, 0, 0, 0),
                 Culture: null,
                 PublicKeyToken: null),
-            index.ModuleIdentity.AssemblyIdentity);
+            index.Receipt.ModuleIdentity.AssemblyIdentity);
         Assert.Equal(
             moduleVersionId,
-            index.ModuleIdentity.ModuleVersionId);
+            index.Receipt.ModuleIdentity.ModuleVersionId);
     }
 
     [Fact]
@@ -104,32 +104,32 @@ public partial class LibraryBodyIndexTests
     {
         Guid firstModuleVersionId = Guid.NewGuid();
         LibraryBodyModuleIdentity first =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "first.dll",
                 [.. EmitAssembly(
                     "FirstIdentity",
                     static _ => { },
                     firstModuleVersionId)],
                 LibraryBodyAnalysisFeatures.None)
-            .ModuleIdentity;
+            .Receipt.ModuleIdentity;
         LibraryBodyModuleIdentity differentAssembly =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "second.dll",
                 [.. EmitAssembly(
                     "SecondIdentity",
                     static _ => { },
                     firstModuleVersionId)],
                 LibraryBodyAnalysisFeatures.None)
-            .ModuleIdentity;
+            .Receipt.ModuleIdentity;
         LibraryBodyModuleIdentity differentGeneration =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "third.dll",
                 [.. EmitAssembly(
                     "FirstIdentity",
                     static _ => { },
                     Guid.NewGuid())],
                 LibraryBodyAnalysisFeatures.None)
-            .ModuleIdentity;
+            .Receipt.ModuleIdentity;
 
         Assert.NotEqual(first, differentAssembly);
         Assert.NotEqual(first, differentGeneration);
@@ -139,18 +139,18 @@ public partial class LibraryBodyIndexTests
     public void ModuleIdentity_StandaloneModuleHasNoAssemblyIdentity()
     {
         Guid moduleVersionId = Guid.NewGuid();
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "standalone-label.netmodule",
                 [.. EmitStandaloneModule(
                     "StandaloneIdentity.netmodule",
                     moduleVersionId)],
                 LibraryBodyAnalysisFeatures.None);
 
-        Assert.Null(index.ModuleIdentity.AssemblyIdentity);
+        Assert.Null(index.Receipt.ModuleIdentity.AssemblyIdentity);
         Assert.Equal(
             moduleVersionId,
-            index.ModuleIdentity.ModuleVersionId);
+            index.Receipt.ModuleIdentity.ModuleVersionId);
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public partial class LibraryBodyIndexTests
 
         BadImageFormatException error =
             Assert.Throws<BadImageFormatException>(
-                () => LibraryBodyIndex.OpenFromPrefetchedImage(
+                () => BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                     "empty-mvid.dll",
                     image,
                     LibraryBodyAnalysisFeatures.None));
@@ -180,7 +180,7 @@ public partial class LibraryBodyIndexTests
         SyntheticModuleIdentity_EmptyEvidenceRequiresExplicitIdentity()
     {
         Assert.Throws<ArgumentException>(
-            () => LibraryBodyIndex.FromEvidence([], []));
+            () => BodyAnalysisTestExecution.FromEvidence([], []));
 
         var identity = new LibraryBodyModuleIdentity(
             new AssemblyReferenceIdentity(
@@ -189,12 +189,12 @@ public partial class LibraryBodyIndexTests
                 Culture: null,
                 PublicKeyToken: null),
             Guid.Empty);
-        LibraryBodyIndex index = LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.FromEvidence(
             [],
             [],
             moduleIdentity: identity);
 
-        Assert.Same(identity, index.ModuleIdentity);
+        Assert.Same(identity, index.Receipt.ModuleIdentity);
     }
 
     [Fact]
@@ -214,7 +214,7 @@ public partial class LibraryBodyIndexTests
             moduleVersionId);
 
         ArgumentException error = Assert.Throws<ArgumentException>(
-            () => LibraryBodyIndex.FromEvidence(
+            () => BodyAnalysisTestExecution.FromEvidence(
                 [method],
                 [],
                 moduleIdentity: identity));
@@ -227,23 +227,23 @@ public partial class LibraryBodyIndexTests
         SyntheticModuleIdentity_NonEmptyEvidenceDerivesFixtureIdentity()
     {
         Guid moduleVersionId = Guid.NewGuid();
-        LibraryBodyIndex index = LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.FromEvidence(
             [SyntheticMethod("SyntheticAssembly", moduleVersionId)],
             []);
 
         Assert.Equal(
             "SyntheticAssembly",
-            index.ModuleIdentity.AssemblyIdentity?.Name);
+            index.Receipt.ModuleIdentity.AssemblyIdentity?.Name);
         Assert.Equal(
             moduleVersionId,
-            index.ModuleIdentity.ModuleVersionId);
+            index.Receipt.ModuleIdentity.ModuleVersionId);
     }
 
     [Fact]
     public void OptimizationOpportunities_AttachOnlyDirectCallerLoopInvocations()
     {
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
-        var opportunities = index.OptimizationOpportunities
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        var opportunities = index.Optimization.Opportunities
             .Where(opportunity => opportunity.Method.DeclaringType.Name == "CallerLoopFixture")
             .ToArray();
 
@@ -266,7 +266,7 @@ public partial class LibraryBodyIndexTests
             && opportunity.Shape == "box-value-type");
         Assert.Equal(CallKind.CallVirtual, Assert.Single(callVirtual.CallerLoop!.Witness).Kind);
 
-        var constructor = Assert.Single(index.OptimizationOpportunities, opportunity =>
+        var constructor = Assert.Single(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == "CallerLoopConstructorTarget"
             && opportunity.Method.Name == ".ctor"
             && opportunity.Shape == "box-value-type");
@@ -291,26 +291,26 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void FindCalls_FindsConsoleWriteLine()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
 
-        var calls = index.FindCalls(MemberPattern.Method("System.Console", "WriteLine"));
+        var calls = index.CallGraph.FindCalls(MemberPattern.Method("System.Console", "WriteLine"));
 
         var call = Assert.Single(calls.Where(c => c.Caller.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
         Assert.Equal(CallKind.Call, call.Kind);
         Assert.Equal(TypeRef.CoreLib("System", "String"), Assert.Single(call.Callee.ParameterTypes));
-        Assert.Empty(index.Diagnostics);
+        Assert.Empty(index.Receipt.Diagnostics);
     }
 
     [Fact]
     public void DeclaredMethods_PreservesMethodsWithoutBodies()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.DiffPair.OldAssemblyPath());
 
-        Assert.Contains(index.DeclaredMethods, method =>
+        Assert.Contains(index.CallGraph.DeclaredMethods, method =>
             method.DeclaringType.Name == "BodyStateSample"
             && method.Name == "BodyState");
-        Assert.DoesNotContain(index.Methods, method =>
+        Assert.DoesNotContain(index.CallGraph.Methods, method =>
             method.DeclaringType.Name == "BodyStateSample"
             && method.Name == "BodyState");
     }
@@ -422,35 +422,35 @@ public partial class LibraryBodyIndexTests
         try
         {
             File.WriteAllBytes(path, image.ToArray());
-            LibraryBodyIndex index =
-                LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.Open(
                     path,
                     LibraryBodyAnalysisFeatures.MethodEvidence);
             AnalysisDiagnostic diagnostic =
-                Assert.Single(index.Diagnostics);
+                Assert.Single(index.Receipt.Diagnostics);
             int methodToken = MetadataTokens.GetToken(methodHandle);
             CallTreeNode tree = index.BuildCallTree(methodToken);
-            LibraryBodyIndex optimizationIndex =
-                LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution optimizationIndex =
+                BodyAnalysisTestExecution.Open(
                     path,
                     LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities);
             AnalysisDiagnostic optimizationDiagnostic =
-                Assert.Single(optimizationIndex.Diagnostics);
+                Assert.Single(optimizationIndex.Receipt.Diagnostics);
 
             Assert.Equal(methodToken, diagnostic.MethodToken);
             Assert.Equal(
                 methodToken,
                 optimizationDiagnostic.MethodToken);
             Assert.Contains(
-                optimizationIndex.OptimizationOpportunities,
+                optimizationIndex.Optimization.Opportunities,
                 opportunity => opportunity.Shape
                     == "small-array");
-            Assert.Single(optimizationIndex.DirectCalls);
+            Assert.Single(optimizationIndex.CallGraph.DirectCalls);
             Assert.Equal(CallTreeStatus.AnalysisIncomplete, tree.Status);
             Assert.Same(diagnostic, tree.Diagnostic);
-            Assert.Single(index.DirectCalls);
-            Assert.Contains(index.UnsafeEvidence, evidence =>
+            Assert.Single(index.CallGraph.DirectCalls);
+            Assert.Contains(index.Safety.Evidence, evidence =>
                 evidence.Member.MetadataToken == methodToken
                 && evidence.Reason == "Unsafe signature");
             CallTreeNode truncated =
@@ -471,9 +471,9 @@ public partial class LibraryBodyIndexTests
                 new AssemblyDependencyResolutionOptions(path));
             using var scope = new CatalogCallGraphScope(
                 policy,
-                [new CatalogCallGraphParticipant(index, assembly)]);
+                [new CatalogCallGraphParticipant(index.CallGraph, assembly)]);
             CallTreeNode catalogTree = scope.BuildCallTree(
-                index,
+                index.CallGraph,
                 methodToken);
 
             Assert.Equal(
@@ -483,7 +483,7 @@ public partial class LibraryBodyIndexTests
 
             CallTreeNode truncatedCatalogTree =
                 scope.BuildCallTree(
-                    index,
+                    index.CallGraph,
                     methodToken,
                     maxNodes: 1);
             Assert.Equal(
@@ -584,25 +584,25 @@ public partial class LibraryBodyIndexTests
         int malformedToken =
             MetadataTokens.GetToken(malformedHandle);
 
-        LibraryBodyIndex full =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution full =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "ScopedMalformedBody.dll",
                 immutableImage,
                 LibraryBodyAnalysisFeatures.MethodEvidence);
-        LibraryBodyIndex scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution scoped =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "ScopedMalformedBody.dll",
                 immutableImage,
                 LibraryBodyAnalysisFeatures.MethodEvidence,
                 bodyScope:
                     new HashSet<int> { selectedToken });
 
-        Assert.Contains(full.Diagnostics, diagnostic =>
+        Assert.Contains(full.Receipt.Diagnostics, diagnostic =>
             diagnostic.MethodToken == malformedToken);
-        Assert.Empty(scoped.Diagnostics);
-        Assert.Contains(scoped.Methods, method =>
+        Assert.Empty(scoped.Receipt.Diagnostics);
+        Assert.Contains(scoped.CallGraph.Methods, method =>
             method.MetadataToken == selectedToken);
-        Assert.Contains(scoped.Methods, method =>
+        Assert.Contains(scoped.CallGraph.Methods, method =>
             method.MetadataToken == malformedToken);
     }
 
@@ -750,12 +750,12 @@ public partial class LibraryBodyIndexTests
 
         Assert.Null(builder.TryResolveExternalTypeDefinition(externalType));
 
-        var oneArg = LibraryBodyIndex.Open(targetPath);
-        var nullResolver = LibraryBodyIndex.Open(targetPath, resolver: null);
-        Assert.Equal(oneArg.Methods.Length, nullResolver.Methods.Length);
-        Assert.Equal(oneArg.DirectCalls.Length, nullResolver.DirectCalls.Length);
-        Assert.Equal(oneArg.UnsafeEvidence.Length, nullResolver.UnsafeEvidence.Length);
-        Assert.Equal(oneArg.Diagnostics.Length, nullResolver.Diagnostics.Length);
+        var oneArg = BodyAnalysisTestExecution.Open(targetPath);
+        var nullResolver = BodyAnalysisTestExecution.Open(targetPath, resolver: null);
+        Assert.Equal(oneArg.CallGraph.Methods.Length, nullResolver.CallGraph.Methods.Length);
+        Assert.Equal(oneArg.CallGraph.DirectCalls.Length, nullResolver.CallGraph.DirectCalls.Length);
+        Assert.Equal(oneArg.Safety.Evidence.Length, nullResolver.Safety.Evidence.Length);
+        Assert.Equal(oneArg.Receipt.Diagnostics.Length, nullResolver.Receipt.Diagnostics.Length);
     }
 
     [Fact]
@@ -773,21 +773,21 @@ public partial class LibraryBodyIndexTests
 
         try
         {
-            var oneArg = LibraryBodyIndex.Open(
+            var oneArg = BodyAnalysisTestExecution.Open(
                 targetPath,
                 LibraryBodyAnalysisFeatures.MethodEvidence);
-            var withResolver = LibraryBodyIndex.Open(
+            var withResolver = BodyAnalysisTestExecution.Open(
                 targetPath,
                 LibraryBodyAnalysisFeatures.MethodEvidence,
                 resolver);
 
-            Assert.Equal(oneArg.Methods.Length, withResolver.Methods.Length);
-            Assert.Equal(oneArg.DirectCalls.Length, withResolver.DirectCalls.Length);
-            Assert.Equal(oneArg.UnsafeEvidence.Length, withResolver.UnsafeEvidence.Length);
-            Assert.Equal(oneArg.Diagnostics.Length, withResolver.Diagnostics.Length);
+            Assert.Equal(oneArg.CallGraph.Methods.Length, withResolver.CallGraph.Methods.Length);
+            Assert.Equal(oneArg.CallGraph.DirectCalls.Length, withResolver.CallGraph.DirectCalls.Length);
+            Assert.Equal(oneArg.Safety.Evidence.Length, withResolver.Safety.Evidence.Length);
+            Assert.Equal(oneArg.Receipt.Diagnostics.Length, withResolver.Receipt.Diagnostics.Length);
             Assert.Equal(0, resolver.ResolveCalls);
 
-            _ = LibraryBodyIndex.Open(
+            _ = BodyAnalysisTestExecution.Open(
                 targetPath,
                 LibraryBodyAnalysisFeatures.MethodEvidence,
                 resolver,
@@ -824,7 +824,7 @@ public partial class LibraryBodyIndexTests
         {
             long before =
                 GC.GetAllocatedBytesForCurrentThread();
-            _ = LibraryBodyIndex.Open(
+            _ = BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures.MethodEvidence,
                 resolver,
@@ -886,7 +886,7 @@ public partial class LibraryBodyIndexTests
                         .CallsFileReadLinesFromAsync))!
                 .MetadataToken;
             long before = GC.GetAllocatedBytesForCurrentThread();
-            LibraryBodyIndex index = LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures.MethodEvidence
                     | LibraryBodyAnalysisFeatures
@@ -896,7 +896,7 @@ public partial class LibraryBodyIndexTests
             long allocated =
                 GC.GetAllocatedBytesForCurrentThread() - before;
             Assert.Contains(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity => opportunity.Shape
                     == "sync-call-in-async");
             return allocated;
@@ -1035,9 +1035,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void DirectCalls_RecordVirtualCallEvidenceWithoutInferringTargets()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
 
-        var call = Assert.Single(index.DirectCalls.Where(c =>
+        var call = Assert.Single(index.CallGraph.DirectCalls.Where(c =>
             c.Caller.Name == nameof(CallSiteFixtures.CallsVirtualToString)
             && c.Callee.DeclaringType.Equals(TypeRef.CoreLib("System", "Object"))
             && c.Callee.Name == "ToString"));

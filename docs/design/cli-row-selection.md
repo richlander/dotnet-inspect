@@ -621,6 +621,15 @@ One invocation is governed entirely by the active command or selected lens
 declaration and never changes meaning based on whether a later subsystem
 happens to handle the result.
 
+Find delegates a pure semantic `Head(N)` plan as one maximum-result budget
+across its Type or Member patterns. The Find execution owner may stop after
+`N` accepted unique hits and avoid later metadata rows, pattern groups, query
+participants, or source acquisition; every renderer and Count observes the
+same selected identities. Type candidates are classified independently in
+discovery order without whole-population ranking. The reverse-locator package
+route remains a declared complete-census boundary. Tail and Window remain
+post-classification operations.
+
 The package adoption consumes the online metadata-query evidence policy from
 [Package Source Model](package-source-model.md#metadata-only-version-queries).
 Semantic limits do not cap that discovery or relax its completeness rules.

@@ -15,7 +15,7 @@ internal static class JsonUnionWireRules
 
     internal static JsExportUnion Describe(
         ApiType type,
-        LibraryBodyIndex? bodyIndex,
+        LibraryJsonWireContractAnalysisResult? bodyAnalysis,
         IReadOnlyDictionary<int, MethodIdentity> methods)
     {
         JsExportUnion Unsupported(string reason) => new()
@@ -24,7 +24,7 @@ internal static class JsonUnionWireRules
             SerializationUnsupportedReason = reason,
         };
 
-        if (bodyIndex is null)
+        if (bodyAnalysis is null)
             return Unsupported("union case signature evidence is unavailable");
         if (type.Kind != "struct")
             return Unsupported("only value-type union conventions are supported");
@@ -59,7 +59,7 @@ internal static class JsonUnionWireRules
         if (valueProperties is not [var value]
             || value.GetterToken is not { } getterToken
             || !methods.TryGetValue(getterToken, out MethodIdentity? getter)
-            || !IsOwnMethod(getter, type, bodyIndex)
+            || !IsOwnMethod(getter, type, bodyAnalysis)
             || getter.IsStatic
             || !getter.ParameterTypes.IsEmpty
             || !IsSystemObject(getter.ReturnType)
@@ -74,7 +74,7 @@ internal static class JsonUnionWireRules
             if (constructor.SignatureDecodeStatus == SignatureDecodeStatus.Degraded
                 || constructor.MetadataToken is not { } token
                 || !methods.TryGetValue(token, out MethodIdentity? method)
-                || !IsOwnMethod(method, type, bodyIndex)
+                || !IsOwnMethod(method, type, bodyAnalysis)
                 || method.Name != ".ctor"
                 || method.IsStatic
                 || method.ParameterTypes is not [var caseType]
@@ -98,8 +98,8 @@ internal static class JsonUnionWireRules
     static bool IsOwnMethod(
         MethodIdentity method,
         ApiType type,
-        LibraryBodyIndex bodyIndex) =>
-        method.ModuleVersionId == bodyIndex.ModuleIdentity.ModuleVersionId
+        LibraryJsonWireContractAnalysisResult bodyAnalysis) =>
+        method.ModuleVersionId == bodyAnalysis.ModuleIdentity.ModuleVersionId
         && method.DeclaringType.Resolution is
         {
             Origin: TypeReferenceOrigin.CurrentAssembly,

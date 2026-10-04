@@ -16,6 +16,7 @@
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText",
+        "QuerySpace.Primitives",
         "TsJsExport.Contracts"
       ],
       "allowOnly": [
@@ -138,7 +139,8 @@
         "Inspector.Artifacts.Workspaces",
         "Inspector.Findings",
         "Inspector.Text",
-        "QuerySpace"
+        "QuerySpace",
+        "QuerySpace.Primitives"
       ]
     },
     {
@@ -209,6 +211,7 @@
         "NuGet.Versioning",
         "NuGetFetch",
         "QuerySpace",
+        "QuerySpace.Primitives",
         "System.CommandLine"
       ]
     },
@@ -645,7 +648,9 @@
         "ILInspector.Instructions",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
-        "InertText"
+        "InertText",
+        "QuerySpace",
+        "QuerySpace.Primitives"
       ]
     },
     {
@@ -666,7 +671,7 @@
     },
     {
       "id": "decompiler-dependencies",
-      "source": "docs/architecture.md",
+      "source": "docs/architecture.md; docs/design/implementation-diff.md#structural-body-comparison",
       "graphs": [
         "project",
         "assembly"
@@ -677,6 +682,7 @@
       "allowOnly": [
         "$platform",
         "CSharpText",
+        "ILInspector.Analysis",
         "ILInspector.ControlFlow",
         "ILInspector.CSharp",
         "Inspector.Findings",
@@ -727,6 +733,24 @@
         "ILInspector.MetadataPrimitives",
         "ILInspector.SourceLink",
         "Inspector.Text"
+      ]
+    },
+    {
+      "id": "vocabulary-dependencies",
+      "source": "docs/design/vocabulary.md#ownership",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Vocabulary"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections",
+        "ILInspector.Decompiler",
+        "QuerySpace.Primitives"
       ]
     },
     {

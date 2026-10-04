@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -26,6 +27,8 @@ internal static class MemberGroupDocumentOutput
         MemberOptions options,
         ResolvedMemberInspectionPlan plan)
     {
+        bool returnedRowDocumentation =
+            RequestsReturnedRowDocumentation(options);
         if (type.DefinitionName is null
             || options.MemberFilter.Count != 1
             || options.OverloadIndex.HasValue
@@ -59,25 +62,18 @@ internal static class MemberGroupDocumentOutput
             || options.SourceParts
             || options.SourcePart is not null
             || options.ShowSamples
-            || options.DocsExplicitlySet && options.ShowDocs
             || options.ShareFormat is not null
             || options.EffectiveDiscovery
             || options.Fields is { Length: > 0 }
             || options.Columns is { Length: > 0 }
+                && !returnedRowDocumentation
             || plan.Selection.Catalog
                 != InspectionCatalogIdentity.ApiMemberOverload)
         {
             return false;
         }
 
-        string memberName = options.MemberFilter.Single();
-        if (memberName.Contains('*', StringComparison.Ordinal)
-            || memberName.Contains('?', StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        return ResolveCanonicalMethodName(type, memberName) is not null
+        return ResolveSubject(type, options) is not null
             && (options.Tree || !options.FormatFlagExplicitlySet);
     }
 
@@ -85,25 +81,20 @@ internal static class MemberGroupDocumentOutput
         ApiType type,
         MemberOptions options,
         string assemblyPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        MemberGroupSubject? resolvedSubject = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
-        MetadataTypeDefinitionName definition =
-            type.DefinitionName
-            ?? throw new ArgumentException(
-                "An exact metadata Type definition is required.",
-                nameof(type));
-        string memberName =
-            ResolveCanonicalMethodName(
-                type,
-                options.MemberFilter.Single())
+        MemberGroupSubject subject =
+            resolvedSubject
+            ?? ResolveSubject(type, options)
             ?? throw new InvalidOperationException(
                 "The native MemberGroup route requires one unambiguous "
                 + "ordinary method name.");
         var plan = new MemberOverloadPopulationInspectionPlan(
-            new MemberGroupSubject(definition, memberName),
+            subject,
             new MemberOverloadPopulationRequest(
                 new MemberOverloadCountRequest(),
                 new MemberOverloadRowsRequest(
@@ -112,16 +103,35 @@ internal static class MemberGroupDocumentOutput
                 MemberOverloadReceiverFilter.All,
                 includeHidden: false),
             s_bounds);
+        MemberDocumentationAttachmentRequest? documentation =
+            options.ShowDocs
+                && RequestsReturnedRowDocumentation(options)
+                ? new(DocumentationDemand.CompiledXml)
+                : null;
         InspectionEnvelope<MemberGroupDocumentInspectionOutcome>? inspection =
-            await ExactLibraryInspectionExecutor.ExecuteAsync<
-                InspectionEnvelope<MemberGroupDocumentInspectionOutcome>>(
-                assemblyPath,
-                "member group document",
-                session =>
-                    session.ExecuteMemberGroupDocument(
-                        plan,
-                        cancellationToken),
-                cancellationToken);
+            documentation is null
+                ? await ExactLibraryInspectionExecutor.ExecuteAsync<
+                    InspectionEnvelope<
+                        MemberGroupDocumentInspectionOutcome>>(
+                    assemblyPath,
+                    "member group document",
+                    session =>
+                        session.ExecuteMemberGroupDocument(
+                            plan,
+                            cancellationToken),
+                    cancellationToken)
+                : await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
+                    InspectionEnvelope<
+                        MemberGroupDocumentInspectionOutcome>>(
+                    assemblyPath,
+                    "member group document",
+                    session =>
+                        session.ExecuteMemberGroupDocumentAsync(
+                            plan,
+                            documentation,
+                            cancellationToken),
+                    includeCompiledDocumentation: true,
+                    cancellationToken: cancellationToken);
         if (inspection is null)
             return 1;
 
@@ -171,15 +181,45 @@ internal static class MemberGroupDocumentOutput
         var writer = new MarkoutWriter(
             Console.Out,
             new MarkdownFormatter());
-        writer.WriteTree(
-        [
-            .. rows.Items.Select(row =>
-                new TreeNode(
-                    CSharpIdentifier.ContainRenderedText(
-                        $"{row.Accessibility} "
-                            + ReceiverPrefix(row.Receiver)
-                            + row.DisplaySignature))),
-        ]);
+        if (document.ReturnedRowDocumentation.IsEmpty)
+        {
+            writer.WriteTree(
+            [
+                .. rows.Items.Select(row =>
+                    new TreeNode(
+                        CSharpIdentifier.ContainRenderedText(
+                            $"{row.Accessibility} "
+                                + ReceiverPrefix(row.Receiver)
+                                + row.DisplaySignature))),
+            ]);
+        }
+        else
+        {
+            IReadOnlyDictionary<int, MemberDocumentationAttachment>
+                attachmentsByOrdinal =
+                    document.ReturnedRowDocumentation.ToDictionary(
+                        static attachment =>
+                            attachment.Subject.BaselineOrdinal);
+            writer.WriteTable(
+                ["Signature", "Description"],
+                ["signature", "description"],
+                [
+                    .. rows.Items.Select(row =>
+                        new string[]
+                        {
+                            MarkoutInline.Code(
+                                CSharpIdentifier.ContainRenderedText(
+                                    $"{row.Accessibility} "
+                                        + ReceiverPrefix(row.Receiver)
+                                        + row.DisplaySignature)),
+                            MemberDocumentOutput
+                                .DescribeDocumentation(
+                                    attachmentsByOrdinal[
+                                        row.BaselineOrdinal]
+                                        .Outcome),
+                        }),
+                ]);
+        }
         return 0;
     }
 
@@ -224,6 +264,52 @@ internal static class MemberGroupDocumentOutput
 
         return canonicalName;
     }
+
+    internal static MemberGroupSubject? ResolveSubject(
+        ApiType type,
+        MemberOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(options);
+        if (type.DefinitionName is not { } definition
+            || options.MemberFilter.Count != 1
+            || options.OverloadIndex.HasValue
+            || !string.IsNullOrWhiteSpace(options.MemberDigest)
+            || options.MemberGenericArity.HasValue
+            || !IsCompatibleMethodKindFilter(options.KindFilter))
+        {
+            return null;
+        }
+
+        string requestedName = options.MemberFilter.Single();
+        if (requestedName.Contains('*', StringComparison.Ordinal)
+            || requestedName.Contains('?', StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string? canonicalName =
+            ResolveCanonicalMethodName(type, requestedName);
+        return canonicalName is null
+            ? null
+            : new MemberGroupSubject(definition, canonicalName);
+    }
+
+    private static bool IsCompatibleMethodKindFilter(
+        HashSet<string> kindFilter) =>
+        kindFilter.Count == 0
+        || kindFilter.Count == 1
+            && kindFilter.Contains("method");
+
+    private static bool RequestsReturnedRowDocumentation(
+        MemberOptions options) =>
+        options.Columns is { Length: 2 } columns
+        && columns.Contains(
+            "Signature",
+            StringComparer.OrdinalIgnoreCase)
+        && columns.Contains(
+            "Description",
+            StringComparer.OrdinalIgnoreCase);
 
     private static string Describe(
         MemberGroupDocumentInspectionOutcome outcome) =>

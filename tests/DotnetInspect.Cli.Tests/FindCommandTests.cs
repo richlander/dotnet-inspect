@@ -1375,7 +1375,7 @@ public class FindCommandIntegrationTests
         var (exit, output, error) = RunCli(
             [
                 "find",
-                "JsonDocument,ZzzNoSuchApi6585*",
+                "JsonConverter`?,ZzzNoSuchApi6585*",
                 "--platform-library",
                 "System.Text.Json",
                 "--rows",

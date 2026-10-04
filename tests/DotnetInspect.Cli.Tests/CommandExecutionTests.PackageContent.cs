@@ -152,8 +152,6 @@ public partial class CommandExecutionTests
                 "-n",
                 "2",
                 "--tail",
-                "--tips",
-                "q",
             ];
 
             var tree = await RunAppAsync(args);
@@ -221,9 +219,7 @@ public partial class CommandExecutionTests
                 "--layout",
                 "--rows",
                 "2..3",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -264,18 +260,14 @@ public partial class CommandExecutionTests
                 "--layout",
                 "--tfm",
                 "net10.0",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
             var tools = await RunAppAsync(
                 "package",
                 toolsPackage,
                 "--layout",
                 "--tfm",
                 "net9.0",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, lib.Exit);
             Assert.Empty(lib.Error);
@@ -323,9 +315,7 @@ public partial class CommandExecutionTests
                 "--layout",
                 "--lines",
                 "-n",
-                "2",
-                "--tips",
-                "q");
+                "2");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -353,9 +343,7 @@ public partial class CommandExecutionTests
                 "--layout",
                 "--rows",
                 "4..5",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -504,9 +492,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--layout",
                 "-n",
-                "1",
-                "--tips",
-                "q");
+                "1");
             var legacyRows = await RunAppAsync(
                 "--offline",
                 "package",
@@ -605,9 +591,7 @@ public partial class CommandExecutionTests
                 "--layout",
                 "--json=false",
                 "-n",
-                "1",
-                "--tips",
-                "q");
+                "1");
             var legacyRows = await RunAppAsync(
                 "--offline",
                 "package",
@@ -699,9 +683,7 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "-n",
-                "1",
-                "--tips",
-                "q");
+                "1");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -723,9 +705,7 @@ public partial class CommandExecutionTests
             "package",
             "-D",
             PackageSections.AuditFindings,
-            "--schema",
-            "--tips",
-            "q");
+            "--schema");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -744,7 +724,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
                 "--tree", "--tfm", "net9.0", "--source", tempDir,
-                "--out", outputPath, "--tips", "q");
+                "--out", outputPath);
 
             Assert.Equal(0, exit);
             Assert.Empty(output);
@@ -755,7 +735,7 @@ public partial class CommandExecutionTests
 
             var empty = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy", "--tree",
-                "--tfm", "net10.0", "--out", outputPath, "--tips", "q");
+                "--tfm", "net10.0", "--out", outputPath);
 
             Assert.Equal(0, empty.Exit);
             Assert.Empty(empty.Output);
@@ -771,7 +751,7 @@ public partial class CommandExecutionTests
             {
                 var noDependencies = await RunAppAsync(
                     "package", noDependenciesPath, "-S", "Dependency Hierarchy", "--tree",
-                    "--out", outputPath, "--tips", "q",
+                    "--out", outputPath,
                     "-n", "2", "--tail-lines");
 
                 Assert.Equal(0, noDependencies.Exit);
@@ -799,7 +779,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "System.CommandLine",
-            "-S", "Source Files", "--tips", "q", "-n", "18", "--lines");
+            "-S", "Source Files", "-n", "18", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -815,7 +795,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json",
-            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
+            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -829,7 +809,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "-t", "JsonReader", "--raw", "--tips", "q");
+            "-S", "Source Files", "-t", "JsonReader", "--raw");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -847,7 +827,6 @@ public partial class CommandExecutionTests
         [
             "package", "Newtonsoft.Json@13.0.3",
             "-S", "SourceLink: Files", "-t", "JsonReader",
-            "--tips", "q",
         ];
         var baseline = await RunAppAsync(
             [.. baselineArgs, "--tsv", "--no-headers"]);
@@ -931,11 +910,11 @@ public partial class CommandExecutionTests
         var alias = await RunAppAsync(
             "package", "Newtonsoft.Json@13.0.3",
             "-S", "Source Files", "-t", "JsonReader",
-            "--rows", "..1", "--count", "--tips", "q");
+            "--rows", "..1", "--count");
         var typeSugar = await RunAppAsync(
             "package", "Newtonsoft.Json@13.0.3",
             "-t", "JsonReader",
-            "--rows", "2..", "--count", "--tips", "q");
+            "--rows", "2..", "--count");
 
         Assert.Empty(alias.Error);
         Assert.Equal(0, alias.Exit);
@@ -951,7 +930,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json@13.0.3",
             "-S", "Source Files", "-t", "JsonReader",
-            "--rows", "2..3", "--json", "--tips", "q");
+            "--rows", "2..3", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1001,13 +980,13 @@ public partial class CommandExecutionTests
 
             var stdout = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
-                [.. args, "--lines", "-n1", "--tips", "q"]);
+                [.. args, "--lines", "-n1"]);
             var redirected = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
-                [.. args, "--lines", "-n1", "--out", lineWindowPath, "--tips", "q"]);
+                [.. args, "--lines", "-n1", "--out", lineWindowPath]);
             var semanticWindow = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
-                [.. args, "--rows", "2..2", "--out", semanticWindowPath, "--tips", "q"]);
+                [.. args, "--rows", "2..2", "--out", semanticWindowPath]);
             var composed = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
                 [
@@ -1015,7 +994,6 @@ public partial class CommandExecutionTests
                     "--rows", "2..2",
                     "--lines", "-n1",
                     "--out", composedPath,
-                    "--tips", "q",
                 ]);
 
             Assert.Equal(0, stdout.Exit);
@@ -1077,7 +1055,6 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "-S", "Package files",
                 "-n", "1", "--tail",
-                "--tips", "q",
             ];
             var markdown = await RunAppAsync(args);
             var table = await RunAppAsync([.. args, "--table"]);
@@ -1167,7 +1144,6 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "--tfm", "net8.0",
                 "-S", "Package files",
-                "--tips", "q",
             ];
             var markdown = await RunAppAsync(selectedFiles);
             var table = await RunAppAsync([.. selectedFiles, "--table"]);
@@ -1179,40 +1155,34 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "--tfm", "net8.0",
                 "-S", "Package files",
-                "--paths",
-                "--tips", "q");
+                "--paths");
             var roots = await RunAppAsync(
                 "package", packagePath,
                 "--tfm", "net8.0",
                 "-S", "Package files",
-                "--roots",
-                "--tips", "q");
+                "--roots");
             var intersection = await RunAppAsync(
                 "package", packagePath,
                 "--tfm", "net8.0",
                 "--path", "runtimes/*",
-                "--paths",
-                "--tips", "q");
+                "--paths");
             var rootIntersection = await RunAppAsync(
                 "package", packagePath,
                 "--tfm", "net8.0",
                 "--path", "runtimes/*",
-                "--roots",
-                "--tips", "q");
+                "--roots");
             var reversedSelectorPaths = await RunAppAsync(
                 "package", packagePath,
                 "--tfm", "net8.0",
                 "--path", "runtimes/*",
                 "--path", "build/*",
-                "--paths",
-                "--tips", "q");
+                "--paths");
             var reversedSelectorRoots = await RunAppAsync(
                 "package", packagePath,
                 "--tfm", "net8.0",
                 "--path", "runtimes/*",
                 "--path", "build/*",
-                "--roots",
-                "--tips", "q");
+                "--roots");
 
             foreach (var result in new[]
             {
@@ -1342,7 +1312,6 @@ public partial class CommandExecutionTests
                 "--tfm", "net8.0",
                 "-S", "Package files",
                 "--roots",
-                "--tips", "q",
             ];
             var json = await RunAppAsync([.. arguments, "--json"]);
             var jsonl = await RunAppAsync([.. arguments, "--jsonl"]);
@@ -1455,20 +1424,17 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "-S", "Files",
                 "--rows", "..1",
-                "--paths",
-                "--tips", "q");
+                "--paths");
             var path = await RunAppAsync(
                 "package", packagePath,
                 "--path", "skills/*/SKILL.md",
                 "--rows", "2..",
-                "--paths",
-                "--tips", "q");
+                "--paths");
             var shorthand = await RunAppAsync(
                 "package", packagePath,
                 "--path", "skills/*/SKILL.md",
                 "-1", "--tail",
-                "--paths",
-                "--tips", "q");
+                "--paths");
 
             Assert.Empty(alias.Error);
             Assert.Equal(0, alias.Exit);
@@ -1499,8 +1465,7 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "-S", "Package files",
                 "--rows", "2..3",
-                "--json",
-                "--tips", "q");
+                "--json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1584,8 +1549,8 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "-S", "Package files",
                 "--table",
-                "--lines", "-n", "1",
-                "--tips", "q");
+                "--lines", "-n", "1"
+                );
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1612,18 +1577,18 @@ public partial class CommandExecutionTests
             var category = await RunAppAsync(
                 "package", packagePath,
                 "-S", "@Files",
-                "--rows", "1",
-                "--tips", "q");
+                "--rows", "1"
+                );
             var family = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Package README file",
-                "--rows", "1",
-                "--tips", "q");
+                "--rows", "1"
+                );
             var mixed = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Package files,Package Info",
-                "--rows", "1",
-                "--tips", "q");
+                "--rows", "1"
+                );
 
             Assert.Equal(0, category.Exit);
             Assert.Empty(category.Error);
@@ -1643,7 +1608,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json",
-            "-S", "Source Files", "--tsv", "--no-headers", "--tips", "q");
+            "-S", "Source Files", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2204,9 +2169,9 @@ public partial class CommandExecutionTests
             {
                 var outputPath = Path.Combine(tempDir, $"{projection.Name}.txt");
                 var baseline = await RunAppAsync(
-                    ["package", packagePath, .. projection.Arguments, "--tips", "q"]);
+                    ["package", packagePath, .. projection.Arguments]);
                 var redirected = await RunAppAsync(
-                    ["package", packagePath, .. projection.Arguments, "--out", outputPath, "--tips", "q"]);
+                    ["package", packagePath, .. projection.Arguments, "--out", outputPath]);
 
                 Assert.Equal(0, baseline.Exit);
                 Assert.Equal(baseline.Exit, redirected.Exit);
@@ -2226,7 +2191,7 @@ public partial class CommandExecutionTests
             [
                 "package", "Newtonsoft.Json@13.0.3",
                 "-S", "Source Files", "-t", "JsonReader",
-                "--urls", "--row", "1", "--tips", "q"
+                "--urls", "--row", "1"
             ];
             var urlsBaseline = await RunAppAsync(urlsArguments);
             var urlsRedirected = await RunAppAsync(
@@ -2293,10 +2258,10 @@ public partial class CommandExecutionTests
                 var outputPath = Path.Combine(tempDir, $"{testCase.Name}.txt");
                 var baseline = await RunAppInDirectoryAsync(
                     tempDir,
-                    ["package", packagePath, .. testCase.Arguments, "--tips", "q"]);
+                    ["package", packagePath, .. testCase.Arguments]);
                 var redirected = await RunAppInDirectoryAsync(
                     tempDir,
-                    ["package", packagePath, .. testCase.Arguments, "--out", outputPath, "--tips", "q"]);
+                    ["package", packagePath, .. testCase.Arguments, "--out", outputPath]);
 
                 Assert.Equal(0, baseline.Exit);
                 Assert.Equal(baseline.Exit, redirected.Exit);
@@ -2371,7 +2336,7 @@ public partial class CommandExecutionTests
                         [
                             "package", packagePath,
                             .. testCase.Arguments,
-                            "--out", path, "--tips", "q",
+                            "--out", path,
                         ]);
 
                 var absent = await RunAsync(absentPath);
@@ -2407,8 +2372,8 @@ public partial class CommandExecutionTests
                 tempDir,
                 "package", packagePath,
                 "-S", "Package README file",
-                "--print", "--out", "-n1",
-                "--tips", "q");
+                "--print", "--out", "-n1"
+                );
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Output);
@@ -2440,8 +2405,8 @@ public partial class CommandExecutionTests
                 tempDir,
                 "package", packagePath,
                 "-S", "Package README file",
-                "--print", "--out", "--tfm", "--lines", lineWindow,
-                "--tips", "q");
+                "--print", "--out", "--tfm", "--lines", lineWindow
+                );
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -2475,8 +2440,6 @@ public partial class CommandExecutionTests
                     "-n1",
                     "--out",
                     outputPath,
-                    "--tips",
-                    "q",
                 ]);
 
             Assert.Equal(1, result.Exit);
@@ -2517,9 +2480,7 @@ public partial class CommandExecutionTests
                 "--out",
                 " ",
                 "--lines",
-                "-n1",
-                "--tips",
-                "q");
+                "-n1");
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -2551,8 +2512,8 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "-S", "Package README file",
                 "--raw", "--rows", "2..2",
-                "--out", outputPath,
-                "--tips", "q");
+                "--out", outputPath
+                );
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -2579,7 +2540,7 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "--content", "--path", "README.md",
                 "--count", "-n", "1", "--lines",
-                "--out", outputPath, "--tips", "q");
+                "--out", outputPath);
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Output);
@@ -2603,8 +2564,8 @@ public partial class CommandExecutionTests
         {
             var result = await RunAppAsync(
                 "package", packagePath,
-                "--content", "--path", "README.md",
-                "--tips", "q");
+                "--content", "--path", "README.md"
+                );
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
@@ -2664,7 +2625,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.PackageReadme.Bare", "PACKAGE.md", "package docs");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--raw", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -3291,7 +3252,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ReadmeTip_RecommendsAGestureThatActuallyRuns()
+    public async Task Package_FirstTip_RecommendsAGestureThatActuallyRuns()
     {
         // Removing a flag leaves the suggestions that named it behind, and a tip is a command the
         // user is invited to paste. Parse the gesture out of the emitted tip and run it, so the
@@ -3299,16 +3260,20 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Tip.Readme", "README.md", "tip readme body");
         try
         {
-            var (_, _, tipError) = await RunAppAsync("package", packagePath, "-T:d");
+            var (_, _, tipError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-E",
+                ".tips");
 
             var tipLine = tipError
                 .Split('\n')
-                .FirstOrDefault(line => line.Contains("# view README", StringComparison.Ordinal));
+                .FirstOrDefault(line => line.Contains("# detailed metadata", StringComparison.Ordinal));
             Assert.NotNull(tipLine);
 
             var gesture = tipLine!.Split('#')[0].Trim();
             Assert.StartsWith("package ", gesture, StringComparison.Ordinal);
-            Assert.Contains("--print", gesture, StringComparison.Ordinal);
+            Assert.Contains("-v:d", gesture, StringComparison.Ordinal);
 
             // Re-split the way a shell would, so the quoted section name survives as one token.
             var args = System.Text.RegularExpressions.Regex
@@ -3321,7 +3286,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("Unrecognized option", error, StringComparison.Ordinal);
-            Assert.Contains("tip readme body", output, StringComparison.Ordinal);
+            Assert.Contains("Test.Tip.Readme", output, StringComparison.Ordinal);
         }
         finally
         {
@@ -3967,9 +3932,8 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "-S",
-                $"Signals,{PackageSections.AuditFindings}",
-                "--tips",
-                "q");
+                $"Signals,{PackageSections.AuditFindings}"
+                );
 
             Assert.Equal(0, markdown.Exit);
             Assert.Empty(markdown.Error);
@@ -4011,9 +3975,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "-S",
                 PackageSections.AuditFindings,
-                "--jsonl",
-                "--tips",
-                "q");
+                "--jsonl");
 
             Assert.Equal(0, jsonl.Exit);
             Assert.Empty(jsonl.Error);
@@ -4065,9 +4027,7 @@ public partial class CommandExecutionTests
                 "--path",
                 "content/INSTRUCTIONS.md",
                 "--content",
-                "--raw",
-                "--tips",
-                "q");
+                "--raw");
 
             Assert.Equal(0, stdout.Exit);
             Assert.Empty(stdout.Error);
@@ -4084,9 +4044,7 @@ public partial class CommandExecutionTests
                 "--content",
                 "--raw",
                 "--out",
-                bareOutputPath,
-                "--tips",
-                "q");
+                bareOutputPath);
 
             Assert.Equal(0, export.Exit);
             Assert.Empty(export.Output);
@@ -4100,9 +4058,7 @@ public partial class CommandExecutionTests
                 "content/INSTRUCTIONS.md",
                 "--content",
                 "--out",
-                blockOutputPath,
-                "--tips",
-                "q");
+                blockOutputPath);
 
             Assert.Equal(0, blockExport.Exit);
             Assert.Empty(blockExport.Output);
@@ -4137,9 +4093,7 @@ public partial class CommandExecutionTests
                 "docs/*.md",
                 "--content",
                 "--out",
-                outputPath,
-                "--tips",
-                "q");
+                outputPath);
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -4178,9 +4132,7 @@ public partial class CommandExecutionTests
                 "--content",
                 "--rows",
                 "1",
-                "--raw",
-                "--tips",
-                "q");
+                "--raw");
             var bareExport = await RunAppAsync(
                 "package",
                 packagePath,
@@ -4191,9 +4143,7 @@ public partial class CommandExecutionTests
                 "1",
                 "--raw",
                 "--out",
-                bareOutputPath,
-                "--tips",
-                "q");
+                bareOutputPath);
             var exactExport = await RunAppAsync(
                 "package",
                 packagePath,
@@ -4203,9 +4153,7 @@ public partial class CommandExecutionTests
                 "--rows",
                 "1",
                 "--out",
-                exactOutputPath,
-                "--tips",
-                "q");
+                exactOutputPath);
 
             Assert.Equal(0, stdout.Exit);
             Assert.Equal("first", stdout.Output.Trim());
@@ -4289,12 +4237,12 @@ public partial class CommandExecutionTests
                 var outputPath = Path.Combine(tempDir, $"{testCase.Name}.txt");
                 var stdout = await RunAppInDirectoryAsync(
                     tempDir,
-                    ["package", packagePath, .. testCase.Arguments, "--tips", "q"]);
+                    ["package", packagePath, .. testCase.Arguments]);
                 var redirected = await RunAppInDirectoryAsync(
                     tempDir,
                     [
                         "package", packagePath, .. testCase.Arguments,
-                        "--out", outputPath, "--tips", "q",
+                        "--out", outputPath,
                     ]);
 
                 Assert.Equal(0, stdout.Exit);
@@ -4320,7 +4268,7 @@ public partial class CommandExecutionTests
             var wildcard = await RunAppAsync(
                 "package", packagePath,
                 "--content", "--path", "skills/safe/*.md", "--raw", "--lines", "-n1",
-                "--out", wildcardPath, "--tips", "q");
+                "--out", wildcardPath);
 
             Assert.Equal(1, wildcard.Exit);
             Assert.Empty(wildcard.Output);
@@ -4335,7 +4283,7 @@ public partial class CommandExecutionTests
             var directory = await RunAppAsync(
                 "package", packagePath,
                 "--content", "--path", "skills/example/SKILL.md", "--raw", "--lines", "-n1",
-                "--out", directoryPath, "--tips", "q");
+                "--out", directoryPath);
 
             Assert.Equal(1, directory.Exit);
             Assert.Empty(directory.Output);
@@ -4415,9 +4363,7 @@ public partial class CommandExecutionTests
                 "@readme",
                 "--content",
                 "--out",
-                outputPath,
-                "--tips",
-                "q");
+                outputPath);
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -4463,9 +4409,7 @@ public partial class CommandExecutionTests
                 "1",
                 "--lines",
                 "--out",
-                outputPath,
-                "--tips",
-                "q");
+                outputPath);
 
             Assert.Equal(1, refused.Exit);
             Assert.Empty(refused.Output);
@@ -4480,9 +4424,7 @@ public partial class CommandExecutionTests
                 "@agents",
                 "--content",
                 "--out",
-                outputPath,
-                "--tips",
-                "q");
+                outputPath);
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Output);
@@ -4524,9 +4466,7 @@ public partial class CommandExecutionTests
                 "--content",
                 "--out",
                 outputPath,
-                "--verbose",
-                "--tips",
-                "q");
+                "--verbose");
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Output);

@@ -228,7 +228,7 @@ static class DtsEmitter
                 .Append("]: \"InertString\";\n};\n\n");
         }
 
-        if (UsesDateTimeOffset(surface))
+        if (UsesDateTimeOffset(surface, declarationPlan))
         {
             string dateTimeOffsetName =
                 allocatedDateTimeOffsetName
@@ -303,7 +303,7 @@ static class DtsEmitter
                 .Append("]: T;\n};\n\n");
         }
 
-        if (UsesJsonValue(surface))
+        if (UsesJsonValue(surface, declarationPlan))
         {
             const string jsonValueName = "JsonValue";
             if (declarationPlan.Declarations.Any(declaration =>
@@ -1027,7 +1027,7 @@ static class DtsEmitter
                             ReferenceEquals(record, item.Type)))
                     .Select(item => item.Identity)
                     .ToHashSet(),
-                UsesDateTimeOffset(surface)
+                UsesDateTimeOffset(surface, declarationPlan)
                     ? allocatedDateTimeOffsetName
                         ?? TsTypeMapper.DateTimeOffsetJsonStringName
                     : null));
@@ -2067,10 +2067,9 @@ static class DtsEmitter
         ];
 
     internal static bool UsesDateTimeOffset(
-        ILInspector.JsExportSurface.JsExportSurface surface)
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        JsonWireDeclarationPlan declarationPlan)
     {
-        JsonWireDeclarationPlan declarationPlan =
-            CreateWireDeclarationPlan(surface);
         return FindDateTimeOffsetIdentities(surface).Count > 0
         || surface.Unions
             .Where(union =>
@@ -2161,10 +2160,9 @@ static class DtsEmitter
             function.ReturnWireMode == JsExportJsonOutputMode.JsonText);
 
     internal static bool UsesJsonValue(
-        ILInspector.JsExportSurface.JsExportSurface surface)
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        JsonWireDeclarationPlan declarationPlan)
     {
-        JsonWireDeclarationPlan declarationPlan =
-            CreateWireDeclarationPlan(surface);
         ApiType[] declarationTypes = declarationPlan.Types;
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity =

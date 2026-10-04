@@ -12,11 +12,20 @@ resource-free operation describes the work, a stateless service executes it
 against explicit owner-issued access, and the returned execution retains only
 detached evidence. Unsafe-evidence presence is the first production adoption.
 It binds one single-producer Method request to stack-only session access,
-executes the existing sequential reference executor, and publishes separate
-Method-source and Producer Planning receipts with the focused producer result.
-The eight gates under [Required evidence](#required-evidence) verify that
-bounded adoption in Release. Multi-request collapse, other source kinds,
-cancellation, and legacy-remainder composition remain **unverified**.
+executes the owner-issued Method source, and publishes separate Method-source
+and Producer Planning receipts with the focused producer result. The first
+serial Method source delegates producer work to the existing sequential
+reference executor while owning source planning, binding, and receipt
+translation. The eight gates under
+[Required evidence](#required-evidence) verify the operation boundary in
+Release; the Method source's gates are listed in its owning design.
+The request-set operation now binds one immutable QuerySpace plan and publishes
+every Method request in request order, plus physical group work recorded once.
+Method Classification is its first production caller: the session-backed query
+uses request-set access while the PEReader overload remains the direct
+reference.
+Other source kinds, cancellation, residual request satisfaction, and legacy-
+remainder composition remain **unverified**.
 
 ## Authority and exact claim
 
@@ -127,9 +136,12 @@ its own QuerySpace request. QuerySpace either keeps them separate or returns
 one collapsed source plan plus consumer residuals under
 [#8574](https://github.com/richlander/dotnet-inspect/issues/8574).
 
-The first reference Method request accepts exactly one planned producer. That
-restriction keeps its terminal and work receipt exact while request collapse
-is excluded from the slice; it is not a source-wide limit.
+The direct reference Method request accepts exactly one planned producer. A
+request-set operation instead retains each complete QuerySpace association and
+lets Method Query Source place compatible all-definition requests into
+terminal-specialized lanes within one physical execution group. It never asks
+Producer Planning to merge distinct closings or derives one terminal result
+from another.
 
 An operation may compose Type, Member, and Method source requests. The service
 name is therefore assembly-wide rather than method-specific. Each source owner
@@ -193,11 +205,11 @@ Windows Metadata, or malformed reader construction settles under the
 session-owned admission contract before an Analysis producer runs.
 
 The method-definition member of that family is owned by
-[#8577](https://github.com/richlander/dotnet-inspect/issues/8577). That effort
-defines method population, declaration/body depth, generated-body expansion,
-referenced-callee work, traversal, early stop, executor equivalence, and exact
-source-work receipts. Type and Member sources remain with their respective
-owners and may use different row vocabularies or terminals.
+[Method Query Source](method-query-source.md). It defines method population,
+declaration/body depth, generated-body expansion, referenced-callee work,
+traversal, early stop, executor equivalence, and exact source-work receipts.
+Type and Member sources remain with their respective owners and may use
+different row vocabularies or terminals.
 
 ## Planning and execution boundaries
 

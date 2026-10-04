@@ -49,6 +49,7 @@ public class SkillCommand
         new SkillEntry("decompiler", "dotnet-inspect.skills.decompiler.md"),
         new SkillEntry("performance", "dotnet-inspect.skills.performance.md"),
         new SkillEntry("relationships", "dotnet-inspect.skills.relationships.md"),
+        new SkillEntry("project-analysis", "dotnet-inspect.skills.project-analysis.md"),
     ];
 
     /// <summary>

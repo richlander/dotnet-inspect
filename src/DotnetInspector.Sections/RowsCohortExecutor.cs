@@ -140,6 +140,18 @@ public static class RowsCohortExecutor
     {
         ArgumentNullException.ThrowIfNull(intent);
 
+        return Apply(
+            sequences,
+            CreateUnorderedPlan(intent));
+    }
+
+    public static RowSelectionPlan<TOrderOperand>
+        CreateUnorderedPlan<TOrderOperand>(
+            RowSelectionIntent<TOrderOperand> intent)
+        where TOrderOperand : notnull
+    {
+        ArgumentNullException.ThrowIfNull(intent);
+
         var stages =
             new RowSelectionStage<TOrderOperand>[
                 intent.Operations.Count];
@@ -170,9 +182,7 @@ public static class RowsCohortExecutor
                 };
         }
 
-        return Apply(
-            sequences,
-            RowSelectionPlan<TOrderOperand>.Create(stages));
+        return RowSelectionPlan<TOrderOperand>.Create(stages);
     }
 
     public static RowsCohortResult<TIdentity, T> Apply<

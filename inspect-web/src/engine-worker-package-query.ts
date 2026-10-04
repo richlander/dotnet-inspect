@@ -21,7 +21,6 @@ import type {
 } from "./package-query.ts";
 import {
   isLibraryLiteralQuery,
-  PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
 } from "./package-query.ts";
 import type {
   WorkerRuntimeControlledOperationRegistration,
@@ -212,6 +211,14 @@ export type EngineWorkerPackageQueryInput =
     readonly maximumMatches: number;
     readonly includePrerelease: boolean;
     readonly initialMatchCredit: number;
+  }
+  | {
+    readonly kind: "ecosystem";
+    readonly ecosystemId: string;
+    readonly maximumCandidates: number;
+    readonly maximumMatches: number;
+    readonly includePrerelease: boolean;
+    readonly initialMatchCredit: number;
   };
 
 export interface EngineWorkerPackageQueryTerminalFailure {
@@ -235,7 +242,8 @@ export type EngineWorkerPackageQueryFacade =
     "cancelPackageQuery"
     | "requestPackageQueryMatches"
     | "runPackageQuery"
-  >;
+  >
+  & Partial<Pick<PackageFacade, "runEcosystemPackageQuery">>;
 
 class PackageQueryPayloadError extends Error {
   readonly reason: "invalid" | "oversized";
@@ -495,6 +503,38 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       targetFramework: nullableText(
         input.targetFramework,
         "Package Query target framework",
+        budget),
+      maximumCandidates: integer(
+        input.maximumCandidates,
+        "Package Query candidate limit",
+        1),
+      maximumMatches: integer(
+        input.maximumMatches,
+        "Package Query match limit",
+        1),
+      includePrerelease: booleanValue(
+        input.includePrerelease,
+        "Package Query prerelease selection"),
+      initialMatchCredit: integer(
+        input.initialMatchCredit,
+        "Package Query initial match credit",
+        1),
+    };
+  }
+  if (kindProperty.value === "ecosystem") {
+    const input = dataRecord(value, [
+      "kind",
+      "ecosystemId",
+      "maximumCandidates",
+      "maximumMatches",
+      "includePrerelease",
+      "initialMatchCredit",
+    ], "Ecosystem Package Query request");
+    return {
+      kind: "ecosystem",
+      ecosystemId: text(
+        input.ecosystemId,
+        "Ecosystem Package Query identity",
         budget),
       maximumCandidates: integer(
         input.maximumCandidates,
@@ -1974,6 +2014,17 @@ export function mapEngineWorkerPackageQueryCredit(
 function encodeQueryRequest(
   request: QueryRequest,
 ): BoundedPayloadDecodeResult<unknown> {
+  if (request.ecosystemId !== undefined) {
+    const payload: EngineWorkerPackageQueryInput = {
+      kind: "ecosystem",
+      ecosystemId: request.ecosystemId,
+      maximumCandidates: request.requestedLimit,
+      maximumMatches: request.requestedMatchLimit,
+      includePrerelease: request.includePrerelease,
+      initialMatchCredit: request.initialMatchCredit,
+    };
+    return engineWorkerPackageQueryInput.decode(payload);
+  }
   const payload: EngineWorkerPackageQueryInput =
     {
           kind: "query",
@@ -1996,7 +2047,7 @@ function encodeQueryRequest(
           maximumCandidates: request.requestedLimit,
           maximumMatches: request.requestedMatchLimit,
           includePrerelease: request.includePrerelease,
-          initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+          initialMatchCredit: request.initialMatchCredit,
         };
   return engineWorkerPackageQueryInput.decode(payload);
 }
@@ -2135,16 +2186,29 @@ export function registerEngineWorkerPackageQueryOperation(
     invoke: async (input, context) => {
       const packageFacade = facade();
       const eventSink = createManagedEventSink(context);
-      const result = await packageFacade.runPackageQuery(
-          context.operation.operationId,
-          input.searchText,
-        input.terms,
-          input.targetFramework,
-          input.maximumCandidates,
-          input.maximumMatches,
-          input.includePrerelease,
-          input.initialMatchCredit,
-          eventSink);
+      const result = input.kind === "ecosystem"
+        ? await (packageFacade.runEcosystemPackageQuery
+            ?? (() => {
+              throw new Error(
+                "The managed facade does not support Ecosystem Package Query.");
+            }))(
+            context.operation.operationId,
+            input.ecosystemId,
+            input.maximumCandidates,
+            input.maximumMatches,
+            input.includePrerelease,
+            input.initialMatchCredit,
+            eventSink)
+        : await packageFacade.runPackageQuery(
+            context.operation.operationId,
+            input.searchText,
+            input.terms,
+            input.targetFramework,
+            input.maximumCandidates,
+            input.maximumMatches,
+            input.includePrerelease,
+            input.initialMatchCredit,
+            eventSink);
       return mapEngineWorkerPackageQueryResult(result);
     },
     cancel: (operation, reason) =>

@@ -66,40 +66,6 @@ public static class ResearchMemberIdentity
             identity.MemberName);
     }
 
-    public static bool TryAddTargetIdentity(ResolvedMemberTarget target, ISet<string> identities)
-    {
-        var member = target.ApiMember.Member;
-        if (member.Kind is "property" or "field" or "event")
-            return false;
-
-        identities.Add(BodyIdentityFromTarget(
-            target,
-            includeReturnType: false).StableSelector);
-        return true;
-    }
-
-    public static bool TryAddReturnTypeTargetIdentity(
-        ResolvedMemberTarget target,
-        ISet<string> identities)
-    {
-        var member = target.ApiMember.Member;
-        if (member.Kind is "property" or "field" or "event")
-            return false;
-
-        identities.Add(BodyIdentityFromTarget(
-            target,
-            includeReturnType: true).StableSelector);
-        return true;
-    }
-
-    public static void AddReturnTypeTargetIdentity(
-        MethodIdentity method,
-        ISet<string> identities)
-        => identities.Add(
-            SubjectFromMethod(
-                method,
-                includeReturnType: true).Id);
-
     internal static IReadOnlySet<string> ReturnTypeCollisionSubjectIds(
         IEnumerable<MethodIdentity> methods)
         => methods
@@ -150,64 +116,6 @@ public static class ResearchMemberIdentity
             ApiMemberIdentity.IsConversionOperator(member.Name)
                 ? $"~{BodyReturnTypeName(member.OpenSignatureReturn)}"
                 : "");
-
-    static BodyMemberIdentity BodyIdentityFromTarget(
-        ResolvedMemberTarget target,
-        bool includeReturnType)
-    {
-        var member = target.ApiMember.Member;
-        var signature = member.SignatureModel;
-        var memberName = member.Kind == "constructor"
-            ? "#ctor"
-            : string.IsNullOrWhiteSpace(signature?.MemberName) ? member.Name : signature!.MemberName!;
-        var generic = signature is { TypeParameters.Count: > 0 }
-            ? $"<{string.Join(",", signature.TypeParameters.Select(
-                parameter => parameter.Name))}>"
-            : "";
-        var parameters = signature is null
-            ? "()"
-            : $"({string.Join(",", signature.Parameters.Select(parameter =>
-                BodyParameterTypeName(parameter.TypeWithModifier)))})";
-        var declaringType = target.Body?.DeclaringType
-            ?? (member.IsExtension && !string.IsNullOrWhiteSpace(member.DeclaringType)
-                ? member.DeclaringType!
-                : target.Anchor.TypeFullName);
-
-        var selectorName = target.Anchor.StableSelector.Split('~')[0];
-        if (member.IsExtension && !selectorName.StartsWith("extension:", StringComparison.Ordinal))
-            selectorName = $"extension:{selectorName}";
-        return CreateBodyIdentity(
-            selectorName,
-            BodyDeclaringTypeName(declaringType),
-            memberName,
-            generic,
-            parameters,
-            BodyReturnSuffix(
-                member,
-                signature,
-                includeReturnType));
-    }
-
-    static string BodyReturnSuffix(
-        ApiMember member,
-        ApiSignature? signature,
-        bool includeReturnType)
-    {
-        if (!includeReturnType
-            && !ApiMemberIdentity.IsConversionOperator(member.Name))
-        {
-            return "";
-        }
-
-        if (signature?.ReturnTypeShape is { } returnTypeShape)
-            return $"~{BodyReturnTypeName(returnTypeShape)}";
-
-        string? returnType =
-            signature?.EffectiveCanonicalReturnType ?? member.ReturnType;
-        return string.IsNullOrWhiteSpace(returnType)
-            ? ""
-            : $"~{BodyParameterTypeName(returnType)}";
-    }
 
     static BodyMemberIdentity CreateBodyIdentity(
         string selectorName,

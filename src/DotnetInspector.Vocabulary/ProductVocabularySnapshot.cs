@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Vocabulary;
 

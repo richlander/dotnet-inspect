@@ -158,6 +158,18 @@ public sealed record ScorecardSummary(
     int FailedExcluded);
 
 /// <summary>
+/// One closing's cost relative to Count for one implementation column.
+/// </summary>
+public sealed record ScorecardTerminalSummary(
+    string Column,
+    ScorecardClosing Closing,
+    double GeometricMean,
+    double Min,
+    double Max,
+    int Assets,
+    int FailedExcluded);
+
+/// <summary>
 /// The scorecard harness: checks that every column answers every closing the
 /// way the oracle does, and times them with rotated rounds so drift affects
 /// every column equally.
@@ -327,11 +339,13 @@ public static class Scorecard
 
     /// <summary>
     /// Per closing and column, the geometric mean across assets of the ratio
-    /// to the oracle, with its minimum and maximum. An asset is scored only
-    /// when both its cell and the oracle's were timed; failed strict windows
-    /// are excluded and counted.
+    /// to the implementation baseline, with its minimum and maximum. An asset
+    /// is scored only when both cells were timed; failed strict windows are
+    /// excluded and counted.
     /// </summary>
-    public static IReadOnlyList<ScorecardSummary> Summarize(IReadOnlyList<ScorecardCell> cells, string oracle)
+    public static IReadOnlyList<ScorecardSummary> Summarize(
+        IReadOnlyList<ScorecardCell> cells,
+        string baseline)
     {
         var summary = new List<ScorecardSummary>();
         var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
@@ -348,14 +362,15 @@ public static class Scorecard
                 foreach (int asset in assets)
                 {
                     ScorecardCell cell = byKey[(asset, closing, column)];
-                    ScorecardCell baseline = byKey[(asset, closing, oracle)];
-                    if (cell.WindowFailed || baseline.WindowFailed)
+                    ScorecardCell baselineCell =
+                        byKey[(asset, closing, baseline)];
+                    if (cell.WindowFailed || baselineCell.WindowFailed)
                     {
                         excluded++;
                         continue;
                     }
 
-                    ratios.Add(cell.Median / baseline.Median);
+                    ratios.Add(cell.Median / baselineCell.Median);
                 }
 
                 summary.Add(ratios.Count == 0
@@ -368,20 +383,107 @@ public static class Scorecard
     }
 
     /// <summary>
-    /// The time report as Markdown: ratios to the oracle per closing, with the
-    /// number of assets scored and any failed strict windows excluded, then
-    /// every asset's absolute medians.
+    /// Per implementation column and closing, the geometric mean across
+    /// assets of the ratio to Count for the same column.
     /// </summary>
-    public static string Report(IReadOnlyList<ScorecardCell> cells, string oracle, ScorecardShape shape)
+    public static IReadOnlyList<ScorecardTerminalSummary>
+        SummarizeTerminalsToCount(
+            IReadOnlyList<ScorecardCell> cells)
     {
-        IReadOnlyList<ScorecardSummary> summary = Summarize(cells, oracle);
+        var summary = new List<ScorecardTerminalSummary>();
+        var byKey = cells.ToDictionary(
+            cell =>
+                (cell.AssetIndex, cell.Closing, cell.Column));
+        string[] columns =
+            [.. cells.Select(cell => cell.Column).Distinct()];
+        int[] assets =
+            [.. cells.Select(cell => cell.AssetIndex).Distinct()];
+        ScorecardClosing[] closings =
+        [
+            .. new[]
+            {
+                ScorecardClosing.Exists,
+                ScorecardClosing.Count,
+                ScorecardClosing.Rows,
+            }.Where(closing =>
+                cells.Any(cell => cell.Closing == closing)),
+        ];
+        if (!closings.Contains(ScorecardClosing.Count))
+            return summary;
+
+        foreach (string column in columns)
+        {
+            foreach (ScorecardClosing closing in closings)
+            {
+                var ratios = new List<double>();
+                int excluded = 0;
+                foreach (int asset in assets)
+                {
+                    ScorecardCell cell =
+                        byKey[(asset, closing, column)];
+                    ScorecardCell count =
+                        byKey[
+                            (asset, ScorecardClosing.Count, column)];
+                    if (cell.WindowFailed
+                        || count.WindowFailed
+                        || count.Median <= 0)
+                    {
+                        excluded++;
+                        continue;
+                    }
+
+                    ratios.Add(cell.Median / count.Median);
+                }
+
+                summary.Add(
+                    ratios.Count == 0
+                        ? new(
+                            column,
+                            closing,
+                            double.NaN,
+                            double.NaN,
+                            double.NaN,
+                            0,
+                            excluded)
+                        : new(
+                            column,
+                            closing,
+                            Math.Exp(ratios.Average(Math.Log)),
+                            ratios.Min(),
+                            ratios.Max(),
+                            ratios.Count,
+                            excluded));
+            }
+        }
+
+        return summary;
+    }
+
+    /// <summary>
+    /// The time report as Markdown: implementation ratios to one baseline,
+    /// terminal ratios to Count, then every asset's absolute medians.
+    /// </summary>
+    public static string Report(
+        IReadOnlyList<ScorecardCell> cells,
+        string baseline,
+        ScorecardShape shape)
+    {
+        IReadOnlyList<ScorecardSummary> summary =
+            Summarize(cells, baseline);
+        IReadOnlyList<ScorecardTerminalSummary> terminalSummary =
+            SummarizeTerminalsToCount(cells);
         string[] columns = [.. cells.Select(c => c.Column).Distinct()];
         (int Index, string Name)[] assets = [.. cells.Select(c => (c.AssetIndex, c.Asset)).Distinct()];
         ScorecardClosing[] closings =
             [.. cells.Select(c => c.Closing).Distinct()];
         var text = new StringBuilder();
 
-        text.Append("Ratios to ").Append(oracle).AppendLine(": geometric mean across assets (min–max); lower is faster.").AppendLine();
+        text.Append("Implementation ratios to ")
+            .Append(baseline)
+            .AppendLine(
+                ": geometric mean across assets (min–max); "
+                    + "lower is faster.")
+            .AppendLine();
         text.Append("| Closing | Assets |");
         foreach (string column in columns)
             text.Append(' ').Append(column).Append(" |");
@@ -391,7 +493,10 @@ public static class Scorecard
         text.AppendLine();
         foreach (ScorecardClosing closing in closings)
         {
-            ScorecardSummary scored = summary.First(s => s.Closing == closing && s.Column == oracle);
+            ScorecardSummary scored =
+                summary.First(summary =>
+                    summary.Closing == closing
+                    && summary.Column == baseline);
             text.Append("| ").Append(shape.Label(closing)).Append(" | ")
                 .Append(string.Create(CultureInfo.InvariantCulture, $"{scored.Assets}"))
                 .Append(scored.FailedExcluded == 0 ? "" : string.Create(CultureInfo.InvariantCulture, $" ({scored.FailedExcluded} failed, excluded)"))
@@ -400,11 +505,72 @@ public static class Scorecard
             {
                 ScorecardSummary entry = summary.First(s => s.Closing == closing && s.Column == column);
                 text.Append(entry.Assets == 0 ? " — |"
-                    : column == oracle ? " 1.00× |"
+                    : column == baseline ? " 1.00× |"
                     : string.Create(CultureInfo.InvariantCulture, $" {entry.GeometricMean:0.00}× ({entry.Min:0.00}–{entry.Max:0.00}) |"));
             }
 
             text.AppendLine();
+        }
+
+        if (terminalSummary.Count > 0)
+        {
+            ScorecardClosing[] terminalClosings =
+            [
+                .. terminalSummary
+                    .Select(summary => summary.Closing)
+                    .Distinct(),
+            ];
+            text.AppendLine()
+                .AppendLine(
+                    "Terminal ratios to Count: geometric mean across "
+                        + "assets (min–max); lower is faster.")
+                .AppendLine();
+            text.Append("| Implementation | Assets |");
+            foreach (ScorecardClosing closing in terminalClosings)
+            {
+                text.Append(' ')
+                    .Append(shape.Label(closing))
+                    .Append(" |");
+            }
+            text.AppendLine()
+                .Append("| --- | ---: |");
+            foreach (ScorecardClosing _ in terminalClosings)
+                text.Append(" ---: |");
+            text.AppendLine();
+            foreach (string column in columns)
+            {
+                ScorecardTerminalSummary scored =
+                    terminalSummary.First(summary =>
+                        summary.Column == column
+                        && summary.Closing
+                            == ScorecardClosing.Count);
+                text.Append("| ")
+                    .Append(column)
+                    .Append(" | ")
+                    .Append(
+                        scored.Assets.ToString(
+                            CultureInfo.InvariantCulture))
+                    .Append(" |");
+                foreach (ScorecardClosing closing
+                    in terminalClosings)
+                {
+                    ScorecardTerminalSummary entry =
+                        terminalSummary.First(summary =>
+                            summary.Column == column
+                            && summary.Closing == closing);
+                    text.Append(
+                        entry.Assets == 0
+                            ? " — |"
+                            : closing == ScorecardClosing.Count
+                                ? " 1.00× |"
+                                : string.Create(
+                                    CultureInfo.InvariantCulture,
+                                    $" {entry.GeometricMean:0.00}× "
+                                        + $"({entry.Min:0.00}–"
+                                        + $"{entry.Max:0.00}) |"));
+                }
+                text.AppendLine();
+            }
         }
 
         text.AppendLine().AppendLine("Absolute medians, µs; `fail` is a strict window that does not exist for the asset.").AppendLine();

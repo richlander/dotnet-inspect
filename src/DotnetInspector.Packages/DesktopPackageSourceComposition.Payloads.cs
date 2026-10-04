@@ -7,7 +7,7 @@ public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
     /// Acquires and resolves one exact file from a caller-pinned coordinate.
-    /// Cache selection, size-first ranged access, manifest resolution, and
+    /// PackageHouse owns cache and transfer planning; manifest resolution and
     /// generation-bound reading are owned by <see cref="PackageFileAcquisition"/>.
     /// </summary>
     public Task<PackageFileAcquisitionResult> AcquireFileAsync(

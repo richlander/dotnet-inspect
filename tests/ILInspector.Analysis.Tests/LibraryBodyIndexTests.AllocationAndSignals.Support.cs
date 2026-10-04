@@ -24,20 +24,36 @@ namespace ILInspector.Analysis.Tests;
 public partial class LibraryBodyIndexTests
 {
 
-    static IEnumerable<string> ArrayShapes(LibraryBodyIndex index, string methodName)
-        => index.OptimizationOpportunities
+    static IEnumerable<string> ArrayShapes(
+        LibraryBodyAnalysisExecution analysis,
+        string methodName)
+        => analysis.Optimization.Opportunities
             .Where(o => o.Method.Name == methodName && o.Shape is "small-array" or "stackalloc-candidate")
             .Select(o => o.Shape);
 
-    static AllocationOccurrence SingleAllocationOccurrence(LibraryBodyIndex index, string methodName, AllocationKind kind)
-        => SingleAllocationOccurrence(index, nameof(OptimizationOpportunityFixtures), methodName, kind);
+    static AllocationOccurrence SingleAllocationOccurrence(
+        LibraryBodyAnalysisExecution analysis,
+        string methodName,
+        AllocationKind kind)
+        => SingleAllocationOccurrence(
+            analysis,
+            nameof(OptimizationOpportunityFixtures),
+            methodName,
+            kind);
 
-    static AllocationOccurrence SingleAllocationOccurrence(LibraryBodyIndex index, string typeName, string methodName, AllocationKind kind)
+    static AllocationOccurrence SingleAllocationOccurrence(
+        LibraryBodyAnalysisExecution analysis,
+        string typeName,
+        string methodName,
+        AllocationKind kind)
     {
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(analysis.CallGraph.Methods.Where(m =>
             m.DeclaringType.Name == typeName
             && m.Name == methodName));
-        Assert.True(index.GetAllocationOccurrences().TryGetValue(method.MetadataToken, out var occurrences));
+        Assert.True(
+            analysis.Allocations.Occurrences.TryGetValue(
+                method.MetadataToken,
+                out var occurrences));
         return Assert.Single(occurrences.Where(occurrence =>
             occurrence.Kind == kind
             && occurrence.CountsAsHeapAllocation));
@@ -327,43 +343,59 @@ public partial class LibraryBodyIndexTests
         }
     }
 
-    static IEnumerable<string> DelegateShapes(LibraryBodyIndex index, string methodName)
-        => index.OptimizationOpportunities
+    static IEnumerable<string> DelegateShapes(
+        LibraryBodyAnalysisExecution analysis,
+        string methodName)
+        => analysis.Optimization.Opportunities
             .Where(o => o.Method.Name == methodName && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate" or "cache-lookup-factory-delegate")
             .Select(o => o.Shape);
 
-    static System.Collections.Generic.List<OptimizationOpportunity> BoxRows(LibraryBodyIndex index, string methodName)
-        => index.OptimizationOpportunities
+    static System.Collections.Generic.List<OptimizationOpportunity> BoxRows(
+        LibraryBodyAnalysisExecution analysis,
+        string methodName)
+        => analysis.Optimization.Opportunities
             .Where(o => o.Method.Name == methodName && o.Shape == "box-value-type")
             .ToList();
 
     static System.Collections.Generic.List<OptimizationOpportunity> GenericObjectBoxRows(
-        LibraryBodyIndex index,
+        LibraryBodyAnalysisExecution analysis,
         string methodName)
-        => index.OptimizationOpportunities
+        => analysis.Optimization.Opportunities
             .Where(o => o.Method.Name == methodName
                 && o.Shape == "generic-parameter-object-box")
             .ToList();
 
-    static System.Collections.Generic.List<OptimizationOpportunity> HotspotRows(LibraryBodyIndex index, string methodName)
-        => index.OptimizationOpportunities
+    static System.Collections.Generic.List<OptimizationOpportunity> HotspotRows(
+        LibraryBodyAnalysisExecution analysis,
+        string methodName)
+        => analysis.Optimization.Opportunities
             .Where(o => o.Method.Name == methodName && o.Shape == "allocation-hotspot")
             .ToList();
 
-    static System.Collections.Generic.List<OptimizationOpportunity> StringBuildRows(LibraryBodyIndex index, string methodName)
-        => index.OptimizationOpportunities
+    static System.Collections.Generic.List<OptimizationOpportunity> StringBuildRows(
+        LibraryBodyAnalysisExecution analysis,
+        string methodName)
+        => analysis.Optimization.Opportunities
             .Where(o => o.Method.Name == methodName && o.Shape == "string-build-in-loop")
             .ToList();
 
-    static System.Collections.Generic.List<OptimizationOpportunity> EnumeratorRows(LibraryBodyIndex index, string methodName)
-        => index.OptimizationOpportunities
+    static System.Collections.Generic.List<OptimizationOpportunity> EnumeratorRows(
+        LibraryBodyAnalysisExecution analysis,
+        string methodName)
+        => analysis.Optimization.Opportunities
             .Where(o => o.Method.Name == methodName && o.Shape == "enumerator-allocation")
             .ToList();
 
-    static int AllocationsOf(LibraryBodyIndex index, string methodName)
+    static int AllocationsOf(
+        LibraryBodyAnalysisExecution analysis,
+        string methodName)
     {
-        int token = index.Methods.First(method => method.Name == methodName).MetadataToken;
-        return index.GetMethodSignals().GetValueOrDefault(token, MethodSignals.None).Allocations;
+        int token = analysis.CallGraph.Methods
+            .First(method => method.Name == methodName)
+            .MetadataToken;
+        return analysis.CallGraph.MethodSignals
+            .GetValueOrDefault(token, MethodSignals.None)
+            .Allocations;
     }
 
     static DirectCall EnumerableToArrayCall(string calleeAssembly, int callerToken)

@@ -20,7 +20,10 @@ import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
 
 export interface EngineStartupClient {
   readonly host: Pick<EngineClient["host"], "buildIdentity">;
-  readonly catalog: Pick<EngineClient["catalog"], "inspectVocabulary" | "listHomeDemos">;
+  readonly catalog: Pick<
+    EngineClient["catalog"],
+    "inspectVocabulary" | "listEcosystems" | "listHomeDemos"
+  >;
   readonly package: Pick<
     EngineClient["package"],
     "listPackageActivityEcosystems" | "listPackageQueryCatalog"
@@ -30,6 +33,7 @@ export interface EngineStartupClient {
 interface StartupReads {
   readonly buildIdentity: EngineStartupClient["host"]["buildIdentity"];
   readonly inspectVocabulary: EngineStartupClient["catalog"]["inspectVocabulary"];
+  readonly listEcosystems: EngineStartupClient["catalog"]["listEcosystems"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
   readonly listPackageActivityEcosystems:
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
@@ -63,6 +67,7 @@ export function registerEngineWorkerStartupOperations(
   }
   register(engineStartupOperations.buildIdentity, reads.buildIdentity);
   register(engineStartupOperations.inspectVocabulary, reads.inspectVocabulary);
+  register(engineStartupOperations.listEcosystems, reads.listEcosystems);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
   register(
     engineStartupOperations.listPackageActivityEcosystems,
@@ -145,6 +150,7 @@ export function bindEngineWorkerStartupClient(
     host: { buildIdentity: bind(engineStartupOperations.buildIdentity) },
     catalog: {
       inspectVocabulary: readVocabulary,
+      listEcosystems: bind(engineStartupOperations.listEcosystems),
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
     },
     package: {

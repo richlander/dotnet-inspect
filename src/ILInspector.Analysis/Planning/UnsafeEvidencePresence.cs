@@ -35,7 +35,7 @@ public struct UnsafeEvidencePredicate : IMethodDefinitionPredicate
 /// <summary>
 /// Unsafe-evidence presence as an open query over method definitions, at
 /// declaration depth with body depth and the module lookup on demand. Closed
-/// with Exists it settles on the first evidence; closed with Complete it counts the
+/// with Exists it settles on the first evidence; closed with Count it counts the
 /// methods with evidence.
 /// </summary>
 public sealed class UnsafeEvidencePresenceProducer

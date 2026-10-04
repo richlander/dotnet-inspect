@@ -71,7 +71,9 @@ ReadyToRun machine value is one the Image vocabulary does not name.
 | Source | Host source provenance |
 | Version | See [Version](#version) |
 | Types, Methods | Legacy Metadata table row counts, until a population owner claims them |
-| Async Methods, Custom Attributes, Extension Methods, Integrations, Resources, Switches, Type Forwarders, Union Types | Legacy counts of their existing sections, until each population slice |
+| Async Methods, Extension Methods | Method classification Count terminals (`docs/design/method-classification-analyzers.md`). Extension Methods counts public static extension methods on static extension types, not hidden; extension properties from C# 14 extension blocks are not counted (decided 2026-10-02, with a separate property count considered later), so a Library with extension properties reads fewer than its Extension Methods section lists |
+| Switches | The switches the metadata declares: `RuntimeHostConfigurationOption` assembly and module attributes and `FeatureSwitchDefinition` properties. `AppContext` call sites need every IL body, so under the [overview cost](progressive-disclosure.md#overview-cost) rule the Switches section lists them and this row does not count them (decided 2026-10-03) |
+| Custom Attributes, Integrations, Resources, Type Forwarders, Union Types | Legacy counts of their existing sections, until each population slice |
 | Facade | Legacy Platform surface classification |
 | Deterministic | Legacy SourceLink and PDB owner |
 | Ecosystem Dependencies, Ecosystem Dependency Status | Legacy ecosystem recognition owner |
@@ -170,6 +172,10 @@ Release gates in the CLI tests:
   Description, and Enabled rows shown above, and no Modified row;
 - a reference-pack assembly renders no Enabled row;
 - JSON output carries the same values as the Markdown rows;
+- the legacy unqualified `--json` compatibility model carries no Library
+  document or Library-document failure state;
+- package-wide Library Info row lowering keeps each Library document paired
+  with the package asset that produced it;
 - the IL-only `System.Runtime.CompilerServices.Unsafe` 6.0.0 package asset keeps
   `Compilation | CoreCLR`, `Architecture | AnyCPU`, `Signed | Yes`,
   `Reproducible | No`, and `File Size | 17.6 KB`;

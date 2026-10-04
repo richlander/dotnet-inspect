@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using InertText;
 
 namespace DotnetInspect.Cli.Sections;

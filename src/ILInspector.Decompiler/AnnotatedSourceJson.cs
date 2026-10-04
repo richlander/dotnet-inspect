@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Instructions;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler;
 
 /// <summary>

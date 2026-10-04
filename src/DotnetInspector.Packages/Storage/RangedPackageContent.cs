@@ -19,20 +19,23 @@ namespace DotnetInspector.Packages;
 public sealed class RangedPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
+    IPackageArchiveEntryManifest,
     IPackageHousePayloadSource
 {
     private readonly IReadOnlyList<PackageContentEntry> _entries;
     private readonly IReadOnlyDictionary<string, ReadOnlyMemory<byte>> _materialized;
-    private readonly PackageContentGenerationIdentity _generationIdentity = new();
+    private readonly PackageContentGenerationIdentity _generationIdentity;
 
     private RangedPackageContent(
         IReadOnlyList<PackageContentEntry> entries,
         IReadOnlyDictionary<string, ReadOnlyMemory<byte>> materialized,
-        string producerKey)
+        string producerKey,
+        PackageContentGenerationIdentity generationIdentity)
     {
         _entries = entries;
         _materialized = materialized;
         ProducerKey = producerKey;
+        _generationIdentity = generationIdentity;
     }
 
     /// <summary>
@@ -48,7 +51,23 @@ public sealed class RangedPackageContent :
         return new(
             entries,
             new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal),
-            producerKey);
+            producerKey,
+            new PackageContentGenerationIdentity());
+    }
+
+    internal static RangedPackageContent CreateDirectory(
+        IReadOnlyList<PackageContentEntry> entries,
+        string producerKey,
+        PackageContentGenerationIdentity generationIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentException.ThrowIfNullOrEmpty(producerKey);
+        ArgumentNullException.ThrowIfNull(generationIdentity);
+        return new(
+            entries,
+            new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal),
+            producerKey,
+            generationIdentity);
     }
 
     /// <summary>
@@ -76,7 +95,11 @@ public sealed class RangedPackageContent :
             }
         }
 
-        return new(_entries, materialized, ProducerKey);
+        return new(
+            _entries,
+            materialized,
+            ProducerKey,
+            _generationIdentity);
     }
 
     /// <inheritdoc />
@@ -194,6 +217,14 @@ public sealed class RangedPackageContent :
     /// <inheritdoc />
     public PackageContentEntryScanner CreateEntryScanner() =>
         PackageContentEntryScanner.From(_entries);
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? entries)
+    {
+        entries = _entries;
+        return true;
+    }
 
     /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries() =>

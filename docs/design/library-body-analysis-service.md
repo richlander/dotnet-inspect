@@ -88,6 +88,17 @@ attribution, and reuse of one execution across requested sections. Migrated
 sections consume focused results from that execution; unmigrated sections
 request its lazy compatibility index.
 
+The `runfaster` adoption moves static allocation-candidate discovery from the
+default compatibility index to one allocation-only path execution. It consumes
+`LibraryAllocationAnalysisResult.Occurrences` directly, preserving candidate
+identity and the existing visible file/image failure boundary without running
+unrequested optimization or async-sibling producers.
+
+The Analysis Harness allocation-readout adoption executes the allocation and
+optimization producers once per corpus assembly. It consumes method identities,
+allocation occurrences, and completed optimization opportunities from their
+focused results while preserving aggregate buckets and failed-open accounting.
+
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
 unmigrated consumers. `LibraryBodyIndex` itself is also a temporary aggregate
 for those consumers, not the destination for new producer evidence or query
@@ -227,6 +238,60 @@ and publishes a distinct `LibraryResourceLifecycleAnalysisResult`; an
 occurrence-only request does not select lifecycle work. The lifecycle producer
 composes occurrence evidence with same-execution control-flow and exception
 facts before those operation-local facts are discarded.
+
+### Direct-call target resolution
+
+`LibraryCallGraphAnalysisResult.ResolveTarget(DirectCall)` publishes the
+Analysis-issued target of one physical direct call from that result
+([#8700](https://github.com/richlander/dotnet-inspect/issues/8700)). Each call
+resolves to exactly one of:
+
+- **current module**, with the bound declared `MethodIdentity`;
+- **external**, with the exact decoded reference origin of the callee's
+  declaring type definition. Type forwarding is never followed;
+- **runtime-provided**, for a member of an array type; or
+- **unresolved**, with a typed reason: indirect (`calli`), unsupported
+  signature, malformed signature, invalid generic declaration, unmatched, or
+  ambiguous.
+
+A call through a generic instantiation of a current-module type is encoded as a
+member reference on a type specification, so its `CalleeDefinitionToken` is not
+a declared-method token. Resolution binds it by token and then by signature,
+using the same current-module test and signature comparison as the call graph's
+own traversal. Consumers must use this outcome and must not match
+`CalleeDefinitionToken` against `DeclaredMethods`. Resolution is a pure function
+of the published result and does not require `LibraryBodyIndex`.
+
+The first production consumer is the Library Metrics relationship projection.
+Library Dependency Structure is the second.
+
+`LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
+publishes Analysis's declared-source association for any method, including
+call targets and methods that make no calls. Focused consumers call it
+directly; `LibraryBodyIndex` does not forward it.
+
+- **Where Analysis authenticates the ultimate owner** (lifted lambdas, local
+  functions, and async `MoveNext`), it returns that owner. This is the same
+  association `DirectCall.Caller` carries.
+- **Async `MoveNext` ignores scope:** one whose ultimate owner authenticates is
+  associated module-wide, even when it lies outside a scoped result's body
+  scope.
+- **One exception, in an unscoped result:** an async `MoveNext` whose lifted
+  source's owner cannot be resolved maps to that immediate lifted source,
+  unless the source's compiler-generated name is malformed. The calls made by
+  that `MoveNext` keep the physical `MoveNext` as `DirectCall.Caller`.
+- **Scoped results withhold that fallback:** they return `null` for it, and for
+  lambdas and local functions outside the scope.
+- **Never associated:** sync iterators, and state-machine or display-class
+  constructors.
+
+Its first production consumer is Library Dependency Structure, which uses it to
+attribute call targets. Gates:
+
+- `DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource`: the module-wide
+  async association.
+- `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`:
+  the unscoped fallback and the scoped `null`, on the focused result.
 
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
@@ -376,8 +441,9 @@ The initial closed metric vocabulary is:
 | Control flow | Blocks, branches, switches, loops, and ordinary-flow complexity | Canonical method context |
 | Exception regions | Catch, filter, finally, and fault counts | Managed body acquisition |
 | Locals | Declared local count and decode completeness | Local-signature decode |
-| Direct calls | Invocation and distinct-target counts | Canonical method context and metric call collection |
-| Sibling overload relationships | Exact relationship rows and incoming/outgoing counts | Direct calls and family relationship projection |
+| Direct invocation count | Count of `call`, `callvirt`, and `newobj` sites | Managed body acquisition and direct-invocation discovery |
+| Distinct direct-call targets | Count of resolved target identities | Canonical method context and metric call collection |
+| Sibling overload relationships | Exact relationship rows and incoming/outgoing counts | Direct-call targets and family relationship projection |
 | Allocation count | The current implementation-profile allocation count | Canonical context and allocation-signal collection |
 | Allocation occurrences | Owner-issued allocation sites, shapes, escape, and multiplicity | Canonical context and allocation-occurrence collection |
 | Throw count | The current implementation-profile throw count | Canonical context and body-signal collection |
@@ -399,6 +465,15 @@ Unsafe presence does not select all `UnsafetyOccurrence` rows. Those richer
 safety rows retain their existing explicit request and owner-issued result
 contract.
 
+Direct invocation count and distinct direct-call targets are separate metrics.
+Invocation count is a discovery fact over qualifying IL opcodes. Distinct-target
+count is an identity fact over successfully resolved target members. A combined
+compatibility projection may carry both values, but it composes the two
+owner-issued results; it does not derive invocation count from the length of
+resolved rows. Failure to resolve one target therefore cannot reduce a complete
+invocation count, and a complete invocation count cannot make the distinct
+target result complete.
+
 Declared-source and generated-body attribution are mandatory result
 correspondence, not an optional metric. Every metric result identifies
 the logical declared method and the physical evidence method when that
@@ -406,10 +481,11 @@ relationship is authenticated. Requesting the Async metric controls
 publication of the async metric; it does not let a caller omit the
 correspondence required to interpret every other logical metric.
 
-The initial required-fact vocabulary is source attribution, managed body,
-local signature, canonical method context, direct calls, allocation signals,
-allocation occurrences, body signals, and safety. These facts are canonical
-Analysis prerequisites, not automatically published metric cells.
+The required-fact vocabulary is source attribution, managed body, direct-call
+discovery, local signature, canonical method context, direct-call targets,
+allocation signals, allocation occurrences, body signals, and safety. These
+facts are canonical Analysis prerequisites, not automatically published metric
+cells.
 
 ### Metric, fact, and work prerequisite normalization
 
@@ -423,24 +499,26 @@ requested metrics
 ```
 
 A canonical fact is owner-issued evidence required to evaluate one or more
-metrics. Sibling overload relationships, for example, require Direct Calls
-facts without adding the Direct Calls count metric to the requested metric set.
-The result records that prerequisite without publishing an unrequested metric
-cell.
+metrics. Sibling overload relationships, for example, require direct-call
+target facts without adding either direct-call metric to the requested metric
+set. The result records that prerequisite without publishing an unrequested
+metric cell.
 
-An executable work prerequisite is internal work required by an existing
-owner contract. Direct calls currently consume the canonical
+An executable work prerequisite is internal work required by an existing owner
+contract. Direct-call target resolution consumes the canonical
 `MethodBodyAnalysisContext`; that context includes decoded instructions,
-blocks, loop regions, exception regions, and decoded locals. Selecting direct
-calls therefore participates in the canonical-context stage, but it does not
+blocks, loop regions, exception regions, and decoded locals. Selecting target
+identity therefore participates in the canonical-context stage, but it does not
 add Instruction shape, Control flow, Exception regions, or Locals to the
-requested metric set and does not publish those metric cells.
+requested metric set and does not publish those metric cells. Direct invocation
+count does not require that context.
 
 The initial work-stage vocabulary is:
 
 - physical-scope and declared-source metadata attribution;
 - declared-source body probing;
 - managed body acquisition;
+- direct-invocation discovery;
 - local-signature decode;
 - canonical method-context construction;
 - metric direct-call collection and target classification;
@@ -460,6 +538,21 @@ without constructing the instruction and control-flow context. Instruction
 shape and every result whose current owner consumes
 `MethodBodyAnalysisContext` share exactly one canonical context per physical
 body.
+
+Direct-invocation discovery visits the acquired `MethodBodyBlock` and validates
+the complete instruction tiling while counting only `call`, `callvirt`, and
+`newobj`. It does not decode local signatures, construct control flow, resolve a
+metadata operand, allocate a `DirectCall`, or build incidence. `calli`, `ldftn`,
+and `ldvirtftn` remain outside this metric's current semantics. Extending that
+set requires a versioned metric change rather than silently changing existing
+counts.
+
+Malformed opcode or operand tiling makes the count outcome unavailable with the
+body diagnostic; it is never published as zero. A structurally valid call
+operand whose metadata target cannot be resolved still contributes to
+invocation count because target correspondence was not requested. The
+distinct-target result independently retains the resolution failure and any
+completed target evidence.
 
 Declared-source attribution may use its owner's separate body probe and
 instruction decoder before the effective metric body population is known. That
@@ -719,6 +812,224 @@ scope, or another explicitly co-running Analysis feature. Malformed metadata,
 body decode, and resolver failures remain visible typed evidence; no broad
 fallback converts them to zero metrics or a successful empty result.
 
+### Discovery-native direct-call Count adoption for #8945
+
+The prototype established that direct-invocation Count belongs below canonical
+context and target resolution. One exact NativeAOT head binary produced the
+same answers from discovery and complete rich rows over both measured corpora:
+
+| Corpus | Invocation sites | Existing exact-base rows | Discovery Count | Time ratio | Allocation ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `ILInspector.Analysis`, `DotnetInspector.Queries`, and `dotnet-inspect` | 706,287 | 13,310.214 ms / 8,933,349,680 B | 43.198 ms / 14,696,664 B | 0.0032x | 0.0016x |
+| `Microsoft.CodeAnalysis` and `Microsoft.CodeAnalysis.CSharp` | 251,579 | 5,236.715 ms / 3,682,608,032 B | 21.089 ms / 7,959,048 B | 0.0040x | 0.0022x |
+
+The unchanged rich-row path at the prototype head measured 0.9821x and 0.9900x
+the exact-base time for the two corpora, with 1.0000x and 1.0001x allocation.
+The improvement therefore comes from stopping at discovery, not from an
+unrelated row-path change or a downstream incidence optimization.
+
+Discovery issues two distinct host-neutral per-physical-body scalar results
+from the same raw-body visit. Direct-invocation Count includes `call`,
+`callvirt`, and `newobj`; it excludes `calli`, `ldftn`, and `ldvirtftn`.
+Calls-row Count includes all six opcode families because each is one row in
+the existing Calls population. Each available entry carries the authenticated
+logical method, physical evidence method, and count under the execution
+receipt. Unavailable bodies retain their typed acquisition or decode
+diagnostic. Each result also carries requested and effective scope plus
+discovery participation needed to prove that target collection did not run.
+Hosts do not consume the internal generic metric cells.
+
+The first production consumer is exact-member `Calls --count`. After source
+acquisition, an explicit `--all` request allows the CLI to ask the metadata
+owner to resolve an exact MethodDef before public API extraction. An omitted
+method ordinal, or ordinal one on a unique method family, resolves only when
+the canonical case-insensitive member name is unambiguous. Overloaded method
+ordinals continue through the ordinary resolver because its displayed-signature
+order is not metadata order. An explicit property or event ordinal resolves
+over the accessors that are present, in getter/adder then setter/remover order.
+Ordinary public-surface admission, ambiguous names, forwarded types, qualified
+selectors, and selectors outside that exact metadata subset continue through
+the ordinary public-surface resolver. Once a MethodDef is selected, the CLI
+lowers the terminal to Calls-row Count before ordinary call-row Analysis. It
+sums the authenticated physical-body entries for the selected logical member.
+An identity-decode failure that cannot publish a `MethodIdentity` remains an
+unavailable physical body keyed by MethodDef token, so Count cannot convert it
+to authoritative zero.
+
+A row window resolves against the scalar cardinality, so `--head`, `--tail`,
+and `--rows` preserve the same count they would have produced over the
+metadata-ordered Calls table without constructing that table. This includes
+method-pointer and indirect-call rows. Rich Calls output and projections
+continue to request public-surface extraction and target rows.
+
+Exact NativeAOT production measurements used current `main` at
+`9d1e3eb0360e` and candidate `66b19d6dac96` on
+`InspectionContext.LibraryInspectionViewSchema:1`, whose Calls population has
+4,611 rows. Seven repetitions per H-B-H phase on `dotnet-inspect-perf-2`,
+serialized by `perf-guard`, produced the same answer on every invocation:
+
+| Binary | Median elapsed | Median max RSS |
+| --- | ---: | ---: |
+| Exact base | 4.97 s | 678,440 KB |
+| Candidate head, combined bookends | 1.03 s | 331,758 KB |
+
+The pre-surface terminal is 4.83x faster and uses 51.1% less peak memory for
+this pathological real method. The head medians were 1.04 s and 1.02 s in the
+two bookends, so the result is not attributable to phase order.
+
+This adoption does not add a second call-row producer, make Count a
+`Rows.Length` convenience, or expose `DirectCallIncidence` as a population.
+The complete-profile compatibility projection composes direct-invocation
+Count with separately resolved distinct-target evidence until its remaining
+consumers move to focused results.
+
+### JavaScript export wire-contract adoption for #8945
+
+**Library Body Analysis Execution** publishes one focused
+`LibraryJsonWireContractAnalysisResult` when `JsonWireContractFlow` is
+requested. It associates the execution receipt and focused call-graph result
+with exactly the result sinks, field stores, field loads, and return flows
+needed to authenticate System.Text.Json wire contracts. The result reuses
+owner-issued call evidence and identities; it does not copy call decoding,
+define a second direct-call population, or expose the Analysis aggregate.
+
+`JsExportSurfaceBuilder` consumes that focused result for the root assembly and
+referenced serializer-context assemblies. The `ts-jsexport` production loader
+passes `LibraryBodyAnalysisExecution.JsonWireContracts` directly, so CLI and
+Browser/Wasm facade generation no longer materialize the compatibility index.
+Declaration-only surface construction remains independent of body Analysis.
+
+The slice preserves the existing `JsonWireContractFlow` producer, authenticated
+wire shapes, diagnostics, failure behavior, and one-read immutable-image path.
+It changes evidence ownership rather than JavaScript export semantics or
+rendering. Synthetic fixtures construct one focused execution and select its wire-contract
+result directly; no production JavaScript export caller accepts or acquires
+`LibraryBodyIndex`.
+
+### Direct-call compatibility retirement for #8945
+
+Production ownership, call-graph, Query, CLI, Research, and JavaScript export
+consumers obtain direct-call evidence from `LibraryCallGraphAnalysisResult`,
+whole-library ranking from `LibraryLeverageAnalysisResult`, and wire-contract
+flow from `LibraryJsonWireContractAnalysisResult`. `LibraryBodyIndex` no longer
+publishes direct calls, call incidence, call search, leverage ranking, call
+trees, focused call results, or call-graph cache controls. Catalog graph
+participants and tree operations accept only focused call-graph results.
+
+Compatibility-index implementation profiles delegate to
+`LibraryImplementationProfileAnalysisResult`; they do not retain a second
+profile projection over index-owned direct calls. Default compatibility-index
+acquisition preserves its legacy overload-relationship result through a
+result-owned compatibility projection over the focused call graph; an
+unrequested focused implementation-profile result remains constant-cost and
+empty. Synthetic tests construct `LibraryBodyAnalysisExecution` and retain the
+focused result they exercise.
+
+The Release solution build is the full absence gate for the deleted strongly
+typed surface. No source-scanning gate is added: the compiler proves that no
+consumer can bind the removed members, while ordinary design review preserves
+ownership for future code. This retirement changes no supported product
+terminal and makes no performance claim. Allocation and optimization
+compatibility, and complete
+implementation-profile compatibility remain separately owned migration work
+under #7553 and #8568.
+
+### Local-throw focused result and adoption for #7553 and #8568
+
+**Library Body Analysis Execution** publishes one
+`LibraryLocalThrowAnalysisResult` associated with its execution receipt.
+Requested results expose the existing physical `MethodLocalThrowEvidence`
+population, including unresolved sites and unavailable bodies. Access to that
+population when `LocalThrows` was not requested still fails explicitly; the
+result does not turn an unrequested producer into a complete empty result.
+
+`AssemblyContextMemberProjectionQuery` composes Annotated Source local-throw
+paths from that focused result and the same execution's focused call graph.
+The Browser/Wasm host continues only to select the feature and transport the
+Research-owned result. `LibraryBodyIndex` no longer publishes local-throw
+evidence, and the member projection no longer materializes a compatibility
+index.
+
+This slice changes evidence ownership, not local-throw qualification, bounded
+root-path semantics, output shape, or rendering. The Release
+`LocalThrowEvidenceTests` and
+`AssemblyContextResearchProjectionQueryTests` gates preserve those contracts;
+the Release solution build is the full absence gate for the deleted strongly
+typed compatibility accessor.
+
+### Safety-summary focused-result adoption for #7553 and #8568
+
+**Library Body Analysis Execution** publishes the Metadata-normalized module
+rules model and the whole-declaration caller-unsafe-mode breakdown on
+`LibrarySafetyAnalysisResult`, beside its existing unsafe evidence and
+occurrences. These summaries reuse producer-owned values; publication neither
+reinterprets the rules model nor introduces another census. `WasRequested`
+describes unsafe body-evidence and caller-mode-census participation. The
+normalized module rules remain available independently; reading
+`UnsafeModes` without that participation fails explicitly rather than
+presenting an unrequested census as complete zero counts.
+
+The temporary `ILInspector.Analysis.App` unsafe reporter consumes the focused
+safety, leverage, and call-graph results and invokes the existing
+`OpaqueUnsafe` and `HollowUnsafe` Analysis owners directly. `LibraryBodyIndex`
+no longer publishes memory-safety rules, the derived updated-rules Boolean,
+unsafe evidence or occurrences, unsafe-mode counts, or opaque/hollow
+projections. Callers inspect the typed rules state rather than replacing its
+unsupported, malformed, or conflicting outcomes with a Boolean.
+
+This slice changes evidence ownership, not rule normalization, caller-contract
+classification, counting, or reporter output. The Release Analysis
+memory-safety tests preserve those contracts and verify that focused access
+does not materialize the compatibility index. The Release solution build is
+the full absence gate for the deleted strongly typed compatibility members.
+
+### Generated-framework property retirement for #8568
+
+Production ranking, optimization, implementation-profile, Research, CLI, and
+Browser/Wasm consumers obtain generated-framework type identities from their
+focused Analysis results. The residual Analysis and Research tests consume
+`LibraryOptimizationAnalysisResult.GeneratedFrameworkTypes`, preserving the
+same shared classifier and execution receipt. `LibraryBodyIndex` no longer
+publishes a duplicate generated-framework type set.
+
+This slice deletes a compatibility property after its production drain; it
+does not change generated-type authentication, structural classification,
+suppression, output, or work. Focused generated-framework classification tests
+remain the semantic gates, and the Release solution build is the full absence
+gate for the deleted property. No product terminal or performance claim
+changes.
+
+### Optimization-classifier forwarder retirement for #8568
+
+`RepeatedScanAnalysis` owns LINQ, string-concatenation, and interface-enumerator
+classification. Allocation and optimization producers call that owner
+directly; no production or test consumer calls the duplicate
+`LibraryBodyIndex.IsStringConcat` or
+`LibraryBodyIndex.IsInterfaceEnumeratorAllocation` forwarders. The index also
+no longer carries unused private LINQ materializer and lazy-producer
+forwarders.
+
+This slice deletes only dead compatibility methods. It does not change
+classifier behavior, allocation occurrences, optimization opportunities,
+output, or work. Existing Release allocation and optimization tests preserve
+the semantic behavior, and the Release solution build is the full absence gate
+for the deleted public methods.
+
+The final static classifier-forwarder slice moves membership-scan boundary
+coverage onto the focused Optimization result using the existing netstandard
+facade and unsigned `System.Linq` fixtures. Supported-terminal vocabulary,
+parameterless-overload rejection, and the .NET Framework `System.Core`
+identity case bind `RepeatedScanAnalysis` directly through the existing
+Analysis test boundary; no new friend assembly or public test seam is added.
+`LibraryBodyIndex` no longer publishes any static classifier forwarder.
+
+This test-ownership move does not change classification, occurrence or
+opportunity production, output, or work. The focused fixture tests preserve
+facade recall and spoof precision, owner-bound tests preserve the classifier
+vocabulary, and the Release solution build is the full absence gate for the
+deleted compatibility method. No product terminal or performance claim
+changes.
+
 ### Production adoption for #8450
 
 The counted implementation path is:
@@ -942,15 +1253,17 @@ carry the same receipt and provides only the member-projection joins over those
 results. Path-backed production and immutable-image L1 production each execute
 Analysis once. `ResearchAssemblyContext` now derives its residual callee-
 evidence joins from that focused input; the L1 query retains a separate
-compatibility index only for its later call-relationship, invocation-
-destination, and local-throw migration.
+focused call-graph result for call relationships and invocation destinations
+and a focused local-throw result for local-throw paths. It no longer
+materializes a compatibility index.
 
 The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
 safety, and call-graph results from one exact receipt. CLI single-coordinate
 execution prepares one token-scoped input; coordinate-file execution prepares
 one input for the union of selected physical MethodDef tokens. This preserves
-the existing point-fact output and typed failure boundary while removing both
-`AnalysisIndexCache` and `LibraryBodyIndex` from IL-offset production.
+the existing point-fact output and typed failure boundary while removing the
+remaining `LibraryBodyIndex` dependency from IL-offset production;
+`AnalysisIndexCache` is already retired.
 
 The implementation-profile population slice adds the coverage receipt required
 by Library Metrics without changing existing Member Metrics rows. It preserves

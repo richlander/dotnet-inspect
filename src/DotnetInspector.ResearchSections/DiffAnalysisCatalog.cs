@@ -8,6 +8,8 @@ using ILInspector.Metadata;
 using ILInspector.Research;
 using Inspector.Findings;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspector.ResearchSections;
 
 /// <summary>
@@ -23,6 +25,9 @@ public static class DiffAnalysisCatalog
 
     public static AnalysisDeclarationId ApiAttributeRoute { get; } =
         new("producer.diff.api-attribute-comparison");
+
+    public static AnalysisDeclarationId StringLiteralRoute { get; } =
+        new("producer.diff.string-literal-comparison");
 
     /// <summary>The typed body-signal comparison (<c>BodySignalComparisonQuery</c>).</summary>
     public static AnalysisDeclarationId BodySignalRoute { get; } =
@@ -69,11 +74,14 @@ public static class DiffAnalysisCatalog
                 InspectionCost.NetworkFree,
                 [
                     (AnalysisReportSurfaceKind.Library, LibraryAnchor,
-                        [MetadataFindings.TypeDescriptor, MetadataFindings.MemberDescriptor]),
+                        [MetadataFindings.TypeDescriptor, MetadataFindings.MemberDescriptor],
+                        false),
                     (AnalysisReportSurfaceKind.Type, TypeAnchors,
-                        [MetadataFindings.TypeDescriptor, MetadataFindings.MemberDescriptor]),
+                        [MetadataFindings.TypeDescriptor, MetadataFindings.MemberDescriptor],
+                        true),
                     (AnalysisReportSurfaceKind.Member, MemberAnchors,
-                        [MetadataFindings.MemberDescriptor]),
+                        [MetadataFindings.MemberDescriptor],
+                        true),
                 ],
                 ApiRoute,
                 ProduceApi),
@@ -82,7 +90,8 @@ public static class DiffAnalysisCatalog
                 InspectionCost.NetworkFree,
                 [
                     (AnalysisReportSurfaceKind.Type, TypeAnchors,
-                        [MetadataFindings.AttributeDescriptor]),
+                        [MetadataFindings.AttributeDescriptor],
+                        true),
                 ],
                 ApiAttributeRoute,
                 ProduceApiAttributes),
@@ -90,27 +99,37 @@ public static class DiffAnalysisCatalog
             RegisterBody("call-site", AnalysisFindings.CallSiteDescriptor, ProduceBody<DirectCall>),
             RegisterBody("unsafety", AnalysisFindings.UnsafetyDescriptor, ProduceBody<UnsafetyOccurrence>),
             Register(
+                "string-literals",
+                InspectionCost.Moderated,
+                [
+                    (
+                        AnalysisReportSurfaceKind.Library,
+                        LibraryAnchor,
+                        new[] { StringLiteralUseFindings.Descriptor },
+                        true),
+                ],
+                StringLiteralRoute,
+                ProduceStringLiterals),
+            Register(
                 "csharp",
                 InspectionCost.Moderated,
                 [
                     (AnalysisReportSurfaceKind.Member, SingleMemberAnchor,
-                        [CSharpFindings.LineDescriptor]),
+                        [CSharpFindings.LineDescriptor],
+                        true),
                 ],
                 RetainedResearchRoute,
-                context => ProduceRetained<CSharpCanonicalLine>(
-                    context,
-                    ResearchChangeMechanism.CSharp)),
+                ProduceRetained<CSharpCanonicalLine>),
             Register(
                 "il",
                 InspectionCost.Moderated,
                 [
                     (AnalysisReportSurfaceKind.Member, SingleMemberAnchor,
-                        [IlFindings.OperationDescriptor]),
+                        [IlFindings.OperationDescriptor],
+                        true),
                 ],
                 RetainedResearchRoute,
-                context => ProduceRetained<CanonicalIlOperation>(
-                    context,
-                    ResearchChangeMechanism.IlBody)),
+                ProduceRetained<CanonicalIlOperation>),
         ];
 
         Operation = new AnalysisOperationDefinition(
@@ -130,6 +149,32 @@ public static class DiffAnalysisCatalog
     /// <summary>The host-neutral capability module registering Diff's analyses.</summary>
     public static InspectionCapabilityModule ProductModule { get; }
 
+    /// <summary>
+    /// Whether the selected Compare set dispatches the retained implementation
+    /// producer route.
+    /// </summary>
+    public static bool RequiresImplementation(
+        AnalysisSetValidationResult.Accepted selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.Analyses.Any(analysis =>
+            Registrations
+                .Single(registration =>
+                    ReferenceEquals(registration.Analysis, analysis))
+                .ProducerFor(selection.Operation, selection.Surface)?
+                .Participation.ProducerRoute == RetainedResearchRoute);
+    }
+
+    public static bool RequiresStringLiteralQuery(
+        AnalysisSetValidationResult.Accepted selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.Analyses.Any(analysis =>
+            analysis.ParticipationFor(selection.Operation)
+                ?.For(selection.Surface)
+                ?.ProducerRoute == StringLiteralRoute);
+    }
+
     static InspectionAnalysisRegistration RegisterBody(
         string identity,
         FindingDescriptor descriptor,
@@ -137,7 +182,11 @@ public static class DiffAnalysisCatalog
         => Register(
             identity,
             InspectionCost.Moderated,
-            [(AnalysisReportSurfaceKind.Member, SingleMemberAnchor, [descriptor])],
+            [(
+                AnalysisReportSurfaceKind.Member,
+                SingleMemberAnchor,
+                new[] { descriptor },
+                true)],
             BodySignalRoute,
             context => produce(context, descriptor));
 
@@ -146,7 +195,8 @@ public static class DiffAnalysisCatalog
         InspectionCost cost,
         (AnalysisReportSurfaceKind Surface,
             AnalysisTargetRoleDescriptor Anchor,
-            FindingDescriptor[] Descriptors)[] surfaces,
+            FindingDescriptor[] Descriptors,
+            bool ExposesTransitions)[] surfaces,
         AnalysisDeclarationId route,
         Func<DiffAnalysisProducerContext, DiffAnalysisProduction> produce)
     {
@@ -155,7 +205,8 @@ public static class DiffAnalysisCatalog
             .. surfaces.Select(surface => new AnalysisSurfaceParticipation(
                 surface.Surface,
                 surface.Descriptors,
-                route)),
+                route,
+                surface.ExposesTransitions ? [TransitionsProjection] : [])),
         ];
         var descriptor = new AnalysisDescriptor(
             new AnalysisDeclarationId(identity),
@@ -215,6 +266,14 @@ public static class DiffAnalysisCatalog
                                 typeName))))));
     }
 
+    static DiffAnalysisProduction ProduceStringLiterals(
+        DiffAnalysisProducerContext context)
+        => DiffAnalysisProduction.Compared(
+            KeyedFindingComparison.Of(
+                (context.Input.PrepareStringLiterals
+                    ?? throw new InvalidOperationException(
+                        "The string-literal comparison was not prepared."))()));
+
     static DiffAnalysisProduction ProduceBody<T>(
         DiffAnalysisProducerContext context,
         FindingDescriptor descriptor)
@@ -230,26 +289,19 @@ public static class DiffAnalysisCatalog
     }
 
     static DiffAnalysisProduction ProduceRetained<T>(
-        DiffAnalysisProducerContext context,
-        ResearchChangeMechanism mechanism)
+        DiffAnalysisProducerContext context)
         where T : notnull
     {
         FindingDescriptor descriptor = context.Participation.Descriptors.Single();
         DiffAnalysisInput input = context.Input;
-        ResearchComparison research = ResearchDiff.Compare(
-            ResearchDiffInput.FromAssemblies(input.FromPaths),
-            ResearchDiffInput.FromAssemblies(input.ToPaths),
-            new ResearchDiffOptions(
-                mechanism,
-                TypeFilters: input.TypeFilters,
-                MemberTargetIdentities: input.MemberTargetIdentities)
-            {
-                RetainedComparisonDescriptorIds =
-                    ImmutableHashSet.Create(StringComparer.Ordinal, descriptor.Id),
-            });
+        ImplementationDiffResult implementation =
+            input.PrepareImplementation?.Invoke()
+            ?? throw new InvalidOperationException(
+                "The implementation comparison was not prepared.");
         return DiffAnalysisProduction.Compared(
             KeyedFindingComparison.Of(
                 new RetainedFindingComparisonSet(
-                    research.RetainedComparisons.Get<T>(descriptor))));
+                    implementation.Research.RetainedComparisons.Get<T>(
+                        descriptor))));
     }
 }

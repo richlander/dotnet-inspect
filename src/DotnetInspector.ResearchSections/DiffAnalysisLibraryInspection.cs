@@ -19,12 +19,14 @@ public sealed record DiffAnalysisLibraryInspectionRequest(
     DiffAnalysisDocumentViews Views,
     IReadOnlySet<string> TypeFilters,
     IReadOnlyList<string> TypeNames,
-    IReadOnlySet<string>? MemberTargetIdentities,
+    IReadOnlySet<string>? ApiMemberTargetIdentities,
     IReadOnlyList<string> BeforePaths,
     IReadOnlyList<string> AfterPaths,
     Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
         PrepareBodySignals,
-    IReadOnlyList<DiffAnalysisHostUnavailability> HostUnavailability);
+    Func<ImplementationDiffResult>? PrepareImplementation,
+    IReadOnlyList<DiffAnalysisHostUnavailability> HostUnavailability,
+    StringLiteralComparisonQueryPlan? StringLiteralQuery = null);
 
 /// <summary>
 /// Completes one selected-Library comparison once, retaining both generic Diff
@@ -53,7 +55,14 @@ public static class DiffAnalysisLibraryInspection
                 perEndpointLimits);
         LibraryApiDiffOutcome libraryApi =
             LibraryApiDiffPresentationAdapter.Create(comparison);
-        DiffAnalysisInput input = CreateInput(comparison, libraryApi, request);
+        DiffAnalysisInput input = CreateInput(
+            beforeGroup,
+            before,
+            afterGroup,
+            after,
+            comparison,
+            libraryApi,
+            request);
         return DiffAnalysisInspection.Execute(
             new DiffAnalysisInspectionRequest(
                 request.Name,
@@ -67,10 +76,25 @@ public static class DiffAnalysisLibraryInspection
     }
 
     private static DiffAnalysisInput CreateInput(
+        AssemblyContextGroup beforeGroup,
+        AssemblyContextParticipant before,
+        AssemblyContextGroup afterGroup,
+        AssemblyContextParticipant after,
         AssemblyContextApiComparisonResult comparison,
         LibraryApiDiffOutcome libraryApi,
         DiffAnalysisLibraryInspectionRequest request)
     {
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals =
+            request.StringLiteralQuery is { } literal
+                ? () => StringLiteralComparisonQuery.ExecuteParticipants(
+                    beforeGroup,
+                    before,
+                    afterGroup,
+                    after,
+                    $"library:{request.Name}",
+                    request.Name,
+                    literal)
+                : null;
         if (comparison.Before.Surface is { } beforeSurface
             && comparison.After.Surface is { } afterSurface)
         {
@@ -81,10 +105,13 @@ public static class DiffAnalysisLibraryInspection
                 request.AfterPaths,
                 request.TypeFilters,
                 request.TypeNames,
-                request.MemberTargetIdentities,
+                request.ApiMemberTargetIdentities,
                 request.PrepareBodySignals,
+                request.PrepareImplementation,
                 comparison.Comparison,
-                request.HostUnavailability);
+                request.HostUnavailability,
+                request.StringLiteralQuery,
+                prepareStringLiterals);
         }
 
         string reason = libraryApi switch
@@ -96,16 +123,25 @@ public static class DiffAnalysisLibraryInspection
         };
         DiffAnalysisHostUnavailability[] unavailableAnalyses =
         [
-            .. request.Selection.Analyses.Select(analysis =>
-                new DiffAnalysisHostUnavailability(analysis.Id, reason)),
+            .. request.Selection.Analyses
+                .Where(analysis =>
+                    analysis.ParticipationFor(request.Selection.Operation)
+                        ?.For(request.Selection.Surface)
+                        ?.ProducerRoute
+                    != DiffAnalysisCatalog.StringLiteralRoute)
+                .Select(analysis =>
+                    new DiffAnalysisHostUnavailability(analysis.Id, reason)),
         ];
         return DiffAnalysisInput.WithoutApiSurfaces(
             request.BeforePaths,
             request.AfterPaths,
             request.TypeFilters,
             request.TypeNames,
-            request.MemberTargetIdentities,
+            request.ApiMemberTargetIdentities,
             request.PrepareBodySignals,
-            unavailableAnalyses);
+            request.PrepareImplementation,
+            unavailableAnalyses,
+            request.StringLiteralQuery,
+            prepareStringLiterals);
     }
 }

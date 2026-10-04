@@ -74,6 +74,14 @@ public sealed record ApiTypeHandle(ApiType Type)
     public string TypeFullName => Type.FullName;
 }
 
+public enum ApiMemberAnchorKind
+{
+    Method,
+    Property,
+    Field,
+    Event,
+}
+
 public sealed record ApiMemberHandle(
     ApiType Type,
     ApiMember Member,
@@ -84,6 +92,20 @@ public sealed record ApiMemberHandle(
     public string? CanonicalSignature => Anchor?.CanonicalSignature;
     public string? Fingerprint => Anchor?.Fingerprint;
     public string? StableSelector => Anchor?.StableSelector;
+    public ApiMemberAnchorKind AnchorKind => Member.Kind switch
+    {
+        "method"
+            or "constructor"
+            or "operator"
+            or "finalizer"
+            or "explicit-interface-implementation"
+            or "extension-method" => ApiMemberAnchorKind.Method,
+        "property" => ApiMemberAnchorKind.Property,
+        "field" => ApiMemberAnchorKind.Field,
+        "event" => ApiMemberAnchorKind.Event,
+        _ => throw new InvalidOperationException(
+            $"API member kind '{Member.Kind}' has no anchor kind."),
+    };
     public string Identity => StableSelector ?? CanonicalSignature ?? Member.Signature ?? $"{Member.Kind}:{Member.Name}";
 }
 

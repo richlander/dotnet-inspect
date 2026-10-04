@@ -4,7 +4,7 @@
 
 This focused `ILInspector.Analysis` design is tracked by
 [#8864](https://github.com/richlander/dotnet-inspect/issues/8864). It supplies
-the body-use producer required by the
+the body-use producer available to the future depth mode of the
 [Library Metrics Type structural-leverage extension](library-structural-report.md#type-structural-leverage).
 
 **Analysis Library Body Use** is the single normative owner established here.
@@ -219,7 +219,7 @@ Producer Planning closes dependencies and records participation. QuerySpace
 and source delegation own scheduling, collapse, and later acquisition
 pushdown. Graph owns structural execution over the admitted rows.
 
-Research's later Graph composition is a higher-tier completion requiring the
+Research's Graph composition is a higher-tier completion requiring the
 Metadata signature-use and Analysis body-use results. It does not reopen
 either image or repeat operand resolution.
 
@@ -275,18 +275,24 @@ the same semantics.
 
 ## Consumer boundary
 
-Research consumes the detached result and:
+The Research body Type-leverage pilot consumes the detached result and:
 
 - maps canonical Types to Graph nodes;
 - maps complete logical occurrences to typed Graph relationships;
-- selects body outgoing distinct-neighbor degree;
+- selects body incoming and body outgoing distinct-neighbor degree;
 - applies its explicit self-loop policy;
-- combines body and Metadata signature evidence into rankings and roles; and
+- keeps body evidence distinct from the Metadata signature surface mode; and
 - preserves Analysis qualification in the report.
 
 Research does not turn physical-only evidence into logical relationships,
 repair incomplete evidence, infer identity from display text, or treat a
 missing relationship as an examined zero.
+
+The current Type structural-leverage surface mode does not acquire this
+body-use population. The pilot has no CLI or Browser consumer and does not
+define automatic acquisition, transport, or cache behavior. Adopting the depth
+mode requires separate cost and qualification evidence and must not silently
+change the meaning of the signature-only surface rankings.
 
 The later QuerySpace adoption may push selected relationship demand into
 acquisition. It must preserve this closed-document result's identities,
@@ -384,8 +390,9 @@ exact detail, including bounded or unsupported Type-inventory admission.
 NativeAOT is the only accepted timing. The report identifies the exact
 candidate, assets, source locations, pinned NLinq provenance, invocation,
 per-closing answer hashes, terminal value, bodies and operands reached,
-absolute per-asset deltas to NLinq, absolute medians, allocation, and ratios to
-NLinq. Work shape precedes ratios so shared Analysis cost remains visible and
+absolute per-asset deltas to Planner, absolute medians, allocation,
+implementation ratios to Planner, and per-implementation terminal ratios to
+Count. Work shape precedes ratios so shared Analysis cost remains visible and
 the report cannot be read as a terminal-operator microbenchmark. It runs the
 Roslyn fidelity assets and the body-use ECMA safety fixtures. A faster fair
 oracle is evidence for Planner improvement; the oracle is not burdened with

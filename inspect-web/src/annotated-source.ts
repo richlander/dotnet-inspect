@@ -36,6 +36,7 @@ import type {
   CSharpHighlightExclusion,
   CSharpRangeHighlighter,
 } from "./csharp-highlighting.ts";
+import { renderCodeEvidenceViewer } from "./code-evidence-viewer.ts";
 import {
   annotatedRelationshipKindLabel,
   annotatedRelationshipTargetLabel,
@@ -178,91 +179,137 @@ export function renderAnnotatedSourceModal(
   const context = renderContext(options);
   const { model, session, escapeHtml } = context;
   const reported = annotationState(model, session);
-  return `
-    <div id="annotated-source-backdrop" class="annotated-modal-backdrop">
-      <section id="annotated-source-modal" class="annotated-modal"
-        role="dialog" aria-modal="true" aria-labelledby="annotated-modal-title">
-        <header class="annotated-modal-head">
-          <div>
-            <p class="section-eyebrow">Explore Annotated Source</p>
-            <h2 id="annotated-modal-title" tabindex="-1">Source evidence and structure</h2>
+  return renderCodeEvidenceViewer({
+    backdropId: "annotated-source-backdrop",
+    backdropClassName: "annotated-modal-backdrop",
+    viewerId: "annotated-source-modal",
+    viewerClassName: "annotated-modal",
+    labelledBy: "annotated-modal-title",
+    headerClassName: "annotated-modal-head",
+    header: `
+      <div>
+        <p class="section-eyebrow">Explore Annotated Source</p>
+        <h2 id="annotated-modal-title" tabindex="-1">Source evidence and structure</h2>
+      </div>
+      <div class="annotated-modal-head-actions">
+        <button type="button" data-annotated-action="copy">copy source</button>
+        <button id="annotated-modal-close" type="button"
+          data-annotated-action="close-modal">Close</button>
+      </div>`,
+    ...(options.message
+      ? {
+          notice: `<div id="annotated-destination-error"
+            class="graph-drill-error" role="alert" tabindex="-1">${
+              escapeHtml(options.message)
+            }</div>`,
+        }
+      : {}),
+    controls: {
+      className: "annotated-modal-controls",
+      scrollAttribute: "data-annotated-scroll",
+      scrollKey: "modal-controls",
+      html: `
+        <fieldset class="annotated-control-group">
+          <legend>Annotations <span>${reported}</span></legend>
+          <div class="annotated-control-row">
+            ${(["Default", "All", "Clear"] as const).map(value => `
+              <button id="annotated-set-${value.toLowerCase()}" type="button"
+                class="annotated-set-control"
+                data-annotated-action="annotation-set"
+                data-annotated-set="${value}"
+                aria-pressed="${reported === value}">${value}</button>`).join("")}
           </div>
-          <div class="annotated-modal-head-actions">
-            <button type="button" data-annotated-action="copy">copy source</button>
-            <button id="annotated-modal-close" type="button"
-              data-annotated-action="close-modal">Close</button>
+        </fieldset>
+        <fieldset class="annotated-control-group">
+          <legend>Finding annotations</legend>
+          <div class="annotated-control-row annotated-finding-toggles">
+            ${model.annotatableFindingIds.map(factId => {
+              const fact = factForId(model, factId);
+              return fact
+                ? `<button id="annotated-finding-toggle-${fact.id}" type="button"
+                    class="annotated-finding-toggle category-${categoryClass(fact.category)}"
+                    data-annotated-action="finding-toggle"
+                    data-fact-id="${fact.id}"
+                    aria-pressed="${session.activeFindingIds.includes(fact.id)}">
+                    ${escapeHtml(fact.descriptor)}
+                  </button>`
+                : "";
+            }).join("")}
           </div>
-        </header>
-        ${options.message
-          ? `<div id="annotated-destination-error"
-              class="graph-drill-error" role="alert" tabindex="-1">${
-                escapeHtml(options.message)
-              }</div>`
-          : ""}
-        <div class="annotated-modal-controls" data-annotated-scroll="modal-controls">
-          <fieldset class="annotated-control-group">
-            <legend>Annotations <span>${reported}</span></legend>
-            <div class="annotated-control-row">
-              ${(["Default", "All", "Clear"] as const).map(value => `
-                <button id="annotated-set-${value.toLowerCase()}" type="button"
-                  class="annotated-set-control"
-                  data-annotated-action="annotation-set"
-                  data-annotated-set="${value}"
-                  aria-pressed="${reported === value}">${value}</button>`).join("")}
-            </div>
-          </fieldset>
-          <fieldset class="annotated-control-group">
-            <legend>Finding annotations</legend>
-            <div class="annotated-control-row annotated-finding-toggles">
-              ${model.annotatableFindingIds.map(factId => {
-                const fact = factForId(model, factId);
-                return fact
-                  ? `<button id="annotated-finding-toggle-${fact.id}" type="button"
-                      class="annotated-finding-toggle category-${categoryClass(fact.category)}"
-                      data-annotated-action="finding-toggle"
-                      data-fact-id="${fact.id}"
-                      aria-pressed="${session.activeFindingIds.includes(fact.id)}">
-                      ${escapeHtml(fact.descriptor)}
-                    </button>`
-                  : "";
-              }).join("")}
-            </div>
-          </fieldset>
-          <fieldset class="annotated-control-group">
-            <legend>Presentation</legend>
-            <div class="annotated-control-row">
-              ${model.supportedMedia.map(medium => `
-                <button id="annotated-medium-${medium.toLowerCase()}" type="button"
-                  class="annotated-medium-toggle"
-                  data-annotated-action="medium-toggle"
-                  data-medium="${medium}"
-                  aria-pressed="${session.visibleMedia.includes(medium)}">
-                  ${MEDIUM_LABELS[medium]}
-                </button>`).join("")}
-              <button id="annotated-coordinate-toggle" type="button"
-                class="annotated-coordinate-toggle"
-                data-annotated-action="coordinate-toggle"
-                aria-pressed="${session.coordinatesVisible}">
-                UTF-16 ranges
-              </button>
-            </div>
-          </fieldset>
-        </div>
-        <div class="annotated-modal-workspace">
-          <section class="annotated-modal-source" aria-label="Annotated source text"
-            data-annotated-scroll="modal-source">
-            ${renderSource(context)}
-          </section>
-          <aside class="annotated-modal-inspector" aria-label="Annotated source inspector"
-            data-annotated-scroll="modal-inspector">
-            ${renderPrimary(context)}
-            ${renderRelationships(context)}
-            ${renderFindingInspector(context)}
-          </aside>
-        </div>
-        ${renderDetail(context)}
-      </section>
-    </div>`;
+        </fieldset>
+        <fieldset class="annotated-control-group">
+          <legend>Presentation</legend>
+          <div class="annotated-control-row">
+            ${model.supportedMedia.map(medium => `
+              <button id="annotated-medium-${medium.toLowerCase()}" type="button"
+                class="annotated-medium-toggle"
+                data-annotated-action="medium-toggle"
+                data-medium="${medium}"
+                aria-pressed="${session.visibleMedia.includes(medium)}">
+                ${MEDIUM_LABELS[medium]}
+              </button>`).join("")}
+            <button id="annotated-coordinate-toggle" type="button"
+              class="annotated-coordinate-toggle"
+              data-annotated-action="coordinate-toggle"
+              aria-pressed="${session.coordinatesVisible}">
+              UTF-16 ranges
+            </button>
+          </div>
+        </fieldset>`,
+    },
+    body: {
+      kind: "workspace",
+      className: "annotated-modal-workspace",
+      content: {
+        className: "annotated-modal-source",
+        label: "Annotated source text",
+        scrollAttribute: "data-annotated-scroll",
+        scrollKey: "modal-source",
+        html: renderSource(context),
+      },
+      rail: {
+        className: "annotated-modal-inspector",
+        label: "Annotated source inspector",
+        scrollAttribute: "data-annotated-scroll",
+        scrollKey: "modal-inspector",
+        html: `
+          ${renderPrimary(context)}
+          ${renderRelationships(context)}
+          ${renderFindingInspector(context)}`,
+      },
+    },
+    detail: renderDetail(context),
+    escapeHtml,
+  });
+}
+
+export function renderAnnotatedSourceRejectionModal(
+  message: string,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return renderCodeEvidenceViewer({
+    backdropId: "annotated-source-backdrop",
+    backdropClassName: "annotated-modal-backdrop",
+    viewerId: "annotated-source-modal",
+    viewerClassName: "annotated-modal",
+    labelledBy: "annotated-modal-title",
+    headerClassName: "annotated-modal-head",
+    header: `
+      <div>
+        <p class="section-eyebrow">Explore Annotated Source</p>
+        <h2 id="annotated-modal-title" tabindex="-1">Annotated source document rejected</h2>
+      </div>
+      <div class="annotated-modal-head-actions">
+        <button id="annotated-modal-close" type="button"
+          data-annotated-action="close-modal">Close</button>
+      </div>`,
+    body: {
+      kind: "failure",
+      className: "annotated-modal-failure",
+      html: `<p>${escapeHtml(message)}</p>`,
+    },
+    escapeHtml,
+  });
 }
 
 export function bindAnnotatedSource(

@@ -158,8 +158,8 @@ recommendation role remains a separate Registry and Navigation policy change.
 Every subject uses one quiet frame:
 
 ```text
-Compare <subject> · result status                  Diff | Clone
-effective target or scope                         Change target
+<subject>                                          Diff | Clone
+result status · effective target or scope · Change target
 summary metrics
 subject-specific result
 coverage evidence
@@ -171,10 +171,10 @@ working surfaces. Loading, failure, unavailable, canceled, successful-empty,
 and successful states all update and announce that same status element.
 Compare does not reserve a separate content row for the status.
 
-The effective target row explains the active Package-owned setting without
-repeating its controls. **Change target** returns to Package Overview's
-Comparison targets work area. Compare does not render a second version,
-breadth, discovery, or work-limit editor.
+The compact header context explains the active Package-owned setting without
+repeating its controls or reserving another chrome row. **Change target**
+returns to Package Overview's Comparison targets work area. Compare does not
+render a second version, breadth, discovery, or work-limit editor.
 
 Summary metrics precede the inventory or Member result. They report only
 owner-issued counts and classifications. Diff completeness and Clone
@@ -265,29 +265,21 @@ Diff document. It summarizes correspondence, compatibility, and the complete
 API-change evidence carried there, in this order:
 
 ```text
-Compare <Member> · result status                         Diff | Clone
-effective target                                         Change target
+<Member>                                                 Diff | Clone
+result status · effective target · Change target
 What changed        classified API changes of the relation
-Before | After      one endpoint card per side
 Authored Source     inline diff viewer                   Explore
 ```
 
-- **What changed** renders the relation's classified changes. When the
-  relation has none, it says the change belongs to the containing Type.
-- **Before** and **After** name each endpoint's version and Member. An absent
-  endpoint says **Not present on this side** and is not a link. A present
-  endpoint is a link only through an owner-issued destination, never one
-  built from displayed text:
-  - The **After** endpoint is the current subject in the retained Package
-    model, so its card opens that Member through the Member lens
-    destinations Inspection Subject Navigation already issues for it.
-  - The **Before** endpoint is the Diff baseline version, which may be older,
-    newer, or equal to the current version but is never the retained Package
-    model. Its card is a link only when Navigation issues a
-    canonical location for that package version and exact Member anchor. The
-    link opens a new browsing context, so this Compare state is kept. Until
-    Navigation issues that location, the Before card is not a link; that
-    issuance is a recorded prerequisite, not a Compare concern.
+- **What changed** renders each relation change once: classification, the
+  producer's explanation, and distinct Before/After values when they add
+  information. Producer kind and category taxonomy do not repeat the same
+  claim. When the relation has no classified change, the section says that the
+  change belongs to the containing Type.
+- Compare does not append endpoint selectors, digests, canonical signatures,
+  line terminators, mapped-range receipts, or other supporting evidence. The
+  visible API and Source documents contain the relevant comparison data;
+  detailed evidence remains available through CLI output.
 - **Authored Source** appears only when the relation carries an owner-issued
   Member diff destination whose present endpoints are method anchors, the
   domain of the paired authored-Source query. Fetching authored Source for
@@ -299,7 +291,9 @@ Authored Source     inline diff viewer                   Explore
   absent endpoint shows **Not present on this side** from the relation, not
   the query's unrequested outcome; an endpoint without authored Source shows
   its typed reason. The section never substitutes decompiled text or an
-  empty diff.
+  empty diff. Once loaded, the inline view presents the Source document
+  directly without endpoint cards, statistics, line-terminator facts, or
+  mapped-range receipts.
 - **Explore** opens the Member diff destination owned by
   [Inspect Web Compare Explore](inspect-web-compare-explore.md) and appears
   whenever that destination is issued, whether or not authored Source was
@@ -338,7 +332,7 @@ return.
 
 A property, field, or event Member has no Authored Source section until a
 product-issued accessor-level comparison exists; its What changed section and
-endpoint cards remain.
+collapsed Member evidence remain.
 
 Member Diff shows no section whose evidence has no issued producer: it adds no
 placeholder, disabled section, or "not available yet" pane.
@@ -569,10 +563,10 @@ behavior.
     semantic outcome, without installing the rejected descendant or treating
     the drill-down as applied.
 12. Open Member Compare Diff for a changed method Member whose endpoints both
-    have authored Source. Confirm that What changed, both endpoint cards, and
-    the Authored Source section appear in that order; that the After card
+    have authored Source. Confirm that What changed and the Authored Source
+    section lead, followed by collapsed Member evidence; that the After detail
     opens the Member through its issued lens destination; that the Before
-    card is a link only when Navigation issues its canonical location, and
+    detail is a link only when Navigation issues its canonical location, and
     then opens a new browsing context; that no comparison runs until
     **Show authored Source diff** is activated; and that the result renders
     in the embedded diff viewer and is still shown after navigating away and

@@ -42,7 +42,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--all",
             "--json",
             "--verbose",
-            "--tips", "q",
         ];
         var result = await RunCommandAsync(find);
 
@@ -109,7 +108,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--all",
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -164,7 +162,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--all",
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -208,7 +205,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--all",
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);

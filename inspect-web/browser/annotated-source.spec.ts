@@ -177,6 +177,37 @@ test("modal finding chips preserve the source pane position", async ({ page }) =
   await expect(source).toHaveJSProperty("scrollTop", before);
 });
 
+test("shared viewer shell keeps source primary and stacks the rail", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.locator("#explore-annotated").click();
+
+  const content = page.locator(".code-evidence-viewer-content");
+  const rail = page.locator(".code-evidence-viewer-rail");
+  const desktopContent = await content.boundingBox();
+  const desktopRail = await rail.boundingBox();
+  if (!desktopContent || !desktopRail) {
+    throw new Error("Code evidence workspace has no desktop geometry");
+  }
+  expect(desktopContent.width).toBeGreaterThan(desktopRail.width * 2);
+  expect(desktopRail.x).toBeGreaterThanOrEqual(
+    desktopContent.x + desktopContent.width - 1,
+  );
+
+  await page.setViewportSize({ width: 760, height: 900 });
+  const narrowContent = await content.boundingBox();
+  const narrowRail = await rail.boundingBox();
+  if (!narrowContent || !narrowRail) {
+    throw new Error("Code evidence workspace has no narrow geometry");
+  }
+  expect(Math.abs(narrowContent.x - narrowRail.x)).toBeLessThan(1);
+  expect(Math.abs(narrowContent.width - narrowRail.width)).toBeLessThan(1);
+  expect(narrowRail.y).toBeGreaterThanOrEqual(
+    narrowContent.y + narrowContent.height - 1,
+  );
+});
+
 test("pointer hit testing prefers the product-issued invocation node", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   const invocation = page.locator(

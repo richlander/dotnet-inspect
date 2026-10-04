@@ -224,9 +224,11 @@ is retained as a zero-body summary so every relationship endpoint resolves to
 one typed node without inventing body evidence.
 
 When call-graph evidence is supplied, `EntangledRelationships` retains
-cross-type direct-call evidence whose caller body is complete, whose callee
-definition token resolves to an inspected declared method (including abstract
-and extern declarations), and whose source and target types differ. Only
+cross-type direct-call evidence whose caller body is complete, whose
+Analysis-issued target is a current-module declared method (including abstract
+and extern declarations, and calls through generic instantiations; see
+[direct-call target resolution](library-body-analysis-service.md#direct-call-target-resolution)),
+and whose source and target types differ. Only
 invocation kinds (`call`, `callvirt`, and `newobj`) are
 admitted; loading a method address with `ldftn` or `ldvirtftn` is not a call
 relationship. Relationships are aggregated by source type, target type, and
@@ -242,81 +244,184 @@ summaries. Whole-library dependency communities require a separate Research
 contract over the complete admitted graph and are tracked by
 [#8406](https://github.com/richlander/dotnet-inspect/issues/8406).
 
-### Type structural leverage
+### Namespace and Type structural leverage
 
-The extension consumes two directed relationship kinds over exact Type
-definition identities in the selected Library:
+The structural-salience extension consumes one directed relationship kind over
+exact Type-definition identities in the selected Library:
 
 - **Signature use:** `A -> B` means an admitted declaration owned by Type `A`
   refers to Type `B` through its base Type, implemented interfaces, generic
   constraints, or a field, property, event, parameter, or return Type.
-- **Body use:** `A -> B` means an admitted physical body logically owned by
-  Type `A` contains a resolved Type-bearing IL operand whose definition is
-  Type `B`.
 
 Constructed generic Types lower to their owner-issued generic definition.
-Analysis-issued logical ownership folds compiler-created nested implementation
-Types into their declared Type owner; Research does not infer that owner from a
-generated name. An otherwise unfurled nested Type remains its own exact
-definition. Both endpoints must belong to the selected Library generation.
-External Types are outside this Library-scoped population. Accessibility does
-not alter topology, canonical-row retention, or either default order: public
-API foundations and internal implementation orchestrators are both product
-evidence.
+Both endpoints must belong to the selected Library generation. External Types
+are outside this Library-scoped population. Accessibility does not alter
+topology: public API foundations and internal declaration orchestrators are
+both product evidence.
 
-A relationship from a Type to itself is not a peer relationship and contributes
-to no degree. Parallel occurrences and a pair present under both relationship
-kinds remain evidence, but each selected Graph degree counts the opposite Type
-once. Research admits one immutable Graph document containing both typed
-relationship kinds and requests three directed distinct-neighbor views:
+Research partitions the same owner-issued relationships by exact metadata
+namespace. It does not infer hierarchy from dotted namespace text.
 
-1. signature incoming degree for the **sea-level** ranking;
-2. body outgoing degree for the **mountain-peak** ranking; and
-3. incoming and outgoing degree over the union of both kinds for structural
-   role.
+```text
+same exact namespace:
+    contributes A -> B to that namespace's induced Type graph
 
-The role denominator is combined incoming plus combined outgoing degree. A
+different exact namespaces:
+    contributes source Type A once to target namespace Namespace(B)
+```
+
+#### Namespace leverage
+
+The assembly-wide namespace index measures incoming use. A namespace's score is
+the number of distinct external source Types that refer to at least one Type in
+that namespace. One source Type contributes at most once to one target
+namespace, regardless of target-Type count or occurrence count. Same-namespace
+relationships do not contribute.
+
+The index retains every exact namespace, including the empty metadata
+namespace, with its raw score. Its deterministic order sorts descending by
+score and then by namespace using ordinal comparison. Every namespace tied at
+the nonzero maximum receives the **top-leverage** designation. A zero maximum
+produces no designation.
+
+#### Namespace Type-leverage shard
+
+Type leverage is evaluated independently inside one exact namespace. Every
+Type defined in that namespace is a graph node. Only relationships whose
+source and target are both in that exact namespace enter the induced graph. A
+self relationship contributes to no peer degree. Parallel occurrences remain
+producer evidence, but each selected Graph degree counts the opposite Type
+once.
+
+Research requests two directed distinct-neighbor views:
+
+1. incoming degree for the **sea-level** order; and
+2. outgoing degree for the **mountain-peak** order.
+
+The role denominator is signature incoming plus signature outgoing degree. A
 connected Type is a **foundation** when its incoming share is at least `0.7`,
 an **orchestrator** when that share is at most `0.3`, and a **hub** otherwise.
-An isolated Type has no role and enters neither ranking.
+An isolated Type has no role and enters neither order.
 
-The report retains one canonical leverage row per connected Type. Each row
-contains exact Type identity, signature incoming degree, body outgoing degree,
-combined incoming and outgoing degree, and role. Research also publishes the
-complete sea-level and mountain-peak orders. Each order sorts descending by
-its named degree, then by exact metadata Type identity; a displayed name never
-breaks a tie.
+The shard retains one canonical leverage row per connected Type. Each row
+contains exact Type identity, signature incoming and outgoing degree, and role.
+Each order sorts descending by its named degree, then by exact metadata Type
+identity; a displayed name never breaks a tie.
 
-Ranking eligibility is separate from structural population. Universal base
+Designation eligibility is separate from graph population. Universal base
 Types and Types whose owner-issued metadata classification is enum, attribute,
-exception, or delegate remain in the graph as peer evidence but do not enter
-either ordered ranking. Removing them from topology would silently change the
-degree and role of otherwise eligible Types. Helper-looking names such as
+exception, or delegate remain in topology as peer evidence but cannot establish
+a designation cutoff or receive a designation. Helper-looking names such as
 `SR` or `ThrowHelper` are not an identity or classification contract and do
-not justify exclusion. A future owner-issued implementation-helper
-characteristic may extend ranking eligibility without changing Graph degree.
+not justify exclusion.
 
-Ranking eligibility is local to these two degree-ordered views. It is not a
-low-value classification and cannot suppress the canonical leverage row or
-transfer to another query. A low-degree or ranking-ineligible Type may still
-be a call-graph bridge, an async blocking boundary, the only unsafe or native
-operation carrier, a reflection or serialization activation point, or a
-meaningful exception, attribute, delegate, or protocol state. Those questions
-retain their own relationship populations and owners.
+When an eligible directional maximum is below ten, every Type tied at that
+maximum qualifies for the directional pole. At a double-digit maximum, every
+eligible Type whose degree is at least exactly 90% of that maximum qualifies.
+Research compares the integer ratio without rounding or floating point. In
+both cases the maximum must be at least three distinct peers. The three-peer
+floor requires evidence of leverage across a group and prevents one- and
+two-edge ties from turning sparse adjacency into a high-value designation;
+the double-digit cohort admits near-maximum peers only where one peer no longer
+represents a large share of the winning degree.
 
-Signature and body completion remain independent. A complete signature
-population cannot qualify body degree, and complete body evidence cannot
-qualify signature degree. An available report may retain healthy rows when one
-population is incomplete, but every affected ranking and role remains visibly
-qualified by the producer receipt and failures. Missing or failed evidence
+Research issues at most one visible pole per Type. A Type that qualifies in
+only one direction receives that pole. When it qualifies in both directions,
+the larger raw directional degree wins: incoming wins sea level and outgoing
+wins mountain peak. Equal incoming and outgoing degrees issue no pole. This
+dominant-or-none rule does not remove the Type from either complete order or
+discard either raw degree; it prevents one categorical cue from implying
+reciprocity, a cycle, or two simultaneous structural identities. Raw scores
+and complete orders remain available when no Type receives a pole.
+
+Eligibility is local to these two degree-ordered views. It is not a low-value
+classification and cannot suppress a canonical row or transfer to another
+query. A low-degree or ineligible Type may still be a call-graph bridge, an
+async blocking boundary, the only unsafe or native operation carrier, a
+reflection or serialization activation point, or a meaningful exception,
+attribute, delegate, or protocol state.
+
+#### Body-use Type-leverage pilot
+
+Research also exposes a detached body-use pilot for the same exact-namespace
+Type question. The pilot composes an exact-namespace Metadata signature-use
+result, used as the canonical Type inventory and classification source, with
+one whole-Library
+[Analysis body-use result](analysis-library-body-use.md). MVID and assembly
+identity are the join currency. Every Metadata Type in the shard must have the
+same exact address, structured name, and definition kind in the Analysis
+inventory, and both inventories must have identical coverage for the requested
+exact namespace.
+
+Every complete logical Analysis occurrence whose source and target addresses
+are both in the Metadata shard contributes its `source -> target` relationship
+to the induced graph. All Analysis-owned typed operand kinds participate; the
+pilot does not narrow the population to calls. Graph applies the same
+distinct-peer counting and self-loop policy as surface mode, so parallel
+operands count one peer and a self relationship counts no peer.
+
+The body row records body incoming and body outgoing degree. Research applies
+the same role thresholds, Metadata-owned designation eligibility,
+three-distinct-peer floor, exact-or-90%-cohort directional policy,
+dominant-or-none pole selection, and deterministic orders as surface mode.
+Body use is a separate evidence mode: its degrees and poles do not replace or
+merge with signature degrees and poles.
+
+The result retains both source qualifications and both Graph work receipts. It
+is complete only when the Metadata inventory and Analysis body-use result are
+both complete; otherwise every derived order, role, and designation remains
+visibly qualified. Physical-only body evidence therefore qualifies the result
+but does not manufacture a logical relationship.
+
+This slice is Research-only comparison evidence. It does not define a body-use
+namespace index, automatic acquisition, transport or cache identity, CLI
+surface, Browser/Wasm projection, or website behavior. Production adoption
+requires a separately costed consumer slice and does not justify widening a
+cheap body-use request into full call-graph acquisition. Analysis owns typed
+operand decoding and the existing direct-call index; Research adds neither a
+decoder nor a second general call index.
+
+#### Sharding and exhaustive composition
+
+The exact namespace is the Type-leverage unit of semantic analysis, demand,
+transport, and cache identity. A namespace shard carries exact assembly
+identity, methodology version, admitted-evidence mode, exact namespace,
+producer qualification, Graph work receipts, rows, orders, and designations.
+
+An exhaustive assembly result contains the namespace index and the complete
+set of exact namespace shards in namespace-index order. It invokes and
+composes the same shard producer used by an exact namespace request; it is not
+a second whole-Library Type algorithm. For the same assembly generation,
+evidence mode, policy, and bounds, one shard requested alone and that shard in
+an exhaustive result have identical facts, ordering, qualification, and work
+semantics.
+
+The tool owns authoritative composition identity, expected namespace coverage,
+deduplication, ordering, completion, and diagnostics. A host may union loaded
+shards only as explicitly partial presentation state and cannot call that
+union an exhaustive assembly result. The derived conjunction “top-leverage
+namespace and sea-level or mountain-peak Type” remains a consumer-side join
+over exact namespace identity unless repeated consumers establish a separate
+shared contract.
+
+An available index or shard may retain healthy facts when signature evidence
+is incomplete, but its orders, designations, and roles remain visibly qualified
+by the applicable producer receipt and failures. Missing or failed evidence
 does not become a zero-degree success.
 
 Graph owns relationship selection, direction, selected adjacency,
 distinct-neighbor counting, self-loop treatment, deterministic structural
-results, and its work receipts. Research owns which producer-issued
-relationships enter each plan, ranking eligibility, the two orders, role
-meaning, and qualification in the Library report. Neither host recomputes a
-degree, rank, role, or exclusion.
+results, and its work receipts. Research owns relationship partitioning,
+namespace roll-up, designation eligibility and policy, orders, role meaning,
+shard composition, and qualification. Neither CLI nor Browser recomputes a
+degree, score, order, role, designation, or exclusion.
+
+Production body-use adoption remains a separately costed depth mode over the
+same namespace and Type questions. It defines both incoming and outgoing
+degree rather than silently assigning one producer to sea level and another
+to mountain peak. Adopting that mode requires its own acquisition,
+qualification, cache identity, and Browser/Wasm cost evidence; the Research
+pilot does not change the meaning of signature-level surface mode.
 
 ## Interpretation boundary
 
@@ -348,35 +453,37 @@ need its own explicit Analysis/Metadata population owner.
 ## Composition and rendering
 
 The report composes owner-issued implementation profiles, the optional
-same-execution call graph, signature-use relationships, body-use relationships,
-and their population coverage receipts from
+same-execution call graph, signature-use relationships, and their population
+coverage receipt from
 [#7989](https://github.com/richlander/dotnet-inspect/issues/7989). Analysis
 and Metadata define how their respective inputs are constructed and qualified;
 Graph defines how the admitted closed document is structurally evaluated;
 Research defines how the report preserves that evidence and derives
-report-local distributions, type summaries, leverage rows, rankings, roles,
-and the bounded relationship projection. No host rebuilds coverage,
-completeness, topology, or a statistic from display text.
+report-local distributions, type summaries, the namespace index, namespace
+Type-leverage shards, roles, designations, and the bounded relationship
+projection. No host rebuilds coverage, completeness, topology, or a statistic
+from display text.
 
 This closed-document composition separates Graph optimization from QuerySpace
 optimization. QuerySpace and its providers can reduce which domain facts must
 be acquired and admitted; Graph answers the requested structural question over
 the admitted population with only the necessary topology and traversal state.
-The first leverage implementation still acquires complete producer-owned
-relationship populations before Graph executes. Its typed Graph plans make a
-later provider-backed demand path possible but do not themselves claim
-acquisition pushdown. In short: QuerySpace gets Graph the smallest relevant
-domain population; Graph answers the structural question with the smallest
-necessary topology and state.
+The namespace index requires the complete Library relationship population.
+An exact Type-leverage shard pushes its exact source namespace into Metadata
+acquisition before Graph executes. Exhaustive composition invokes those same
+shard plans rather than materializing one whole-Library Type graph. In short:
+QuerySpace gets Graph the smallest relevant domain population; Graph answers
+the structural question with the smallest necessary topology and state.
 
 The resource-free Research document is the structured rendering input. The CLI
 adoption owns the exact-name-only `Library Metrics` section and its `Markout`
 lowering. That section renders population receipt rows, distribution rows,
-maximum evidence, async disposition, sea-level rows, mountain-peak rows, and
-diagnostic rows without changing their Research-owned meaning. The two
+maximum evidence, async disposition, namespace-leverage rows, namespace-keyed
+sea-level rows, namespace-keyed mountain-peak rows, and diagnostic rows without
+changing their Research-owned meaning. The namespace score and two Type
 rankings remain separately named and ordered; the CLI does not blend them into
 one score. Markout's existing Markdown, table, TSV, JSONL, and projected-JSON
-lowerings remain format mechanics; numeric measures, role, ranking
+lowerings remain format mechanics; numeric measures, role, designation,
 disposition, and coverage states stay typed until that boundary.
 
 Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
@@ -391,17 +498,68 @@ instruction volume, treemap color represents average normal-flow complexity, and
 relationship stroke width represents retained call-site count. Complexity
 Explorer omits zero-body relationship-only summaries because they carry no
 implementation volume. Relationship Crossing renders every endpoint and edge
-in Research's bounded relationship projection; the Browser performs no second
-topology selection.
+in Research's bounded relationship projection; selecting an arc exposes its
+exact source and target Types as traversable actions plus its retained call-site
+count as relationship depth and its one-based position in Research's
+deterministic relationship order as rank. Browser presentation initially
+exposes half of the retained relationship prefix, capped at 24 arcs. Its range
+control discloses quartile prefixes through the complete projection while
+preserving Research's order; the Browser performs no second ranking or
+topology computation.
 
-The existing Metrics lens adds a `Type Leverage` view rather than new
-persistent workspace chrome. It presents separate sea-level and mountain-peak
-lists in their Research-issued order. Each visible row discloses its named
-degree and structural role and activates the exact metadata Type key. A
-presentation limit may take a prefix of each issued order, but Browser does not
-sort, merge, exclude, or recompute the rows. Relationship Crossing may decorate
-an already selected exact Type with its report-issued role; it does not infer
-role from the bounded call projection.
+The ordinary Type Browser automatically requests the exhaustive structural-
+salience document for every exact Library represented in its current Type
+inventory: the namespace index and every exact namespace Type-leverage shard
+in index order. An exact-Library view requests one document. The default
+all-Libraries package view requests one independently cached document per
+represented Library and joins each cue only to Types from that Library. This
+makes every displayed pole authoritative in the initial all-namespaces view
+without treating module-local Type identities as package-global. Browser
+visibly rejects a document with missing, extra, duplicated, or reordered
+namespace shards. The request does not run implementation profiles, body-use
+analysis, the call graph, or Library Metrics. Package and platform Libraries
+use the same managed query shape and Browser contract.
+
+Structural salience has no separate viewer. Metrics continues to present its
+Research-issued Complexity Explorer and Relationship Crossing evidence without
+salience rankings or namespace controls.
+
+The exhaustive document is cached by exact Library identity, methodology
+version, evidence mode, and workspace generation. Operation authority prevents
+stale results from publishing into a replacement workspace. Loading, qualified,
+unavailable, and failed outcomes remain visible and retryable. The exact
+namespace shard remains the Research unit and a query surface for demand-driven
+tool and agent consumers; the Browser host does not compose partial shard
+unions.
+
+Browser presentation consumes Research-issued top-leverage and nullable Type
+pole designations. It does not apply a second percentage, rank, threshold, or
+tie-break.
+
+Structural salience adds no filter or activation control. Existing text,
+namespace, kind, Library, and accessibility filters continue to select Types;
+the retained rows carry their owner-issued cue when available. Row cues use
+distinct shapes and accessible descriptions without replacing the selected or
+hover state, so color is not the only carrier.
+
+Structural salience follows the existing implementation-heat visual grammar.
+Categorical achievements occupy a shared left-gutter rail with zero to two
+ordered glyph slots per item. Two slots preserve dense Type and future member
+rows while allowing another owner-issued signal to compose with structural
+salience; this design does not define or synthesize that future signal. The
+rail is item-neutral presentation substrate, and each consumer supplies an
+already selected, strongest-first set without Browser combining scores across
+owners. In this slice Research issues only one exclusive structural pole, so a
+Type uses at most one slot: a sea-level Type uses a baseline glyph plus a
+subtle bottom-up vertical wash, while a mountain-peak Type uses a peak glyph
+plus a subtle top-down vertical wash. Scalar magnitude heat, including
+implementation-profile heat, remains a horizontal gradient anchored at the
+right edge. Shape and vertical origin carry the distinction while theme-owned
+color remains secondary. A Type with no issued pole receives an empty rail and
+no wash. Hover and selection remain visibly stronger than either wash, and
+accessible text remains authoritative. These cues express only the
+owner-issued pole; they do not encode quality, reciprocity, reachability, or a
+cycle.
 
 A treemap cell discloses its type summary on pointer hover or keyboard focus
 and activates the exact metadata type key to continue the settled
@@ -503,9 +661,9 @@ repeats the product contract through Research and each host:
 - CLI fixtures prove that the explicit `Library Metrics` section lowers both
   issued orders and their qualifications through Markout without introducing
   them into default `-v:m` output.
-- Browser/Wasm fixtures prove that the existing Metrics lens consumes the same
-  exact Type keys and issued order, limits only by taking a disclosed prefix,
-  and never reconstructs degree, role, or ranking from the bounded call
+- Browser/Wasm fixtures prove that ordinary Type inventories consume the same
+  exact Type keys and owner-issued poles, expose authoritative pole filters,
+  and never reconstruct degree, role, or designation from the bounded call
   projection.
 - System.Text.Json 10.0.0 proves the production package path and useful
   separation of foundations and orchestrators. System.Private.CoreLib proves
@@ -535,9 +693,9 @@ hosts:
 5. Browser/Wasm adopts the same document through its settled Library detail
    path. Its managed Analysis facade runs the host-neutral
    `AssemblyContextLibraryMetricsQuery` over the exact implementation
-   participant, and its explicit `Metrics` lens presents the `Complexity
-   Explorer` and `Relationship Crossing` views while preserving Type/Member
-   drill-down rather than adding method rows to Compare.
+   participant, and the Library Analysis inspector's `Metrics` tab presents the
+   `Complexity Explorer` and `Relationship Crossing` views while preserving
+   Type/Member drill-down rather than adding method rows to Compare.
 
 The CLI path has four steps and the Browser/Wasm path has five steps; the first
 three are shared. The completed CLI adoption establishes the `Library Metrics`
@@ -553,17 +711,16 @@ stack. Each slice has one normative owner and lands a usable typed contract:
 2. [Metadata Library Signature Use](metadata-library-signature-use.md)
    publishes the complete qualified Library signature-use relationship
    population and exact Type-definition identities.
-3. Analysis publishes the complete qualified Library body-use relationship
-   population with logical declared-Type ownership.
-4. Research composes both populations through Graph, publishes canonical
-   leverage rows, independent orders, roles, eligibility, and qualification,
-   and retires its superseded private undirected `HashSet` degree calculation
-   wherever the new evidence serves the same question.
-5. The CLI adds the two named `Library Metrics` row groups through Markout
+3. Research runs the signature-use population through Graph and publishes
+   canonical surface-leverage rows, independent incoming/outgoing orders,
+   roles, eligibility, and qualification. Analysis body-use evidence remains
+   available for a separately costed future depth mode over both directions.
+4. The CLI adds the two named `Library Metrics` row groups through Markout
    without changing the command's explicit-only disclosure.
-6. Browser/Wasm extends the existing Metrics lens through the settled managed
-   facade and shared Research document.
-7. A later provider-backed composition may push Graph demand into Metadata and
+5. Browser/Wasm automatically requests the dedicated metadata-only surface
+   query for every exact Library represented by the current Type inventory,
+   with category cues and no salience-specific control.
+6. A later provider-backed composition may push Graph demand into Metadata and
    Analysis acquisition. It is a separately evidenced QuerySpace optimization,
    not a condition of the closed-document stack.
 

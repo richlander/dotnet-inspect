@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.LibraryMetadata;
@@ -32,14 +33,16 @@ internal sealed record LibraryScalarFields(
     string? Version,
     string? DocumentFailure)
 {
-    internal static LibraryScalarFields? From(LibraryInspection data)
+    internal static LibraryScalarFields? From(
+        LibraryInspection data,
+        LibraryDocumentInspection? documentInspection = null)
     {
         // Views that carry no assembly identity render no scalar fields, as before.
         if (data.AssemblyInfo is not { } info)
             return null;
-        if (data.LibraryDocument is { } document)
+        if (documentInspection?.Document is { } document)
             return FromDocument(data, document);
-        if (data.LibraryDocumentFailure is { } failure)
+        if (documentInspection?.Failure is { } failure)
         {
             return new(
                 null, null, null, null, null, null, null, false, null,

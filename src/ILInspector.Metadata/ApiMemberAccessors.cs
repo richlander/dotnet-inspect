@@ -166,6 +166,7 @@ public static class ApiMemberAccessors
             Kind = isExplicitImplementation
                 ? "explicit-interface-implementation"
                 : "method",
+            IsExplicitInterfaceImplementation = isExplicitImplementation,
             IsHidden = isHidden,
             MethodSemantics = accessorKind switch
             {

@@ -69,7 +69,7 @@ public sealed class MethodRowGateTests
     // ---- Identity budget ----
 
     [Theory]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     public void IdentityBudget_CountAndExistsChargeNothing(ProducerTerminal terminal)
     {
@@ -153,6 +153,9 @@ public sealed class MethodRowGateTests
         Assert.Equal(0, loggedResult.Value);
         Assert.Same(critical, rowsResult.Critical);
         Assert.Same(critical, loggedResult.Critical);
+        Assert.Equal(
+            critical.UnitToken & 0x00FF_FFFF,
+            execution.Receipt.UnitsVisited);
         Assert.All(LoggingPredicate.Tokens, token => Assert.True(token <= critical.UnitToken));
     }
 
@@ -728,7 +731,7 @@ public sealed class MethodRowGateTests
     {
         ImmutableArray<byte> image = Ordinary().Build();
         var classifier = new ScopeClassifier();
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Complete, ProducerTerminal.Exists })
+        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Count, ProducerTerminal.Exists })
         {
             var kernel = new GateProducer<PointerPredicate>(
                 "Kernel", MethodDefinitionLayers.SignatureShape, new SourceGateGuard(classifier, 0b11), kernel: true);

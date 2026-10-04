@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
+  BrowserPackageChildrenInspection,
   BrowserPackageSurface,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -23,7 +24,8 @@ function subjectTab(page: Page, subject: string) {
 
 async function openProductDestination(
   page: Page,
-  destination: "home" | "query" | "workspace" | "activity",
+  destination:
+    "home" | "query" | "workspace" | "ecosystems" | "activity" | "demos",
 ): Promise<void> {
   await page.locator("[data-product-navigation-button]").click();
   await page.locator(
@@ -165,6 +167,8 @@ function type(id: string, assembly: BrowserAssemblySurface): BrowserTypeSurface 
     displayName: id,
     namespace: "Example",
     kind: "class",
+    kindFacetId: "api.type-kind.class",
+    traitFacetIds: ["api.type-trait.object"],
     accessibility: "public",
     accessibilityId: "public",
     assembly: `${assembly.name}.dll`,
@@ -189,6 +193,36 @@ const surface: BrowserPackageSurface = {
   compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
   assemblies: [core, other, empty],
   types: [type("Example.Widget", core), type("Example.Neighbor", other)],
+  typeKinds: [{
+    id: "api.type-kind.class",
+    singularLabel: "class",
+    pluralLabel: "classes",
+    weight: 100,
+    count: 2,
+    isDefault: true,
+  }],
+  typeTraits: [{
+    id: "api.type-trait.abstract",
+    singularLabel: "abstract",
+    pluralLabel: "abstract",
+    weight: 100,
+    count: 0,
+    isDefault: false,
+  }, {
+    id: "api.type-trait.static",
+    singularLabel: "static",
+    pluralLabel: "static",
+    weight: 200,
+    count: 0,
+    isDefault: false,
+  }, {
+    id: "api.type-trait.object",
+    singularLabel: "object",
+    pluralLabel: "objects",
+    weight: 300,
+    count: 2,
+    isDefault: false,
+  }],
   accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 2 }],
   totalMembers: 2,
   documents: [],
@@ -226,6 +260,7 @@ const historicalPlatformTarget: PlatformCatalogTarget = {
 };
 interface PlatformFixture {
   forwarders?: boolean;
+  forwarderInternalType?: boolean;
   forwarderFailure?: boolean;
   forwarderPending?: boolean;
   warmup?: "pending" | "fail-once";
@@ -236,6 +271,7 @@ interface PlatformFixture {
   libraryFailure?: boolean;
   libraryPending?: boolean;
   libraryPendingPack?: PlatformAssemblyRow["pack"];
+  libraryPendingAssembly?: string;
   duplicateLibrary?: boolean;
   nativeCoreLib?: boolean;
   mismatchedFile?: boolean;
@@ -255,6 +291,8 @@ interface DiagnosticsFixture {
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
+  qualifiedStructuralSalience?: boolean;
+  slowStructuralSalience?: boolean;
 }
 
 interface PackageLoadingFixture {
@@ -264,6 +302,7 @@ interface PackageLoadingFixture {
   failVersionOnce?: string;
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
+  packageChildren?: BrowserPackageChildrenInspection;
 }
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
@@ -394,6 +433,8 @@ async function installFacades(
           assemblyId: uploadAssemblyId,
           assemblyName: uploadAssembly.name,
         })),
+        typeKinds: model.typeKinds,
+        typeTraits: model.typeTraits,
         accessibility: model.accessibility,
         totalMembers: model.totalMembers,
         inspectionErrors: [],
@@ -604,6 +645,8 @@ async function installFacades(
         }
         document.documentElement.dataset.platformLibraryRequest = JSON.stringify([tfm, version, file, pack, assetFileName]);
         if (platformOptions.libraryPending
+          && (!platformOptions.libraryPendingAssembly
+            || platformOptions.libraryPendingAssembly + ".dll" === file)
           && (!platformOptions.libraryPendingPack || platformOptions.libraryPendingPack === pack)) {
           await new Promise(resolve => document.addEventListener("finish-platform-library", resolve, { once: true }));
         }
@@ -626,9 +669,47 @@ async function installFacades(
             name: "XmlReader", displayName: "XmlReader", namespace: "System.Xml",
           } : {}),
         }] : [];
+        if (platformOptions.forwarderInternalType && assembly.name === "System.Xml") {
+          types.push({
+            ...surfaces[0].types[0],
+            id: assembly.id + ":Hidden.InternalType",
+            definitionId: "Hidden.InternalType",
+            queryId: "Hidden.InternalType",
+            metadataId: "Hidden.InternalType",
+            name: "InternalType",
+            displayName: "Hidden.InternalType",
+            namespace: "Hidden",
+            accessibility: "internal",
+            accessibilityId: "internal",
+            signature: "internal class Hidden.InternalType",
+            assembly: file,
+            assemblyName: assembly.name,
+            assemblyId: assembly.id,
+            platformPack: pack,
+          });
+        }
+        const accessibility =
+          platformOptions.forwarderInternalType && assembly.name === "System.Xml"
+            ? [
+                {
+                  id: "public",
+                  label: "Public",
+                  order: 0,
+                  isDefault: true,
+                  count: 0,
+                },
+                {
+                  id: "internal",
+                  label: "Internal",
+                  order: 2,
+                  isDefault: false,
+                  count: 1,
+                },
+              ]
+            : surfaces[0].accessibility;
         return JSON.stringify({
           ...surfaces[0], package: "Microsoft.NETCore.App", version, frameworks: [tfm], activeFramework: tfm,
-          defaultAssemblyId: assembly.id, assemblies: [assembly], types,
+          defaultAssemblyId: assembly.id, assemblies: [assembly], types, accessibility,
           totalMembers: row.publicTypes,
         });
       }
@@ -689,10 +770,13 @@ async function installFacades(
         return result;
       }
       export async function queryPackage(id, version, framework) {
-        const surface = surfaceFor(id);
+        document.documentElement.dataset.packageQueryRequest =
+          JSON.stringify([id, version, framework]);
+        const defaultSurface = surfaceFor(id);
+        const surface = surfaceFor(id, version, framework);
         if (packageLoading.deferInitial || (packageLoading.deferChanges
-          && (id !== surfaces[0].package || version !== surface.version
-            || framework !== surface.activeFramework))) {
+          && (id !== surfaces[0].package || version !== defaultSurface.version
+            || framework !== defaultSurface.activeFramework))) {
           document.documentElement.dataset.packageQueryPending =
             JSON.stringify([id, version, framework]);
           await new Promise(resolve => document.addEventListener(
@@ -762,6 +846,43 @@ async function installFacades(
             },
             diagnostics: [],
           },
+          packageChildren:
+            packageLoading.packageChildren?.content.packageId === id
+              ? packageLoading.packageChildren
+              : {
+            content: {
+              kind: "Libraries",
+              status: surface.compileLibrary.status === "NoCompileAssets"
+                ? "NoCompileAssets"
+                : surface.compileLibrary.status === "EmptyCompileGroup"
+                  ? "SelectedEmpty"
+                  : "Available",
+              packageId: id,
+              packageVersion: selectedVersion,
+              targetFramework: framework || surface.activeFramework,
+              libraries: surface.assemblies.map(assembly => ({
+                assetId: assembly.id,
+                assetPath: assembly.asset,
+                assemblyName: assembly.name,
+                role: "Compile",
+              })),
+              runtimeIdentifierPackages: [],
+              detail: surface.compileLibrary.status === "NoCompileAssets"
+                ? "The Package contains no compile Libraries."
+                : surface.compileLibrary.status === "EmptyCompileGroup"
+                  ? "The selected compile group contains no Libraries."
+                  : null,
+              isComplete: true,
+            },
+            share: {
+              kind: "NonProjectable",
+              fullUrl: null,
+              packet: null,
+              path: "package-children/share",
+              reason: "No canonical Workspace share projection.",
+            },
+            diagnostics: [],
+          },
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,
@@ -769,6 +890,9 @@ async function installFacades(
           activeFramework: framework || surface.activeFramework,
           },
         };
+      }
+      export async function queryPackageSummary(id, version, framework) {
+        return { ...(await queryPackage(id, version, framework)), surface: null };
       }
       export async function queryPackageVersions() {
         const versions = packageLoading.versions ?? ["1.0.0", "0.9.0"];
@@ -790,7 +914,7 @@ async function installFacades(
             results: [],
           },
           share: {
-            kind: "nonProjectable",
+            kind: "NonProjectable",
             fullUrl: null,
             packet: null,
             path: "capability-catalog-search/share",
@@ -860,6 +984,185 @@ async function installFacades(
         };
       }
       export function listPackageQueryCatalog() { return { presets: [], terms: [] }; }
+      const packageQueryOperations = new Map();
+      function packageQueryRow(ecosystemId, index) {
+        const packageId = index === 0
+          ? "Aspire.Hosting"
+          : index === 1
+            ? "Aspire.Hosting.Orchestration"
+            : "Aspire.Integration." + String(index - 1).padStart(3, "0");
+        return {
+          packageId,
+          version: "9.0." + String(index),
+          tier: "SearchMetadata",
+          answers: [],
+          evidence: [{
+            id: "package.query.scope.ecosystem",
+            scope: "Query",
+            summary: { count: 1, preview: [ecosystemId] },
+            properties: [{ name: "Ecosystem", value: ecosystemId }],
+            number: null,
+            term: {
+              key: "ecosystem",
+              operator: "eq",
+              value: ecosystemId,
+            },
+          }],
+          totalDownloads: 60000 - index,
+          verified: false,
+          producer: "fixture",
+          description: "Curated Ecosystem package " + String(index + 1) + ".",
+          rootRequest: null,
+          owners: ["fixture"],
+          manifest: null,
+        };
+      }
+      function packageQueryCompletion(ecosystemId, count) {
+        return {
+          prefix: ecosystemId,
+          producer: "fixture",
+          candidateLimit: 200,
+          matchLimit: 96,
+          candidates: count,
+          matches: count,
+          failures: 0,
+          kind: "Exhausted",
+          sourceCandidates: count,
+          semanticMisses: null,
+          notApplicable: null,
+          scope: "Catalog-authored Ecosystem population.",
+          occurrences: null,
+          notEvaluated: null,
+          evaluatedCandidates: null,
+          semanticMatches: null,
+        };
+      }
+      export function cancelPackageQuery(operationId, reason) {
+        const operation = packageQueryOperations.get(operationId);
+        if (!operation) return { kind: "NotActive", reason: null };
+        document.documentElement.dataset.ecosystemPackageQueryCancellations =
+          String(Number(
+            document.documentElement.dataset
+              .ecosystemPackageQueryCancellations ?? "0",
+          ) + 1);
+        operation.cancelled = true;
+        operation.reason = reason;
+        operation.wake?.();
+        return { kind: "Requested", reason };
+      }
+      export function requestPackageQueryMatches(
+        operationId,
+        additionalMatchCredit,
+      ) {
+        const operation = packageQueryOperations.get(operationId);
+        if (!operation || operation.cancelled) {
+          return { kind: "NotActive", additionalMatchCredit: null };
+        }
+        operation.credit += additionalMatchCredit;
+        operation.wake?.();
+        return { kind: "Granted", additionalMatchCredit };
+      }
+      export async function runEcosystemPackageQuery(
+        operationId,
+        ecosystemId,
+        maximumCandidates,
+        maximumMatches,
+        includePrerelease,
+        initialMatchCredit,
+        eventSink,
+      ) {
+        document.documentElement.dataset.ecosystemPackageQuery =
+          JSON.stringify([
+            operationId,
+            ecosystemId,
+            maximumCandidates,
+            maximumMatches,
+            includePrerelease,
+            initialMatchCredit,
+          ]);
+        const rows = Array.from(
+          { length: 60 },
+          (_unused, index) => packageQueryRow(ecosystemId, index));
+        const operation = {
+          credit: initialMatchCredit,
+          cancelled: false,
+          reason: null,
+          wake: null,
+        };
+        packageQueryOperations.set(operationId, operation);
+        try {
+          for (let index = 0; index < rows.length; index++) {
+            while (index >= operation.credit && !operation.cancelled) {
+              await new Promise(resolve => { operation.wake = resolve; });
+              operation.wake = null;
+            }
+            if (operation.cancelled) {
+              return {
+                version: 3,
+                kind: "Canceled",
+                value: null,
+                inspection: null,
+                failureKind: null,
+                error: null,
+                diagnostic: null,
+                reason: operation.reason,
+              };
+            }
+            eventSink.event = JSON.stringify({
+              kind: "Match",
+              row: rows[index],
+              failure: null,
+              completion: null,
+              progress: null,
+              assessment: null,
+            });
+            if ((index + 1) % 12 === 0) {
+              eventSink.event = JSON.stringify({
+                kind: "Progress",
+                row: null,
+                failure: null,
+                completion: null,
+                progress: {
+                  phase: "Search",
+                  completed: index + 1,
+                  limit: maximumCandidates,
+                },
+                assessment: null,
+              });
+            }
+            await Promise.resolve();
+          }
+          const completion = packageQueryCompletion(ecosystemId, rows.length);
+          return {
+            version: 3,
+            kind: "Succeeded",
+            value: null,
+            inspection: {
+              content: {
+                results: rows,
+                hasPackages: true,
+                failures: [],
+                completion,
+                libraryLiteralAssessments: [],
+              },
+              share: {
+                kind: "NonProjectable",
+                fullUrl: null,
+                packet: null,
+                path: "package-query/share",
+                reason: "Fixture Package Query has no portable projection.",
+              },
+              diagnostics: [],
+            },
+            failureKind: null,
+            error: null,
+            diagnostic: null,
+            reason: null,
+          };
+        } finally {
+          packageQueryOperations.delete(operationId);
+        }
+      }
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }
@@ -873,10 +1176,22 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const types = surface.types.filter(type => type.assemblyId === asset);
-        const typeKinds = [...new Set(types.map(type => type.kind))].map((kind, index) => ({
-          id: kind.toLowerCase(), singularLabel: kind, pluralLabel: kind + "s",
-          weight: index, count: types.filter(type => type.kind === kind).length,
+        const typeKinds = [...new Set(types.map(type => type.kindFacetId))].map((id, index) => ({
+          id,
+          singularLabel: types.find(type => type.kindFacetId === id)?.kind ?? id,
+          pluralLabel: (types.find(type => type.kindFacetId === id)?.kind ?? id) + "s",
+          weight: index,
+          count: types.filter(type => type.kindFacetId === id).length,
           isDefault: true,
+        }));
+        const typeTraits = [
+          ["api.type-trait.abstract", "abstract"],
+          ["api.type-trait.static", "static"],
+          ["api.type-trait.object", "object"],
+        ].map(([id, label], index) => ({
+          id, singularLabel: label, pluralLabel: label === "object" ? "objects" : label,
+          weight: index, count: types.filter(type => type.traitFacetIds.includes(id)).length,
+          isDefault: false,
         }));
         const namespaces = [...new Set(types.map(type => type.namespace))].map(name => ({
           name, count: types.filter(type => type.namespace === name).length,
@@ -903,6 +1218,7 @@ async function installFacades(
               publicMethodCount: selected.publicMembers,
               publicPropertyCount: 0,
               typeKinds,
+              typeTraits,
               namespaces,
             },
             truncation: null,
@@ -1012,6 +1328,33 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      export async function queryMemberDeclaration(
+        id, version, framework, assembly, typeIdentity, memberName,
+        selectorKey, metadataToken, implementationMember) {
+        document.documentElement.dataset.memberDeclarationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, memberName,
+            selectorKey, metadataToken, implementationMember,
+          ]);
+        const type = surfaceFor(id, version, framework).types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const member = type?.api.find(item =>
+          item.name === memberName
+          && item.stableSelector === selectorKey
+          && (item.declarationMetadataToken ?? item.metadataToken ?? 0)
+            === metadataToken);
+        return member
+          ? {
+              text: member.signature,
+              unavailable: null,
+              compatibility: false,
+            }
+          : {
+              text: null,
+              unavailable: "The selected declaration is unavailable.",
+              compatibility: false,
+            };
+      }
       function typeMemberPopulation(
         surface, typeIdentity, spelling, accessibility) {
         function accessibilityBucket(member) {
@@ -1055,6 +1398,21 @@ async function installFacades(
           this: 0,
           extension: 0,
         };
+        const selectedMembers = members.filter(member =>
+          accessibility === "all"
+          || accessibilityBucket(member) === accessibility);
+        const kindCounts = new Map();
+        const selectorCounts = {
+          kinds: [],
+          traits: {
+            all: selectedMembers.length,
+            static: 0,
+            instance: 0,
+            virtual: 0,
+            interface: 0,
+            extensions: 0,
+          },
+        };
         const completeCounts = new Map();
         for (const member of members) {
           composition[accessibilityBucket(member)]++;
@@ -1064,9 +1422,26 @@ async function installFacades(
           const key = member.kind + ":" + member.name;
           completeCounts.set(key, (completeCounts.get(key) ?? 0) + 1);
         }
+        for (const member of selectedMembers) {
+          kindCounts.set(
+            member.kind,
+            (kindCounts.get(member.kind) ?? 0) + 1);
+          if (member.isExtension) selectorCounts.traits.extensions++;
+          else if (member.isStatic) selectorCounts.traits.static++;
+          else selectorCounts.traits.instance++;
+          if (member.isVirtual) selectorCounts.traits.virtual++;
+          if (member.isExplicitInterfaceImplementation) {
+            selectorCounts.traits.interface++;
+          }
+        }
+        selectorCounts.kinds = [...kindCounts].map(([value, count]) => ({
+          value,
+          count,
+        }));
         const groups = new Map();
         for (const member of members) {
-          if (accessibilityBucket(member) !== accessibility) continue;
+          if (accessibility !== "all"
+              && accessibilityBucket(member) !== accessibility) continue;
           const key = member.kind + ":" + member.name;
           const group = groups.get(key) ?? {
             key,
@@ -1077,9 +1452,20 @@ async function installFacades(
           };
           group.members.push({
             ...populationMember(member),
-            baselineOrdinal: group.members.length + 1,
+            baselineOrdinal: null,
           });
           groups.set(key, group);
+        }
+        for (const group of groups.values()) {
+          const hasExactSelectors =
+            accessibility === "public"
+            && group.kind === "method"
+            && group.members.every(member =>
+              member.metadataAccessor !== true);
+          if (!hasExactSelectors) continue;
+          group.members.forEach((member, index) => {
+            member.baselineOrdinal = index + 1;
+          });
         }
         return {
           outcome: "Available",
@@ -1089,6 +1475,7 @@ async function installFacades(
             spelling,
             accessibility,
             composition,
+            selectorCounts,
             groups: [...groups.values()],
           },
           diagnostics: [],
@@ -1149,12 +1536,120 @@ async function installFacades(
           spelling,
           accessibility);
       }
+      function memberDisplaySignature(member) {
+        let signature = member.signature;
+        const accessibilityPrefix = (member.accessibility || "public") + " ";
+        if (signature.startsWith(accessibilityPrefix)) {
+          signature = signature.slice(accessibilityPrefix.length);
+        }
+        const receiverPrefix = member.isExtension
+          ? "extension "
+          : member.isStatic ? "static " : "";
+        if (receiverPrefix && signature.startsWith(receiverPrefix)) {
+          signature = signature.slice(receiverPrefix.length);
+        }
+        return signature;
+      }
+      function memberDocument(
+        surface,
+        typeIdentity,
+        memberName,
+        baselineOrdinal,
+        fingerprintPrefix) {
+        const type = surface.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const overloads = type?.api.filter(member =>
+          member.kind === "method"
+          && member.name === memberName
+          && member.metadataAccessor !== true
+          && !member.graphOnly) ?? [];
+        const member = Number.isInteger(baselineOrdinal)
+          ? overloads[baselineOrdinal - 1]
+          : null;
+        if (!type
+            || !member
+            || fingerprintPrefix
+              && !member.anchorDigest.startsWith(fingerprintPrefix)) {
+          return {
+            outcome: "Rejected",
+            detail: "The exact ordinary method declaration was not found.",
+            document: null,
+            diagnostics: [],
+          };
+        }
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity: type.queryId,
+            memberName,
+            metadataToken:
+              member.declarationMetadataToken ?? member.metadataToken ?? 0,
+            baselineOrdinal,
+            displaySignature: memberDisplaySignature(member),
+            canonicalSignature: member.canonicalSignature,
+            fingerprint: member.anchorDigest,
+            accessibility: member.accessibility,
+            receiver: member.isExtension
+              ? "Extension"
+              : member.isStatic ? "Static" : "This",
+            documentation: null,
+          },
+          diagnostics: [],
+        };
+      }
+      export async function queryMemberDocument(
+        id, version, framework, assembly, typeIdentity, memberName,
+        baselineOrdinal, fingerprintPrefix) {
+        document.documentElement.dataset.memberDocumentRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, memberName,
+            baselineOrdinal, fingerprintPrefix,
+          ]);
+        return memberDocument(
+          surfaceFor(id, version, framework),
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix);
+      }
+      export async function queryPlatformMemberDocument(
+        framework, version, assembly, pack, typeIdentity, memberName,
+        baselineOrdinal, fingerprintPrefix) {
+        document.documentElement.dataset.platformMemberDocumentRequest =
+          JSON.stringify([
+            framework, version, assembly, pack, typeIdentity, memberName,
+            baselineOrdinal, fingerprintPrefix,
+          ]);
+        return memberDocument(
+          surfaceFor("Microsoft.NETCore.App", version, framework),
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix);
+      }
+      export async function queryUploadedLibraryMemberDocument(
+        declaredName, content, typeIdentity, memberName, baselineOrdinal,
+        fingerprintPrefix) {
+        document.documentElement.dataset.uploadedLibraryMemberDocumentRequest =
+          JSON.stringify([
+            declaredName, content.length, typeIdentity, memberName,
+            baselineOrdinal, fingerprintPrefix,
+          ]);
+        return memberDocument(
+          surfaces[0],
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix);
+      }
       function memberGroupDocument(surface, typeIdentity, memberName) {
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         const overloads = type?.api.filter(member =>
           member.kind === "method"
           && member.name === memberName
+          && member.metadataAccessor !== true
           && !member.graphOnly) ?? [];
         if (!type || overloads.length === 0) {
           return {
@@ -1324,7 +1819,85 @@ async function installFacades(
       }`,
     analysis: `
       ${surfaceLookup}
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
       let implementationProfileRequestCount = 0;
+      let structuralSalienceRequestCount = 0;
+      function structuralSalience(surface, selected) {
+        document.documentElement.dataset.structuralSalienceRequestCount =
+          String(++structuralSalienceRequestCount);
+        const qualified = diagnosticsOptions.qualifiedStructuralSalience;
+        const exactNamespace = "Example";
+        const selectedType = surface.types.find(
+          item => item.assemblyId === selected.id
+            && item.namespace === exactNamespace);
+        const types = selectedType ? [{
+          typeDefinitionId: selectedType.definitionId,
+          typeDisplay: selectedType.displayName,
+          designationEligible: true,
+          signatureIncomingDegree: 3,
+          signatureOutgoingDegree: 0,
+          role: "foundation",
+          pole: selected.id === "asset:other"
+            ? "MountainPeak"
+            : "SeaLevel"
+        }] : [];
+        return {
+          schemaVersion: 1,
+          outcome: "available",
+          methodologyVersion: "structural-salience.v3",
+          evidenceMode: "signature",
+          namespaceIndex: {
+            disposition: qualified ? "partial" : "complete",
+            coverage: {
+              considered: 1,
+              examined: qualified ? 0 : 1,
+              unavailable: qualified ? 1 : 0,
+              limited: 0
+            },
+            namespaces: [{
+              namespace: exactNamespace,
+              typeCount: surface.types.filter(
+                item => item.assemblyId === selected.id
+                  && item.namespace === exactNamespace).length,
+              externalIncomingSourceTypeCount: 1,
+              topLeverage: true
+            }],
+            diagnostics: qualified ? ["One signature was unavailable."] : []
+          },
+          typeLeverageShards: [{
+            namespace: exactNamespace,
+            disposition: qualified ? "partial" : "complete",
+            coverage: {
+              considered: 1,
+              examined: qualified ? 0 : 1,
+              unavailable: qualified ? 1 : 0,
+              limited: 0
+            },
+            types,
+            seaLevelOrder: types
+              .filter(item => item.pole === "SeaLevel")
+              .map(item => item.typeDefinitionId),
+            mountainPeakOrder: types
+              .filter(item => item.pole === "MountainPeak")
+              .map(item => item.typeDefinitionId),
+            diagnostics: qualified ? ["One signature was unavailable."] : []
+          }],
+          failure: null,
+          compileLibrary: surface.compileLibrary
+        };
+      }
+      export async function queryPackageLibraryStructuralSalience(
+        id, version, framework, asset
+      ) {
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const result = structuralSalience(surface, selected);
+        if (diagnosticsOptions.slowStructuralSalience) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return result;
+      }
       function implementationProfiles(
         subjectName,
         typeDefinitionId,
@@ -1729,6 +2302,101 @@ async function installFacades(
             declaredName: null
           });
       }
+      function typeMethodLeverage(
+        subjectName,
+        typeDefinitionId,
+        compileLibrary,
+        provenance
+      ) {
+        return {
+          schemaVersion: 1,
+          outcome: "available",
+          subject: {
+            identity: {
+              name: subjectName,
+              version: "1.0.0.0",
+              culture: null,
+              publicKeyToken: null
+            },
+            moduleVersionId: "11111111-1111-1111-1111-111111111111",
+            provenance
+          },
+          content: {
+            typeDefinitionId,
+            methodCount: 0,
+            winnerCount: 0,
+            winningRank: null,
+            anchoredWinners: [],
+            analysisDiagnostics: [],
+            apiSurfaceInspectionFailures: []
+          },
+          failure: null,
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "type-method-leverage/share",
+            reason: "Fixture projection."
+          },
+          diagnostics: [],
+          compileLibrary
+        };
+      }
+      export async function queryPackageTypeMethodLeverage(
+        id,
+        version,
+        framework,
+        asset,
+        typeDefinitionId
+      ) {
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return typeMethodLeverage(
+          selected.name,
+          typeDefinitionId,
+          surface.compileLibrary,
+          {
+            kind: "package",
+            packageId: id,
+            packageVersion: version,
+            framework,
+            frameworkVersion: null,
+            runtimeIdentifier: null,
+            assetPath: selected.asset,
+            resolverSource: null,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      export async function queryPlatformTypeMethodLeverage(
+        framework,
+        version,
+        file,
+        pack,
+        typeDefinitionId
+      ) {
+        return typeMethodLeverage(
+          file.replace(/\\.dll$/i, ""),
+          typeDefinitionId,
+          { status: "Selected", targetFramework: framework, message: null },
+          {
+            kind: "platform",
+            packageId: null,
+            packageVersion: null,
+            framework,
+            frameworkVersion: version,
+            runtimeIdentifier: null,
+            assetPath: null,
+            resolverSource: pack,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
       export async function queryPackageIntegrations(id, version, framework, asset) {
         document.documentElement.dataset.integrationRequest = asset;
         const surface = surfaceFor(id);
@@ -1938,7 +2606,9 @@ async function installFacades(
         member,
         selector,
         token,
+        documentBaselineOrdinal,
         taste,
+        view,
         contextId
       ) {
         document.documentElement.dataset.platformMemberSourceRequest =
@@ -1951,10 +2621,12 @@ async function installFacades(
             member,
             selector,
             token,
+            documentBaselineOrdinal,
             taste,
+            view,
             contextId,
           ]);
-        return {
+        const value = {
           source: {
             provider: "decompiled",
             provenance: "fixture platform implementation",
@@ -1963,7 +2635,9 @@ async function installFacades(
             text: "public void Run() {}",
           },
           parts: [],
+          diagnostics: [],
         };
+        return { value, error: null, diagnostics: [] };
       }
       export async function queryTypeSource() {
         return {
@@ -2006,9 +2680,347 @@ async function installFacades(
       }`,
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
+      const productEcosystems = [{
+        id: "ecosystem.fixture-platform",
+        title: "Platform fixture",
+        summary: "Synthetic platform-backed Ecosystem.",
+        corePackageCount: 0,
+        namespaceRootCount: 2,
+        toolPackageCount: 0,
+        demoCount: 1,
+        hasPackageSet: false,
+        hasScanner: false,
+        hasPopulationLoader: true,
+        hasWorkspaceRegistration: true,
+      }, {
+        id: "ecosystem.fixture-package",
+        title: "Package fixture",
+        summary: "Synthetic package-backed Ecosystem.",
+        corePackageCount: 3,
+        namespaceRootCount: 1,
+        toolPackageCount: 1,
+        demoCount: 2,
+        hasPackageSet: true,
+        hasScanner: true,
+        hasPopulationLoader: false,
+        hasWorkspaceRegistration: true,
+      }];
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       const workspaceSources = ${JSON.stringify(workspaceSources)};
+      const retainedWorkspaceSurface = ${JSON.stringify(model)};
+      let preparedRetainedWorkspace = null;
+      function retainedWorkspacePosting(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        canonicalPacket,
+      ) {
+        const workspaceId = "source-workspace";
+        const packageSubjectId = "source-package";
+        const definition = {
+          tabs: [{
+            id: "t0",
+            kind: "package",
+            source: retainedWorkspaceSurface.package,
+            version: retainedWorkspaceSurface.version,
+            framework: retainedWorkspaceSurface.activeFramework,
+            runtimeIdentifier: null,
+          }],
+          contexts: [{ id: "g0", tabIds: ["t0"] }],
+          registrations: [],
+          activeTabId: "t0",
+          selectedContextId: "g0",
+        };
+        const activeSubject = {
+          id: packageSubjectId,
+          kind: "Package",
+          label: retainedWorkspaceSurface.package,
+          summary: null,
+          parent: workspaceId,
+        };
+        const effectiveLens = {
+          id: "package.overview",
+          subject: activeSubject,
+          facet: "package.overview",
+        };
+        const navigation = {
+          operation: "Initialize",
+          request: "source-workspace-request",
+          snapshot: {
+            generation: "source-workspace-generation",
+            scope: { kind: "Current", runtimeFailure: null },
+            workspace: {
+              id: workspaceId,
+              kind: "Workspace",
+              label,
+              summary: null,
+              parent: null,
+            },
+            activePackage: packageSubjectId,
+            activeSubject,
+            typeInventoryLibraryContext: null,
+            packages: [{
+              order: 0,
+              subject: activeSubject,
+              packageId: retainedWorkspaceSurface.package,
+              version: retainedWorkspaceSurface.version,
+              framework: retainedWorkspaceSurface.activeFramework,
+              runtimeIdentifier: null,
+              realization: "source-realization",
+              realizationFailure: null,
+              state: "Active",
+              isCurrent: true,
+              action: null,
+            }],
+            hierarchy: [{
+              kind: "Workspace",
+              label,
+              subject: {
+                id: workspaceId,
+                kind: "Workspace",
+                label,
+                summary: null,
+                parent: null,
+              },
+              state: "Active",
+              isActive: false,
+              isRetained: true,
+              evidence: [],
+              action: null,
+            }, {
+              kind: "Package",
+              label: retainedWorkspaceSurface.package,
+              subject: activeSubject,
+              state: "Active",
+              isActive: true,
+              isRetained: true,
+              evidence: [],
+              action: null,
+            }],
+            libraries: [],
+            types: [],
+            members: [],
+            lenses: [{
+              facet: {
+                id: "package.overview",
+                kind: "Inspector",
+                title: "Overview",
+                summary: "Package overview",
+                order: 0,
+                role: null,
+              },
+              state: "Available",
+              isCurrent: true,
+              target: effectiveLens,
+              unavailability: null,
+              message: null,
+              action: null,
+            }],
+            lensOutcome: {
+              kind: "Applied",
+              basis: "Recommendation",
+              subject: activeSubject,
+              effectiveLens,
+              request: null,
+              preferredRole: null,
+              policyFailure: null,
+              resolution: null,
+              suspension: null,
+            },
+            diagnostics: [],
+          },
+          outcome: {
+            kind: "Applied",
+            rejection: null,
+            failureSource: null,
+            message: null,
+            request: null,
+            resolution: null,
+            scope: null,
+            diagnostics: [],
+            coordinateRetention: null,
+          },
+          synchronization: "SynchronizationRequired",
+          authority: {
+            session: "source-session",
+            revision: "source-revision",
+            intent: "source-intent",
+            epoch: "source-epoch",
+          },
+        };
+        const packages = [{
+          navigationId: "source-package-navigation",
+          contextIndex: 0,
+          consumerPackageSubjectId: packageSubjectId,
+          summary: {
+            selectedCompileFramework: retainedWorkspaceSurface.activeFramework,
+            libraryCount: retainedWorkspaceSurface.assemblies.length,
+            typeCount: retainedWorkspaceSurface.types.length,
+            memberCount: retainedWorkspaceSurface.totalMembers,
+            documentCount: retainedWorkspaceSurface.documents.length,
+            hasInspectionNotices:
+              retainedWorkspaceSurface.inspectionErrors.length > 0,
+          },
+        }];
+        return {
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          canonicalPacket,
+          realizationId: "source-realization",
+          publicationOrdinal: 1,
+          definition,
+          navigation,
+          packages,
+          platforms: [],
+          predecessor: null,
+          cleanup: null,
+        };
+      }
+      function ecosystemWorkspacePosting(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        ecosystemId,
+      ) {
+        const workspaceId = "ecosystem-workspace";
+        const ecosystemSubjectId = "ecosystem-subject";
+        const activeSubject = {
+          id: ecosystemSubjectId,
+          kind: "Ecosystem",
+          label: ecosystemId,
+          summary: null,
+          parent: workspaceId,
+        };
+        const effectiveLens = {
+          id: "ecosystem.overview",
+          subject: activeSubject,
+          facet: "ecosystem.overview",
+        };
+        return {
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          canonicalPacket: null,
+          realizationId: "ecosystem-realization",
+          publicationOrdinal: 1,
+          definition: {
+            tabs: [],
+            contexts: [],
+            registrations: [{
+              kind: "ecosystem",
+              exactLibrary: null,
+              packagePrefix: null,
+              ecosystem: {
+                id: ecosystemId,
+                namespaceRoots: [],
+                corePackages: [],
+                populations: [],
+              },
+            }],
+            activeTabId: null,
+            selectedContextId: null,
+          },
+          navigation: {
+            operation: "Initialize",
+            request: "ecosystem-workspace-request",
+            snapshot: {
+              generation: "ecosystem-workspace-generation",
+              scope: { kind: "Current", runtimeFailure: null },
+              workspace: {
+                id: workspaceId,
+                kind: "Workspace",
+                label,
+                summary: null,
+                parent: null,
+              },
+              activePackage: null,
+              activeSubject,
+              typeInventoryLibraryContext: null,
+              packages: [],
+              hierarchy: [{
+                kind: "Workspace",
+                label,
+                subject: {
+                  id: workspaceId,
+                  kind: "Workspace",
+                  label,
+                  summary: null,
+                  parent: null,
+                },
+                state: "Active",
+                isActive: false,
+                isRetained: true,
+                evidence: [],
+                action: null,
+              }, {
+                kind: "Ecosystem",
+                label: ecosystemId,
+                subject: activeSubject,
+                state: "Active",
+                isActive: true,
+                isRetained: true,
+                evidence: [],
+                action: null,
+              }],
+              libraries: [],
+              types: [],
+              members: [],
+              lenses: [{
+                facet: {
+                  id: "ecosystem.overview",
+                  kind: "Inspector",
+                  title: "Overview",
+                  summary: "Ecosystem overview",
+                  order: 0,
+                  role: null,
+                },
+                state: "Available",
+                isCurrent: true,
+                target: effectiveLens,
+                unavailability: null,
+                message: null,
+                action: null,
+              }],
+              lensOutcome: {
+                kind: "Applied",
+                basis: "Recommendation",
+                subject: activeSubject,
+                effectiveLens,
+                request: null,
+                preferredRole: null,
+                policyFailure: null,
+                resolution: null,
+                suspension: null,
+              },
+              diagnostics: [],
+            },
+            outcome: {
+              kind: "Applied",
+              rejection: null,
+              failureSource: null,
+              message: null,
+              request: null,
+              resolution: null,
+              scope: null,
+              diagnostics: [],
+              coordinateRetention: null,
+            },
+            synchronization: "SynchronizationRequired",
+            authority: {
+              session: "ecosystem-session",
+              revision: "ecosystem-revision",
+              intent: "ecosystem-intent",
+              epoch: "ecosystem-epoch",
+            },
+          },
+          packages: [],
+          platforms: [],
+          predecessor: null,
+          cleanup: null,
+        };
+      }
       export function inspectVocabulary() {
         return {
           content: {
@@ -2032,6 +3044,9 @@ async function installFacades(
             "finish-home-demo-catalog", resolve, { once: true }));
         }
         return { demos: homeDemos };
+      }
+      export function listEcosystems() {
+        return { ecosystems: productEcosystems };
       }
       export async function runHomeDemo(id) {
         document.documentElement.dataset.homeDemoRun = id;
@@ -2155,6 +3170,124 @@ async function installFacades(
           }
         }
         return { succeeded: true, sources: workspaceSources, failure: null };
+      }
+      export async function prepareRetainedWorkspaceDefinition(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        canonicalPacket,
+      ) {
+        preparedRetainedWorkspace = retainedWorkspacePosting(
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          canonicalPacket,
+        );
+        return {
+          status: "prepared",
+          receipt: "source-receipt",
+          preparation: {
+            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
+            label: preparedRetainedWorkspace.label,
+            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
+            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
+            definition: preparedRetainedWorkspace.definition,
+            navigation: preparedRetainedWorkspace.navigation,
+            packages: preparedRetainedWorkspace.packages,
+            platforms: preparedRetainedWorkspace.platforms,
+          },
+          posting: null,
+          failure: null,
+        };
+      }
+      export async function prepareEcosystemWorkspaceDefinition(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        ecosystemId,
+      ) {
+        preparedRetainedWorkspace = ecosystemWorkspacePosting(
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          ecosystemId,
+        );
+        return {
+          status: "prepared",
+          receipt: "ecosystem-receipt",
+          preparation: {
+            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
+            label: preparedRetainedWorkspace.label,
+            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
+            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
+            definition: preparedRetainedWorkspace.definition,
+            navigation: preparedRetainedWorkspace.navigation,
+            packages: preparedRetainedWorkspace.packages,
+            platforms: preparedRetainedWorkspace.platforms,
+          },
+          posting: null,
+          failure: null,
+        };
+      }
+      export async function preparePackageQueryWorkspaceDefinition() {
+        return {
+          status: "failed",
+          receipt: null,
+          preparation: null,
+          posting: null,
+          failure: {
+            kind: "PackageUnavailable",
+            message: "Fixture package activation failed.",
+          },
+        };
+      }
+      export async function commitRetainedWorkspaceActivation() {
+        return {
+          status: "activated",
+          posting: preparedRetainedWorkspace,
+          failure: null,
+        };
+      }
+      export function completeRetainedWorkspaceActivation(
+        _receipt,
+        succeeded,
+        failure,
+      ) {
+        return {
+          status: "completed",
+          succeeded,
+          failure,
+          message: null,
+        };
+      }
+      export function validateRetainedWorkspaceNavigationAuthority() {
+        return true;
+      }
+      export function recordRetainedWorkspaceNavigationPosting() {
+        return "accepted";
+      }
+      export function acknowledgeRetainedWorkspaceNavigation() {
+        return "accepted";
+      }
+      export function abandonRetainedWorkspaceNavigation() {
+        return "accepted";
+      }
+      export async function admitRetainedWorkspacePackage() {
+        return {
+          status: "admitted",
+          package: {
+            navigationId: "source-package-navigation",
+            contextIndex: 0,
+            consumerPackageSubjectId: "source-package",
+            surface: retainedWorkspaceSurface,
+            typePage: {
+              offset: 0,
+              totalTypes: retainedWorkspaceSurface.types.length,
+              nextOffset: null,
+            },
+          },
+          message: null,
+        };
       }`,
   };
   const assetDirectory = new URL("../dist/assets/", import.meta.url);

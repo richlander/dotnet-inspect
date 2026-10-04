@@ -343,12 +343,10 @@ public sealed class ExternalCallGraphCommandTests
                     new AssemblyContextParticipant(
                         assembly,
                         policy)));
-        int methodToken =
-            Analysis.LibraryBodyIndex.Open(callerPath)
-                .Methods.Single(method =>
-                    method.DeclaringType.Name == "Entry"
-                    && method.Name == "RunOuter")
-                .MetadataToken;
+        int methodToken = MethodTokenOf(
+            callerPath,
+            "Entry",
+            "RunOuter");
         using var session = new MemberCallGraphSession(
             group,
             assemblies[0],
@@ -910,12 +908,10 @@ public sealed class ExternalCallGraphCommandTests
                     new AssemblyContextParticipant(
                         assembly,
                         policy)));
-        int methodToken =
-            Analysis.LibraryBodyIndex.Open(callerPath)
-                .Methods.Single(methodInfo =>
-                    methodInfo.DeclaringType.Name == "Entry"
-                    && methodInfo.Name == member)
-                .MetadataToken;
+        int methodToken = MethodTokenOf(
+            callerPath,
+            "Entry",
+            member);
         using var session = new MemberCallGraphSession(
             group,
             assemblies[0],
@@ -953,6 +949,20 @@ public sealed class ExternalCallGraphCommandTests
                     "package-dependency-member-call-graph/share",
                     "Test projection."));
     }
+
+    static int MethodTokenOf(
+        string assemblyPath,
+        string declaringTypeName,
+        string methodName) =>
+        BodyAnalysisTestExecution.Open(
+                assemblyPath,
+                includeAllocations: false,
+                includeOpportunities: false)
+            .CallGraph.Methods
+            .Single(method =>
+                method.DeclaringType.Name == declaringTypeName
+                && method.Name == methodName)
+            .MetadataToken;
 
     static async Task CommitPackageAsync(
         InMemoryPackageStore store,

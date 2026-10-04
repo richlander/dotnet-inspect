@@ -99,14 +99,19 @@ internal static class MetadataLibrarySignatureUseInspection
             operation.Charge(
                 MetadataOperationDimension.RetainedText,
                 inventory.RetainedTextCharacters);
-            return new Operation(
-                image,
-                reader,
-                assembly,
-                moduleVersionId,
-                inventory,
-                operation,
-                cancellationToken).Execute();
+            MetadataLibrarySignatureUseResult result =
+                new Operation(
+                    image,
+                    reader,
+                    assembly,
+                    moduleVersionId,
+                    inventory,
+                    new Operation.Partition(
+                        request.ExactNamespace,
+                        operation),
+                    cancellationToken).ExecuteSingle();
+            return new MetadataLibrarySignatureUseOutcome.Available(
+                result);
         }
         catch (MetadataOperationBudgetExceededException exception)
         {
@@ -128,6 +133,266 @@ internal static class MetadataLibrarySignatureUseInspection
         }
     }
 
+    internal static MetadataLibrarySignatureUseBatchOutcome ExecuteBatch(
+        PEReader image,
+        MetadataReader reader,
+        MetadataLibrarySignatureUseBatchRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        AssemblyReferenceIdentity assembly;
+        Guid moduleVersionId;
+        try
+        {
+            if (!reader.IsAssembly)
+            {
+                return new MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                    MetadataLibrarySignatureUseRejectionKind
+                        .MissingAssemblyIdentity,
+                    "A Library signature-use batch requires an assembly manifest.");
+            }
+
+            assembly =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            moduleVersionId =
+                reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            if (moduleVersionId == Guid.Empty)
+            {
+                return new MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                    MetadataLibrarySignatureUseRejectionKind
+                        .MissingAssemblyIdentity,
+                    "The metadata image has an empty module version identifier.");
+            }
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or OverflowException)
+        {
+            return new MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                MetadataLibrarySignatureUseRejectionKind.MalformedImage,
+                exception.Message);
+        }
+
+        var operations =
+            new MetadataOperationContext[request.ExactNamespaces.Length];
+        MetadataOperationCounters? commonCounters = null;
+        try
+        {
+            for (var index = 0; index < operations.Length; index++)
+                operations[index] =
+                    new MetadataOperationContext(request.Policy);
+
+            MetadataImageAdmissionResult admission =
+                operations[0].AdmitImage(reader);
+            if (admission
+                is MetadataImageAdmissionResult.Rejected rejected)
+            {
+                return new
+                    MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                        MetadataLibrarySignatureUseRejectionKind.Limit,
+                        "The metadata image exceeds the operation row budget.",
+                        Counters: rejected.Failure.Counters);
+            }
+            long imageMetadataRows =
+                ((MetadataImageAdmissionResult.Admitted)admission)
+                    .ImageMetadataRows;
+            for (var index = 1; index < operations.Length; index++)
+            {
+                operations[index].Charge(
+                    MetadataOperationDimension.MetadataRows,
+                    imageMetadataRows);
+            }
+
+            AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
+                AssemblyTypeDeclarationInventoryReader.Read(
+                    reader,
+                    MaximumInt(request.Policy.MaxStructuredNodes),
+                    MaximumInt(request.Policy.MaxRetainedText));
+            if (inventoryOutcome
+                is AssemblyTypeDeclarationInventoryOutcome.Incomplete
+                    incomplete)
+            {
+                return new
+                    MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                        MetadataLibrarySignatureUseRejectionKind.Limit,
+                        $"The Type inventory exceeded {incomplete.Bound}.",
+                        Counters: operations[0].Counters);
+            }
+            if (inventoryOutcome
+                is AssemblyTypeDeclarationInventoryOutcome.Rejected
+                    inventoryRejected)
+            {
+                return new
+                    MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                        MetadataLibrarySignatureUseRejectionKind
+                            .TypeInventory,
+                        inventoryRejected.Failure.Detail,
+                        Counters: operations[0].Counters);
+            }
+
+            var inventory =
+                ((AssemblyTypeDeclarationInventoryOutcome.Read)
+                    inventoryOutcome).Inventory;
+            foreach (MetadataOperationContext operation in operations)
+            {
+                operation.Charge(
+                    MetadataOperationDimension.StructuredNodes,
+                    inventory.Definitions.Length);
+                operation.Charge(
+                    MetadataOperationDimension.RetainedText,
+                    inventory.RetainedTextCharacters);
+            }
+            commonCounters = operations[0].Counters;
+
+            var partitions =
+                ImmutableArray.CreateBuilder<Operation.Partition>(
+                    operations.Length);
+            for (var index = 0; index < operations.Length; index++)
+            {
+                partitions.Add(
+                    new(
+                        request.ExactNamespaces[index],
+                        operations[index]));
+            }
+
+            ImmutableArray<MetadataLibrarySignatureUseResult> results =
+                new Operation(
+                    image,
+                    reader,
+                    assembly,
+                    moduleVersionId,
+                    inventory,
+                    partitions.MoveToImmutable(),
+                    cancellationToken).ExecuteBatch();
+            MetadataOperationCounters physicalCounters =
+                SharedPhysicalCounters(
+                    commonCounters,
+                    results.Select(
+                        static result => result.Receipt.Counters));
+            return new MetadataLibrarySignatureUseBatchOutcome.Available(
+                new(
+                    new(
+                        moduleVersionId,
+                        assembly,
+                        physicalCounters),
+                    results));
+        }
+        catch (MetadataOperationBudgetExceededException exception)
+        {
+            return new MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                MetadataLibrarySignatureUseRejectionKind.Limit,
+                $"The Type inventory exceeded {exception.Dimension}.",
+                Counters: exception.Counters);
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            return new MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                MetadataLibrarySignatureUseRejectionKind.MalformedImage,
+                exception.Message,
+                Counters: CurrentPhysicalCounters(
+                    commonCounters,
+                    operations));
+        }
+        finally
+        {
+            foreach (MetadataOperationContext? operation in operations)
+                operation?.Dispose();
+        }
+    }
+
+    private static MetadataOperationCounters? CurrentPhysicalCounters(
+        MetadataOperationCounters? commonCounters,
+        IReadOnlyList<MetadataOperationContext> operations)
+    {
+        if (operations.Count == 0 || operations[0] is null)
+            return null;
+        if (commonCounters is null)
+            return operations[0].Counters;
+        return SharedPhysicalCounters(
+            commonCounters,
+            operations
+                .TakeWhile(static operation => operation is not null)
+                .Select(static operation => operation.Counters));
+    }
+
+    private static MetadataOperationCounters SharedPhysicalCounters(
+        MetadataOperationCounters common,
+        IEnumerable<MetadataOperationCounters> logicalCounters)
+    {
+        long metadataRows = common.MetadataRows;
+        long methodImplementationRows = common.MethodImplementationRows;
+        long declarationCandidates = common.DeclarationCandidates;
+        long relationshipEdges = common.RelationshipEdges;
+        long signatureBytes = common.SignatureBytes;
+        long genericSubstitutionNodes = common.GenericSubstitutionNodes;
+        long structuredNodes = common.StructuredNodes;
+        long retainedText = common.RetainedText;
+        long interfaceImplementationRows =
+            common.InterfaceImplementationRows;
+        long retainedMethodSemanticsAssociations =
+            common.RetainedMethodSemanticsAssociations;
+        foreach (MetadataOperationCounters counters in logicalCounters)
+        {
+            metadataRows = checked(
+                metadataRows + counters.MetadataRows - common.MetadataRows);
+            methodImplementationRows = checked(
+                methodImplementationRows
+                + counters.MethodImplementationRows
+                - common.MethodImplementationRows);
+            declarationCandidates = checked(
+                declarationCandidates
+                + counters.DeclarationCandidates
+                - common.DeclarationCandidates);
+            relationshipEdges = checked(
+                relationshipEdges
+                + counters.RelationshipEdges
+                - common.RelationshipEdges);
+            signatureBytes = checked(
+                signatureBytes
+                + counters.SignatureBytes
+                - common.SignatureBytes);
+            genericSubstitutionNodes = checked(
+                genericSubstitutionNodes
+                + counters.GenericSubstitutionNodes
+                - common.GenericSubstitutionNodes);
+            structuredNodes = checked(
+                structuredNodes
+                + counters.StructuredNodes
+                - common.StructuredNodes);
+            retainedText = checked(
+                retainedText
+                + counters.RetainedText
+                - common.RetainedText);
+            interfaceImplementationRows = checked(
+                interfaceImplementationRows
+                + counters.InterfaceImplementationRows
+                - common.InterfaceImplementationRows);
+            retainedMethodSemanticsAssociations = checked(
+                retainedMethodSemanticsAssociations
+                + counters.RetainedMethodSemanticsAssociations
+                - common.RetainedMethodSemanticsAssociations);
+        }
+        return new(
+            metadataRows,
+            methodImplementationRows,
+            declarationCandidates,
+            relationshipEdges,
+            signatureBytes,
+            genericSubstitutionNodes,
+            structuredNodes,
+            retainedText,
+            interfaceImplementationRows,
+            retainedMethodSemanticsAssociations);
+    }
+
     private static int MaximumInt(long value) =>
         value >= int.MaxValue ? int.MaxValue : checked((int)value);
 
@@ -138,7 +403,12 @@ internal static class MetadataLibrarySignatureUseInspection
         private readonly AssemblyReferenceIdentity _assembly;
         private readonly Guid _moduleVersionId;
         private readonly AssemblyTypeDeclarationInventory _inventory;
-        private readonly MetadataOperationContext _operation;
+        private readonly ImmutableArray<Partition> _partitions;
+        private readonly Partition? _singlePartition;
+        private readonly Partition? _wholePartition;
+        private readonly Partition? _singleExactPartition;
+        private readonly Dictionary<string, Partition>?
+            _partitionsByNamespace;
         private readonly CancellationToken _cancellationToken;
         private readonly Dictionary<
             MetadataTypeDefinitionName,
@@ -146,24 +416,14 @@ internal static class MetadataLibrarySignatureUseInspection
         private readonly TypeEntry?[] _typesByRow;
         private readonly MetadataLibraryTypeClassification[]
             _inheritanceClassification;
+        private readonly MetadataLibraryTypeClassification[]?
+            _batchInitialClassification;
         private readonly bool[] _inheritanceSettled;
         private readonly bool[] _baseSiteExamined;
         private readonly int[] _inheritanceVisitGeneration;
         private readonly List<TypeDefinitionHandle> _inheritancePath = [];
         private readonly List<TypeEntry> _types = [];
-        private readonly ImmutableArray<
-            MetadataLibrarySignatureUseOccurrence>.Builder _occurrences =
-                ImmutableArray.CreateBuilder<
-                    MetadataLibrarySignatureUseOccurrence>();
-        private readonly ImmutableArray<
-            MetadataLibrarySignatureUseDiagnostic>.Builder _diagnostics =
-                ImmutableArray.CreateBuilder<
-                    MetadataLibrarySignatureUseDiagnostic>();
-        private int _considered;
-        private int _examined;
-        private int _unavailable;
-        private int _siteLimited;
-        private bool _limited;
+        private Partition? _activePartition;
         private int _currentInheritanceGeneration;
 
         internal Operation(
@@ -172,39 +432,156 @@ internal static class MetadataLibrarySignatureUseInspection
             AssemblyReferenceIdentity assembly,
             Guid moduleVersionId,
             AssemblyTypeDeclarationInventory inventory,
-            MetadataOperationContext operation,
+            Partition partition,
+            CancellationToken cancellationToken)
+            : this(
+                image,
+                reader,
+                assembly,
+                moduleVersionId,
+                inventory,
+                partition,
+                default,
+                cancellationToken)
+        {
+        }
+
+        internal Operation(
+            PEReader image,
+            MetadataReader reader,
+            AssemblyReferenceIdentity assembly,
+            Guid moduleVersionId,
+            AssemblyTypeDeclarationInventory inventory,
+            ImmutableArray<Partition> partitions,
+            CancellationToken cancellationToken)
+            : this(
+                image,
+                reader,
+                assembly,
+                moduleVersionId,
+                inventory,
+                singlePartition: null,
+                partitions,
+                cancellationToken)
+        {
+        }
+
+        private Operation(
+            PEReader image,
+            MetadataReader reader,
+            AssemblyReferenceIdentity assembly,
+            Guid moduleVersionId,
+            AssemblyTypeDeclarationInventory inventory,
+            Partition? singlePartition,
+            ImmutableArray<Partition> partitions,
             CancellationToken cancellationToken)
         {
+            if (singlePartition is null && partitions.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    "A signature-use operation requires a partition.",
+                    nameof(partitions));
+            }
             _image = image;
             _reader = reader;
             _assembly = assembly;
             _moduleVersionId = moduleVersionId;
             _inventory = inventory;
-            _operation = operation;
+            _partitions = partitions;
+            _singlePartition = singlePartition;
             _cancellationToken = cancellationToken;
+            if (singlePartition?.ExactNamespace is null
+                && singlePartition is not null)
+            {
+                _wholePartition = singlePartition;
+            }
+            else if (singlePartition is not null)
+            {
+                _singleExactPartition = singlePartition;
+            }
+            else if (partitions.Length == 1
+                && partitions[0].ExactNamespace is null)
+            {
+                _wholePartition = partitions[0];
+            }
+            else if (partitions.Length == 1)
+            {
+                _singleExactPartition = partitions[0];
+            }
+            else
+            {
+                _partitionsByNamespace =
+                    new(StringComparer.Ordinal);
+                foreach (Partition partition in partitions)
+                {
+                    if (partition.ExactNamespace is null
+                        || !_partitionsByNamespace.TryAdd(
+                            partition.ExactNamespace,
+                            partition))
+                    {
+                        throw new ArgumentException(
+                            "Exact signature-use partitions must be unique.",
+                            nameof(partitions));
+                    }
+                }
+            }
             int typeRowCapacity =
                 checked(reader.TypeDefinitions.Count + 1);
             _typesByRow = new TypeEntry?[typeRowCapacity];
             _inheritanceClassification =
                 new MetadataLibraryTypeClassification[typeRowCapacity];
+            if (singlePartition is null)
+            {
+                _batchInitialClassification =
+                    new MetadataLibraryTypeClassification[typeRowCapacity];
+            }
             _inheritanceSettled = new bool[typeRowCapacity];
             _baseSiteExamined = new bool[typeRowCapacity];
             _inheritanceVisitGeneration = new int[typeRowCapacity];
         }
 
-        internal MetadataLibrarySignatureUseOutcome Execute()
+        internal MetadataLibrarySignatureUseResult ExecuteSingle()
+        {
+            ExecuteCore();
+            return CreateResult(_singlePartition!);
+        }
+
+        internal ImmutableArray<MetadataLibrarySignatureUseResult>
+            ExecuteBatch()
+        {
+            ExecuteCore();
+            var results =
+            ImmutableArray.CreateBuilder<
+                MetadataLibrarySignatureUseResult>(_partitions.Length);
+            foreach (Partition partition in _partitions)
+            {
+                ClassifyInheritance(partition);
+                results.Add(CreateResult(partition));
+                ResetClassification(partition);
+            }
+            return results.MoveToImmutable();
+        }
+
+        private void ExecuteCore()
         {
             BuildTypeInventory();
             ScanSites();
             ClassifyInheritance();
-            int considered = _limited
-                ? CountSites()
-                : _considered;
-            int limited = _limited
-                ? considered - _examined - _unavailable
-                : _siteLimited;
-            if (!_limited
-                && _examined + _unavailable + _siteLimited
+        }
+
+        private MetadataLibrarySignatureUseResult CreateResult(
+            Partition partition)
+        {
+            int considered = partition.Limited
+                ? CountSites(partition)
+                : partition.Considered;
+            int limited = partition.Limited
+                ? considered - partition.Examined - partition.Unavailable
+                : partition.SiteLimited;
+            if (!partition.Limited
+                && partition.Examined
+                    + partition.Unavailable
+                    + partition.SiteLimited
                     != considered)
             {
                 throw new InvalidOperationException(
@@ -212,32 +589,34 @@ internal static class MetadataLibrarySignatureUseInspection
             }
 
             ImmutableArray<MetadataLibrarySignatureType> types =
-                [.. _types.Select(
+            [.. _types
+                .Where(partition.IsAdmitted)
+                .Select(
                     static entry =>
-                        new MetadataLibrarySignatureType(
-                            entry.Address,
-                            entry.Name,
-                            entry.DefinitionKind,
-                            entry.Classification))];
+                    new MetadataLibrarySignatureType(
+                        entry.Address,
+                        entry.Name,
+                        entry.DefinitionKind,
+                        entry.Classification))];
             MetadataLibrarySignatureUseDisposition disposition =
-                _diagnostics.Count == 0
+                partition.Diagnostics.Count == 0
                     ? MetadataLibrarySignatureUseDisposition.Complete
                     : MetadataLibrarySignatureUseDisposition.Partial;
-            return new MetadataLibrarySignatureUseOutcome.Available(
+            return new(
                 new(
-                    new(
-                        _moduleVersionId,
-                        _assembly,
-                        _operation.Counters),
-                    disposition,
-                    types,
-                    _occurrences.ToImmutable(),
-                    new(
-                        considered,
-                        _examined,
-                        _unavailable,
-                        limited),
-                    _diagnostics.ToImmutable()));
+                    _moduleVersionId,
+                    _assembly,
+                    partition.ExactNamespace,
+                    partition.Operation.Counters),
+                disposition,
+                types,
+                partition.Occurrences.ToImmutable(),
+                new(
+                    considered,
+                    partition.Examined,
+                    partition.Unavailable,
+                    limited),
+                partition.Diagnostics.ToImmutable());
         }
 
         private void BuildTypeInventory()
@@ -266,6 +645,11 @@ internal static class MetadataLibrarySignatureUseInspection
 
                 TypeDefinitionHandle handle =
                     (TypeDefinitionHandle)entity;
+                MetadataLibraryTypeClassification initialClassification =
+                    SafeInitialClassification(
+                        handle,
+                        declaration.Name,
+                        isCoreLibrary);
                 var entry = new TypeEntry(
                     handle,
                     MetadataTypeDefinitionAddress.FromHandle(
@@ -273,10 +657,7 @@ internal static class MetadataLibrarySignatureUseInspection
                         handle),
                     declaration.Name,
                     definitionKind,
-                    SafeInitialClassification(
-                        handle,
-                        declaration.Name,
-                        isCoreLibrary));
+                    initialClassification);
                 if (!_typesByName.TryAdd(entry.Name, entry))
                 {
                     throw new BadImageFormatException(
@@ -289,18 +670,64 @@ internal static class MetadataLibrarySignatureUseInspection
                         "More than one Type inventory entry has the same TypeDef.");
                 }
                 _typesByRow[row] = entry;
+                if (_batchInitialClassification is not null)
+                {
+                    _batchInitialClassification[row] =
+                        initialClassification;
+                }
                 _types.Add(entry);
             }
         }
 
         private void ClassifyInheritance()
         {
+            if (_singlePartition is not null)
+                ClassifyInheritance(_singlePartition);
+        }
+
+        private void ClassifyInheritance(Partition partition)
+        {
+            _inheritanceClassification.AsSpan().Clear();
+            _inheritanceSettled.AsSpan().Clear();
             foreach (TypeEntry entry in _types)
             {
+                if (!partition.IsAdmitted(entry))
+                    continue;
                 _cancellationToken.ThrowIfCancellationRequested();
                 entry.Classification |=
-                    SafeInheritanceClassification(entry);
+                    SafeInheritanceClassification(
+                        entry,
+                        partition);
             }
+        }
+
+        private void ResetClassification(Partition partition)
+        {
+            foreach (TypeEntry entry in _types)
+            {
+                if (!partition.IsAdmitted(entry))
+                    continue;
+                entry.Classification =
+                    _batchInitialClassification![
+                        TypeRow(entry.Handle)];
+            }
+        }
+
+        private Partition? PartitionForSource(TypeEntry entry)
+        {
+            if (_wholePartition is not null)
+                return _wholePartition;
+            if (_singleExactPartition is not null)
+            {
+                return _singleExactPartition.IsAdmitted(entry)
+                    ? _singleExactPartition
+                    : null;
+            }
+            return _partitionsByNamespace!.TryGetValue(
+                entry.Name.Namespace,
+                out Partition? partition)
+                    ? partition
+                    : null;
         }
 
         private MetadataLibraryTypeClassification
@@ -324,11 +751,15 @@ internal static class MetadataLibrarySignatureUseInspection
         }
 
         private MetadataLibraryTypeClassification
-            SafeInheritanceClassification(TypeEntry entry)
+            SafeInheritanceClassification(
+                TypeEntry entry,
+                Partition partition)
         {
             try
             {
-                return InheritanceClassification(entry);
+                return InheritanceClassification(
+                    entry,
+                    partition);
             }
             catch (Exception exception)
                 when (IsMalformedClassificationEvidence(exception))
@@ -345,7 +776,8 @@ internal static class MetadataLibrarySignatureUseInspection
                 or OverflowException;
 
         private MetadataLibraryTypeClassification InheritanceClassification(
-            TypeEntry entry)
+            TypeEntry entry,
+            Partition partition)
         {
             const MetadataLibraryTypeClassification inheritedFlags =
                 MetadataLibraryTypeClassification.Attribute
@@ -370,7 +802,8 @@ internal static class MetadataLibrarySignatureUseInspection
                 }
                 _inheritanceVisitGeneration[row] = visitGeneration;
                 _inheritancePath.Add(current);
-                if (_typesByRow[row] is { } currentEntry)
+                TypeEntry? currentEntry = _typesByRow[row];
+                if (currentEntry is not null)
                 {
                     result =
                         currentEntry.Classification & inheritedFlags;
@@ -378,7 +811,9 @@ internal static class MetadataLibrarySignatureUseInspection
                         break;
                 }
 
-                if (!_baseSiteExamined[row])
+                if (currentEntry is null
+                    || (partition.IsAdmitted(currentEntry)
+                        && !_baseSiteExamined[row]))
                 {
                     result = MetadataLibraryTypeClassification.None;
                     break;
@@ -408,11 +843,11 @@ internal static class MetadataLibrarySignatureUseInspection
                             is not TypeSpecificationRootReadResult.Read
                                 rootRead
                         || rootRead.Root is not
-                            {
-                                Kind:
+                        {
+                            Kind:
                                     TypeSpecificationRootKind.NamedType,
-                                RawTypeKind: 0x12,
-                            } root)
+                            RawTypeKind: 0x12,
+                        } root)
                     {
                         result =
                             MetadataLibraryTypeClassification.None;
@@ -532,11 +967,13 @@ internal static class MetadataLibrarySignatureUseInspection
             return row;
         }
 
-        private int CountSites()
+        private int CountSites(Partition partition)
         {
             int count = 0;
             foreach (TypeEntry entry in _types)
             {
+                if (!partition.IsAdmitted(entry))
+                    continue;
                 _cancellationToken.ThrowIfCancellationRequested();
                 TypeDefinition definition =
                     _reader.GetTypeDefinition(entry.Handle);
@@ -584,35 +1021,38 @@ internal static class MetadataLibrarySignatureUseInspection
         {
             foreach (TypeEntry source in _types)
             {
+                Partition? partition = PartitionForSource(source);
+                if (partition is null || partition.Limited)
+                    continue;
                 _cancellationToken.ThrowIfCancellationRequested();
-                if (_limited)
-                    return;
 
                 TypeDefinition definition =
                     _reader.GetTypeDefinition(source.Handle);
                 if (!definition.BaseType.IsNil)
                 {
-                    int examinedBefore = _examined;
+                    int examinedBefore = partition.Examined;
                     ScanEntitySite(
+                        partition,
                         source,
                         definition.BaseType,
                         MetadataLibrarySignatureUseSiteKind.BaseType,
                         MetadataTokens.GetToken(source.Handle));
                     _baseSiteExamined[TypeRow(source.Handle)] =
-                        _examined != examinedBefore;
+                        partition.Examined != examinedBefore;
                 }
 
                 foreach (InterfaceImplementationHandle implementationHandle
                     in definition.GetInterfaceImplementations())
                 {
-                    if (_limited)
-                        return;
+                    if (partition.Limited)
+                        break;
                     ScanSite(
+                        partition,
                         source,
                         MetadataTokens.GetToken(implementationHandle),
                         (pending, provider) =>
                         {
-                            _operation.Charge(
+                            ActivePartition.Operation.Charge(
                                 MetadataOperationDimension
                                     .InterfaceImplementationRows);
                             InterfaceImplementation implementation =
@@ -629,6 +1069,7 @@ internal static class MetadataLibrarySignatureUseInspection
                 }
 
                 ScanConstraints(
+                    partition,
                     source,
                     definition.GetGenericParameters(),
                     MetadataLibrarySignatureUseSiteKind.TypeConstraint);
@@ -637,6 +1078,7 @@ internal static class MetadataLibrarySignatureUseInspection
                     in definition.GetFields())
                 {
                     ScanSite(
+                        partition,
                         source,
                         MetadataTokens.GetToken(fieldHandle),
                         (pending, provider) =>
@@ -646,7 +1088,8 @@ internal static class MetadataLibrarySignatureUseInspection
                             RequireSafe(
                                 field.Signature,
                                 SignatureBlobGuard.Kind.Field,
-                                provider);
+                                provider,
+                                ActivePartition.Operation);
                             Collect(
                                 field.DecodeSignature(
                                     provider,
@@ -661,6 +1104,7 @@ internal static class MetadataLibrarySignatureUseInspection
                     in definition.GetProperties())
                 {
                     ScanSite(
+                        partition,
                         source,
                         MetadataTokens.GetToken(propertyHandle),
                         (pending, provider) =>
@@ -671,7 +1115,8 @@ internal static class MetadataLibrarySignatureUseInspection
                             RequireSafe(
                                 property.Signature,
                                 SignatureBlobGuard.Kind.Property,
-                                provider);
+                                provider,
+                                ActivePartition.Operation);
                             MethodSignature<
                                 ImmutableArray<
                                     SignatureNamedTypeOccurrence>>
@@ -701,6 +1146,7 @@ internal static class MetadataLibrarySignatureUseInspection
                     in definition.GetEvents())
                 {
                     ScanSite(
+                        partition,
                         source,
                         MetadataTokens.GetToken(eventHandle),
                         (pending, provider) =>
@@ -721,6 +1167,7 @@ internal static class MetadataLibrarySignatureUseInspection
                     MethodDefinition method =
                         _reader.GetMethodDefinition(methodHandle);
                     ScanSite(
+                        partition,
                         source,
                         MetadataTokens.GetToken(methodHandle),
                         (pending, provider) =>
@@ -728,7 +1175,8 @@ internal static class MetadataLibrarySignatureUseInspection
                             RequireSafe(
                                 method.Signature,
                                 SignatureBlobGuard.Kind.Method,
-                                provider);
+                                provider,
+                                ActivePartition.Operation);
                             MethodSignature<
                                 ImmutableArray<
                                     SignatureNamedTypeOccurrence>>
@@ -753,6 +1201,7 @@ internal static class MetadataLibrarySignatureUseInspection
                             }
                         });
                     ScanConstraints(
+                        partition,
                         source,
                         method.GetGenericParameters(),
                         MetadataLibrarySignatureUseSiteKind
@@ -762,6 +1211,7 @@ internal static class MetadataLibrarySignatureUseInspection
         }
 
         private void ScanConstraints(
+            Partition partition,
             TypeEntry source,
             GenericParameterHandleCollection parameters,
             MetadataLibrarySignatureUseSiteKind kind)
@@ -773,9 +1223,10 @@ internal static class MetadataLibrarySignatureUseInspection
                 foreach (GenericParameterConstraintHandle constraintHandle
                     in parameter.GetConstraints())
                 {
-                    if (_limited)
+                    if (partition.Limited)
                         return;
                     ScanSite(
+                        partition,
                         source,
                         MetadataTokens.GetToken(constraintHandle),
                         (pending, provider) =>
@@ -795,11 +1246,13 @@ internal static class MetadataLibrarySignatureUseInspection
         }
 
         private void ScanEntitySite(
+            Partition partition,
             TypeEntry source,
             EntityHandle target,
             MetadataLibrarySignatureUseSiteKind kind,
             int metadataToken) =>
             ScanSite(
+                partition,
                 source,
                 metadataToken,
                 (pending, provider) =>
@@ -811,17 +1264,19 @@ internal static class MetadataLibrarySignatureUseInspection
                 });
 
         private void ScanSite(
+            Partition partition,
             TypeEntry source,
             int metadataToken,
             Action<PendingSite, SignatureOccurrenceProvider> decode)
         {
-            if (_limited)
+            if (partition.Limited)
                 return;
             _cancellationToken.ThrowIfCancellationRequested();
-            _considered++;
+            _activePartition = partition;
+            partition.Considered++;
             try
             {
-                _operation.Charge(
+                partition.Operation.Charge(
                     MetadataOperationDimension.DeclarationCandidates);
                 var pending = new PendingSite();
                 var provider = new SignatureOccurrenceProvider(
@@ -829,18 +1284,18 @@ internal static class MetadataLibrarySignatureUseInspection
                     new(
                         SignatureOccurrenceLimits.Default,
                         metrics: null,
-                        operation: _operation));
+                        operation: partition.Operation));
                 decode(pending, provider);
-                _operation.EnsureCanCharge(
+                partition.Operation.EnsureCanCharge(
                     MetadataOperationDimension.RelationshipEdges,
                     pending.Occurrences.Count);
-                _operation.Charge(
+                partition.Operation.Charge(
                     MetadataOperationDimension.RelationshipEdges,
                     pending.Occurrences.Count);
                 foreach (PendingOccurrence occurrence
                     in pending.Occurrences)
                 {
-                    _occurrences.Add(
+                    partition.Occurrences.Add(
                         new(
                             source.Address,
                             source.Name,
@@ -850,20 +1305,20 @@ internal static class MetadataLibrarySignatureUseInspection
                             metadataToken,
                             occurrence.Ordinal));
                 }
-                _examined++;
+                partition.Examined++;
             }
             catch (SiteUnavailableException exception)
             {
-                _diagnostics.Add(
+                partition.Diagnostics.Add(
                     new(
                         exception.Kind,
                         metadataToken,
                         exception.Message));
-                _unavailable++;
+                partition.Unavailable++;
             }
             catch (SiteLimitException exception)
             {
-                _diagnostics.Add(
+                partition.Diagnostics.Add(
                     new(
                         MetadataLibrarySignatureUseDiagnosticKind.Limit,
                         metadataToken,
@@ -871,7 +1326,7 @@ internal static class MetadataLibrarySignatureUseInspection
                         exception.Dimension,
                         exception.Limit,
                         exception.AttemptedCharge));
-                _siteLimited++;
+                partition.SiteLimited++;
             }
             catch (SignatureOccurrenceRejectedException exception)
             {
@@ -879,7 +1334,7 @@ internal static class MetadataLibrarySignatureUseInspection
                     && exception.Limit is { } limit
                     && exception.AttemptedCharge is { } attemptedCharge)
                 {
-                    _diagnostics.Add(
+                    partition.Diagnostics.Add(
                         new(
                             MetadataLibrarySignatureUseDiagnosticKind.Limit,
                             metadataToken,
@@ -888,20 +1343,20 @@ internal static class MetadataLibrarySignatureUseInspection
                             dimension,
                             limit,
                             attemptedCharge));
-                    _siteLimited++;
+                    partition.SiteLimited++;
                     return;
                 }
-                _diagnostics.Add(
+                partition.Diagnostics.Add(
                     new(
                         RejectionDiagnosticKind(exception.Reason),
                         metadataToken,
                         "The signature occurrence was rejected: "
                             + $"{exception.Reason}."));
-                _unavailable++;
+                partition.Unavailable++;
             }
             catch (MetadataOperationBudgetExceededException exception)
             {
-                _diagnostics.Add(
+                partition.Diagnostics.Add(
                     new(
                         MetadataLibrarySignatureUseDiagnosticKind.Limit,
                         metadataToken,
@@ -910,7 +1365,7 @@ internal static class MetadataLibrarySignatureUseInspection
                         exception.Dimension,
                         exception.Limit,
                         exception.AttemptedCharge));
-                _limited = true;
+                partition.Limited = true;
             }
             catch (Exception exception)
                 when (exception is BadImageFormatException
@@ -918,13 +1373,17 @@ internal static class MetadataLibrarySignatureUseInspection
                     or InvalidOperationException
                     or OverflowException)
             {
-                _diagnostics.Add(
+                partition.Diagnostics.Add(
                     new(
                         MetadataLibrarySignatureUseDiagnosticKind
                             .MalformedMetadata,
                         metadataToken,
                         exception.Message));
-                _unavailable++;
+                partition.Unavailable++;
+            }
+            finally
+            {
+                _activePartition = null;
             }
         }
 
@@ -966,7 +1425,8 @@ internal static class MetadataLibrarySignatureUseInspection
                 if (occurrence.Participates
                     && TryBind(
                         occurrence.Reference,
-                        out TypeEntry? target))
+                        out TypeEntry? target)
+                    && ActivePartition.IsAdmitted(target))
                 {
                     pending.Occurrences.Add(
                         new(target, kind, currentOrdinal));
@@ -994,6 +1454,11 @@ internal static class MetadataLibrarySignatureUseInspection
                 reference.Type,
                 out target!);
         }
+
+        private Partition ActivePartition =>
+            _activePartition
+            ?? throw new InvalidOperationException(
+                "A signature-use site has no active partition.");
 
         private bool IsCurrentImage(TypeReferenceHandle handle)
         {
@@ -1074,10 +1539,11 @@ internal static class MetadataLibrarySignatureUseInspection
         private void RequireSafe(
             BlobHandle signature,
             SignatureBlobGuard.Kind kind,
-            SignatureOccurrenceProvider provider)
+            SignatureOccurrenceProvider provider,
+            MetadataOperationContext operation)
         {
             int length = _reader.GetBlobReader(signature).Length;
-            _operation.Charge(
+            operation.Charge(
                 MetadataOperationDimension.SignatureBytes,
                 length);
             SignatureBlobGuard.CompleteValidationResult validation =
@@ -1203,7 +1669,38 @@ internal static class MetadataLibrarySignatureUseInspection
             && name.Segments is [var segment]
             && names.Contains(segment, StringComparer.Ordinal);
 
-        private sealed class TypeEntry(
+        internal sealed class Partition(
+            string? exactNamespace,
+            MetadataOperationContext operation)
+        {
+            internal string? ExactNamespace { get; } = exactNamespace;
+            internal MetadataOperationContext Operation { get; } = operation;
+            internal ImmutableArray<
+                MetadataLibrarySignatureUseOccurrence>.Builder Occurrences
+            {
+                get;
+            } = ImmutableArray.CreateBuilder<
+                MetadataLibrarySignatureUseOccurrence>();
+            internal ImmutableArray<
+                MetadataLibrarySignatureUseDiagnostic>.Builder Diagnostics
+            {
+                get;
+            } = ImmutableArray.CreateBuilder<
+                MetadataLibrarySignatureUseDiagnostic>();
+            internal int Considered { get; set; }
+            internal int Examined { get; set; }
+            internal int Unavailable { get; set; }
+            internal int SiteLimited { get; set; }
+            internal bool Limited { get; set; }
+
+            internal bool IsAdmitted(TypeEntry entry) =>
+                ExactNamespace is null
+                || StringComparer.Ordinal.Equals(
+                    entry.Name.Namespace,
+                    ExactNamespace);
+        }
+
+        internal sealed class TypeEntry(
             TypeDefinitionHandle handle,
             MetadataTypeDefinitionAddress address,
             MetadataTypeDefinitionName name,

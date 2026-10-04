@@ -224,6 +224,13 @@ public static class SectionNames
     /// </summary>
     public const string LibraryMetrics = "Library Metrics";
 
+    /// <summary>
+    /// Evidence-backed one- and two-word Type-name suffix families for one
+    /// exact library.
+    /// </summary>
+    public const string NameFamilies = "Name Families";
+    public const string DependencyStructure = "Dependency Structure";
+
     public static bool IncludesBodyMetrics(
         IReadOnlyCollection<string>? sections) =>
         sections is not null

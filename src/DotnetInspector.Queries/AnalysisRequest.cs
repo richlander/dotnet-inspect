@@ -455,6 +455,16 @@ public sealed class AnalysisDescriptor
                 "Every participating surface must be a declared report surface.",
                 nameof(Participations));
         }
+
+        if (Participations.Any(participation => participation.Surfaces.Any(
+                surface => surface.Projections.Any(projection =>
+                    !Projections.Any(declared =>
+                        declared.Projection.Id == projection.Id)))))
+        {
+            throw new ArgumentException(
+                "Every participating surface projection must be declared by the analysis.",
+                nameof(Participations));
+        }
     }
 
     void ValidateSurfaceDeclarations()

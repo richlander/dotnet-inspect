@@ -30,6 +30,42 @@ public sealed class TypeMemberCompositionTests
             (composition.Public, composition.Protected, composition.Internal, composition.Private));
     }
 
+    [Fact]
+    public void JsonDocument_AllPopulationReturnsEveryAccessibilityBucket()
+    {
+        using var session = AssemblyInspectionSession.Open(PackageJsonPath);
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        Name("System.Text.Json", "JsonDocument"),
+                        MetadataMemberSpelling.CSharp,
+                        includeHidden: false,
+                        MetadataMethodAccessibilityFilter.All),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+
+        Assert.Equal(
+            population.Composition.Public
+                + population.Composition.Protected
+                + population.Composition.Internal
+                + population.Composition.Private,
+            population.Groups.Sum(group => group.Members.Length));
+        Assert.Contains(
+            population.Groups.SelectMany(group => group.Members),
+            member => string.IsNullOrEmpty(member.Accessibility));
+        Assert.Contains(
+            population.Groups.SelectMany(group => group.Members),
+            member => member.Accessibility == "private");
+        AssertSelectorCountsMatchRows(population);
+    }
+
     [Theory]
     [InlineData(MetadataMemberSpelling.CSharp, 8, 0, 1, 3)]
     [InlineData(MetadataMemberSpelling.Metadata, 6, 0, 1, 7)]
@@ -50,6 +86,73 @@ public sealed class TypeMemberCompositionTests
         Assert.Equal(
             (@public, @protected, @internal, @private),
             (composition.Public, composition.Protected, composition.Internal, composition.Private));
+    }
+
+    [Theory]
+    [InlineData(MetadataMemberSpelling.CSharp)]
+    [InlineData(MetadataMemberSpelling.Metadata)]
+    public void ArrayEnumerator_SelectorCountsRetainExplicitInterfaceDeclarations(
+        MetadataMemberSpelling spelling)
+    {
+        using var session = AssemblyInspectionSession.Open(PackageJsonPath);
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        Name(
+                            "System.Text.Json",
+                            "JsonElement",
+                            "ArrayEnumerator"),
+                        spelling,
+                        includeHidden: true,
+                        MetadataMethodAccessibilityFilter.All),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+
+        AssertSelectorCountsMatchRows(population);
+        Assert.True(population.SelectorCounts.Traits.Interface > 0);
+        Assert.Contains(
+            population.Groups.SelectMany(group => group.Members),
+            member => member.IsExplicitInterfaceImplementation);
+    }
+
+    [Theory]
+    [InlineData(nameof(CovariantEmitDerived))]
+    [InlineData(nameof(StaticAbstractEmitImpl))]
+    [InlineData(nameof(ImplicitEmitImpl))]
+    public void SelectorCounts_ExcludeNonExplicitMethodImplProperties(
+        string typeName)
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(TypeMemberCompositionTests).Assembly.Location);
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        Name("ILInspector.Metadata.Tests", typeName),
+                        MetadataMemberSpelling.CSharp,
+                        includeHidden: true,
+                        MetadataMethodAccessibilityFilter.All),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+
+        AssertSelectorCountsMatchRows(population);
+        Assert.Equal(0, population.SelectorCounts.Traits.Interface);
+        Assert.DoesNotContain(
+            population.Groups.SelectMany(group => group.Members),
+            member => member.IsExplicitInterfaceImplementation);
     }
 
     // Receiver Counts cover the declarations the request's own accessibility
@@ -414,6 +517,41 @@ public sealed class TypeMemberCompositionTests
             string value when value.Contains("internal", StringComparison.Ordinal) => 2,
             _ => 3,
         };
+
+    static void AssertSelectorCountsMatchRows(
+        MetadataTypeMemberPopulation population)
+    {
+        ApiMember[] rows =
+        [
+            .. population.Groups.SelectMany(group => group.Members),
+        ];
+        Assert.Equal(rows.Length, population.SelectorCounts.Traits.All);
+        Assert.Equal(
+            rows.Count(member => member.IsStatic && !member.IsExtension),
+            population.SelectorCounts.Traits.Static);
+        Assert.Equal(
+            rows.Count(member => !member.IsStatic && !member.IsExtension),
+            population.SelectorCounts.Traits.Instance);
+        Assert.Equal(
+            rows.Count(member => member.IsVirtual),
+            population.SelectorCounts.Traits.Virtual);
+        Assert.Equal(
+            rows.Count(member => member.IsExplicitInterfaceImplementation),
+            population.SelectorCounts.Traits.Interface);
+        Assert.Equal(
+            rows.Count(member => member.IsExtension),
+            population.SelectorCounts.Traits.Extensions);
+        Assert.Equal(
+            rows.GroupBy(member => member.Kind, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Count(),
+                    StringComparer.Ordinal),
+            population.SelectorCounts.Kinds.ToDictionary(
+                count => count.Value,
+                count => count.Count,
+                StringComparer.Ordinal));
+    }
 
     static MetadataTypeMemberComposition Compose(
         string path,

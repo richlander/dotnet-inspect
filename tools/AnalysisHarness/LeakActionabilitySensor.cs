@@ -89,11 +89,19 @@ public static class LeakActionabilitySensor
             var inspection = ResourceLifecycleAnalysis.Inspect(
                 execution.ResourceLifecycle,
                 new FindingSubject(Path.GetFullPath(path), name));
-            if (inspection.Value
-                is not FindingInspection<ResourceLifecycleOccurrence>.Complete complete)
+            FindingInspection<ResourceLifecycleOccurrence>.Complete? complete =
+                inspection switch
+                {
+                    ResourceLifecycleFindingInspection.Complete available =>
+                        available.Inspection,
+                    ResourceLifecycleFindingInspection.Incomplete incomplete =>
+                        incomplete.Inspection,
+                    _ => null,
+                };
+            if (complete is null)
             {
-                return inspection.Value
-                    is FindingInspection<ResourceLifecycleOccurrence>.Failed
+                return inspection
+                    is ResourceLifecycleFindingInspection.Failed
                         ? new LeakActionabilityAssembly(
                             name,
                             Opened: false,

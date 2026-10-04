@@ -31,6 +31,24 @@ public sealed partial class PackageRangedRealizationTests
         "lib/net45/PCLStorage.Abstractions.xml",
     ];
 
+    [Fact]
+    public void RangedDirectory_MaterializedViewPreservesGeneration()
+    {
+        PackageContentEntry entry = new("lib/net10.0/Sample.dll", 1);
+        RangedPackageContent directory =
+            RangedPackageContent.CreateDirectory([entry], "test");
+
+        RangedPackageContent materialized = directory.WithMaterialized(
+            new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal)
+            {
+                [entry.Path] = new byte[] { 1 },
+            });
+
+        Assert.Same(
+            directory.GenerationIdentity,
+            materialized.GenerationIdentity);
+    }
+
     /// <summary>
     /// Design gate 14a: PCLStorage 1.0.2 (real asset; its local extra fields
     /// are longer than its central records) realized for net45 by range with
@@ -785,6 +803,35 @@ public sealed partial class PackageRangedRealizationTests
                     request.Operation.OperationTimeout));
         }
 
+        public Task<PackageHouseSettlement> AcquireContentAsync(
+            IPackageStore store,
+            PackageHouseContentQuery query,
+            long sizeCut = 0,
+            string packageId = PclStorage,
+            string version = PclStorageVersion,
+            PackageHouseTargetContext? targetContext = null)
+        {
+            var house = new PackageHouse(
+                Authorization,
+                PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store,
+                    log: Log.Enqueue,
+                    rangedSizeCut: sizeCut));
+            var request = new PackageHouseRequest(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(packageId, version)),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                targetContext: targetContext,
+                contentQuery: query);
+            return house.ExecuteAsync(
+                request,
+                Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    request.Operation.RequestTimeout,
+                    request.Operation.OperationTimeout));
+        }
+
         public Task<PackageFileAcquisitionResult> AcquireFileAsync(
             IPackageStore store,
             string path,
@@ -896,6 +943,18 @@ public sealed partial class PackageRangedRealizationTests
         /// <summary>A status every ranged request is answered with instead of 206.</summary>
         public HttpStatusCode? RangedStatus { get; init; }
 
+        /// <summary>
+        /// A status every non-suffix ranged request is answered with instead
+        /// of 206, after directory-tail discovery can complete.
+        /// </summary>
+        public HttpStatusCode? EntryRangeStatus { get; init; }
+
+        /// <summary>
+        /// A status complete requests after the initial size probe are answered
+        /// with instead of 200.
+        /// </summary>
+        public HttpStatusCode? SubsequentFullRequestStatus { get; init; }
+
         /// <summary>Answer ranged requests with a 206 one byte short of the range.</summary>
         public bool TruncateRanges { get; init; }
 
@@ -930,10 +989,29 @@ public sealed partial class PackageRangedRealizationTests
                 Interlocked.Increment(ref _rangedRequests);
                 return Task.FromResult(Respond(request, refused, new ByteArrayContent([])));
             }
+            if (range?.From is not null
+                && EntryRangeStatus is { } entryRefused)
+            {
+                Interlocked.Increment(ref _rangedRequests);
+                return Task.FromResult(
+                    Respond(
+                        request,
+                        entryRefused,
+                        new ByteArrayContent([])));
+            }
 
             if (IgnoreRange || range is null)
             {
-                Interlocked.Increment(ref _fullRequests);
+                int fullRequest = Interlocked.Increment(ref _fullRequests);
+                if (fullRequest > 1
+                    && SubsequentFullRequestStatus is { } fullRefused)
+                {
+                    return Task.FromResult(
+                        Respond(
+                            request,
+                            fullRefused,
+                            new ByteArrayContent([])));
+                }
                 HttpResponseMessage full = Respond(
                     request,
                     HttpStatusCode.OK,

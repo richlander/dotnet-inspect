@@ -1173,7 +1173,7 @@ static class ResearchTargetResolutionValidator
             }
         }
 
-        ResearchTargetBodyIdentity? expectedBodyIdentity = null;
+        MethodBodyIdentity? expectedBodyIdentity = null;
         if (derivedRole != ResearchTargetRelationshipRole.None)
         {
             TryCreateExpectedBodyIdentity(
@@ -1199,7 +1199,7 @@ static class ResearchTargetResolutionValidator
         ResearchTargetRequest request,
         ResearchAdmittedInput input,
         ResearchTargetValidationEvidence evidence,
-        ResearchTargetBodyIdentity? expectedBodyIdentity)
+        MethodBodyIdentity? expectedBodyIdentity)
     {
         MemberTargetResolution metadata =
             ValidateMetadataResolution(request, evidence);
@@ -1271,7 +1271,7 @@ static class ResearchTargetResolutionValidator
         int metadataToken,
         ResolvedMemberTarget target,
         ResearchTargetRelationshipRole role,
-        out ResearchTargetBodyIdentity? identity)
+        out MethodBodyIdentity? identity)
     {
         identity = null;
         MethodIdentity? method = null;
@@ -1286,7 +1286,7 @@ static class ResearchTargetResolutionValidator
         }
 
         return method is not null
-            && ResearchTargetBodyIdentity.TryCreate(
+            && ResearchTargetBodyIdentityProjection.TryCreate(
                 method,
                 target,
                 role,

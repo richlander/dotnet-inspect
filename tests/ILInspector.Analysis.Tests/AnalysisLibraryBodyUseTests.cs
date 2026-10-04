@@ -116,7 +116,7 @@ public sealed class AnalysisLibraryBodyUseTests
                     AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         FixturePath,
                         image,
-                        ProducerTerminal.Complete,
+                        ProducerTerminal.Count,
                         new(),
                         cancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
@@ -161,7 +161,7 @@ public sealed class AnalysisLibraryBodyUseTests
                     AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         "Empty.dll",
                         image,
-                        ProducerTerminal.Complete,
+                        ProducerTerminal.Count,
                         new(),
                         cancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
@@ -211,7 +211,7 @@ public sealed class AnalysisLibraryBodyUseTests
                     AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         "OccurrenceLimit.dll",
                         image,
-                        ProducerTerminal.Complete,
+                        ProducerTerminal.Count,
                         limits,
                         TestContext.Current.CancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
@@ -858,7 +858,19 @@ public sealed class AnalysisLibraryBodyUseTests
             report,
             StringComparison.Ordinal);
         Assert.Contains(
-            "| Asset | Count | LINQ | +25.0 | +300 |",
+            "Implementation ratios to Planner:",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Terminal ratios to Count:",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Absolute end-to-end deltas from Planner;",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Asset | Count | LINQ | +30.0 | +350 |",
             report,
             StringComparison.Ordinal);
         Assert.Contains(

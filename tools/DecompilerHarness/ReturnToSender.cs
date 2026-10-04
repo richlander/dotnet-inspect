@@ -23,6 +23,8 @@ using ILInspector.Research;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>

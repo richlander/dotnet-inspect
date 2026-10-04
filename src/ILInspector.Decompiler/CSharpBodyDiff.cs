@@ -12,6 +12,9 @@ using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using MethodBodyIdentity = ILInspector.Analysis.MethodBodyIdentity;
+using MethodBodyIdentityFactory =
+    ILInspector.Analysis.MethodBodyIdentityFactory;
 
 namespace ILInspector.Decompiler;
 
@@ -726,16 +729,18 @@ public static partial class CSharpBodyDiff
         var methods = entries
             .GroupBy(entry => $"{entry.StableAssemblyKey}|{entry.RawKey}", StringComparer.Ordinal)
             .SelectMany(group => group
-                .GroupBy(entry => entry.DuplicateDiscriminator, StringComparer.Ordinal)
-                .OrderBy(discriminatorGroup => discriminatorGroup.Key, StringComparer.Ordinal)
-                .SelectMany(discriminatorGroup => discriminatorGroup
+                .GroupBy(entry => entry.BodyIdentity)
+                .OrderBy(
+                    identityGroup => identityGroup.Key.CanonicalIdentity,
+                    StringComparer.Ordinal)
+                .SelectMany(identityGroup => identityGroup
                     .OrderBy(entry => entry.Path, StringComparer.Ordinal)
                     .ThenBy(entry => entry.OverloadIndex)
                     .Select((entry, index) => entry with
                     {
-                        StableMemberKey = discriminatorGroup.Count() == 1
-                            ? $"{entry.StableAssemblyKey}|{entry.RawKey}#{entry.DuplicateDiscriminator}"
-                            : $"{entry.StableAssemblyKey}|{entry.RawKey}#{entry.DuplicateDiscriminator}:{index}"
+                        StableMemberKey = identityGroup.Count() == 1
+                            ? $"{entry.StableAssemblyKey}|{entry.RawKey}#{BodyIdentityFingerprint(entry.BodyIdentity)}"
+                            : $"{entry.StableAssemblyKey}|{entry.RawKey}#{BodyIdentityFingerprint(entry.BodyIdentity)}:{index}"
                     }))
                 .Select(entry => (Key: entry.StableMemberKey, Entry: entry)))
             .ToDictionary(pair => pair.Key, pair => pair.Entry, StringComparer.Ordinal);
@@ -752,8 +757,8 @@ public static partial class CSharpBodyDiff
                 BodyAnchorGroupKey,
                 StringComparer.Ordinal)
             .Where(group => group
-                .Select(entry => entry.DuplicateDiscriminator)
-                .Distinct(StringComparer.Ordinal)
+                .Select(entry => entry.BodyIdentity)
+                .Distinct()
                 .Skip(1)
                 .Any())
             .Select(group => group.Key)
@@ -1059,7 +1064,20 @@ public static partial class CSharpBodyDiff
             returnType);
         string displayName = methodName == ".ctor" ? "#ctor" : methodName;
         string display = $"{typeFullName}.{displayName}{GenericAritySuffix(genericArity)}({string.Join(", ", parameters)})";
-        string duplicateDiscriminator = DuplicateDiscriminator(reader, method);
+        if (!MethodBodyIdentityFactory.TryCreate(
+                reader,
+                typeHandle,
+                methodHandle,
+                isExtension,
+                out MethodBodyIdentity? bodyIdentity))
+        {
+            throw new MetadataIdentityResolutionException(
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Signature,
+                    methodHandle,
+                    "Method body identity could not be projected from "
+                        + "structured signature evidence."));
+        }
         return new CSharpMethodEntry(
             source.Path,
             source.AssemblyName,
@@ -1067,8 +1085,8 @@ public static partial class CSharpBodyDiff
             anchor,
             bodyAnchor,
             rawKey,
-            $"{stableAssemblyKey}|{rawKey}#{duplicateDiscriminator}",
-            duplicateDiscriminator,
+            $"{stableAssemblyKey}|{rawKey}#{BodyIdentityFingerprint(bodyIdentity)}",
+            bodyIdentity,
             display,
             typeFullName,
             methodName,
@@ -1077,6 +1095,11 @@ public static partial class CSharpBodyDiff
             method.RelativeVirtualAddress != 0,
             BodyFingerprint: null);
     }
+
+    static string BodyIdentityFingerprint(MethodBodyIdentity identity)
+        => System.Convert.ToHexStringLower(
+            SHA256.HashData(
+                Encoding.UTF8.GetBytes(identity.CanonicalIdentity)));
 
     static MemberAnchor CreateBodyAnchor(
         MemberAnchor apiAnchor,
@@ -1363,14 +1386,6 @@ public static partial class CSharpBodyDiff
             return "";
         var prefix = isMethod ? "!!" : "!";
         return $"<{string.Join(",", Enumerable.Range(0, arity).Select(index => $"{prefix}{index}"))}>";
-    }
-
-    static string DuplicateDiscriminator(MetadataReader reader, MethodDefinition method)
-    {
-        var builder = new StringBuilder();
-        builder.Append("sig:").Append(System.Convert.ToHexString(reader.GetBlobBytes(method.Signature)));
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
-        return System.Convert.ToHexString(hash).ToLowerInvariant()[..10];
     }
 
     static string StableAssemblyKey(MetadataSource source)
@@ -2906,7 +2921,7 @@ public static partial class CSharpBodyDiff
         MemberAnchor BodyAnchor,
         string RawKey,
         string StableMemberKey,
-        string DuplicateDiscriminator,
+        MethodBodyIdentity BodyIdentity,
         string Display,
         string TypeFullName,
         string MethodName,

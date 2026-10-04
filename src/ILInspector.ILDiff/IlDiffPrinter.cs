@@ -2,7 +2,9 @@ using System.Collections.Immutable;
 using System.Text;
 using Inspector.Text;
 
-namespace ILInspector.Instructions;
+using ILInspector.Instructions;
+
+namespace ILInspector.ILDiff;
 
 public sealed record IlDiffDisplayRow(
     int HunkId,

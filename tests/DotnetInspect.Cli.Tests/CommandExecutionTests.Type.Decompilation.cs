@@ -27,8 +27,6 @@ public partial class CommandExecutionTests
             "System.Collections",
             "-S",
             "Decompiled Source",
-            "--tips",
-            "q",
         ];
         if (includeAll)
             arguments.Add("--all");
@@ -92,8 +90,6 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             "Decompiled Source",
-            "--tips",
-            "q",
         ];
         if (includeAll)
             arguments.Add("--all");
@@ -168,7 +164,7 @@ public partial class CommandExecutionTests
                 Select =
                     [SectionNames.DecompiledSource],
                 DocsExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
             };
 
@@ -205,7 +201,7 @@ public partial class CommandExecutionTests
             [
                 "type", fixtureType.FullName!,
                 "--library", TestAssemblyPath,
-                "-S", "Decompiled Source", "--tips", "q",
+                "-S", "Decompiled Source",
                 .. includeAll ? new[] { "--all" } : [],
             ]);
 
@@ -234,9 +230,7 @@ public partial class CommandExecutionTests
             "--library",
             TestAssemblyPath,
             "-S",
-            "Decompiled Source",
-            "--tips",
-            "q");
+            "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -333,8 +327,6 @@ public partial class CommandExecutionTests
                 assemblyPath,
                 "-S",
                 "Decompiled Source",
-                "--tips",
-                "q",
                 "--all");
 
             Assert.Equal(0, exit);
@@ -445,8 +437,6 @@ public partial class CommandExecutionTests
                 assemblyPath,
                 "-S",
                 "Decompiled Source",
-                "--tips",
-                "q",
                 "--all");
 
             Assert.Equal(0, exit);
@@ -575,8 +565,6 @@ public partial class CommandExecutionTests
                 assemblyPath,
                 "-S",
                 "Decompiled Source",
-                "--tips",
-                "q",
                 "--all");
 
             Assert.Equal(0, exit);
@@ -638,9 +626,7 @@ public partial class CommandExecutionTests
                 "--library",
                 TestAssemblyPath,
                 "-S",
-                "Decompiled Source",
-                "--tips",
-                "q");
+                "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -670,9 +656,7 @@ public partial class CommandExecutionTests
                 "--library",
                 TestAssemblyPath,
                 "-S",
-                "Decompiled Source",
-                "--tips",
-                "q");
+                "Decompiled Source");
         var (allExit, allOutput, allError) =
             await RunAppAsync(
                 "type",
@@ -681,9 +665,7 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-S",
                 "Decompiled Source",
-                "--all",
-                "--tips",
-                "q");
+                "--all");
 
         Assert.Equal(0, defaultExit);
         Assert.Empty(defaultError);
@@ -725,9 +707,7 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-S",
                 "Methods",
-                "--table",
-                "--tips",
-                "q");
+                "--table");
         var (allExit, allOutput, allError) =
             await RunAppAsync(
                 "type",
@@ -737,9 +717,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Methods",
                 "--table",
-                "--all",
-                "--tips",
-                "q");
+                "--all");
 
         Assert.Equal(0, defaultExit);
         Assert.Empty(defaultError);
@@ -800,7 +778,7 @@ public partial class CommandExecutionTests
     public async Task TypeListing_NestedTypes_ShowDeclaringTypeContext()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Collections", "--table", "--tips", "q");
+            "type", "--platform", "System.Collections", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -818,9 +796,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Private.CoreLib",
-            "--tips",
-            "q");
+            "System.Private.CoreLib");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -875,7 +851,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-            "-S", "Decompiled Source", "--markdown", "--tips", "q");
+            "-S", "Decompiled Source", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -889,7 +865,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-            "-S", "Decompiled Source,Member Index", "--tips", "q");
+            "-S", "Decompiled Source,Member Index");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -913,7 +889,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
             [
                 "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-                "-S", "Decompiled Source", "--tips", "q",
+                "-S", "Decompiled Source",
                 .. print ? new[] { "--print" } : [],
             ]);
 
@@ -939,7 +915,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonNamingPolicy", "--platform", "System.Text.Json",
-            "-S", "Decompiled Source,Fields", "--tips", "q");
+            "-S", "Decompiled Source,Fields");
 
         Assert.Equal(0, exit);
         Assert.Contains("Note: section 'Fields' has no data", error);
@@ -953,7 +929,7 @@ public partial class CommandExecutionTests
     public async Task Type_Bare_IsRetired()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "String", "--platform", "System.Private.CoreLib", "--raw", "--tips", "q");
+            "type", "String", "--platform", "System.Private.CoreLib", "--raw");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -974,9 +950,9 @@ public partial class CommandExecutionTests
     public async Task Type_ExactType_DefaultAndTreeOutputAreEquivalent()
     {
         var defaultResult = await RunAppAsync(
-            "type", "System.Math", "--tips", "q");
+            "type", "System.Math");
         var treeResult = await RunAppAsync(
-            "type", "System.Math", "--tree", "--tips", "q");
+            "type", "System.Math", "--tree");
 
         Assert.Equal(defaultResult, treeResult);
         Assert.Equal(0, defaultResult.Exit);
@@ -994,7 +970,7 @@ public partial class CommandExecutionTests
                 "table");
 
             var (exit, output, error) = await RunAppAsync(
-                "type", "System.Math", "--tree", "--tips", "q");
+                "type", "System.Math", "--tree");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1129,7 +1105,7 @@ public partial class CommandExecutionTests
     public async Task Type_StaticClass_RendersStaticClassModifierOnly()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Math", "--tree", "--tips", "q", "-n", "1", "--lines");
+            "type", "System.Math", "--tree", "-n", "1", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1141,7 +1117,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "string", "--tree", "--tips", "q");
+            "type", "string", "--tree");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1155,7 +1131,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareDictionaryGeneric_RendersCoreLibDictionary(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", typeName, "--tree", "--tips", "q");
+            "type", typeName, "--tree");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

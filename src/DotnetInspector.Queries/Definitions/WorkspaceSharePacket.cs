@@ -124,7 +124,8 @@ public sealed class WorkspaceSharePacket
         string? memberAnchor,
         string? memberSignature,
         string? section,
-        string[] libraries)
+        string[] libraries,
+        string? sourceView = null)
     {
         FormatVersion = WorkspaceSharePacketCodec.LegacyFormatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
@@ -142,6 +143,7 @@ public sealed class WorkspaceSharePacket
         MemberAnchor = memberAnchor;
         MemberSignature = memberSignature;
         Section = section;
+        SourceView = sourceView;
         Libraries = new ReadOnlyCollection<string>((string[])libraries.Clone());
         ViewStates = Array.Empty<WorkspaceShareViewState>();
     }
@@ -173,6 +175,7 @@ public sealed class WorkspaceSharePacket
         MemberAnchor = null;
         MemberSignature = null;
         Section = null;
+        SourceView = null;
         Libraries = Array.Empty<string>();
         ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
             (WorkspaceShareViewState[])viewStates.Clone());
@@ -258,6 +261,7 @@ public sealed class WorkspaceSharePacket
         MemberAnchor = null;
         MemberSignature = null;
         Section = null;
+        SourceView = null;
         Libraries = Array.Empty<string>();
         ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
             (WorkspaceShareViewState[])viewStates.Clone());
@@ -350,6 +354,8 @@ public sealed class WorkspaceSharePacket
 
     /// <summary>Format-1 section token.</summary>
     public string? Section { get; }
+
+    public string? SourceView { get; }
 
     /// <summary>Format-1 filename-stem Library scope.</summary>
     public IReadOnlyList<string> Libraries { get; }

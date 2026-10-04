@@ -27,9 +27,10 @@ rejections, and retained validated plan are implemented in
 [Verification](#verification) are enforced by the named gates in
 `tests/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
 
-[Operation participation](#operation-participation) is designed, not
-implemented. Diff is its first adopter; its properties are **unverified** until
-the gates listed under [Verification](#verification) exist.
+[Operation participation](#operation-participation) is implemented with Diff
+as its first adopter in `AnalysisParticipation.cs`,
+`DiffAnalysisCatalog.cs`, and Inspection capability composition. The gates
+listed under [Verification](#verification) enforce its structural properties.
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.
@@ -353,7 +354,7 @@ kind enters the closed participation vocabulary only with its first adopter.
 
 | Operation kind | Declared binding | Admission rule |
 | --- | --- | --- |
-| Compare | Per supported report-surface kind, the ordered Finding descriptors the analysis issues for each endpoint and the one producer route whose keyed comparison the operation dispatches for that surface | Every declared descriptor has `FindingKey` correspondence under [Finding coordinates](finding-coordinates.md), so the comparison needs no analysis-specific matching |
+| Compare | Per supported report-surface kind, the ordered Finding descriptors the analysis issues for each endpoint, the supported result projections, and the one producer route whose keyed comparison the operation dispatches for that surface | Every declared descriptor has `FindingKey` correspondence under [Finding coordinates](finding-coordinates.md), so the comparison needs no analysis-specific matching |
 
 Participation is declared per report surface because comparability depends on
 the report surface. For example, member-body allocation Findings are compared
@@ -380,6 +381,15 @@ delivered through more than one host path, as with the single-Library API
 envelope and the multi-Library section, that is still one participation
 route.
 
+Projection support is also surface-local. An analysis can truthfully support a
+projection at one surface without silently granting it at another. Generic
+Diff therefore admits Library Transitions only when at least one selected
+Library participation declares that projection. `string-literals` is the
+first adopter: it declares `analysis.string-literal-use` and
+`analysis.compare.string-literals` at Library. Existing `api` Library
+participation does not declare Library Transitions, and Member-only analyses
+remain rejected at Library before acquisition.
+
 Taking part in an operation means using that operation's shared structure. An
 analysis contributes typed values into the structure the operation already
 owns, and the operation delivers its result as the Content of its
@@ -391,6 +401,11 @@ adapter written for one analysis.
 Cost remains the descriptor's existing cost declaration. A participation
 declaration does not grant cost authorization, and it does not place the
 analysis in any operation's default set.
+
+`string-literals` is an explicit-only moderated Compare analysis. It consumes
+one owner-resolved `Literal` predicate with ordinal `contains` or
+`starts-with` semantics. The predicate reaches the Analysis scan; Compare does
+not build an unfiltered literal census and then filter it.
 
 ### Analysis sets
 

@@ -55,6 +55,13 @@ public sealed class BrowserExactLibraryApiOperationTests
         Assert.Equal(
             inspection.Content.Inventory?.PublicTypeCount,
             inspection.Content.Inventory?.TypeKinds.Sum(facet => facet.Count));
+        Assert.Equal(
+            ["abstract", "static", "object"],
+            inspection.Content.Inventory?.TypeTraits
+                .Select(facet => facet.SingularLabel));
+        Assert.All(
+            inspection.Content.Inventory?.TypeTraits ?? [],
+            facet => Assert.True(facet.Count >= 0));
         Assert.True(inspection.Content.Inventory!.PublicTypeCount > 0);
         Assert.NotEmpty(inspection.Content.Inventory?.Namespaces ?? []);
         Assert.NotEqual(

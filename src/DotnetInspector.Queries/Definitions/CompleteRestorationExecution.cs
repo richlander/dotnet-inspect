@@ -175,6 +175,24 @@ public abstract record CompleteRestorationResolvedState
                     : throw new ArgumentOutOfRangeException(
                         nameof(ActiveStateIndex));
     }
+
+    public sealed record RegistrationOnlyEcosystem(
+        WorkspaceEcosystemRegistrationId Ecosystem,
+        NavigationInitialization Initialization,
+        NavigationLensActivationResult LensResolution)
+        : CompleteRestorationResolvedState
+    {
+        public WorkspaceEcosystemRegistrationId Ecosystem { get; } =
+            Ecosystem ?? throw new ArgumentNullException(nameof(Ecosystem));
+
+        public NavigationInitialization Initialization { get; } =
+            Initialization
+            ?? throw new ArgumentNullException(nameof(Initialization));
+
+        public NavigationLensActivationResult LensResolution { get; } =
+            LensResolution
+            ?? throw new ArgumentNullException(nameof(LensResolution));
+    }
 }
 
 public sealed record CompleteRestorationResolvedViewState
@@ -243,6 +261,15 @@ public static class CompleteRestorationProjections
         {
             return new CompleteRestorationProjectionResult.Projected(
                 new CompleteRestorationProjection.Projectable(packet.Encoded));
+        }
+        if (request.Request
+            is CompleteRestorationRequestBasis.RegistrationOnlyEcosystemInput
+                ecosystem)
+        {
+            return new CompleteRestorationProjectionResult.Projected(
+                new CompleteRestorationProjection.NonProjectable(
+                    $"Registration-only Ecosystem '{ecosystem.Ecosystem}' "
+                        + "has no portable complete-restoration projection."));
         }
 
         CommittedScenarioDefinitionSet definitions =
@@ -389,7 +416,7 @@ public sealed record CompleteWorkspaceActivation
         }
 
         Contexts = contexts;
-        CommittedScenarioDefinitionSet definitions = snapshot.Resolved switch
+        CommittedScenarioDefinitionSet? definitions = snapshot.Resolved switch
         {
             CompleteRestorationResolvedState.Version2 version2 =>
                 version2.Definitions,
@@ -399,10 +426,12 @@ public sealed record CompleteWorkspaceActivation
                 version4.Definitions,
             CompleteRestorationResolvedState.Version5 version5 =>
                 version5.Definitions,
+            CompleteRestorationResolvedState.RegistrationOnlyEcosystem =>
+                null,
             _ => throw new InvalidOperationException(
                 "Unknown complete-restoration resolved state."),
         };
-        if (definitions.Scenario.Context is { } selectedContext)
+        if (definitions?.Scenario.Context is { } selectedContext)
         {
             WorkspaceDefinition workspaceDefinition =
                 definitions.Workspace
@@ -826,6 +855,32 @@ public static class CompleteRestorationCoordinator
         CompleteRestorationRecipe recipe,
         ViewFacetRegistry facets)
     {
+        if (recipe
+            is CompleteRestorationRecipe.RegistrationOnlyEcosystem ecosystem)
+        {
+            if (!facets.TryGetDescriptor(
+                    ecosystem.Facet.Value,
+                    out ViewFacetDescriptor? descriptor))
+            {
+                return new CommittedSelectorResolutionFailure(
+                    CommittedSelectorResolutionFailureKind.InvalidFacet,
+                    StateIndex: null,
+                    NavigationId: null,
+                    $"Ecosystem facet '{ecosystem.Facet}' is not registered.");
+            }
+            if (descriptor.Kind != StructuralSubjectKind.Ecosystem)
+            {
+                return new CommittedSelectorResolutionFailure(
+                    CommittedSelectorResolutionFailureKind.InvalidFacet,
+                    StateIndex: null,
+                    NavigationId: null,
+                    $"Facet '{ecosystem.Facet}' does not apply to the "
+                        + "Ecosystem subject.");
+            }
+
+            return null;
+        }
+
         CommittedScenarioDefinitionSet definitions = recipe switch
         {
             CompleteRestorationRecipe.Version2 version2 =>
@@ -1059,7 +1114,10 @@ public static class CompleteRestorationCoordinator
                     new NavigationEvaluationFacts(
                         scope,
                         resolved.Package,
-                        options.FacetAvailability),
+                        options.FacetAvailability)
+                    {
+                        Ecosystem = resolved.Ecosystem,
+                    },
                     options.Facets,
                     resolved.Initialization!);
             if (CurrentnessFailure(authority) is { } navigationStale)
@@ -1394,6 +1452,16 @@ public static class CompleteRestorationCoordinator
         CompleteRestorationExecutionOptions options,
         CancellationToken cancellationToken)
     {
+        if (plan.Recipe
+            is CompleteRestorationRecipe.RegistrationOnlyEcosystem ecosystem)
+        {
+            return ResolveRegistrationOnlyEcosystem(
+                plan,
+                ecosystem,
+                workspace,
+                options);
+        }
+
         (CommittedScenarioDefinitionSet definitions, int schemaVersion) =
             plan.Recipe switch
             {
@@ -1496,6 +1564,107 @@ public static class CompleteRestorationCoordinator
             detached.State,
             packageEvaluations,
             null);
+    }
+
+    private static ResolvedPreparation ResolveRegistrationOnlyEcosystem(
+        CompleteRestorationPlan plan,
+        CompleteRestorationRecipe.RegistrationOnlyEcosystem recipe,
+        InspectionWorkspace workspace,
+        CompleteRestorationExecutionOptions options)
+    {
+        WorkspaceRegistration.Ecosystem selected =
+            plan.WorkspacePlan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Single(registration =>
+                    registration.Declaration.Id == recipe.Ecosystem);
+        WorkspaceRegistrationReadResult registrations =
+            workspace.GetRegistrationSnapshot();
+        if (registrations is WorkspaceRegistrationReadResult.Unavailable
+            unavailable)
+        {
+            return new(
+                null,
+                null,
+                null,
+                null,
+                new CompleteRestorationFailure.RegistrationReadFailed(
+                    unavailable.RuntimeFailure));
+        }
+
+        WorkspaceRegistrationRevision revision =
+            ((WorkspaceRegistrationReadResult.Available)registrations)
+                .Revision;
+        WorkspaceEcosystemRegistrationOccurrence[] occurrences =
+        [
+            .. revision.EcosystemContributions
+                .Select(contribution => contribution.Ecosystem)
+                .Where(occurrence =>
+                    ReferenceEquals(
+                        occurrence.Declaration,
+                        selected.Declaration)),
+        ];
+        if (occurrences.Length != 1)
+        {
+            return new(
+                null,
+                null,
+                null,
+                null,
+                new CompleteRestorationFailure.EcosystemResolutionFailed(
+                    recipe.Ecosystem,
+                    occurrences.Length == 0
+                        ? $"Fresh Workspace contains no Ecosystem occurrence "
+                            + $"'{recipe.Ecosystem}'."
+                        : $"Fresh Workspace contains multiple Ecosystem "
+                            + $"occurrences '{recipe.Ecosystem}'."));
+        }
+
+        WorkspaceEcosystemRegistrationOccurrence occurrence = occurrences[0];
+        var evaluation = new NavigationEcosystemEvaluation(
+            revision,
+            occurrence);
+        StructuralSubjectIdentity.EcosystemSubject subject =
+            StructuralSubjectIdentity.ForEcosystem(
+                StructuralSubjectIdentity.ForWorkspace(workspace.Identity),
+                occurrence);
+        var lens = new NavigationLensIdentity(subject, recipe.Facet);
+        NavigationLensActivationResult lensResolution =
+            NavigationLensActivation.ResolveExact(
+                lens,
+                options.Facets,
+                options.FacetAvailability(subject, inventory: null));
+        if (lensResolution
+            is NavigationLensActivationResult.Rejected rejected)
+        {
+            return new(
+                null,
+                null,
+                null,
+                null,
+                new CompleteRestorationFailure.SelectorResolutionFailed(
+                    new CommittedSelectorResolutionFailure(
+                        CommittedSelectorResolutionFailureKind.InvalidFacet,
+                        StateIndex: null,
+                        NavigationId: null,
+                        $"Ecosystem facet '{recipe.Facet}' was rejected: "
+                            + $"{rejected.Rejection}.")));
+        }
+
+        var initialization = new NavigationInitialization(
+            subject,
+            Lens: lens);
+        return new(
+            initialization,
+            null,
+            new CompleteRestorationResolvedState.RegistrationOnlyEcosystem(
+                recipe.Ecosystem,
+                initialization,
+                lensResolution),
+            ImmutableDictionary<string, NavigationPackageEvaluation>.Empty,
+            null)
+        {
+            Ecosystem = evaluation,
+        };
     }
 
     private static DetachedCommittedResult DetachCommitted(
@@ -1765,7 +1934,10 @@ public static class CompleteRestorationCoordinator
         CompleteRestorationResolvedState? State,
         IReadOnlyDictionary<string, NavigationPackageEvaluation>?
             PackageEvaluations,
-        CompleteRestorationFailure? Failure);
+        CompleteRestorationFailure? Failure)
+    {
+        public NavigationEcosystemEvaluation? Ecosystem { get; init; }
+    }
 
     private sealed record PackageEvaluationResult(
         NavigationPackageEvaluation? Package,

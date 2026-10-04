@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -12,6 +13,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
 using Markout;
+using DotnetInspector.Presentation;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
@@ -47,11 +49,18 @@ public class FindCommand
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
-                var schema = options.Members
+                var schema = options.Tsv && !options.Count
                     ? new DocumentSchema()
-                        .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
+                        .Add("Results", "column", [.. FindDiscoveryTsvWriter.Columns])
+                    : options.Members
+                    ? new DocumentSchema()
+                        .Add("Members", "column", options.Ecosystems is null
+                            ? ["Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source"]
+                            : ["Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source", "Ecosystem"])
                     : new DocumentSchema()
-                        .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
+                        .Add("Results", "column", options.Ecosystems is null
+                            ? ["Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim"]
+                            : ["Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Ecosystem", "Match", "Sim"]);
                 return new(DiscoverOutput.Execute(options.Discover, schema,
                     DiscoveryOutputRequest.Create(
                         options.JsonOutput ? OutputFormat.Json
@@ -75,59 +84,119 @@ public class FindCommand
                 CommandError.Write("No pattern specified.");
                 return new(1, RowCount: null);
             }
+            FindOptions searchOptions =
+                CreateSearchOptions(options, patterns);
+            using FindDiscoveryTsvWriter? tsv =
+                options.Tsv && !options.Count
+                    ? new(Console.Out, !options.NoHeader,
+                        OutputFormatter.BuildProjection(options.Columns, options.Fields))
+                    : null;
+            bool progressive = tsv is not null && rowSelection is null;
+            int streamedTypes = 0;
+            int streamedMembers = 0;
+            if (progressive && options.Ecosystems is null)
+            {
+                if (options.Members)
+                {
+                    searchOptions = searchOptions with
+                    {
+                        OnMemberRow = row =>
+                        {
+                            tsv!.Write(FindDiscoveryOutput.Project(row));
+                            streamedMembers++;
+                        },
+                    };
+                }
+                else if (patterns.Length == 1
+                    && TypeMatcher.IsTypeGlobPattern(patterns[0])
+                    && !patterns[0].EndsWith(".*", StringComparison.Ordinal))
+                {
+                    searchOptions = searchOptions with
+                    {
+                        OnTypeRow = row =>
+                        {
+                            tsv!.Write(FindDiscoveryOutput.Project(row));
+                            streamedTypes++;
+                        },
+                    };
+                }
+            }
+            LayeredFindResult? layered = options.Ecosystems is null
+                ? null
+                : await SearchLayersAsync(
+                    searchOptions, patterns, context, cancellationToken,
+                    progressive ? tsv : null);
 
             PlatformFindSearchWorkspace? platformWorkspace = null;
-            if (options.UsesImplicitPlatform)
+            if (layered is null && searchOptions.UsesImplicitPlatform)
             {
                 logger.Log(
                     "No scope specified, defaulting to the platform Workspace");
                 platformWorkspace =
                     await PlatformFindSearchWorkspace.OpenAsync(
-                        options,
+                        searchOptions,
                         context,
                         cancellationToken);
             }
             await using PlatformFindSearchWorkspace? platformWorkspaceLifetime =
                 platformWorkspace;
+            ExplicitFindSearchWorkspace? explicitWorkspace =
+                layered is null && platformWorkspace is null
+                    ? new(
+                        searchOptions,
+                        context.HttpClient,
+                        logger.Log,
+                        cancellationToken)
+                    : null;
+            await using ExplicitFindSearchWorkspace? explicitWorkspaceLifetime =
+                explicitWorkspace;
 
             if (options.Members)
             {
                 return await ExecuteMemberSearchAsync(
-                    options,
+                    searchOptions,
                     patterns,
                     rowSelection,
                     logger,
                     context.HttpClient,
                     cancellationToken,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace,
+                    layered?.MemberSearch,
+                    tsv,
+                    () => layered is not null && progressive
+                        ? layered.MemberSearch.Rows.Count
+                        : streamedMembers);
             }
 
             FindSearchResult<TypeFindResult> search =
-                await TypeSearchService.FindTypesAsync(
-                    options,
+                layered?.TypeSearch ?? await TypeSearchService.FindTypesAsync(
+                    searchOptions,
                     patterns,
                     logger,
                     context.HttpClient,
                     cancellationToken,
                     context,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace);
             FindSearchResult<MemberFindResult>? memberTier =
-                await FindBroadenedMembersAsync(
-                    options,
+                layered is not null ? layered.MemberSearch : await FindBroadenedMembersAsync(
+                    searchOptions,
                     patterns,
                     search.Rows,
                     logger,
                     context.HttpClient,
                     cancellationToken,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace);
             List<MemberFindResult> members = memberTier?.Rows ?? [];
             List<TypeFindResult> results =
-                WithoutSupersededWeakRows(search.Rows, members);
+                layered is not null ? search.Rows : WithoutSupersededWeakRows(search.Rows, members);
             int observedRowCount = results.Count;
             bool rendersMembers =
                 !options.Count
                 && !options.JsonOutput
-                && !options.Tabular;
+                && (!options.Tabular || options.Tsv);
             if (options.Count
                 && (members.Count > 0
                     || memberTier?.HasFailures is true
@@ -176,6 +245,22 @@ public class FindCommand
                 if (!WriteCount(results, title, options))
                     return new(1, RowCount: null);
             }
+            else if (tsv is not null)
+            {
+                if (layered is null || !progressive)
+                {
+                    foreach (MemberFindResult row in members.Skip(streamedMembers))
+                        tsv.Write(FindDiscoveryOutput.Project(row));
+                    foreach (TypeFindResult row in results.Skip(streamedTypes))
+                    {
+                        if (row.Match != TypeFindMatchKind.NotFound)
+                            tsv.Write(FindDiscoveryOutput.Project(row));
+                    }
+                }
+                if (members.Count == 0
+                    && results.All(row => row.Match == TypeFindMatchKind.NotFound))
+                    CommandError.WriteLine("No types found matching the pattern.");
+            }
             else if (options.JsonOutput)
             {
                 // --fields/--columns name post-lowering vocabulary (computed table columns), so
@@ -200,7 +285,10 @@ public class FindCommand
                 WriteOutput(results, title, options, members);
             }
 
-            return new(0, results.Count + (rendersMembers ? members.Count : 0));
+            return new(0, (tsv is not null
+                    ? results.Count(row => row.Match != TypeFindMatchKind.NotFound)
+                    : results.Count)
+                + (rendersMembers ? members.Count : 0));
         }
         catch (Exception ex)
         {
@@ -209,11 +297,271 @@ public class FindCommand
         }
     }
 
+    private static FindOptions CreateSearchOptions(
+        FindOptions options,
+        string[] patterns)
+    {
+        if (options.QueryPlan?.InputRowLimit is not int inputRowLimit)
+        {
+            return options;
+        }
+
+        RowSelectionIntentOperation<string> operation =
+            options.QueryPlan.Rows.Operations.Single();
+        bool canDelegate =
+            options.Members
+            || operation.Kind == RowSelectionStageKind.Head
+            || operation.Kind == RowSelectionStageKind.Window
+                && patterns.All(static pattern =>
+                    !MayRunImplicitMemberFallback(pattern));
+        if (!canDelegate)
+            return options;
+
+        int effectiveLimit =
+            options.Limit is int existingLimit
+                ? Math.Min(existingLimit, inputRowLimit)
+                : inputRowLimit;
+        return options with { Limit = effectiveLimit };
+    }
+
+    private sealed record LayeredFindResult(
+        FindSearchResult<TypeFindResult> TypeSearch,
+        FindSearchResult<MemberFindResult> MemberSearch);
+
+    internal static IReadOnlyList<(
+        EcosystemPackId Id,
+        WorkspaceEcosystemRegistrationDeclaration Declaration,
+        bool Platform)> GetNamedLayers(
+        IReadOnlyList<EcosystemPackId> selection)
+    {
+        var layers = new List<(
+            EcosystemPackId Id,
+            WorkspaceEcosystemRegistrationDeclaration Declaration,
+            bool Platform)>();
+        foreach (EcosystemPackId id in EcosystemPackCatalog.OrderLayeredFind(selection))
+        {
+            var known = (EcosystemWorkspaceRegistrationSelectionResult.Known)
+                EcosystemPackCatalog.SelectWorkspaceRegistration(id);
+            WorkspaceEcosystemRegistrationDeclaration declaration =
+                known.Declaration;
+            bool platform = declaration.Populations.Any(population =>
+                population is WorkspaceEcosystemPopulationDeclaration.Platform);
+            if (platform && !declaration.CorePackages.IsEmpty)
+                throw new NotSupportedException(
+                    $"Ecosystem '{id}' has both Platform and core-package populations.");
+            layers.Add((id, declaration, platform));
+        }
+        EnsureNamedPopulations(selection, layers);
+        return layers;
+    }
+
+    internal static void EnsureNamedPopulations(
+        IReadOnlyList<EcosystemPackId> selection,
+        IReadOnlyList<(
+            EcosystemPackId Id,
+            WorkspaceEcosystemRegistrationDeclaration Declaration,
+            bool Platform)> layers)
+    {
+        if (layers.Any(layer =>
+            layer.Platform || !layer.Declaration.CorePackages.IsEmpty))
+            return;
+        string prefixes = string.Join(", ",
+            layers.SelectMany(layer => layer.Declaration.Populations
+                .OfType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>())
+                .Select(prefix => $"--package-prefix {prefix.Prefix.Prefix}")
+                .Distinct(StringComparer.Ordinal));
+        throw new InvalidOperationException(
+            $"Selected ecosystems {string.Join(", ", selection)} have no "
+            + $"named populations. Try {prefixes}.");
+    }
+
+    private static async Task<LayeredFindResult> SearchLayersAsync(
+        FindOptions options,
+        string[] patterns,
+        CommandContext context,
+        CancellationToken cancellationToken,
+        FindDiscoveryTsvWriter? tsv = null)
+    {
+        var layers = GetNamedLayers(options.Ecosystems!);
+        var types = new List<TypeFindResult>();
+        var members = new List<MemberFindResult>();
+        var unansweredPatterns = new HashSet<string>(
+            patterns, StringComparer.Ordinal);
+        bool failures = false;
+        bool incomplete = false;
+        FindSearchCompletion completion = FindSearchCompletion.Exhausted;
+        for (int index = 0; index < layers.Count; index++)
+        {
+            int resultCount = CountLayeredRows(
+                options, types.Count, members.Count);
+            if (options.Limit is int limit
+                && resultCount >= limit)
+            {
+                CommandError.WriteNote(
+                    $"Stopped after {layers[index - 1].Id}; not searched: "
+                    + $"{string.Join(", ", layers.Skip(index).Select(layer => layer.Id))}. "
+                    + "Raise -n to continue.");
+                completion = FindSearchCompletion.ResultLimitReached;
+                break;
+            }
+
+            var layer = layers[index];
+            if (!layer.Platform && layer.Declaration.CorePackages.IsEmpty)
+                continue;
+            FindOptions scoped = options with
+            {
+                Ecosystems = [layer.Id],
+                SourceSelection = null,
+                Packages = [.. layer.Declaration.CorePackages
+                    .Select(package => package.PackageId)],
+                PlatformAssemblies = [],
+                PlatformFrameworks = [],
+                Limit = options.Limit is int window
+                    ? window - resultCount
+                    : null,
+            };
+            context.Logger.Log($"Searching {layer.Id}");
+            try
+            {
+                await using PlatformFindSearchWorkspace? platform =
+                    layer.Platform
+                        ? await PlatformFindSearchWorkspace.OpenAsync(
+                            new WorkspacePlan(
+                                [new WorkspaceRegistration.Ecosystem(layer.Declaration)]),
+                            scoped, context, cancellationToken)
+                        : null;
+                await using ExplicitFindSearchWorkspace? explicitWorkspace =
+                    layer.Platform ? null : new(
+                        scoped, context.HttpClient, context.Logger.Log,
+                        cancellationToken);
+                if (options.Members)
+                {
+                    string[] memberPatterns =
+                    [
+                        .. patterns.Select(MemberPatternSentinel.Strip)
+                            .Where(pattern => pattern.Length > 0),
+                    ];
+                    FindSearchResult<MemberFindResult> found =
+                        await MemberSearchService.FindMembersAsync(
+                            scoped, memberPatterns, context.Logger,
+                            context.HttpClient, cancellationToken, platform,
+                            explicitWorkspace);
+                    foreach (MemberFindResult row in found.Rows)
+                    {
+                        MemberFindResult attributed = row with { Ecosystem = layer.Id.Value };
+                        members.Add(attributed);
+                        tsv?.Write(FindDiscoveryOutput.Project(attributed));
+                    }
+                    failures |= found.HasFailures;
+                    incomplete |= found.SourceSelectionIncomplete;
+                    continue;
+                }
+
+                FindSearchResult<TypeFindResult> foundTypes =
+                    await TypeSearchService.FindTypesAsync(
+                        scoped, patterns, context.Logger, context.HttpClient,
+                        cancellationToken, context, platform, explicitWorkspace);
+                FindSearchResult<MemberFindResult>? foundMembers =
+                    await FindBroadenedMembersAsync(
+                        scoped, patterns, foundTypes.Rows, context.Logger,
+                        context.HttpClient, cancellationToken, platform,
+                        explicitWorkspace);
+                List<MemberFindResult> band = foundMembers?.Rows ?? [];
+                foreach (TypeFindResult row in foundTypes.Rows)
+                {
+                    foreach (string pattern in patterns)
+                    {
+                        if (string.Equals(
+                                row.Pattern, pattern, StringComparison.Ordinal)
+                            || (row.Match is TypeFindMatchKind.Prefix
+                                    or TypeFindMatchKind.Namespace)
+                                && string.Equals(
+                                    row.Pattern,
+                                    $"{pattern}*",
+                                    StringComparison.Ordinal))
+                        {
+                            unansweredPatterns.Remove(pattern);
+                        }
+                    }
+                }
+                foreach (MemberFindResult row in band)
+                {
+                    foreach (string pattern in patterns)
+                    {
+                        if (string.Equals(
+                                row.Pattern,
+                                pattern,
+                                StringComparison.Ordinal)
+                            || string.Equals(
+                                row.Pattern,
+                                MemberPatternSentinel.Strip(pattern),
+                                StringComparison.Ordinal))
+                        {
+                            unansweredPatterns.Remove(pattern);
+                        }
+                    }
+                }
+                foreach (MemberFindResult row in band)
+                {
+                    MemberFindResult attributed = row with { Ecosystem = layer.Id.Value };
+                    members.Add(attributed);
+                    tsv?.Write(FindDiscoveryOutput.Project(attributed));
+                }
+                foreach (TypeFindResult row in WithoutSupersededWeakRows(foundTypes.Rows, band))
+                {
+                    TypeFindResult attributed = row with { Ecosystem = layer.Id.Value };
+                    types.Add(attributed);
+                    if (row.Match != TypeFindMatchKind.NotFound)
+                        tsv?.Write(FindDiscoveryOutput.Project(attributed));
+                }
+                failures |= foundTypes.HasFailures || foundMembers?.HasFailures is true;
+                incomplete |= foundTypes.SourceSelectionIncomplete
+                    || foundMembers?.SourceSelectionIncomplete is true;
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException)
+            {
+                CommandError.Write(failure);
+                failures = true;
+            }
+            finally
+            {
+                tsv?.Flush();
+            }
+        }
+        if (completion == FindSearchCompletion.Exhausted
+            && (failures || incomplete))
+            completion = FindSearchCompletion.Incomplete;
+        return new(
+            new(types, failures, [.. unansweredPatterns])
+            {
+                SourceSelectionIncomplete = incomplete,
+                Completion = completion,
+            },
+            new(members, failures)
+            {
+                SourceSelectionIncomplete = incomplete,
+                Completion = completion,
+            });
+    }
+
+    private static int CountLayeredRows(
+        FindOptions options,
+        int typeCount,
+        int memberCount)
+    {
+        bool memberRowsArePresented =
+            options.Members
+            || (!options.Count
+                && !options.JsonOutput
+                && (!options.Tabular || options.Tsv));
+        return typeCount + (memberRowsArePresented ? memberCount : 0);
+    }
+
     /// <summary>
-    /// The broadened tier's member source (find-search-service.md#tier-ladder):
-    /// an undotted, non-wildcard pattern whose Type answer has no Direct,
-    /// Glob, Namespace, or Prefix row also runs Member Find's Direct grammar
-    /// over the same authorized sources.
+    /// The separately composed member source: an undotted, non-wildcard
+    /// pattern whose Type answer has no Exact, Direct, Glob, Namespace, or
+    /// Prefix row also runs Member Find's Direct grammar over the same
+    /// authorized sources.
     /// </summary>
     private static async Task<FindSearchResult<MemberFindResult>?>
         FindBroadenedMembersAsync(
@@ -223,11 +571,19 @@ public class FindCommand
             VerboseLogger logger,
             HttpClient httpClient,
             CancellationToken cancellationToken,
-            PlatformFindSearchWorkspace? platformWorkspace)
+            PlatformFindSearchWorkspace? platformWorkspace,
+            ExplicitFindSearchWorkspace? explicitWorkspace)
     {
+        if (options.Limit is int limit
+            && typeRows.Count >= limit)
+        {
+            return null;
+        }
+
         HashSet<string> settled = new(
             typeRows
-                .Where(static row => row.Match is TypeFindMatchKind.Direct
+                .Where(static row => row.Match is TypeFindMatchKind.Exact
+                    or TypeFindMatchKind.Direct
                     or TypeFindMatchKind.Glob
                     or TypeFindMatchKind.Namespace
                     or TypeFindMatchKind.Prefix)
@@ -237,8 +593,7 @@ public class FindCommand
         [
             .. patterns.Where(pattern =>
                 !settled.Contains(pattern)
-                && !pattern.Contains('.')
-                && TypeNameMatchRanking.IsBroadenable(pattern)),
+                && MayRunImplicitMemberFallback(pattern)),
         ];
         if (memberPatterns.Length == 0)
             return null;
@@ -249,8 +604,14 @@ public class FindCommand
             logger,
             httpClient,
             cancellationToken,
-            platformWorkspace);
+            platformWorkspace,
+            explicitWorkspace);
     }
+
+    private static bool MayRunImplicitMemberFallback(
+        string pattern) =>
+        !pattern.Contains('.')
+        && TypeNameMatchRanking.IsBroadenable(pattern);
 
     /// <summary>
     /// Applies semantic row selection to the answer in presented order: the
@@ -308,8 +669,8 @@ public class FindCommand
     }
 
     /// <summary>
-    /// A pattern answered by member rows no longer reaches the similarity
-    /// tier, and is no longer a miss.
+    /// A pattern answered by member rows omits its weak Type rows and is no
+    /// longer a miss.
     /// </summary>
     private static List<TypeFindResult> WithoutSupersededWeakRows(
         List<TypeFindResult> typeRows,
@@ -338,7 +699,7 @@ public class FindCommand
         {
             CommandError.WriteNote(
                 $"{group.Count()} member matches for '{group.Key}' appear "
-                + "only in Markdown output. Use "
+                + "in TSV and Markdown output. Use "
                 + $"'find .{group.Key}' for member rows in this format.");
         }
     }
@@ -366,7 +727,11 @@ public class FindCommand
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken,
-        PlatformFindSearchWorkspace? platformWorkspace)
+        PlatformFindSearchWorkspace? platformWorkspace,
+        ExplicitFindSearchWorkspace? explicitWorkspace,
+        FindSearchResult<MemberFindResult>? preparedSearch = null,
+        FindDiscoveryTsvWriter? tsv = null,
+        Func<int>? streamedRowCount = null)
     {
         // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
         // the member named "Serialize". ".ctor"/".cctor" are preserved (they are real member names).
@@ -382,13 +747,14 @@ public class FindCommand
         }
 
         FindSearchResult<MemberFindResult> search =
-            await MemberSearchService.FindMembersAsync(
+            preparedSearch ?? await MemberSearchService.FindMembersAsync(
                 options,
                 memberPatterns,
                 logger,
                 httpClient,
                 cancellationToken,
-                platformWorkspace);
+                platformWorkspace,
+                explicitWorkspace);
         List<MemberFindResult> results = search.Rows;
         int observedRowCount = results.Count;
         if (!TrySelectRows(
@@ -417,6 +783,14 @@ public class FindCommand
             }
             if (!WriteMemberCount(results, title, options))
                 return new(1, RowCount: null);
+        }
+        else if (tsv is not null)
+        {
+            int alreadyStreamed = streamedRowCount?.Invoke() ?? 0;
+            foreach (MemberFindResult row in results.Skip(alreadyStreamed))
+                tsv.Write(FindDiscoveryOutput.Project(row));
+            if (results.Count == 0)
+                CommandError.WriteLine("No members found matching the pattern.");
         }
         else if (options.JsonOutput)
         {
@@ -637,4 +1011,20 @@ public record class TypeSearchResult
 
     [JsonIgnore]
     public TypeDeclarationLocatorSectionCandidate? Location { get; set; }
+
+    [JsonIgnore]
+    public AssemblyAcquisitionRegistration? AcquisitionRegistration
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal string? ClassifiedPattern { get; set; }
+
+    [JsonIgnore]
+    internal FindTypeMatchIntent ClassifiedIntent { get; set; }
+
+    [JsonIgnore]
+    internal TypeFindResult? Classification { get; set; }
 }

@@ -21,12 +21,11 @@ public sealed class PackageFileAcquisitionPlan
         Action<string>? log = null,
         long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
         : this(
-            new PackagePayloadAcquisitionPlan(
+            PackagePayloadAcquisitionPlan.ForContentQueries(
                 getStore,
                 limits,
                 transferPolicy,
                 log,
-                PackagePayloadAccess.Ranged,
                 rangedSizeCut))
     {
     }
@@ -53,8 +52,9 @@ public sealed class PackageFileAcquisitionRequest
                 nameof(operation));
         }
         Coordinate = coordinate;
-        Demand = PackageFileDemand.Create([path]);
-        Path = Demand.Entries.Single();
+        ContentQuery =
+            PackageHouseContentQuery.PackageFilesWithFileList([path]);
+        Path = ContentQuery.FilesTerminal!.Entries.Single();
         Operation = operation;
     }
 
@@ -64,7 +64,7 @@ public sealed class PackageFileAcquisitionRequest
 
     public PackageHouseOperation Operation { get; }
 
-    internal PackageFileDemand Demand { get; }
+    internal PackageHouseContentQuery ContentQuery { get; }
 }
 
 public enum PackageFileAcquisitionStatus
@@ -102,12 +102,18 @@ public abstract class PackageFileAcquisitionResult
             : base(PackageFileAcquisitionStatus.Acquired, settlement)
         {
             Entry = entry;
+            FileList = settlement.Result.Evidence.FileList
+                ?? throw new ArgumentException(
+                    "Exact package-file acquisition requires File List evidence.",
+                    nameof(settlement));
         }
 
         public new PackageHouseSettlement.Acquired Settlement =>
             (PackageHouseSettlement.Acquired)base.Settlement;
 
         public PackageContentEntry Entry { get; }
+
+        public PackageHouseFileList FileList { get; }
 
         public PackageHousePayloadRead OpenRead() =>
             Settlement.OpenPayloadRead(
@@ -155,7 +161,7 @@ public static class PackageFileAcquisition
         var houseRequest = new PackageHouseRequest(
             new PackageHouseDemand.Exact(request.Coordinate),
             request.Operation,
-            fileDemand: request.Demand);
+            contentQuery: request.ContentQuery);
         PackageHouseSettlement settlement =
             await house.ExecuteAsync(
                     houseRequest,
@@ -167,19 +173,21 @@ public static class PackageFileAcquisition
                 PackageFileAcquisitionStatus.NotSettled,
                 settlement);
         }
-        if (settlement.Result is not PackageHouseResult.Settled)
-        {
-            return new PackageFileAcquisitionResult.Unavailable(
-                settlement.Result is PackageHouseResult.NoMatch
-                    ? PackageFileAcquisitionStatus.Missing
-                    : PackageFileAcquisitionStatus.NotSettled,
-                settlement);
-        }
-
         PackageFileEntryResolution resolution =
             PackageFileEntryResolver.Resolve(
                 acquired,
                 request.Path);
+        if (settlement.Result is not PackageHouseResult.Settled)
+        {
+            return new PackageFileAcquisitionResult.Unavailable(
+                settlement.Result is PackageHouseResult.NoMatch
+                    ? resolution.Status
+                        == PackageFileEntryResolutionStatus.Ambiguous
+                            ? PackageFileAcquisitionStatus.Ambiguous
+                            : PackageFileAcquisitionStatus.Missing
+                    : PackageFileAcquisitionStatus.NotSettled,
+                settlement);
+        }
         return resolution.Status switch
         {
             PackageFileEntryResolutionStatus.Resolved =>

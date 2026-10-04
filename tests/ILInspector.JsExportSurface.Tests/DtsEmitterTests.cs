@@ -41,11 +41,11 @@ public sealed class DtsEmitterTests
         using FileStream stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis);
     }
 
     private static ILInspector.JsExportSurface.JsExportSurface
@@ -68,11 +68,11 @@ public sealed class DtsEmitterTests
             }
         }
 
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis);
     }
 
     [Fact]
@@ -3782,7 +3782,7 @@ public sealed class DtsEmitterTests
                     or nameof(ConstructorBoundJsonContext)
                     or nameof(ConstructorBoundExports)),
         ];
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
@@ -3791,7 +3791,7 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                bodyIndex),
+                bodyAnalysis),
             diagnostics);
 
         Assert.Contains(
@@ -3859,7 +3859,7 @@ public sealed class DtsEmitterTests
                             == nameof(
                                 PrivateSetterConstructorBoundInput)),
                     valueProperty));
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures
@@ -3869,7 +3869,7 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                bodyIndex),
+                bodyAnalysis),
             diagnostics);
 
         Assert.Contains(
@@ -3895,13 +3895,13 @@ public sealed class DtsEmitterTests
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
             includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         string dts = DtsEmitter.Emit(
-            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex),
+            JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis),
             diagnostics);
 
         Assert.Contains(

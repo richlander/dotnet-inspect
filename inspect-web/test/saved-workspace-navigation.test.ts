@@ -44,6 +44,9 @@ import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
   isProductHomeDemosPath,
 } from "../src/product-home-demos.ts";
+import {
+  isProductEcosystemsPath,
+} from "../src/product-ecosystems.ts";
 import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
@@ -152,7 +155,8 @@ const hostNames = new Set([
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
   "invalidateWorkspaceMembershipViews", "invalidateGraphMemberNavigation",
   "clearWorkspaceOccurrenceView", "clearWorkspacePackages",
-  "activatePackage", "defaultAccessibilityFilter", "resetMemberFilters",
+  "activatePackage", "defaultAccessibilityFilter",
+  "setTypeAccessibilityFilter", "resetMemberFilters",
 ]);
 const hostFunctions = app.program.body.filter(
   node => node.type === "FunctionDeclaration" && hostNames.has(node.id?.name ?? ""));
@@ -217,9 +221,25 @@ function packageSurface(
     types: [{
       id: "Added.Widget", definitionId: "Added.Widget", queryId: "Added.Widget",
       metadataId: "Added.Widget", name: "Widget", displayName: "Added.Widget",
-      namespace: "Added", kind: "class", accessibility: "public", accessibilityId: "public",
+      namespace: "Added", kind: "class", kindFacetId: "api.type-kind.class",
+      traitFacetIds: ["api.type-trait.object"],
+      accessibility: "public", accessibilityId: "public",
       assembly: "Added.Core", assemblyId: "added-core", assemblyName: "Added.Core",
       members: 0, signature: "public class Widget", api: [], platformPack: null,
+    }],
+    typeKinds: [{
+      id: "api.type-kind.class", singularLabel: "class", pluralLabel: "classes",
+      weight: 100, count: 1, isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract", singularLabel: "abstract", pluralLabel: "abstract",
+      weight: 100, count: 0, isDefault: false,
+    }, {
+      id: "api.type-trait.static", singularLabel: "static", pluralLabel: "static",
+      weight: 200, count: 0, isDefault: false,
+    }, {
+      id: "api.type-trait.object", singularLabel: "object", pluralLabel: "objects",
+      weight: 300, count: 1, isDefault: false,
     }],
     accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 1 }],
     totalMembers: 0, documents: [], icon: null, inspectionErrors: [], inspectionError: null,
@@ -283,6 +303,32 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: surface.activeFramework,
+        libraries: surface.assemblies.map(assembly => ({
+          assetId: assembly.id,
+          assetPath: assembly.asset,
+          assemblyName: assembly.name,
+          role: "Compile",
+        })),
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
     surface,
   };
 }
@@ -300,7 +346,7 @@ function sharedState(): BrowserWorkspaceShareState {
     selectedContextId: "both",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
 }
@@ -620,7 +666,11 @@ function harness() {
         capacity);
     },
     createPackageAcquisition,
-    inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
+    inspectPackageSummary: (
+      ...coordinate: Parameters<
+        PackageAcquisitionDependencies["queryPackageSummary"]
+      >
+    ) => {
       queries.push(coordinate);
       return controls.queryPackage(...coordinate);
     },
@@ -650,7 +700,8 @@ function harness() {
     },
     typeLensesFor, browserCreatedCallGraphTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
-    parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
+    parseWorkspaceLocation, parseWorkspaceLocationAsync,
+    isProductHomeDemosPath, isProductEcosystemsPath,
     inspectDecodeWorkspaceShareState: (value: string) =>
       controls.decodeWorkspace?.(value) ?? Promise.resolve(decode(value)),
     requestAnimationFrame: (action: () => void) => frames.push(action),
@@ -697,6 +748,7 @@ function harness() {
       state.packages.push(pkg);
       return pkg;
     },
+    loadDeepPackageSurface: async () => {},
     applyLoadedPackageLibraryScope: () => null,
     applyDeepLink: (deep: ParsedWorkspaceLocation) => {
       effects.push("deep-link");
@@ -1338,7 +1390,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     selectedContextId: "platform-context",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -2041,7 +2093,10 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
+    diff: { kind: "previous" },
+    diffContent: { kind: "api" },
+    clone: { kind: "workspace" },
+    mode: "diff",
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
@@ -2345,7 +2400,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [] },
+      section: null, libraries: [], sourceView: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

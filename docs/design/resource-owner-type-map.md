@@ -55,7 +55,6 @@ residual gaps.
 Retained state is not a resource boundary merely because it caches memory,
 files, tasks, or observations. [Stateless core
 services](stateless-core-services.md) owns the cross-owner classification;
-[Analysis Index Cache Ownership](analysis-index-cache.md),
 [Research Assembly-Context
 Ownership](research-assembly-context-ownership.md), and
 [Platform Type Catalog

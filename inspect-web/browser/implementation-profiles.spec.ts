@@ -110,11 +110,10 @@ async function selectMemberAccessibility(
   page: Page,
   accessibility: "public" | "private",
 ) {
-  const button = page.locator(
-    `[data-member-access-filter="${accessibility}"]`);
-  if (!await button.isVisible())
+  const select = page.locator("[data-member-access-filter]");
+  if (!await select.isVisible())
     await page.locator("#member-filter-summary").click();
-  await button.click();
+  await select.selectOption(accessibility);
 }
 
 test("Type heat paints the member list without an Implementation section", async ({
@@ -175,6 +174,14 @@ test("Type heat paints the member list without an Implementation section", async
   );
   await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
   await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
+  await expect(
+    rows.nth(1).locator(".item-achievement-glyph.implementation-hub"),
+  ).toHaveCount(1);
+  await expect(rows.nth(1).locator(".item-achievement-rail"))
+    .toHaveAttribute("aria-label", "implementation hub");
+  await expect(
+    rows.nth(0).locator(".item-achievement-glyph.implementation-hub"),
+  ).toHaveCount(0);
   await expect(rows.locator(".overload-size")).toHaveCount(0);
 
   // Public and private populations reuse one Type record.

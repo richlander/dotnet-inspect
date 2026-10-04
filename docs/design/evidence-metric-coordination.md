@@ -375,13 +375,16 @@ The body producer owns direct-call and sibling-edge meaning.
 MemberMetricsInspect owns the exact-family product composition. A Graph degree
 kernel may later consume the typed edges when its relationship semantics match.
 
-### Type sea level and mountain peaks
+### Namespace leverage, Type sea level, and mountain peaks
 
 ```text
-population: exact Types-in-Library binding
+population: exact Types-in-Library binding for namespace roll-up;
+            exact Types-in-namespace binding for Type leverage
 evidence:   signature relationships or body relationships
-metric:     directed distinct-neighbor degree and deterministic order
-roll-up:    producer-issued relationship endpoints to Type identities
+metric:     distinct external-source-Type namespace score;
+            directed distinct-neighbor Type degree and deterministic order
+roll-up:    producer-issued relationship endpoints to exact namespace and
+            Type identities
 ```
 
 Signature and body relationship populations remain separate and separately

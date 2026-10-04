@@ -22,11 +22,18 @@ static class CSharpExplicitAccessorMembers
         if (member.Kind is not ("property" or "event"))
             return false;
 
-        name = member.SignatureModel?.Accessors.FirstOrDefault(value =>
+        string? candidate = member.SignatureModel?.Accessors.FirstOrDefault(value =>
                 value.IsExplicitInterfaceImplementation == true
                 && !string.IsNullOrWhiteSpace(value.Name))
             ?.Name;
-        return name is not null;
+        if (candidate is null
+            || !candidate.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        name = candidate;
+        return true;
     }
 
     /// <summary>

@@ -16,6 +16,13 @@ public sealed record WorkspacePackageInspectionContent(
 
 public partial class PackageCommand
 {
+    static readonly ViewFacetId ExactPackageDefaultFacet =
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Package,
+                ViewFacetRole.PackageOverview)
+            .Id;
+
     static async Task<int> ExecuteWorkspaceExactPackageAsync(
         InspectionOptions options,
         CommandContext context,
@@ -97,7 +104,7 @@ public partial class PackageCommand
                                 options,
                                 context,
                                 target),
-                            facet: new("package.overview"),
+                            facet: ExactPackageDefaultFacet,
                             shareRefusal).ConfigureAwait(false);
             if (operation
                 is SelectedContextExactPackageEvidenceOperationResult<

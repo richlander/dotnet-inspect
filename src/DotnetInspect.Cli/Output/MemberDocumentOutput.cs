@@ -1,7 +1,11 @@
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.DocumentationHouse;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using Markout;
@@ -57,7 +61,6 @@ internal static class MemberDocumentOutput
             || options.SourceParts
             || options.SourcePart is not null
             || options.ShowSamples
-            || options.DocsExplicitlySet && options.ShowDocs
             || options.ShareFormat is not null
             || options.EffectiveDiscovery
             || options.UserVerbosity >= Verbosity.Detailed
@@ -79,11 +82,43 @@ internal static class MemberDocumentOutput
                 memberName) is not null;
     }
 
+    internal static bool IsSourceSelected(
+        ApiType type,
+        MemberOptions options)
+    {
+        bool hasOrdinal = options.OverloadIndex.HasValue;
+        bool hasFingerprint =
+            !string.IsNullOrWhiteSpace(options.MemberDigest);
+        if ((!options.SourceParts && options.SourcePart is null)
+            || type.DefinitionName is null
+            || options.MemberFilter.Count != 1
+            || hasOrdinal == hasFingerprint
+            || options.MemberGenericArity.HasValue
+            || options.KindFilter.Count > 0
+            || options.IncludeAll
+            || options.UnsafeOnly)
+        {
+            return false;
+        }
+
+        string memberName = options.MemberFilter.Single();
+        return !memberName.Contains('*', StringComparison.Ordinal)
+            && !memberName.Contains('?', StringComparison.Ordinal)
+            && MemberGroupDocumentOutput.ResolveCanonicalMethodName(
+                type,
+                memberName) is not null;
+    }
+
     internal static async Task<int> WriteAsync(
         ApiType type,
         MemberOptions options,
         string assemblyPath,
-        CancellationToken cancellationToken)
+        ResolvedAssemblyReference? sourceAssembly,
+        string? packageName,
+        string? packageVersion,
+        HttpClient symbolClient,
+        CancellationToken cancellationToken,
+        MemberTargetResolution? resolvedTarget = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
@@ -100,24 +135,107 @@ internal static class MemberDocumentOutput
             ?? throw new InvalidOperationException(
                 "The native Member route requires one unambiguous ordinary "
                     + "method name.");
-        MemberDocumentSelector selector =
-            options.OverloadIndex is { } ordinal
-                ? new(baselineOrdinal: ordinal)
-                : new(fingerprintPrefix: options.MemberDigest);
+        MemberTargetResolution resolution =
+            resolvedTarget
+            ?? MemberTargetResolver.Resolve(
+                type,
+                new MemberTargetSelector(
+                    memberName,
+                    memberName,
+                    options.OverloadIndex,
+                    options.MemberDigest));
+        if (resolution.Diagnostic is { } selectionDiagnostic)
+        {
+            CommandError.Write(
+                selectionDiagnostic.Message,
+                [.. selectionDiagnostic.CandidateDetails()]);
+            return 1;
+        }
+        if (resolution.Target?.ApiMember.Member.MetadataToken
+            is not { } token)
+        {
+            CommandError.Write(
+                "The selected Member has no exact Metadata token.");
+            return 1;
+        }
+        var selector = new MemberDocumentSelector(metadataToken: token);
+        MemberSourceAttachmentRequest? sourceDemand =
+            options.SourceParts || options.SourcePart is not null
+                ? new(
+                    includeAuthoredParts: true,
+                    allowDecompiledFallback: false)
+                : null;
         var plan = new MemberDocumentInspectionPlan(
             new MemberGroupSubject(definition, memberName),
             selector,
-            s_bounds);
+            s_bounds,
+            documentation:
+                sourceDemand is null && options.ShowDocs
+                    ? new(DocumentationDemand.CompiledXml)
+                    : null,
+            source: sourceDemand);
+        MemberSourceAttachmentProvider? sourceProvider =
+            plan.Source is null
+                ? null
+                : async (request, token) =>
+                {
+                    ResolvedAssemblyReference? participantAssembly =
+                        sourceAssembly?.Path is { } sourceAssemblyPath
+                        && LibraryMetadataService
+                            .ReferenceTreePathComparer(
+                                OperatingSystem.IsWindows())
+                            .Equals(
+                                Path.GetFullPath(sourceAssemblyPath),
+                                Path.GetFullPath(assemblyPath))
+                            ? sourceAssembly
+                            : null;
+                    var (participant, context) =
+                        AuthoredSourceDocumentPrinter.CreateContext(
+                            assemblyPath,
+                            options,
+                            participantAssembly,
+                            packageName,
+                            packageVersion,
+                            symbolClient);
+                    await using var workspace =
+                        new InspectionWorkspace();
+                    using AssemblyContextGroup group =
+                        workspace.CreateAssemblyContextGroup(
+                            [participant]);
+                    InspectionEnvelope<AssemblyMemberSourceEntry>
+                        sourceInspection =
+                            await MemberSourceInspection.ExecuteAsync(
+                                    group,
+                                    participant,
+                                    request,
+                                    context,
+                                    token)
+                                .ConfigureAwait(false);
+                    return sourceInspection.Content;
+                };
         InspectionEnvelope<MemberDocumentInspectionOutcome>? inspection =
-            await ExactLibraryInspectionExecutor.ExecuteAsync<
-                InspectionEnvelope<MemberDocumentInspectionOutcome>>(
-                assemblyPath,
-                "Member document",
-                session =>
-                    session.ExecuteMemberDocument(
-                        plan,
-                        cancellationToken),
-                cancellationToken);
+            plan.Documentation is null && plan.Source is null
+                ? await ExactLibraryInspectionExecutor.ExecuteAsync<
+                    InspectionEnvelope<MemberDocumentInspectionOutcome>>(
+                    assemblyPath,
+                    "Member document",
+                    session =>
+                        session.ExecuteMemberDocument(
+                            plan,
+                            cancellationToken),
+                    cancellationToken)
+                : await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
+                    InspectionEnvelope<MemberDocumentInspectionOutcome>>(
+                    assemblyPath,
+                    "Member document",
+                    session =>
+                        session.ExecuteMemberDocumentAsync(
+                            plan,
+                            sourceProvider,
+                            cancellationToken),
+                    includeCompiledDocumentation:
+                        plan.Documentation is not null,
+                    cancellationToken: cancellationToken);
         if (inspection is null)
             return 1;
 
@@ -134,13 +252,42 @@ internal static class MemberDocumentOutput
         }
 
         MemberDocument document = available.Document;
+        if (plan.Source is not null)
+        {
+            MemberSourceAttachment attachment =
+                document.Source
+                ?? throw new InvalidOperationException(
+                    "The requested Member source attachment was not produced.");
+            return MemberSourcePartsOutput.WriteAttached(
+                document,
+                attachment.Outcome,
+                options,
+                Console.Out);
+        }
+
+        ApiMember? projectedMember = type.Members.SingleOrDefault(
+            member => member.MetadataToken
+                == document.Subject.MetadataToken);
+        if (projectedMember is null)
+        {
+            CommandError.Write(
+                "The exact Member has no corresponding API selector.");
+            return 1;
+        }
+        string digest =
+            ApiMemberIdentity.GetMemberAnchor(type, projectedMember)
+                .Fingerprint;
         string signature =
             $"{document.Accessibility} "
                 + ReceiverPrefix(document.Receiver)
                 + document.DisplaySignature;
         var writer = new MarkoutWriter(
             Console.Out,
-            new MarkdownFormatter());
+            new MarkdownFormatter(),
+            new MarkoutWriterOptions
+            {
+                SectionOrder = ["Signature", "Documentation"],
+            });
         writer.WriteHeading(2, "Signature");
         writer.WriteTable(
             ["Signature", "Digest", "Canonical Signature"],
@@ -150,11 +297,17 @@ internal static class MemberDocumentOutput
                     MarkoutInline.Code(
                         CSharpIdentifier.ContainRenderedText(signature)),
                     MarkoutInline.Code(
-                        document.Subject.Fingerprint.ToString()),
+                        digest),
                     MarkoutInline.Code(
                         document.CanonicalSignature.ToString()),
                 ],
             ]);
+        if (document.Documentation is { } documentation)
+        {
+            writer.WriteHeading(2, "Documentation");
+            writer.WriteParagraph(
+                DescribeDocumentation(documentation.Outcome));
+        }
         writer.Flush();
         return 0;
     }
@@ -181,5 +334,52 @@ internal static class MemberDocumentOutput
             MemberDocumentInspectionOutcome.Failed failed =>
                 $"The Member document failed ({failed.Reason}).",
             _ => "The Member document returned an unknown outcome.",
+        };
+
+    internal static string DescribeDocumentation(
+        DocumentationQueryOutcome outcome) =>
+        outcome switch
+        {
+            DocumentationQueryOutcome.Completed completed =>
+                completed.Fields.Summary.Contributions
+                    .Select(static contribution => contribution.Value)
+                    .FirstOrDefault()
+                    ?? DescribeCompiledDocumentation(
+                        completed.CompiledXml),
+            DocumentationQueryOutcome.RequestRejected rejected =>
+                $"Documentation was rejected ({rejected.Reason}).",
+            DocumentationQueryOutcome.Failed failed =>
+                $"Documentation failed ({failed.Reason}).",
+            DocumentationQueryOutcome.Incomplete incomplete =>
+                $"Documentation was incomplete ({incomplete.Reason}).",
+            _ => throw new InvalidOperationException(
+                "Unknown Member documentation outcome."),
+        };
+
+    private static string DescribeCompiledDocumentation(
+        CompiledDocumentationOutcome? outcome) =>
+        outcome switch
+        {
+            CompiledDocumentationOutcome.Available =>
+                "No documentation summary was found.",
+            CompiledDocumentationOutcome.Absent =>
+                "No compiled documentation was found.",
+            CompiledDocumentationOutcome.Unavailable =>
+                "Compiled documentation is unavailable.",
+            CompiledDocumentationOutcome.Ambiguous =>
+                "Compiled documentation was ambiguous.",
+            CompiledDocumentationOutcome.ContributionsRejected =>
+                "Compiled documentation contributions were rejected.",
+            CompiledDocumentationOutcome.MalformedOrUnreadableDocument =>
+                "Compiled documentation was malformed or unreadable.",
+            CompiledDocumentationOutcome.Incomplete incomplete =>
+                $"Compiled documentation was incomplete ({incomplete.Reason}).",
+            CompiledDocumentationOutcome.RequestRejected rejected =>
+                $"Compiled documentation was rejected ({rejected.Reason}).",
+            CompiledDocumentationOutcome.ContentAccessFailed =>
+                "Compiled documentation content could not be read.",
+            null => "No documentation summary was found.",
+            _ => throw new InvalidOperationException(
+                "Unknown compiled documentation outcome."),
         };
 }

@@ -9,6 +9,7 @@ namespace DotnetInspect.Cli.Models;
 [JsonConverter(typeof(JsonStringEnumConverter<TypeFindMatchKind>))]
 public enum TypeFindMatchKind
 {
+    Exact,
     Direct,
     Glob,
     Partial,
@@ -16,6 +17,12 @@ public enum TypeFindMatchKind
     Namespace,
     Prefix,
     Substring
+}
+
+internal enum FindTypeMatchIntent
+{
+    Ordinary,
+    ExactOnly,
 }
 
 /// <summary>
@@ -67,6 +74,10 @@ public record TypeFindResult
     [JsonPropertyName("source")]
     public string Source { get; init; } = "";  // runtime, aspnetcore, package name
 
+    [JsonPropertyName("ecosystem")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Ecosystem { get; init; }
+
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; init; }
 
@@ -114,6 +125,10 @@ public record MemberFindResult
 
     [JsonPropertyName("source")]
     public string Source { get; init; } = "";  // runtime, aspnetcore, package name
+
+    [JsonPropertyName("ecosystem")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Ecosystem { get; init; }
 
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; init; }

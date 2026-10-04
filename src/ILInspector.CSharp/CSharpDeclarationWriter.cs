@@ -2063,8 +2063,7 @@ internal static class CSharpDeclarationWriter
     {
         if (!CSharpExplicitAccessorMembers.TryGetExplicitAccessorName(
                 member,
-                out string? name)
-            || !name.Contains('.', StringComparison.Ordinal))
+                out string? name))
         {
             return member;
         }

@@ -1,5 +1,6 @@
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
+  BrowserEcosystemCatalog,
   BrowserHomeDemoCatalog,
   BrowserVocabularyCatalogIdentity,
   BrowserVocabularyDefinition,
@@ -359,6 +360,33 @@ export const engineStartupOperations = {
         demos: array(data.demos, rawDemo => {
           const demo = record(rawDemo);
           return { ...demo, id: text(demo.id), title: text(demo.title), summary: text(demo.summary) };
+        }),
+      };
+    }),
+  },
+  listEcosystems: {
+    kind: "catalog-list-ecosystems",
+    value: json<BrowserEcosystemCatalog>(value => {
+      const data = record(value);
+      return {
+        ...data,
+        ecosystems: array(data.ecosystems, rawEcosystem => {
+          const ecosystem = record(rawEcosystem);
+          return {
+            ...ecosystem,
+            id: text(ecosystem.id),
+            title: text(ecosystem.title),
+            summary: text(ecosystem.summary),
+            corePackageCount: number(ecosystem.corePackageCount),
+            namespaceRootCount: number(ecosystem.namespaceRootCount),
+            toolPackageCount: number(ecosystem.toolPackageCount),
+            demoCount: number(ecosystem.demoCount),
+            hasPackageSet: boolean(ecosystem.hasPackageSet),
+            hasScanner: boolean(ecosystem.hasScanner),
+            hasPopulationLoader: boolean(ecosystem.hasPopulationLoader),
+            hasWorkspaceRegistration: boolean(
+              ecosystem.hasWorkspaceRegistration),
+          };
         }),
       };
     }),

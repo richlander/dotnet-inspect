@@ -41,39 +41,303 @@ public static partial class LibraryStructuralReport
 
     internal sealed record TypeLeverageGraphExecution(
         ImmutableArray<MetadataLibrarySignatureType> Types,
-        GraphDistinctNeighborDegreeResult SignatureIncoming,
-        GraphDistinctNeighborDegreeResult BodyOutgoing,
-        GraphDistinctNeighborDegreeResult CombinedIncoming,
-        GraphDistinctNeighborDegreeResult CombinedOutgoing);
+        GraphDistinctNeighborDegreeResult Incoming,
+        GraphDistinctNeighborDegreeResult Outgoing);
 
-    private static LibraryStructuralTypeLeverageDocument TypeLeverage(
-        LibraryBodyAnalysisReceipt analysisReceipt,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse) =>
-        ProjectTypeLeverage(
+    public static LibraryStructuralNamespaceLeverageIndex
+        CreateNamespaceLeverageIndex(
+            MetadataLibrarySignatureUseResult signatureUse)
+    {
+        ArgumentNullException.ThrowIfNull(signatureUse);
+        if (signatureUse.Receipt.ExactNamespace is not null)
+        {
+            throw new ArgumentException(
+                "Namespace leverage requires a whole-Library "
+                    + "signature-use population.",
+                nameof(signatureUse));
+        }
+
+        var externalSources =
+            new Dictionary<
+                string,
+                HashSet<MetadataTypeDefinitionAddress>>(
+                    StringComparer.Ordinal);
+        foreach (MetadataLibrarySignatureUseOccurrence occurrence
+            in signatureUse.Occurrences)
+        {
+            if (StringComparer.Ordinal.Equals(
+                    occurrence.SourceType.Namespace,
+                    occurrence.TargetType.Namespace))
+            {
+                continue;
+            }
+
+            if (!externalSources.TryGetValue(
+                    occurrence.TargetType.Namespace,
+                    out HashSet<
+                        MetadataTypeDefinitionAddress>? sources))
+            {
+                sources = [];
+                externalSources.Add(
+                    occurrence.TargetType.Namespace,
+                    sources);
+            }
+            sources.Add(occurrence.Source);
+        }
+
+        var populations =
+            signatureUse.Types
+                .GroupBy(
+                    static type => type.Name.Namespace,
+                    StringComparer.Ordinal)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.Count(),
+                    StringComparer.Ordinal);
+        int maximum =
+            populations.Keys
+                .Select(@namespace =>
+                    externalSources.TryGetValue(
+                        @namespace,
+                        out HashSet<
+                            MetadataTypeDefinitionAddress>? sources)
+                        ? sources.Count
+                        : 0)
+                .DefaultIfEmpty()
+                .Max();
+        LibraryStructuralNamespaceLeverageRow[] rows =
+        [
+            .. populations
+                .Select(pair =>
+                {
+                    int score =
+                        externalSources.TryGetValue(
+                            pair.Key,
+                            out HashSet<
+                                MetadataTypeDefinitionAddress>? sources)
+                            ? sources.Count
+                            : 0;
+                    return new LibraryStructuralNamespaceLeverageRow(
+                        pair.Key,
+                        pair.Value,
+                        score,
+                        maximum > 0 && score == maximum);
+                })
+                .OrderByDescending(
+                    static row =>
+                        row.ExternalIncomingSourceTypeCount)
+                .ThenBy(
+                    static row => row.Namespace,
+                    StringComparer.Ordinal),
+        ];
+        LibraryStructuralEvidenceDisposition disposition =
+            Disposition(signatureUse);
+        return new(
+            LibraryStructuralSalience.CurrentMethodologyVersion,
+            LibraryStructuralSalienceEvidenceMode.Signature,
+            disposition,
+            [.. rows],
+            Qualification(signatureUse));
+    }
+
+    public static LibraryStructuralTypeLeverageShard
+        CreateTypeLeverageShard(
+            MetadataLibrarySignatureUseResult signatureUse)
+    {
+        ArgumentNullException.ThrowIfNull(signatureUse);
+        string @namespace =
+            signatureUse.Receipt.ExactNamespace
+            ?? throw new ArgumentException(
+                "A Type-leverage shard requires an exact-namespace "
+                    + "signature-use population.",
+                nameof(signatureUse));
+        if (signatureUse.Types.Any(type =>
+                !StringComparer.Ordinal.Equals(
+                    type.Name.Namespace,
+                    @namespace))
+            || signatureUse.Occurrences.Any(occurrence =>
+                !StringComparer.Ordinal.Equals(
+                    occurrence.SourceType.Namespace,
+                    @namespace)
+                || !StringComparer.Ordinal.Equals(
+                    occurrence.TargetType.Namespace,
+                    @namespace)))
+        {
+            throw new ArgumentException(
+                "The signature-use population contains evidence outside "
+                    + "its exact namespace.",
+                nameof(signatureUse));
+        }
+
+        return ProjectTypeLeverageShard(
             signatureUse,
+            ExecuteTypeLeverageGraph(signatureUse));
+    }
+
+    public static LibraryStructuralBodyTypeLeverageShard
+        CreateBodyTypeLeverageShard(
+            MetadataLibrarySignatureUseResult typeInventory,
+            AnalysisLibraryBodyUseResult bodyUse)
+    {
+        ArgumentNullException.ThrowIfNull(typeInventory);
+        ArgumentNullException.ThrowIfNull(bodyUse);
+        string @namespace =
+            typeInventory.Receipt.ExactNamespace
+            ?? throw new ArgumentException(
+                "A body Type-leverage shard requires an exact-namespace "
+                    + "metadata Type inventory.",
+                nameof(typeInventory));
+        if (typeInventory.Types.Any(type =>
+                !StringComparer.Ordinal.Equals(
+                    type.Name.Namespace,
+                    @namespace)))
+        {
+            throw new ArgumentException(
+                "The metadata Type inventory contains Types outside "
+                    + "its exact namespace.",
+                nameof(typeInventory));
+        }
+        if (bodyUse.Receipt.ModuleVersionId
+                != typeInventory.Receipt.ModuleVersionId
+            || !Equals(
+                bodyUse.Receipt.Assembly,
+                typeInventory.Receipt.Assembly))
+        {
+            throw new ArgumentException(
+                "Body Type leverage requires Metadata and Analysis "
+                    + "evidence from the same exact Library generation.",
+                nameof(bodyUse));
+        }
+
+        Dictionary<MetadataTypeDefinitionAddress, AnalysisLibraryBodyUseType>
+            bodyTypes = bodyUse.Types.ToDictionary(
+                static type => type.Type);
+        foreach (MetadataLibrarySignatureType type
+            in typeInventory.Types)
+        {
+            if (!bodyTypes.TryGetValue(
+                    type.Type,
+                    out AnalysisLibraryBodyUseType? bodyType)
+                || !Equals(bodyType.Name, type.Name)
+                || bodyType.DefinitionKind != type.DefinitionKind)
+            {
+                throw new ArgumentException(
+                    "The body-use Type inventory does not correspond to "
+                        + "the metadata Type inventory.",
+                    nameof(bodyUse));
+            }
+        }
+        if (bodyUse.Types.Count(type =>
+                StringComparer.Ordinal.Equals(
+                    type.Name.Namespace,
+                    @namespace))
+            != typeInventory.Types.Length)
+        {
+            throw new ArgumentException(
+                "The body-use Type inventory has different exact-namespace "
+                    + "coverage than the metadata Type inventory.",
+                nameof(bodyUse));
+        }
+
+        return ProjectBodyTypeLeverageShard(
+            typeInventory,
             bodyUse,
-            ExecuteTypeLeverageGraph(
-                analysisReceipt,
-                signatureUse,
+            ExecuteBodyTypeLeverageGraph(
+                typeInventory,
                 bodyUse));
+    }
+
+    public static LibraryStructuralSalienceDocument
+        CreateStructuralSalience(
+            LibraryStructuralNamespaceLeverageIndex namespaceIndex,
+            IEnumerable<LibraryStructuralTypeLeverageShard> shards)
+    {
+        ArgumentNullException.ThrowIfNull(namespaceIndex);
+        ArgumentNullException.ThrowIfNull(shards);
+        LibraryStructuralTypeLeverageShard[] materialized = [.. shards];
+        if (namespaceIndex.MethodologyVersion
+                != LibraryStructuralSalience.CurrentMethodologyVersion
+            || namespaceIndex.EvidenceMode
+                != LibraryStructuralSalienceEvidenceMode.Signature)
+        {
+            throw new ArgumentException(
+                "The namespace index does not use the current structural "
+                    + "salience methodology.",
+                nameof(namespaceIndex));
+        }
+        if (materialized.Length != namespaceIndex.Rows.Length)
+        {
+            throw new ArgumentException(
+                "Exhaustive structural salience requires exactly one "
+                    + "Type-leverage shard per namespace.",
+                nameof(shards));
+        }
+
+        for (var index = 0; index < materialized.Length; index++)
+        {
+            LibraryStructuralTypeLeverageShard shard =
+                materialized[index];
+            if (shard.MethodologyVersion
+                    != namespaceIndex.MethodologyVersion
+                || shard.EvidenceMode != namespaceIndex.EvidenceMode
+                || !StringComparer.Ordinal.Equals(
+                    shard.Namespace,
+                    namespaceIndex.Rows[index].Namespace)
+                || shard.SignatureUse.Receipt.ModuleVersionId
+                    != namespaceIndex.SignatureUse.Receipt.ModuleVersionId
+                || !Equals(
+                    shard.SignatureUse.Receipt.Assembly,
+                    namespaceIndex.SignatureUse.Receipt.Assembly))
+            {
+                throw new ArgumentException(
+                    "A Type-leverage shard does not correspond to the "
+                        + "namespace index.",
+                    nameof(shards));
+            }
+        }
+
+        return new(
+            LibraryStructuralSalience.CurrentMethodologyVersion,
+            LibraryStructuralSalienceEvidenceMode.Signature,
+            namespaceIndex,
+            [.. materialized]);
+    }
 
     internal static TypeLeverageGraphExecution ExecuteTypeLeverageGraph(
-        LibraryBodyAnalysisReceipt analysisReceipt,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        MetadataLibrarySignatureUseResult signatureUse)
     {
-        ArgumentNullException.ThrowIfNull(analysisReceipt);
         ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
-        ValidateTypeLeverageCorrespondence(
-            analysisReceipt,
-            signatureUse,
-            bodyUse);
+        return ExecuteTypeLeverageGraph(
+            signatureUse.Types,
+            signatureUse.Occurrences.Select(static occurrence =>
+                (occurrence.Source, occurrence.Target)),
+            TypeLeverageRelationship.SignatureUse);
+    }
 
+    internal static TypeLeverageGraphExecution
+        ExecuteBodyTypeLeverageGraph(
+            MetadataLibrarySignatureUseResult typeInventory,
+            AnalysisLibraryBodyUseResult bodyUse)
+    {
+        ArgumentNullException.ThrowIfNull(typeInventory);
+        ArgumentNullException.ThrowIfNull(bodyUse);
+        return ExecuteTypeLeverageGraph(
+            typeInventory.Types,
+            bodyUse.Occurrences.Select(static occurrence =>
+                (occurrence.Source, occurrence.Target)),
+            TypeLeverageRelationship.BodyUse);
+    }
+
+    private static TypeLeverageGraphExecution ExecuteTypeLeverageGraph(
+        IEnumerable<MetadataLibrarySignatureType> sourceTypes,
+        IEnumerable<(
+            MetadataTypeDefinitionAddress Source,
+            MetadataTypeDefinitionAddress Target)> sourceEdges,
+        TypeLeverageRelationship relationship)
+    {
         MetadataLibrarySignatureType[] types =
         [
-            .. signatureUse.Types.OrderBy(
+            .. sourceTypes.OrderBy(
                 static type => type.Type.Definition.Value),
         ];
         var nodeIds = new Dictionary<MetadataTypeDefinitionAddress, int>(
@@ -92,14 +356,20 @@ public static partial class LibraryStructuralReport
         }
 
         var logicalEdges = new HashSet<TypeLeverageEdge>();
-        AddSignatureOccurrences(
-            signatureUse.Occurrences,
-            nodeIds,
-            logicalEdges);
-        AddBodyOccurrences(
-            bodyUse.Occurrences,
-            nodeIds,
-            logicalEdges);
+        foreach ((MetadataTypeDefinitionAddress source,
+            MetadataTypeDefinitionAddress target) in sourceEdges)
+        {
+            if (!nodeIds.TryGetValue(source, out int sourceNodeId)
+                || !nodeIds.TryGetValue(target, out int targetNodeId))
+            {
+                continue;
+            }
+            logicalEdges.Add(
+                new(
+                    sourceNodeId,
+                    targetNodeId,
+                    relationship));
+        }
 
         GraphEdge<TypeLeverageRelationship>[] edges =
         [
@@ -133,49 +403,35 @@ public static partial class LibraryStructuralReport
                 [],
                 []);
 
-        GraphDistinctNeighborDegreeResult signatureIncoming =
+        GraphDistinctNeighborDegreeResult incoming =
             Degree(
                 graph,
-                [TypeLeverageRelationship.SignatureUse],
+                [relationship],
                 GraphTraversalDirection.Incoming);
-        GraphDistinctNeighborDegreeResult bodyOutgoing =
+        GraphDistinctNeighborDegreeResult outgoing =
             Degree(
                 graph,
-                [TypeLeverageRelationship.BodyUse],
-                GraphTraversalDirection.Outgoing);
-        GraphDistinctNeighborDegreeResult combinedIncoming =
-            Degree(
-                graph,
-                [
-                    TypeLeverageRelationship.SignatureUse,
-                    TypeLeverageRelationship.BodyUse,
-                ],
-                GraphTraversalDirection.Incoming);
-        GraphDistinctNeighborDegreeResult combinedOutgoing =
-            Degree(
-                graph,
-                [
-                    TypeLeverageRelationship.SignatureUse,
-                    TypeLeverageRelationship.BodyUse,
-                ],
+                [relationship],
                 GraphTraversalDirection.Outgoing);
 
         return new(
             [.. types],
-            signatureIncoming,
-            bodyOutgoing,
-            combinedIncoming,
-            combinedOutgoing);
+            incoming,
+            outgoing);
     }
 
-    internal static LibraryStructuralTypeLeverageDocument ProjectTypeLeverage(
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse,
-        TypeLeverageGraphExecution execution)
+    internal static LibraryStructuralTypeLeverageShard
+        ProjectTypeLeverageShard(
+            MetadataLibrarySignatureUseResult signatureUse,
+            TypeLeverageGraphExecution execution)
     {
         ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
         ArgumentNullException.ThrowIfNull(execution);
+        string @namespace =
+            signatureUse.Receipt.ExactNamespace
+            ?? throw new ArgumentException(
+                "A Type-leverage shard requires an exact namespace.",
+                nameof(signatureUse));
 
         LibraryStructuralTypeLeverageRow[] rows =
         [
@@ -183,166 +439,263 @@ public static partial class LibraryStructuralReport
                 {
                     Type = type,
                     SignatureIncoming =
-                        execution.SignatureIncoming.Rows[nodeId].Degree,
-                    BodyOutgoing =
-                        execution.BodyOutgoing.Rows[nodeId].Degree,
-                    CombinedIncoming =
-                        execution.CombinedIncoming.Rows[nodeId].Degree,
-                    CombinedOutgoing =
-                        execution.CombinedOutgoing.Rows[nodeId].Degree,
+                        execution.Incoming.Rows[nodeId].Degree,
+                    SignatureOutgoing =
+                        execution.Outgoing.Rows[nodeId].Degree,
                 })
                 .Where(static item =>
-                    item.CombinedIncoming + item.CombinedOutgoing > 0)
+                    item.SignatureIncoming + item.SignatureOutgoing > 0)
                 .Select(static item =>
-                {
-                    bool eligible = IsRankingEligible(
-                        item.Type.Classification);
-                    return new LibraryStructuralTypeLeverageRow(
+                    new LibraryStructuralTypeLeverageRow(
                         item.Type.Type,
                         item.Type.Name,
                         item.Type.Classification,
-                        eligible,
+                        IsDesignationEligible(
+                            item.Type.Classification),
                         item.SignatureIncoming,
-                        item.BodyOutgoing,
-                        item.CombinedIncoming,
-                        item.CombinedOutgoing,
+                        item.SignatureOutgoing,
                         Role(
-                            item.CombinedIncoming,
-                            item.CombinedOutgoing));
-                }),
+                            item.SignatureIncoming,
+                            item.SignatureOutgoing),
+                        Pole: null)),
+        ];
+        int seaLevelMaximum =
+            EligibleMaximum(
+                rows,
+                static row => row.SignatureIncomingDegree);
+        int mountainPeakMaximum =
+            EligibleMaximum(
+                rows,
+                static row => row.SignatureOutgoingDegree);
+        rows =
+        [
+            .. rows.Select(row => row with
+            {
+                Pole = Pole(
+                    row,
+                    seaLevelMaximum,
+                    mountainPeakMaximum),
+            }),
         ];
 
-        LibraryStructuralEvidenceDisposition signatureDisposition =
-            signatureUse.Disposition
-                == MetadataLibrarySignatureUseDisposition.Complete
-                    ? LibraryStructuralEvidenceDisposition.Complete
-                    : LibraryStructuralEvidenceDisposition.Qualified;
-        LibraryStructuralEvidenceDisposition bodyDisposition =
-            bodyUse.Disposition == AnalysisLibraryBodyUseDisposition.Complete
-                ? LibraryStructuralEvidenceDisposition.Complete
-                : LibraryStructuralEvidenceDisposition.Qualified;
-        LibraryStructuralEvidenceDisposition roleDisposition =
-            signatureDisposition
-                    == LibraryStructuralEvidenceDisposition.Complete
-                && bodyDisposition
-                    == LibraryStructuralEvidenceDisposition.Complete
-                    ? LibraryStructuralEvidenceDisposition.Complete
-                    : LibraryStructuralEvidenceDisposition.Qualified;
-
+        LibraryStructuralEvidenceDisposition disposition =
+            Disposition(signatureUse);
         return new(
+            LibraryStructuralSalience.CurrentMethodologyVersion,
+            LibraryStructuralSalienceEvidenceMode.Signature,
+            @namespace,
             [.. rows.OrderBy(static row => row.Type.Definition.Value)],
             new(
-                signatureDisposition,
+                disposition,
                 Order(
                     rows,
                     static row => row.SignatureIncomingDegree)),
             new(
-                bodyDisposition,
+                disposition,
+                Order(
+                    rows,
+                    static row => row.SignatureOutgoingDegree)),
+            disposition,
+            Qualification(signatureUse),
+            new(
+                execution.Incoming.Receipt,
+                execution.Outgoing.Receipt));
+    }
+
+    internal static LibraryStructuralBodyTypeLeverageShard
+        ProjectBodyTypeLeverageShard(
+            MetadataLibrarySignatureUseResult typeInventory,
+            AnalysisLibraryBodyUseResult bodyUse,
+            TypeLeverageGraphExecution execution)
+    {
+        ArgumentNullException.ThrowIfNull(typeInventory);
+        ArgumentNullException.ThrowIfNull(bodyUse);
+        ArgumentNullException.ThrowIfNull(execution);
+        string @namespace =
+            typeInventory.Receipt.ExactNamespace
+            ?? throw new ArgumentException(
+                "A body Type-leverage shard requires an exact namespace.",
+                nameof(typeInventory));
+
+        LibraryStructuralBodyTypeLeverageRow[] rows =
+        [
+            .. execution.Types.Select((type, nodeId) => new
+                {
+                    Type = type,
+                    Incoming = execution.Incoming.Rows[nodeId].Degree,
+                    Outgoing = execution.Outgoing.Rows[nodeId].Degree,
+                })
+                .Where(static item =>
+                    item.Incoming + item.Outgoing > 0)
+                .Select(static item =>
+                    new LibraryStructuralBodyTypeLeverageRow(
+                        item.Type.Type,
+                        item.Type.Name,
+                        item.Type.Classification,
+                        IsDesignationEligible(
+                            item.Type.Classification),
+                        item.Incoming,
+                        item.Outgoing,
+                        Role(
+                            item.Incoming,
+                            item.Outgoing),
+                        Pole: null)),
+        ];
+        int seaLevelMaximum =
+            EligibleMaximum(
+                rows,
+                static row => row.BodyIncomingDegree);
+        int mountainPeakMaximum =
+            EligibleMaximum(
+                rows,
+                static row => row.BodyOutgoingDegree);
+        rows =
+        [
+            .. rows.Select(row => row with
+            {
+                Pole = Pole(
+                    row.DesignationEligible,
+                    row.BodyIncomingDegree,
+                    row.BodyOutgoingDegree,
+                    seaLevelMaximum,
+                    mountainPeakMaximum),
+            }),
+        ];
+
+        LibraryStructuralEvidenceDisposition disposition =
+            Disposition(typeInventory, bodyUse);
+        return new(
+            LibraryStructuralSalience.CurrentMethodologyVersion,
+            LibraryStructuralSalienceEvidenceMode.BodyUse,
+            @namespace,
+            [.. rows.OrderBy(static row => row.Type.Definition.Value)],
+            new(
+                disposition,
+                Order(
+                    rows,
+                    static row => row.BodyIncomingDegree)),
+            new(
+                disposition,
                 Order(
                     rows,
                     static row => row.BodyOutgoingDegree)),
-            roleDisposition,
+            disposition,
+            Qualification(typeInventory),
+            Qualification(bodyUse),
             new(
-                signatureUse.Receipt,
-                signatureUse.Disposition,
-                signatureUse.Coverage,
-                signatureUse.Occurrences.Length,
-                signatureUse.Diagnostics),
-            new(
-                bodyUse.Receipt,
-                bodyUse.Disposition,
-                bodyUse.Coverage,
-                bodyUse.Occurrences.Length,
-                bodyUse.Diagnostics),
-            new(
-                execution.SignatureIncoming.Receipt,
-                execution.BodyOutgoing.Receipt,
-                execution.CombinedIncoming.Receipt,
-                execution.CombinedOutgoing.Receipt));
+                execution.Incoming.Receipt,
+                execution.Outgoing.Receipt));
     }
 
-    private static void ValidateTypeLeverageCorrespondence(
-        LibraryBodyAnalysisReceipt analysisReceipt,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+    private static LibraryStructuralSignatureUseQualification Qualification(
+        MetadataLibrarySignatureUseResult signatureUse) =>
+        new(
+            signatureUse.Receipt,
+            signatureUse.Disposition,
+            signatureUse.Coverage,
+            signatureUse.Occurrences.Length,
+            signatureUse.Diagnostics);
+
+    private static LibraryStructuralBodyUseQualification Qualification(
+        AnalysisLibraryBodyUseResult bodyUse) =>
+        new(
+            bodyUse.Receipt,
+            bodyUse.Disposition,
+            bodyUse.Coverage,
+            bodyUse.Occurrences.Length,
+            bodyUse.Diagnostics);
+
+    private static LibraryStructuralEvidenceDisposition Disposition(
+        MetadataLibrarySignatureUseResult signatureUse) =>
+        signatureUse.Disposition
+            == MetadataLibrarySignatureUseDisposition.Complete
+                ? LibraryStructuralEvidenceDisposition.Complete
+                : LibraryStructuralEvidenceDisposition.Qualified;
+
+    private static LibraryStructuralEvidenceDisposition Disposition(
+        MetadataLibrarySignatureUseResult typeInventory,
+        AnalysisLibraryBodyUseResult bodyUse) =>
+        typeInventory.Disposition
+                == MetadataLibrarySignatureUseDisposition.Complete
+            && bodyUse.Disposition
+                == AnalysisLibraryBodyUseDisposition.Complete
+                ? LibraryStructuralEvidenceDisposition.Complete
+                : LibraryStructuralEvidenceDisposition.Qualified;
+
+    private static int EligibleMaximum(
+        IEnumerable<LibraryStructuralTypeLeverageRow> rows,
+        Func<LibraryStructuralTypeLeverageRow, int> degree) =>
+        rows
+            .Where(static row => row.DesignationEligible)
+            .Select(degree)
+            .DefaultIfEmpty()
+            .Max();
+
+    private static int EligibleMaximum(
+        IEnumerable<LibraryStructuralBodyTypeLeverageRow> rows,
+        Func<LibraryStructuralBodyTypeLeverageRow, int> degree) =>
+        rows
+            .Where(static row => row.DesignationEligible)
+            .Select(degree)
+            .DefaultIfEmpty()
+            .Max();
+
+    private static LibraryStructuralTypePole? Pole(
+        LibraryStructuralTypeLeverageRow row,
+        int seaLevelMaximum,
+        int mountainPeakMaximum) =>
+        Pole(
+            row.DesignationEligible,
+            row.SignatureIncomingDegree,
+            row.SignatureOutgoingDegree,
+            seaLevelMaximum,
+            mountainPeakMaximum);
+
+    private static LibraryStructuralTypePole? Pole(
+        bool designationEligible,
+        int incomingDegree,
+        int outgoingDegree,
+        int seaLevelMaximum,
+        int mountainPeakMaximum)
     {
-        LibraryBodyModuleIdentity analysisIdentity =
-            analysisReceipt.ModuleIdentity;
-        if (analysisIdentity.AssemblyIdentity is null
-            || analysisIdentity.ModuleVersionId
-                != signatureUse.Receipt.ModuleVersionId
-            || analysisIdentity.ModuleVersionId
-                != bodyUse.Receipt.ModuleVersionId
-            || analysisIdentity.AssemblyIdentity
-                != signatureUse.Receipt.Assembly
-            || analysisIdentity.AssemblyIdentity != bodyUse.Receipt.Assembly)
+        bool seaLevel =
+            designationEligible
+            && IsDesignationDegree(
+                incomingDegree,
+                seaLevelMaximum);
+        bool mountainPeak =
+            designationEligible
+            && IsDesignationDegree(
+                outgoingDegree,
+                mountainPeakMaximum);
+        if (seaLevel && mountainPeak)
         {
-            throw new ArgumentException(
-                "Type structural leverage evidence must describe the exact "
-                    + "Library generation in the Analysis report.");
+            if (incomingDegree == outgoingDegree)
+            {
+                return null;
+            }
+            return incomingDegree > outgoingDegree
+                ? LibraryStructuralTypePole.SeaLevel
+                : LibraryStructuralTypePole.MountainPeak;
         }
-
-        Dictionary<MetadataTypeDefinitionAddress, AnalysisLibraryBodyUseType>
-            bodyTypes = bodyUse.Types.ToDictionary(static type => type.Type);
-        if (signatureUse.Types.Length != bodyTypes.Count
-            || signatureUse.Types.Any(type =>
-                !bodyTypes.TryGetValue(type.Type, out var bodyType)
-                || type.Name != bodyType.Name
-                || type.DefinitionKind != bodyType.DefinitionKind))
-        {
-            throw new ArgumentException(
-                "Signature-use and body-use Type inventories must correspond "
-                    + "exactly.");
-        }
+        if (seaLevel)
+            return LibraryStructuralTypePole.SeaLevel;
+        if (mountainPeak)
+            return LibraryStructuralTypePole.MountainPeak;
+        return null;
     }
 
-    private static void AddSignatureOccurrences(
-        ImmutableArray<MetadataLibrarySignatureUseOccurrence> source,
-        IReadOnlyDictionary<MetadataTypeDefinitionAddress, int> nodeIds,
-        HashSet<TypeLeverageEdge> logicalEdges)
-    {
-        foreach (MetadataLibrarySignatureUseOccurrence occurrence in source)
-        {
-            AddLogicalEdge(
-                occurrence.Source,
-                occurrence.Target,
-                TypeLeverageRelationship.SignatureUse,
-                nodeIds,
-                logicalEdges);
-        }
-    }
-
-    private static void AddBodyOccurrences(
-        ImmutableArray<AnalysisLibraryBodyUseOccurrence> source,
-        IReadOnlyDictionary<MetadataTypeDefinitionAddress, int> nodeIds,
-        HashSet<TypeLeverageEdge> logicalEdges)
-    {
-        foreach (AnalysisLibraryBodyUseOccurrence occurrence in source)
-        {
-            AddLogicalEdge(
-                occurrence.Source,
-                occurrence.Target,
-                TypeLeverageRelationship.BodyUse,
-                nodeIds,
-                logicalEdges);
-        }
-    }
-
-    private static void AddLogicalEdge(
-        MetadataTypeDefinitionAddress source,
-        MetadataTypeDefinitionAddress target,
-        TypeLeverageRelationship relationship,
-        IReadOnlyDictionary<MetadataTypeDefinitionAddress, int> nodeIds,
-        HashSet<TypeLeverageEdge> logicalEdges)
-    {
-        int sourceNodeId = nodeIds[source];
-        int targetNodeId = nodeIds[target];
-        logicalEdges.Add(
-            new(
-                sourceNodeId,
-                targetNodeId,
-                relationship));
-    }
+    private static bool IsDesignationDegree(
+        int degree,
+        int maximum) =>
+        maximum >= LibraryStructuralSalience.MinimumDesignationDegree
+        && (maximum
+                < LibraryStructuralSalience.MinimumCohortMaximumDegree
+            ? degree == maximum
+            : degree * 100L
+                >= maximum
+                    * LibraryStructuralSalience
+                        .CohortMinimumPercentage);
 
     private static GraphDistinctNeighborDegreeResult Degree(
         GraphDocument<
@@ -366,13 +719,24 @@ public static partial class LibraryStructuralReport
         Func<LibraryStructuralTypeLeverageRow, int> degree) =>
     [
         .. rows
-            .Where(static row => row.RankingEligible)
+            .Where(static row => row.DesignationEligible)
             .OrderByDescending(degree)
             .ThenBy(static row => row.Type.Definition.Value)
             .Select(static row => row.Type),
     ];
 
-    private static bool IsRankingEligible(
+    private static ImmutableArray<MetadataTypeDefinitionAddress> Order(
+        IEnumerable<LibraryStructuralBodyTypeLeverageRow> rows,
+        Func<LibraryStructuralBodyTypeLeverageRow, int> degree) =>
+    [
+        .. rows
+            .Where(static row => row.DesignationEligible)
+            .OrderByDescending(degree)
+            .ThenBy(static row => row.Type.Definition.Value)
+            .Select(static row => row.Type),
+    ];
+
+    private static bool IsDesignationEligible(
         MetadataLibraryTypeClassification classification) =>
         (classification
             & (MetadataLibraryTypeClassification.UniversalBase

@@ -37,13 +37,21 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
     internal static async ValueTask<PlatformFindSearchWorkspace> OpenAsync(
         FindOptions options,
         CommandContext context,
+        CancellationToken cancellationToken) =>
+        await OpenAsync(
+            FindSourceCollector.CreateWorkspacePlan(options),
+            options, context, cancellationToken);
+
+    internal static async ValueTask<PlatformFindSearchWorkspace> OpenAsync(
+        WorkspacePlan plan,
+        FindOptions options,
+        CommandContext context,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
-        WorkspacePlan plan = FindSourceCollector.CreateWorkspacePlan(options);
         IReadOnlyList<PlatformLibraryPopulationDeclaration> populations =
             GetPlatformPopulations(plan);
         string? dotnetRoot =
@@ -239,13 +247,23 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
         return populations;
     }
 
-    internal AssemblyContextResult<AssemblyTypeInventory> QueryTypes(
-        bool includeAll)
+    internal bool RunTypeInventories(
+        bool includeAll,
+        Action<AssemblyContextEntry<AssemblyTypeInventory>> consume,
+        Func<bool>? stop = null,
+        Func<
+            AssemblyContextSubject,
+            AssemblyTypeInventoryEntry,
+            bool>? stopAfterType = null)
     {
         ThrowIfDisposed();
-        return AssemblyContextTypeInventoryQuery.Execute(
+        ArgumentNullException.ThrowIfNull(consume);
+        return AssemblyContextTypeInventoryQuery.ExecuteEach(
             _group,
-            includeAll);
+            includeAll,
+            consume,
+            stop,
+            stopAfterType);
     }
 
     internal AssemblyContextResult<AssemblyMemberMatches> QueryMembers(

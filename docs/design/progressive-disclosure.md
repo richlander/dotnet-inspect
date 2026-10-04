@@ -19,10 +19,13 @@ The model combines five mechanisms:
 is less likely to collide with command-specific lowercase options.
 
 Contextual post-success tips are separate from output scope and are opt-in.
-Bare `-T` or `--tips` requests up to three suggestions on `stderr`; `-T:d`
-requests up to six. The request is independent of output verbosity, format,
-section selection, and row or line limits. A successful command with no
-applicable suggestions emits no tip block.
+Short-only `-E .tips` requests up to three suggestions on `stderr`; `.tips` is
+a separate dotted projection token. It is independent of output verbosity,
+format, section selection, and row or line limits. Bare `-E` and
+`-E .references` are reserved until their semantic owners are available. A
+successful command with no applicable suggestions emits no tip block. Ordinary
+`stdout` completes and flushes before one bounded tip block is written last to
+`stderr`, preserving streaming and independent redirection.
 
 ## API visibility and implementation populations
 
@@ -62,6 +65,32 @@ unrelated domain categories.
 
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
+
+The Package primary-subject view gives bare Package output its single
+high-value native children Tree instead of the automatic Package section
+union. `Package Info` remains the explicit facts view. The Tree uses the
+selected compile-Library population and identity rows; it does not open a
+Library or summarize its Type population. A managed tool payload may collapse
+its dependency Libraries only in the
+implicit Minimal Tree, whose collapsed branch names `-v:n` as the gesture to
+the full inventory. Normal and Detailed Trees and every explicit output format
+list every child. JSON and row formats retain the owner-issued
+population, completion, role, exact asset identity, and child
+selector; row windows, projection, and scalar Count select that population
+rather than returning to the section model. Scalar Count uses owner-issued
+child cardinality without the unrelated all-binary Signals scan or Library
+inspection. Finite row windows select the ordered child population while
+preserving total cardinality and original ordinals; a zero-row window over a
+non-empty population is not an empty-Package outcome. Child selectors retain
+the selected target and safely
+replayable source/configuration arguments, including the adjacent source
+directory for local RID-pointer Packages; output fails visibly rather than
+emit an inexact or unsafe selector.
+
+Inspect Web's initial Package acquisition uses the same summary-only child
+operation. The separate broad Package-surface operation remains available to
+explicit consumers that request Type/member evidence and may therefore open
+Library binaries.
 
 For library inspection, References, Ecosystem Dependencies, Switches, Type
 Forwarders, P/Invoke Methods, and Union Types are measured or structurally
@@ -147,6 +176,28 @@ These declarations do not add any domain section to bare `-v:n` or `-v:d`.
 Automatic verbosity still uses only the route's base `@Member` union; selecting
 an exact domain category or exact section name is the gesture that enters the
 additional evidence.
+
+### Overview cost
+
+An overview is a cheap summary of one subject: a Library's `Library Info`
+section and its compact `-v:q` summary, and a Type's overview. It shows only
+facts read from metadata: table row counts, flags, names, and per-row reads
+that match a custom attribute's type or read a fixed-size attribute value in
+place. It does not read a method body, decode IL, or materialize per-row
+signature or attribute text. A fact that needs that work belongs to an
+on-demand section, and the overview does not count it.
+
+Cost decides membership before value. A row whose producer reads bodies leaves
+the overview, or narrows to the part of its fact that metadata declares, even
+when the full fact is useful. The Library Info Switches row narrowed this way
+(decided 2026-10-03).
+
+The enforcing gate is `OverviewCostTests`. It runs `library` at `-v:m`,
+`-v:q`, and `-S "Library Info"` over a fixture that calls
+`AppContext.TryGetSwitch`, and `type` at `-v:m` for a type in that fixture and
+for a platform type. It asserts that no method body is read and no body
+session opens. Per-row signature and attribute-text materialization is not
+gated and is unverified.
 
 ## Categories
 
@@ -439,12 +490,14 @@ policy. Its rules about request provenance and host preflight still apply.
 Only the policy that decides which capabilities a gesture requests has
 changed.
 
-Adoption status: this policy leads the implementation. Today the CLI requests
-`PdbAcquire` only on exact section selection, `-v:d`, or explicit effective
-discovery. Package descriptions already show by default; a single type's docs
-and a single subject's source do not yet. Until adoption
-([#8729](https://github.com/richlander/dotnet-inspect/issues/8729)) lands,
-the current behavior is what ships.
+Adoption status: `--offline` is the only network prohibition in code. Network
+telemetry observes requests and never blocks them, so any producer that needs
+PDB facts may acquire a missing PDB outside `--offline`. Today the CLI requests
+`PdbAcquire` when a PDB-dependent section is selected exactly, at `-v:d`, or by
+explicit effective discovery; the gesture that selects such a section moves to
+facet selection under the
+[CLI verbosity retirement](cli-verbosity-retirement.md). Package descriptions
+already show by default; a single type's docs do not yet.
 
 ### Capability machinery
 

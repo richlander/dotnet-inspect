@@ -13,6 +13,8 @@ import {
 } from "../src/source-inspection.ts";
 import type {
   BrowserMemberSource,
+  BrowserMemberSourceDiagnostic,
+  BrowserMemberSourceResult,
   BrowserSource,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
@@ -66,6 +68,15 @@ function memberSource(text: string): BrowserMemberSource {
         end: text.length,
       }],
     }],
+    diagnostics: [],
+  };
+}
+
+function memberSourceResult(text: string): BrowserMemberSourceResult {
+  return {
+    value: memberSource(text),
+    error: null,
+    diagnostics: [],
   };
 }
 
@@ -129,13 +140,14 @@ function inspectionDependencies(
         createId: () => `source-operation-${nextOperationId++}`,
       },
     }),
-    queryMemberSource: async () => memberSource("member"),
+    queryMemberSource: async () => memberSourceResult("member"),
     queryTypeSource: async () => typeSource("type"),
     queryGraphSource: async () => source("graph"),
     memberSourceHasConcreteOverload: () => true,
     cancelEngineSourceRequest: () => {},
     cancelTypeSourceRequest: () => {},
     reportOperationDiagnostic: () => undefined,
+    reportMemberSourceDiagnostic: () => undefined,
     describeError: error =>
       error instanceof Error ? error.message : String(error),
     render: () => {},
@@ -164,25 +176,19 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /const sourcePageKind =[\s\S]*activeScope === "type" && state\.lens === "source"[\s\S]*activeScope === "member"[\s\S]*state\.memberSection === "source"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
   assert.match(
     appSource,
-    /onExploreSource: \(\) => \{[\s\S]*scope\(\) === "type" && state\.lens === "source"[\s\S]*openTypeExplorerRoute\(\)[\s\S]*openSettings\("source"\)/);
+    /onExploreSource: \(\) => \{[\s\S]*scope\(\) === "type" && state\.lens === "source"[\s\S]*openTypeExplorerRoute\(\)[\s\S]*scope\(\) === "member"[\s\S]*state\.memberSection === "source"[\s\S]*exploreSelectedMemberAnnotatedSource\(\)/);
   assert.match(
     appSource,
-    /state\.settingsReturn === "source"[\s\S]*"#settings-decompiler-title"/);
-  assert.match(
-    appSource,
-    /state\.settingsReturn === "source"[\s\S]*\["#explore-source", "#application-menu-button"\]/);
-  assert.match(
-    appSource,
-    /contextualActionsHtml: !loadingPackageContent && \(memberDiffExploreTarget \|\| annotatedPageContext \|\| sourcePageKind[\s\S]*class="working-surface-actions"/);
+    /contextualActionsHtml: !loadingPackageContent && \(memberDiffExploreTarget \|\| sourcePageKind[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(
     appSource,
     /class="legacy-application-actions"/);
   assert.match(
     appSource,
-    /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}\$\{sourceWorkingSurface \? " source-working-surface" : ""\}/);
+    /detail-scroll\$\{sourceWorkingSurface \? " source-working-surface" : ""\}/);
   assert.match(
     appSource,
     /case "source":\s*return renderTypeSourceHtml\(item\);/);
@@ -298,7 +304,7 @@ test("canonical commit clears a settled graph source without rendering", () => {
 });
 
 test("member source publishes only for the current member selection", async () => {
-  const query = deferred<BrowserMemberSource>();
+  const query = deferred<BrowserMemberSourceResult>();
   const focusRenders: Array<string | null> = [];
   let current = true;
   const state = inspectionState();
@@ -307,6 +313,7 @@ test("member source publishes only for the current member selection", async () =
       queryMemberSource: async request => {
         assert.equal(request.member, "Build");
         assert.equal(request.taste, "[\"expression-bodied-members\"]");
+        assert.equal(request.view, "source");
         return query.promise;
       },
       renderPreservingMemberFocus: fallback => {
@@ -326,18 +333,114 @@ test("member source publishes only for the current member selection", async () =
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentBaselineOrdinal: 0,
     taste: "[\"expression-bodied-members\"]",
+    view: "source",
     isCurrent: () => current,
   });
   assert.deepEqual(
     state.memberSource,
     { status: "loading", signature: "member-signature" });
   current = false;
-  query.resolve(memberSource("stale"));
+  query.resolve(memberSourceResult("stale"));
   await load;
 
   assert.deepEqual(state.memberSource, { status: "idle" });
   assert.deepEqual(focusRenders, [null]);
+});
+
+test("member source reports inspection diagnostics for the current result", async () => {
+  const reported: BrowserMemberSourceDiagnostic[] = [];
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryMemberSource: async () => ({
+        ...memberSourceResult("current"),
+        diagnostics: [{
+          code: "member-document.library-retirement",
+          severity: "Warning",
+          summary: "Library retirement failed.",
+          correspondence: "Example.Package",
+        }],
+      }),
+      reportMemberSourceDiagnostic: diagnostic => {
+        reported.push(diagnostic);
+        return undefined;
+      },
+    }));
+
+  await coordinator.loadMemberSource({
+    signature: "member-signature",
+    kind: "package",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+    documentBaselineOrdinal: 1,
+    taste: "[]",
+    view: "source",
+    isCurrent: () => true,
+  });
+
+  assert.equal(reported.length, 1);
+  assert.deepEqual(reported[0], {
+    code: "member-document.library-retirement",
+    severity: "Warning",
+    summary: "Library retirement failed.",
+    correspondence: "Example.Package",
+  });
+  assert.equal(state.memberSource.status, "ready");
+});
+
+test("failed member source reports envelope diagnostics without publishing source", async () => {
+  const reported: BrowserMemberSourceDiagnostic[] = [];
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryMemberSource: async () => ({
+        value: null,
+        error: "The Member document source was rejected (TypeNotFound).",
+        diagnostics: [{
+          code: "member-document.library-retirement",
+          severity: "Warning",
+          summary: "Library retirement failed.",
+          correspondence: "Example.Package",
+        }],
+      }),
+      reportMemberSourceDiagnostic: diagnostic => {
+        reported.push(diagnostic);
+        return undefined;
+      },
+    }));
+
+  await coordinator.loadMemberSource({
+    signature: "member-failed",
+    kind: "package",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+    documentBaselineOrdinal: 1,
+    taste: "[]",
+    view: "source",
+    isCurrent: () => true,
+  });
+
+  assert.equal(state.memberSource.status, "failed");
+  if (state.memberSource.status === "failed")
+    assert.match(state.memberSource.error, /TypeNotFound/);
+  assert.equal(reported.length, 1);
+  assert.equal(
+    reported[0]?.code,
+    "member-document.library-retirement");
 });
 
 test("current member source failures remain visible and restore focus", async () => {
@@ -365,7 +468,9 @@ test("current member source failures remain visible and restore focus", async ()
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentBaselineOrdinal: 0,
     taste: "[]",
+    view: "source",
     isCurrent: () => true,
   });
 
@@ -399,7 +504,9 @@ test("empty member source failure remains settled", async () => {
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentBaselineOrdinal: 0,
     taste: "[]",
+    view: "source",
     isCurrent: () => true,
   });
 
@@ -434,7 +541,7 @@ test("member source caches one authored catalog without another query", async ()
     inspectionDependencies(state, {
       queryMemberSource: async () => {
         queries++;
-        return authored;
+        return { value: authored, error: null, diagnostics: [] };
       },
     }));
   const request = {
@@ -448,7 +555,9 @@ test("member source caches one authored catalog without another query", async ()
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentBaselineOrdinal: 0,
     taste: "[]",
+    view: "source" as const,
     isCurrent: () => true,
   };
 
@@ -677,7 +786,9 @@ test("legacy member source takeover cancels the authoritative type operation fir
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
+    documentBaselineOrdinal: 0,
     taste: "[]",
+    view: "source",
     isCurrent: () => true,
   });
 

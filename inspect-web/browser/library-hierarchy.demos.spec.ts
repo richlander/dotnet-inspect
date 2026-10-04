@@ -217,6 +217,137 @@ async function openHomeDemo(
   return share;
 }
 
+test("Ecosystems is a first-class product catalog destination", async ({
+  page,
+}, testInfo) => {
+  await installHomeDemo(page, "Methods", "package");
+  await page.goto("/");
+  await openProductDestination(page, "ecosystems");
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
+    .toBeFocused();
+  await expect(page.locator(
+    "[data-ecosystem='ecosystem.fixture-platform']"
+      + " + [data-ecosystem='ecosystem.fixture-package']",
+  )).toBeVisible();
+  await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
+    .toContainText("3 core packages");
+  await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
+    .toContainText("Integration scanner");
+  const workspaceReadyRows = page.locator(
+    ".ecosystem-catalog-row",
+  ).filter({ hasText: "Workspace-ready" });
+  const openActions = page.locator("[data-ecosystem-open]");
+  expect(await openActions.count()).toBe(await workspaceReadyRows.count());
+  expect(await openActions.count()).toBeGreaterThan(0);
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator(
+    "[data-product-destination][aria-current='page']",
+  )).toHaveText(["Ecosystems"]);
+  await page.keyboard.press("Escape");
+  await page.screenshot({ path: testInfo.outputPath("ecosystems-wide.png") });
+
+  const firstReady = workspaceReadyRows.first();
+  const ecosystemId = await firstReady.getAttribute("data-ecosystem");
+  if (ecosystemId === null) {
+    throw new Error("The Workspace-ready Ecosystem omitted its catalog ID.");
+  }
+  const ecosystemTitle = await firstReady.locator("strong").innerText();
+  await firstReady.locator("[data-ecosystem-open]").click();
+  await expect(page).toHaveURL(`/ecosystems/${ecosystemId}`);
+  await expect(page.locator(
+    '[data-navigation-group="subject"][data-navigation-current="true"]'
+      + '[data-navigation-item="tab"]',
+  )).toContainText(ecosystemTitle);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query",
+    /"ecosystem\.fixture-[^"]+",200,96,false,24/u,
+  );
+  const discoveredPackages = page.locator(
+    "[data-ecosystem-package-open]");
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
+  const initialOperation = await page.locator("html").getAttribute(
+    "data-ecosystem-package-query");
+  await discoveredPackages.first().click();
+  await expect(page.locator(".query-error")).toHaveText(
+    "Fixture package activation failed.");
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query",
+    initialOperation ?? "",
+  );
+  await page.locator(
+    '[data-ecosystem-package-capacity="48"]',
+  ).click();
+  await expect(discoveredPackages).toHaveCount(48);
+  await page.locator(
+    '[data-ecosystem-package-capacity="96"]',
+  ).click();
+  await expect(discoveredPackages).toHaveCount(60);
+  await expect(page.locator(
+    '[data-ecosystem-package-capacity="96"]',
+  )).toHaveCount(0);
+  await expect(page.getByText("All matching packages are shown."))
+    .toBeVisible();
+  await expect(page.locator(
+    "[data-product-package-action],"
+      + " [data-workspace-platform],"
+      + " [data-workspace-framework-library]",
+  )).toHaveCount(0);
+  const ecosystemLocation = page.url();
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await page.goBack();
+  await expect(page).toHaveURL(ecosystemLocation);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-ecosystem-package-query",
+    initialOperation ?? "",
+  );
+  await page.goForward();
+  await expect(page).toHaveURL("/");
+  await page.goBack();
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(discoveredPackages).toHaveCount(24);
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator('[data-product-destination="query"]').click();
+  await expect(page).toHaveURL("/query");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query-cancellations",
+    "1",
+  );
+
+  await page.goto("/");
+  await page.getByRole("link", { name: "Ecosystems", exact: true }).click();
+  await expect(page).toHaveURL("/ecosystems");
+  await page.reload();
+  await expect(page.locator(
+    "[data-ecosystem='ecosystem.fixture-platform']")).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.goBack();
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
+    .toBeFocused();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("ecosystems-narrow.png") });
+});
+
 test("Demos is a dedicated page reached from Home and the data bar", async ({
   page,
 }, testInfo) => {
@@ -288,6 +419,8 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   };
   await installFacades(page, jsonSurface);
   await page.goto(`/?package=System.Text.Json&version=${platformVersion}&framework=netstandard2.0`);
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
   const sharedLibraryUrl = page.url();

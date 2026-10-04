@@ -38,6 +38,8 @@ public sealed record BrowserPackageSurface(
     BrowserCompileLibraryAvailability CompileLibrary,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
+    BrowserApiFacetDescriptor[] TypeKinds,
+    BrowserApiFacetDescriptor[] TypeTraits,
     BrowserAccessibilityDescriptor[] Accessibility,
     int TotalMembers,
     BrowserPackageDocument[] Documents,
@@ -54,6 +56,14 @@ public sealed record BrowserAccessibilityDescriptor(
     int Order,
     bool IsDefault,
     int Count);
+
+public sealed record BrowserApiFacetDescriptor(
+    string Id,
+    string SingularLabel,
+    string PluralLabel,
+    int Weight,
+    int Count,
+    bool IsDefault);
 
 public sealed record BrowserAssemblySurface(
     string Id,
@@ -75,6 +85,8 @@ public sealed record BrowserTypeSurface(
     string DisplayName,
     string Namespace,
     string Kind,
+    string KindFacetId,
+    string[] TraitFacetIds,
     string Accessibility,
     string AccessibilityId,
     string Assembly,
@@ -379,6 +391,24 @@ public sealed record BrowserHomeDemoCatalogEntry(
 public sealed record BrowserHomeDemoCatalog(
     BrowserHomeDemoCatalogEntry[] Demos);
 
+/// <summary>One inert product Ecosystem catalog row.</summary>
+public sealed record BrowserEcosystemCatalogEntry(
+    string Id,
+    string Title,
+    string Summary,
+    int CorePackageCount,
+    int NamespaceRootCount,
+    int ToolPackageCount,
+    int DemoCount,
+    bool HasPackageSet,
+    bool HasScanner,
+    bool HasPopulationLoader,
+    bool HasWorkspaceRegistration);
+
+/// <summary>Product Ecosystem catalog in product order.</summary>
+public sealed record BrowserEcosystemCatalog(
+    BrowserEcosystemCatalogEntry[] Ecosystems);
+
 /// <summary>
 /// One workspace/navigation member coordinate projected for the browser.
 /// <see cref="Kind"/> is <c>package</c> or <c>platform</c>.
@@ -487,7 +517,8 @@ public sealed record BrowserWorkspaceShareView(
     string? MemberAnchor,
     string? MemberSignature,
     string? Section,
-    string[] Libraries);
+    string[] Libraries,
+    string? SourceView);
 
 /// <summary>
 /// Long-form Browser transport for one canonical packet-local scenario.
@@ -916,6 +947,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
+[JsonSerializable(typeof(BrowserEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]
 [JsonSerializable(typeof(BrowserHomeDemoRunResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]

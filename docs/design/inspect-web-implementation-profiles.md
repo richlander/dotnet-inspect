@@ -14,8 +14,8 @@ completed `InspectionEnvelope<TContent>` without redefining exact family
 selection, implementation metrics, overload relationships, generated-body
 correspondence, API identity, participant selection, or diagnostics.
 
-Implementation evidence is represented only by subtle member-list heat and hub
-cues, where the reader already compares overloads. Inspect Web has no
+Implementation evidence is represented only by subtle member-list heat and
+achievement cues, where the reader already compares overloads. Inspect Web has no
 Implementation section, evidence disclosure, or raw-metrics view; readers who
 need that detail use the CLI `Member Metrics` section. The Browser acquires
 member-list evidence once per Type because Analysis setup cost dominates a
@@ -30,12 +30,12 @@ others call. Two channels carry that claim:
 - **Heat**: a tint whose strength follows each overload's size relative to the
   largest same-name method size in its family, including methods that are not
   listed overloads (for example, due to accessibility filtering).
-- **Hub strip**: a marker on an overload that same-name methods call and that
-  calls no same-name method itself.
+- **Implementation-hub achievement**: a glyph on an overload that same-name
+  methods call and that calls no same-name method itself.
 
-Heat is a family-relative size cue, not a complexity score. The hub strip is
-derived only from owner-issued call relationships, never from names,
-signatures, or size.
+Heat is a family-relative size cue, not a complexity score. The
+implementation-hub achievement is derived only from owner-issued call
+relationships, never from names, signatures, or size.
 
 The experience preserves owner-issued Member anchors, exact sibling-call
 relationships, coverage, incompleteness, and diagnostics needed to derive the
@@ -113,9 +113,10 @@ eligible public request family does not trigger analysis or acquire heat.
 
 Heat and hub derivation read only the analyzed family. Methods outside the
 visible row set set the family maximum and take part in call relationships,
-but do not themselves show heat or a hub strip. A visible overload is therefore
-not presented as large when an out-of-view implementation dwarfs it, and a
-visible forwarder into an out-of-view method is never a hub.
+but do not themselves show heat or an implementation-hub achievement. A
+visible overload is therefore not presented as large when an out-of-view
+implementation dwarfs it, and a visible forwarder into an out-of-view method
+is never a hub.
 
 Readers take sparse walks through an assembly. The Type the reader selected is
 the aggregation scope; this design does not analyze a whole Library by
@@ -284,10 +285,10 @@ An overload is a **hub** when all of the following hold:
 
 Hub state is shown for an overload whose own measurement is complete even when
 another analyzed body is incomplete: a missing relationship from an incomplete
-body can only withhold a hub strip, never add one.
+body can only withhold an implementation-hub achievement, never add one.
 
 The member list keeps the selected population's owner-issued row order. Heat
-and hub state annotate rows; they never reorder them.
+and implementation-hub state annotate rows; they never reorder them.
 
 ## Presentation
 
@@ -296,9 +297,11 @@ and hub state annotate rows; they never reorder them.
 The member navigation list shows an expanded family as its parent member row
 followed by nested overload rows. Nested rows carry no branch glyph: they sit
 under their family row and spend the width on parameters. Selecting an
-overloaded method is the expansion. Heat and the hub strip annotate the nested
-rows; the parent row carries family-level status text. No raw metric label is
-rendered.
+overloaded method is the expansion. Heat and the implementation-hub
+achievement annotate the nested rows; the parent row carries family-level
+status text. The shared two-slot achievement rail occupies the nested row's
+left gutter and preserves an empty rail for an overload with no achievement so
+sibling signatures remain aligned. No raw metric label is rendered.
 
 A nested row carries only enough to tell its siblings apart. The return type
 rarely differs between overloads, and parameter names never do, so both stay in
@@ -318,7 +321,7 @@ Heat applies only to overloads whose size is at least half the family
 maximum. Every other row is untinted.
 
 - The tint is anchored on the right edge of the row and fades toward the left,
-  leaving the left edge for hover, selection, and the hub strip.
+  leaving the left edge for hover, selection, and the achievement rail.
 - Strength follows `t = sqrt(size / family maximum)`. Lightness, chroma, and
   the distance the tint reaches all rise with `t`; the reach is at most 75% of
   the row width, so reach is a non-color channel for the same fact.
@@ -330,10 +333,12 @@ maximum. Every other row is untinted.
 The Browser shows no heat when comparison would add noise: fewer than two
 analyzed methods have a size, or every analyzed method with a size is trivial.
 
-### Hub strip
+### Implementation-hub achievement
 
-A hub overload shows a narrow strip in the row's left gutter using a
-theme-owned hub token. Heat and the hub strip are independent: a hub may be
+A hub overload shows the implementation-hub glyph in the first slot of the
+shared achievement rail using a theme-owned hub token. The glyph's three
+sources converging on a gear visualize same-family calls reaching the
+implementation body. Heat and the achievement are independent: a hub may be
 untinted and a heated overload may not be a hub. A family may have neither;
 for example, every public `JsonDocument.Parse` overload is smaller than half
 of its non-public implementation and calls a same-name method.
@@ -352,18 +357,20 @@ count:
 
 ### Accessible description
 
-Each nested row with heat or a hub strip carries an accessible description:
+Each nested row with heat or an implementation-hub achievement carries an
+accessible description:
 its size in instructions; its share of the family maximum and whether that
 maximum belongs to a method outside the listed overloads; and, for a hub, how
-many same-name methods call it. Neither channel relies on color alone.
+many same-name methods call it. The glyph rail names the achievement as
+`implementation hub`. Neither channel relies on color alone.
 
 ### Detail boundary
 
 Member detail contains no Implementation section or implementation-evidence
-disclosure. The member list's tint, hub strip, status text, and accessible
-description are the complete Browser presentation. Raw physical-body metrics,
-relationships, and incomplete reasons are available from the CLI `Member
-Metrics` section.
+disclosure. The member list's tint, implementation-hub achievement, status
+text, and accessible description are the complete Browser presentation. Raw
+physical-body metrics, relationships, and incomplete reasons are available
+from the CLI `Member Metrics` section.
 
 ## Visible states
 
@@ -374,13 +381,13 @@ For the Type heat record:
   parent row shows `measuring`;
 - **ready**: heat and hub state are shown for families whose evidence is
   complete;
-- **ready but incomplete** for a family: no heat for that family, hub strips
-  only for overloads whose own measurement is complete, and `heat incomplete`
-  on its parent row;
+- **ready but incomplete** for a family: no heat for that family,
+  implementation-hub achievements only for overloads whose own measurement is
+  complete, and `heat incomplete` on its parent row;
 - **rejected, failed, or unavailable Content**, or **producer failed**: no heat
-  or hub strip, and `heat unavailable` on each eligible family's parent row
-  when expanded. Settled Content belongs to its key and is not retried by
-  navigation; and
+  or implementation-hub achievement, and `heat unavailable` on each eligible
+  family's parent row when expanded. Settled Content belongs to its key and is
+  not retried by navigation; and
 - **superseded**: no state is published because operation authority removed
   the view's publication right.
 
@@ -461,9 +468,10 @@ The following gates enforce this design:
 6. Member-list rendering and accessibility tests prove selected-population row
    order, public and non-public overload heat from one Type record,
    non-public-only families receive no loading or failure status,
-   right-anchored heat with at most 75% reach, the hub strip, parent-row status
-   text and tokens, accessible descriptions, every visible state, the absence
-   of raw metric labels, and the absence of an Implementation detail section.
+   right-anchored heat with at most 75% reach, the implementation-hub
+   achievement, parent-row status text and tokens, accessible descriptions,
+   every visible state, the absence of raw metric labels, and the absence of an
+   Implementation detail section.
 7. The Inspect Web authored typecheck, lint, `knip`, build, and focused Browser
    tests gate the production composition; Browser tests run against a fresh
    build.

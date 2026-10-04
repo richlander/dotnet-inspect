@@ -42,7 +42,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             includeAll: true);
         return JsExportSurfaceBuilder.Build(
             apiSurface,
-            OpenWireContractBodyIndex(path));
+            OpenWireContractBodyAnalysis(path));
     }
 
     static ApiSurface ExportSurface(int token) =>
@@ -302,24 +302,24 @@ public sealed partial class JsExportSurfaceBuilderTests
         extracted.Types = [fixture];
         return JsExportSurfaceBuilder.Build(
             extracted,
-            OpenWireContractBodyIndex(path));
+            OpenWireContractBodyAnalysis(path));
     }
 
     static JsExportSurface BuildWith(
         string path,
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         FieldStoreFact extraStore)
         => JsExportSurfaceBuilder.Build(
             ExtractApiSurface(path),
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
-                directCalls: bodyIndex.DirectCalls,
-                resultSinks: bodyIndex.ResultSinks,
-                fieldStores: [.. bodyIndex.FieldStores, extraStore],
-                fieldLoads: bodyIndex.FieldLoads,
-                returnFlows: bodyIndex.ReturnFlows));
+                diagnostics: bodyAnalysis.Diagnostics,
+                directCalls: bodyAnalysis.DirectCalls,
+                resultSinks: bodyAnalysis.ResultSinks,
+                fieldStores: [.. bodyAnalysis.FieldStores, extraStore],
+                fieldLoads: bodyAnalysis.FieldLoads,
+                returnFlows: bodyAnalysis.ReturnFlows));
 
     static ApiSurface ExtractApiSurface(string path)
     {
@@ -332,7 +332,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         ApiSurface Surface,
         ApiType Context,
         ApiMember RootProperty,
-        LibraryBodyIndex BodyIndex)
+        LibraryJsonWireContractAnalysisResult BodyAnalysis)
         ExtractSupportedScalarVectorSurface()
     {
         string path =
@@ -367,7 +367,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             apiSurface,
             context,
             rootProperty,
-            OpenWireContractBodyIndex(path));
+            OpenWireContractBodyAnalysis(path));
     }
 
     static ImmutableArray<TypeRef>
@@ -401,8 +401,8 @@ public sealed partial class JsExportSurfaceBuilderTests
         return [.. replacement];
     }
 
-    static LibraryBodyIndex OpenWireContractBodyIndex(string path) =>
-        LibraryBodyIndex.Open(
+    static LibraryJsonWireContractAnalysisResult OpenWireContractBodyAnalysis(string path) =>
+        WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);

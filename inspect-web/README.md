@@ -30,6 +30,14 @@ available through browser Back; only **Open demo** constructs a new Workspace.
 Package navigation retains the canonical `w` packet, so the exact coordinates
 and Package view survive refresh just as Library and Workspace views do.
 
+Ecosystems has its own `/ecosystems` page in product navigation and the shared
+data bar. The page projects the product-ordered `EcosystemPackCatalog` as inert
+descriptor metadata: identity, title, summary, and bounded capability
+counts/flags. Visiting the catalog preserves the active Workspace and does not
+activate an Ecosystem subject, acquire packages, or run package-prefix
+discovery. Those interactions remain future slices. No dedicated absence gate
+covers that boundary; by operator choice it is unverified beyond design review.
+
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not

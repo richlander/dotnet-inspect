@@ -25,11 +25,21 @@ public sealed record GraphConsumerObservation(
     IReadOnlyList<string> FocusRelationships,
     IReadOnlyList<string> AdjacentNodes,
     IReadOnlyList<int> Degrees,
+    IReadOnlyList<string> ProjectedGroups,
+    IReadOnlyList<string> ProjectedRelationships,
+    IReadOnlyList<int> ProjectionSourceEdgeIds,
+    IReadOnlyList<GraphProjectedEdgeContributor> ProjectionContributors,
+    IReadOnlyList<string> Components,
+    IReadOnlyList<int> ComponentLevels,
+    IReadOnlyList<int> CondensationSourceEdgeIds,
     GraphStructuralCompletion NeighborhoodCompletion,
     GraphStructuralCompletion FocusCompletion,
+    GraphStructuralCompletion ComponentCompletion,
     GraphExecutionWorkReceipt NeighborhoodReceipt,
     GraphExecutionWorkReceipt AdjacencyReceipt,
     GraphExecutionWorkReceipt DegreeReceipt,
+    GraphGroupProjectionWorkReceipt ProjectionReceipt,
+    GraphComponentAnalysisWorkReceipt ComponentReceipt,
     Type SubjectType,
     Type RelationshipType);
 
@@ -42,11 +52,12 @@ public static class GraphDirectConsumer
         var services = new List<GraphNode<Service>>
         {
             new(0, api, GraphNodeRole.Ordinary, [0]),
-            new(1, database, GraphNodeRole.External, [0]),
+            new(1, database, GraphNodeRole.External, [1]),
         };
         var groups = new List<GraphGroup<Service>>
         {
             new(0, new Service("application"), parentId: null),
+            new(1, new Service("storage"), parentId: null),
         };
         var relationship = new DependsOn("runtime");
         var occurrences =
@@ -153,6 +164,26 @@ public static class GraphDirectConsumer
                     [relationship],
                     GraphTraversalDirection.Outgoing,
                     GraphSelfLoopPolicy.Exclude));
+        GraphGroupProjectionResult<DependsOn> projection =
+            GraphDocumentExecution.GroupProjection(
+                document,
+                new GraphGroupProjectionPlan<DependsOn>(
+                    document.Identity,
+                    [new(0, 0), new(1, 1)],
+                    [relationship],
+                    maxContributorsPerProjectedEdge: 1));
+        GraphProjectedEdge<DependsOn> projectedEdge =
+            projection.Edges[0];
+        GraphProjectedEdgeExplanation projectionExplanation =
+            projectedEdge.Explanation
+            ?? throw new InvalidOperationException(
+                "The requested projection explanation was not issued.");
+        GraphComponentAnalysisResult components =
+            GraphDocumentExecution.ComponentAnalysis(
+                projection,
+                new(
+                    document.Identity,
+                    [0, 1]));
 
         return new(
             [.. document.Nodes.Select(node => node.Subject.Name)],
@@ -170,11 +201,26 @@ public static class GraphDirectConsumer
             [.. adjacency.Rows[0].NeighborNodeIds.Select(id =>
                 document.Nodes[id].Subject.Name)],
             [.. degree.Rows.Select(row => row.Degree)],
+            [.. projection.Nodes.Select(node =>
+                document.Groups[node.SourceGroupId].Subject.Name)],
+            [.. projection.Edges.Select(edge => edge.Relationship.Kind)],
+            projectedEdge.SourceEdgeIds,
+            projectionExplanation.RetainedContributors,
+            [.. components.Components.Select(component =>
+                string.Join(
+                    ',',
+                    component.SourceGroupIds.Select(groupId =>
+                        document.Groups[groupId].Subject.Name)))],
+            [.. components.Components.Select(component => component.Level)],
+            components.CondensationEdges[0].SourceEdgeIds,
             neighborhood.Completion,
             focus.Completion,
+            components.Completion,
             neighborhood.Receipt,
             adjacency.Receipt,
             degree.Receipt,
+            projection.Receipt,
+            components.Receipt,
             typeof(Service),
             typeof(DependsOn));
     }

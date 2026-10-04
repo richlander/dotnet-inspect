@@ -145,7 +145,7 @@ public sealed class PackageFileDemand
 
     private static string ValidateEntry(string path, string parameterName)
     {
-        if (path is null || !HasSafeSegments(path))
+        if (path is null || !PackageEntryPath.IsSafeRelativePath(path))
         {
             throw new ArgumentException(
                 "A package file is a relative package path of safe segments, without '..' or a root.",
@@ -157,7 +157,8 @@ public sealed class PackageFileDemand
     private static string ValidateFolder(string path, string parameterName)
     {
         string? folder = path is not null && path.EndsWith('/') ? path[..^1] : path;
-        if (folder is null || !HasSafeSegments(folder))
+        if (folder is null
+            || !PackageEntryPath.IsSafeRelativePath(folder))
         {
             throw new ArgumentException(
                 "A package folder is a relative package path of safe segments, without '..' or a root.",
@@ -165,8 +166,4 @@ public sealed class PackageFileDemand
         }
         return folder + "/";
     }
-
-    private static bool HasSafeSegments(string path) =>
-        path.Length != 0
-        && path.Split('/').All(PackageEntryPath.IsSafeSegment);
 }

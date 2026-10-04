@@ -173,8 +173,11 @@ The Ecosystems API owns the current product manifests. The platform-curated
 registration sequence is:
 
 1. .NET Runtime
-2. ASP.NET Core
-3. Microsoft.Extensions
+2. Microsoft.Extensions
+3. ASP.NET Core
+
+That sequence is the lineage of ASP.NET Core in the
+[ecosystem hierarchy](ecosystem-hierarchy.md).
 
 Curated construction returns that complete sequence in a validated,
 resource-free `WorkspacePlan`. The caller explicitly constructs
@@ -551,8 +554,8 @@ The following are required future outcome-level scenarios:
 | Scenario | Required observation |
 | --- | --- |
 | Construct directly through the Workspace API | The registration set is empty; no catalog lookup, acquisition, or analysis occurs |
-| Construct through the Ecosystems factories | The platform variant contains .NET Runtime, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire, AI, Blazor, and .NET MAUI. Neither performs registration-triggered acquisition or analysis. |
-| Construct through selected ecosystems | The plan contains exactly the requested registrations in caller order. Find still searches only concrete content presented to the Workspace and does not expand package-prefix arms. |
+| Construct through the Ecosystems factories | The platform variant contains .NET Runtime, Microsoft.Extensions, and ASP.NET Core in order; all-known construction additionally contains Aspire, AI, Blazor, and .NET MAUI. Neither performs registration-triggered acquisition or analysis. |
+| Construct through selected ecosystems | The plan contains the requested registrations and their ancestors, root first, as defined by [Ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction). Find still searches only concrete content presented to the Workspace and does not expand package-prefix arms. |
 | Remove one or all curated registrations, then navigate, open another subject, save, and restore | The exact registration set survives; the current curated composition does not reappear |
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |
 | Run `find` for the real `System.Text.Json` overlap | The command explicitly chooses curated construction and can discover the Platform library without making curation intrinsic to Workspace |

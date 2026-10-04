@@ -12,6 +12,8 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research.Tests;
 
 public partial class ResearchProducerSessionTests
@@ -102,7 +104,7 @@ public partial class ResearchProducerSessionTests
                     [ResearchProducerKind.CSharp])).Kind);
 
         string bodyPath = FixtureCatalog.ResearchTargetSample.AssemblyPath();
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(bodyPath);
+        LibraryBodyAnalysisExecution bodyIndex = BodyAnalysisTestExecution.Open(bodyPath);
         ResearchAdmittedPopulation bodySignal =
             Assert.IsType<ResearchAdmissionOutcome.Admitted>(
                 ResearchComparisonAdmission.Admit(
@@ -377,10 +379,10 @@ public partial class ResearchProducerSessionTests
         string v1 = FixtureCatalog.DiffV1.AssemblyPath();
         string v2 = FixtureCatalog.DiffV2.AssemblyPath();
         int beforeOpens = 0;
-        LibraryBodyIndex beforeIndex = LibraryBodyIndex.Open(v1);
+        LibraryBodyAnalysisExecution beforeIndex = BodyAnalysisTestExecution.Open(v1);
         var changed = new ImplementationComparisonInputOccurrence(
             ResolvedAssemblyReference.Create(
-                beforeIndex.ModuleIdentity.AssemblyIdentity!,
+                beforeIndex.Receipt.ModuleIdentity.AssemblyIdentity!,
                 v1,
                 () =>
                 {
@@ -392,7 +394,7 @@ public partial class ResearchProducerSessionTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            beforeIndex.CallGraphAnalysis);
+            beforeIndex.CallGraph);
         SessionFixture fixture = SessionFixture.Create(
             changed,
             Occurrence(v1));
@@ -843,7 +845,7 @@ public partial class ResearchProducerSessionTests
         [
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
-            typeof(LibraryBodyIndex),
+            typeof(LibraryBodyAnalysisExecution),
             typeof(LibraryCallGraphAnalysisResult),
             typeof(MetadataSource),
             typeof(Stream),
@@ -972,10 +974,10 @@ public partial class ResearchProducerSessionTests
         Action? onOpen = null,
         Func<bool>? throwOnDispose = null)
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(path);
         return new ImplementationComparisonInputOccurrence(
             ResolvedAssemblyReference.Create(
-                index.ModuleIdentity.AssemblyIdentity!,
+                index.Receipt.ModuleIdentity.AssemblyIdentity!,
                 path,
                 () =>
                 {
@@ -990,7 +992,7 @@ public partial class ResearchProducerSessionTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            index.CallGraphAnalysis);
+            index.CallGraph);
     }
 
     sealed class SessionFixture

@@ -183,6 +183,7 @@ public static class PackageFileContentInspection
         }
         catch (Exception exception) when (
             exception is IOException
+                or InvalidDataException
                 or NotSupportedException
                 or PackageEntryNotMaterializedException)
         {

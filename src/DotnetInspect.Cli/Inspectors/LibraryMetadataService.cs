@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Models;
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -14,6 +15,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using Inspector.Findings;
+using Inspector.Artifacts;
 using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 using Analysis = ILInspector.Analysis;
 using MetadataResource = ILInspector.Metadata.ManifestResourceInfo;
@@ -50,8 +52,7 @@ internal static class LibraryMetadataService
         AssemblyIntegrationOpportunitiesEntry?
             integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
-        Sections.InspectionTrace? trace = null,
-        bool readLibraryDocument = true)
+        Sections.InspectionTrace? trace = null)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -64,6 +65,20 @@ internal static class LibraryMetadataService
                 queryPlan is null
                     ? queries
                     : queryPlan.Queries;
+            bool applicabilityOnly =
+                options.Discover is not null
+                && options.Effective;
+            if (requiredQueries?.Contains(
+                    LibraryNameFamilyQuery.Definition) == true
+                && assemblyReference is
+                {
+                    Registration.ArtifactRegistration: null,
+                })
+            {
+                assemblyReference = CreateArtifactBackedReference(
+                    path,
+                    assemblyReference);
+            }
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures =
@@ -185,6 +200,13 @@ internal static class LibraryMetadataService
                         Trace = trace,
                         RequestedQueries = requiredQueries,
                         CountOnly = options.Count,
+                        ApplicabilityOnly = applicabilityOnly,
+                        NameFamilyPopulation =
+                            options.NameFamilyPopulation,
+                        NameFamilyRowSelection =
+                            options.NameFamilyRowSelection,
+                        DependencyStructureRowSelection =
+                            options.DependencyStructureRowSelection,
                     };
                     await RunTypedQueriesAsync(
                         path,
@@ -267,11 +289,16 @@ internal static class LibraryMetadataService
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
-            var appContextSwitches =
-                AppContextSwitchProjectionProducer.ProduceInventory(
-                    pdbContext.MethodBodies);
-            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Length;
-            inspection.HasSwitches = inspection.SwitchCount > 0;
+            // The Switches row is an overview count, so it reads only the
+            // switches the metadata declares (docs/design/progressive-disclosure.md#overview-cost).
+            // AppContext call sites need every IL body; the Switches section's
+            // query reads them on request, and plain discovery reads them here
+            // only to decide whether that section has data.
+            inspection.SwitchCount = presenceFlags.SwitchCount;
+            inspection.HasSwitches = presenceFlags.SwitchCount > 0
+                || (discoveryOnly
+                    && AppContextSwitchProjectionProducer.ProduceInventory(
+                        pdbContext.MethodBodies).Length > 0);
 
             if (integrationsEntry is not null)
             {
@@ -327,6 +354,13 @@ internal static class LibraryMetadataService
                     Trace = trace,
                     RequestedQueries = requiredQueries,
                     CountOnly = options.Count,
+                    ApplicabilityOnly = applicabilityOnly,
+                    NameFamilyPopulation =
+                        options.NameFamilyPopulation,
+                    NameFamilyRowSelection =
+                        options.NameFamilyRowSelection,
+                    DependencyStructureRowSelection =
+                        options.DependencyStructureRowSelection,
                 };
 
                 await RunTypedQueriesAsync(
@@ -376,8 +410,10 @@ internal static class LibraryMetadataService
                         logger,
                         new MethodClassificationBindingResult.Available(
                             MethodClassificationQuery.Execute(
-                                session,
-                                MethodClassificationDemand.AllQuestions)));
+                                MethodClassificationQuery.Prepare(
+                                    session,
+                                    MethodClassificationDemand
+                                        .AllQuestions))));
                 }
 
                 catch (Exception ex)
@@ -502,18 +538,6 @@ internal static class LibraryMetadataService
                     typeFilter: options.TypeFilter);
             }
 
-            // A managed module without an assembly manifest keeps the legacy
-            // reading (docs/design/library-info-composition.md#scope-of-input).
-            if (readLibraryDocument
-                && inspection.AssemblyInfo?.AssemblyName is not null)
-            {
-                await ReadLibraryDocumentAsync(
-                        inspection,
-                        path,
-                        packageName,
-                        isPlatformAssembly)
-                    .ConfigureAwait(false);
-            }
             return inspection;
         }
         catch (OperationCanceledException)
@@ -544,7 +568,9 @@ internal static class LibraryMetadataService
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true)
+            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true
+            || queries?.Contains(
+                LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
@@ -569,6 +595,63 @@ internal static class LibraryMetadataService
     /// PDB acquisition, SourceLink detection, and builder inference.
     /// </summary>
     /// <param name="skipPdbDownload">Skip downloading PDB from symbol servers (for quiet/minimal verbosity).</param>
+    private static ResolvedAssemblyReference
+        CreateArtifactBackedReference(
+            string path,
+            ResolvedAssemblyReference original)
+    {
+        string fullPath = Path.GetFullPath(path);
+        byte[] bytes = File.ReadAllBytes(fullPath);
+        ImmutableArray<byte> snapshot =
+            ImmutableCollectionsMarshal.AsImmutableArray(bytes);
+        var authority = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization authorization =
+            authority.CreateAdmissionAuthorization();
+        ArtifactAcquisitionRegistration registration;
+        using (ArtifactContributionScope scope =
+            authority.BeginContribution(authorization))
+        {
+            var provenance = new LibraryArtifactSnapshotProvenance(
+                fullPath,
+                snapshot.Length,
+                File.GetLastWriteTimeUtc(fullPath));
+            ArtifactContribution contribution = scope.Register(
+                provenance,
+                _ => OpenSnapshot(snapshot),
+                kind: "library-local-snapshot");
+            registration = contribution.Registration;
+            _ = authority.CreateRetainedContent(
+                registration,
+                snapshot);
+        }
+        authority.CompleteAdmission(authorization);
+
+        return ResolvedAssemblyReference
+                .CreateFromArtifactPathIfManaged(
+                    registration,
+                    fullPath,
+                    () => OpenSnapshot(snapshot),
+                    original.Provenance,
+                    original.LastWriteTimeUtc)
+            ?? throw new BadImageFormatException(
+                "The selected Library snapshot has no managed metadata.");
+    }
+
+    private static MemoryStream OpenSnapshot(
+        ImmutableArray<byte> snapshot) =>
+        new(
+            ImmutableCollectionsMarshal.AsArray(snapshot)!,
+            index: 0,
+            count: snapshot.Length,
+            writable: false,
+            publiclyVisible: false);
+
+    private sealed record LibraryArtifactSnapshotProvenance(
+        string FullPath,
+        int ContentLength,
+        DateTime ObservedLastWriteTimeUtc)
+        : IArtifactProvenance;
+
     public static async Task AuditAsync(
         SourceLinkService service,
         LibraryInspection inspection,
@@ -838,49 +921,6 @@ internal static class LibraryMetadataService
     /// assembly Microsoft never built. A symbol server that served the PDB is evidence about the
     /// publisher; a self-declared source URL is not.
     /// </remarks>
-    private static readonly LibraryInspectionPlan s_libraryInfoPlan =
-        new(
-            types: null,
-            DirectLibraryInspectionCommand.s_bounds,
-            new LibraryEnablementsRequest(),
-            new LibraryImageFactsRequest(),
-            new LibraryDescriptionFactsRequest());
-
-    /// <summary>
-    /// Reads the Library document facts that Library Info and the view's
-    /// summary fields render (<c>docs/design/library-info-composition.md</c>).
-    /// </summary>
-    private static async Task ReadLibraryDocumentAsync(
-        LibraryInspection inspection,
-        string path,
-        string? packageName,
-        bool isPlatformAssembly)
-    {
-        InspectionEnvelope<LibraryInspectionOutcome>? envelope =
-            await ExactLibraryInspectionExecutor.ExecuteAsync(
-                    path,
-                    "library info",
-                    session => session.Execute(s_libraryInfoPlan, CancellationToken.None),
-                    CancellationToken.None,
-                    LibraryInfoRole(path, packageName, isPlatformAssembly))
-                .ConfigureAwait(false);
-        switch (envelope?.Content)
-        {
-            case LibraryInspectionOutcome.Available available:
-                inspection.LibraryDocument = available.Document;
-                break;
-            case LibraryInspectionOutcome.Rejected rejected:
-                inspection.LibraryDocumentFailure = rejected.Reason.ToString();
-                break;
-            case LibraryInspectionOutcome.Failed failed:
-                inspection.LibraryDocumentFailure = failed.Reason.ToString();
-                break;
-            default:
-                inspection.LibraryDocumentFailure = "LibraryUnavailable";
-                break;
-        }
-    }
-
     /// <summary>
     /// Whether the request renders the Library document's scalar fields: the
     /// Library Info section, or the <c>-v:q</c> context line. Other requests,
@@ -1691,11 +1731,11 @@ internal static class LibraryMetadataService
             ReferenceTreePathComparer(OperatingSystem.IsWindows());
 
         public static AssemblyReferenceTraversalKeyComparer BindingIdentity
-            { get; } = new(preserveReferenceNameSpelling: false);
+        { get; } = new(preserveReferenceNameSpelling: false);
 
         public static AssemblyReferenceTraversalKeyComparer
             PreserveReferenceNameSpelling
-            { get; } = new(preserveReferenceNameSpelling: true);
+        { get; } = new(preserveReferenceNameSpelling: true);
 
         private readonly bool _preserveReferenceNameSpelling;
 
@@ -2017,39 +2057,19 @@ internal static class LibraryMetadataService
         switch (result)
         {
             case ResourceTriageResult.Available available:
-                inspection.ResourceLifecycleInspection =
-                    available.Inspection;
-                var drillByToken = getDrillMap();
-                inspection.ResourceTriageDrillMap = drillByToken;
-                ImmutableArray<Analysis.ResourceTriageAssessment> assessments =
-                [
-                    .. available.Assessments
-                        .Where(assessment =>
-                            assessment.Actionability
-                                == Analysis.ResourceTriageActionability
-                                    .UntrustedActionable)
-                        .OrderBy(
-                            assessment => FormatMethod(
-                                assessment.Source.Payload.Method),
-                            StringComparer.Ordinal)
-                        .ThenBy(
-                            assessment =>
-                                assessment.Source.Payload.AcquireOffset)
-                        .ThenBy(
-                            assessment =>
-                                assessment.Boundaries.Length > 0
-                                    ? assessment.Boundaries[0]
-                                        .Evidence.ILOffset
-                                    : -1),
-                ];
-                inspection.ResourceTriageAssessments = assessments;
-                var rows = assessments
-                    .Select(assessment =>
-                        ProjectResourceTriageAssessment(
-                            assessment,
-                            drillByToken))
-                    .ToList();
-                inspection.ResourceTriage = rows;
+                ApplyResourceTriageEvidence(
+                    inspection,
+                    available.Inspection,
+                    available.Assessments,
+                    getDrillMap());
+                break;
+
+            case ResourceTriageResult.Incomplete incomplete:
+                ApplyResourceTriageEvidence(
+                    inspection,
+                    incomplete.Inspection,
+                    incomplete.Assessments,
+                    getDrillMap());
                 break;
 
             case ResourceTriageResult.NoMetadata:
@@ -2066,6 +2086,47 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     $"Unknown resource triage result '{result.GetType().Name}'.");
         }
+    }
+
+    static void ApplyResourceTriageEvidence(
+        LibraryInspection inspection,
+        FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete
+            lifecycleInspection,
+        ImmutableArray<Analysis.ResourceTriageAssessment> availableAssessments,
+        IReadOnlyDictionary<
+            int,
+            (string? Stable, string Visibility, string Selector)> drillByToken)
+    {
+        inspection.ResourceLifecycleInspection = lifecycleInspection;
+        inspection.ResourceTriageDrillMap = drillByToken;
+        ImmutableArray<Analysis.ResourceTriageAssessment> assessments =
+        [
+            .. availableAssessments
+                .Where(assessment =>
+                    assessment.Actionability
+                        == Analysis.ResourceTriageActionability
+                            .UntrustedActionable)
+                .OrderBy(
+                    assessment => FormatMethod(
+                        assessment.Source.Payload.Method),
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    assessment =>
+                        assessment.Source.Payload.AcquireOffset)
+                .ThenBy(
+                    assessment =>
+                        assessment.Boundaries.Length > 0
+                            ? assessment.Boundaries[0]
+                                .Evidence.ILOffset
+                            : -1),
+        ];
+        inspection.ResourceTriageAssessments = assessments;
+        inspection.ResourceTriage = assessments
+            .Select(assessment =>
+                ProjectResourceTriageAssessment(
+                    assessment,
+                    drillByToken))
+            .ToList();
     }
 
     internal static ResourceTriageSummary ProjectResourceTriageAssessment(
@@ -2325,6 +2386,29 @@ internal static class LibraryMetadataService
                 out LibraryMetricsResult? libraryMetrics))
         {
             ApplyLibraryMetricsResult(path, inspection, logger, libraryMetrics);
+        }
+
+        if (results.TryGet(
+                LibraryNameFamilyQuery.Definition,
+                out LibraryNameFamilyQueryResult? nameFamilies))
+        {
+            ApplyLibraryNameFamilyResult(
+                path,
+                inspection,
+                logger,
+                nameFamilies);
+        }
+
+        if (results.TryGet(
+                LibraryDependencyStructureQuery.Definition,
+                out LibraryDependencyStructureQueryResult?
+                    dependencyStructure))
+        {
+            ApplyLibraryDependencyStructureResult(
+                path,
+                inspection,
+                logger,
+                dependencyStructure);
         }
 
         if (results.TryGet(
@@ -2627,6 +2711,63 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ApplyLibraryNameFamilyResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryNameFamilyQueryResult result)
+    {
+        inspection.NameFamilyQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryNameFamilyQueryResult.Available:
+            case LibraryNameFamilyQueryResult.Unavailable:
+            case LibraryNameFamilyQueryResult.Rejected:
+            case LibraryNameFamilyQueryResult.SelectionFailed:
+                break;
+
+            case LibraryNameFamilyQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting Library name families in {path}: "
+                        + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Library name-family result "
+                        + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyLibraryDependencyStructureResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryDependencyStructureQueryResult result)
+    {
+        inspection.DependencyStructureQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryDependencyStructureQueryResult.Available:
+            case LibraryDependencyStructureQueryResult.Unavailable:
+            case LibraryDependencyStructureQueryResult.SelectionFailed:
+                break;
+
+            case LibraryDependencyStructureQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting dependency structure in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown dependency structure result "
+                    + $"'{result.GetType().Name}'.");
+        }
+    }
+
     internal static ImmutableArray<Analysis.OptimizationOpportunity>
         SelectPerformanceTriageOpportunities(
             OptimizationOpportunitiesResult.Available available,
@@ -2887,6 +3028,9 @@ internal static class LibraryMetadataService
                     case MethodClassificationAnalyzer.PointerSignature:
                         inspection.UnsafeMethodCount = count.Value;
                         break;
+                    case MethodClassificationAnalyzer.Extension:
+                        inspection.ExtensionMethodCount = count.Value;
+                        break;
                     default:
                         throw new InvalidOperationException(
                             $"No consumer asks for the {question.Analyzer} count.");
@@ -2932,6 +3076,25 @@ internal static class LibraryMetadataService
                     default:
                         throw new InvalidOperationException(
                             $"No consumer asks for {question.Analyzer} rows.");
+                }
+
+                break;
+
+            case ClassificationAnswer.Exists exists:
+                switch (question.Analyzer)
+                {
+                    case MethodClassificationAnalyzer.PInvoke:
+                        inspection.PInvokeMethodPresence =
+                            exists.Value;
+                        break;
+                    case MethodClassificationDemand.AsyncAnalyzer:
+                        inspection.AsyncMethodPresence =
+                            exists.Value;
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"No applicability consumer asks whether "
+                            + $"{question.Analyzer} exists.");
                 }
 
                 break;

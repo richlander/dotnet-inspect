@@ -152,6 +152,12 @@ public sealed record PdbSourceProvenanceBinding
     public ImmutableArray<byte> PortablePdbContentId { get; }
     public int PdbGeneration { get; }
     public PdbSourceProvenancePathProfileVersion PathProfile { get; }
+
+    public bool IsSameArtifact(AssemblyArtifactIdentity artifact)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        return artifact.Matches(Artifact);
+    }
 }
 
 public sealed record PdbSourceProvenanceLimits

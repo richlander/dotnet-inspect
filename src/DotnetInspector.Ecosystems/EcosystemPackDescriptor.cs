@@ -21,7 +21,9 @@ public sealed class EcosystemPackDescriptor
         ImmutableArray<string> namespaceRoots,
         ImmutableArray<PackageCoordinate> corePackages,
         ImmutableArray<PackageCoordinate> toolPackages,
-        bool hasWorkspaceRegistration)
+        bool hasWorkspaceRegistration,
+        EcosystemPackId? dependsOn,
+        ImmutableArray<EcosystemPackId> lineage)
     {
         Id = id;
         Title = title;
@@ -35,6 +37,8 @@ public sealed class EcosystemPackDescriptor
         CorePackages = corePackages;
         ToolPackages = toolPackages;
         HasWorkspaceRegistration = hasWorkspaceRegistration;
+        DependsOn = dependsOn;
+        Lineage = lineage;
     }
 
     public EcosystemPackId Id { get; }
@@ -54,6 +58,12 @@ public sealed class EcosystemPackDescriptor
     public bool HasPopulationLoader { get; }
 
     public bool HasWorkspaceRegistration { get; }
+
+    /// <summary>The single parent pack this pack builds on, if any.</summary>
+    public EcosystemPackId? DependsOn { get; }
+
+    /// <summary>This pack and its ancestors, ordered from the root down to this pack.</summary>
+    public ImmutableArray<EcosystemPackId> Lineage { get; }
 
     /// <summary>Literal namespace-subtree hints in authored order, not an exhaustive inventory.</summary>
     public ImmutableArray<string> NamespaceRoots { get; }

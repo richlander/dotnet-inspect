@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(52 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(54 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
@@ -124,6 +124,7 @@ public partial class SectionPipelineTests
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Library Metrics", pipeline.AllSectionNames);
+        Assert.Contains("Name Families", pipeline.AllSectionNames);
         Assert.Contains("Performance: Boxing", pipeline.AllSectionNames);
         Assert.Contains("Performance: Arrays", pipeline.AllSectionNames);
         Assert.Contains("Performance: Closures and Delegates", pipeline.AllSectionNames);
@@ -207,6 +208,10 @@ public partial class SectionPipelineTests
                 LibrarySections.MemberMetrics.SizeClass),
             (LibrarySections.LibraryMetrics.Name,
                 LibrarySections.LibraryMetrics.SizeClass),
+            (LibrarySections.NameFamilies.Name,
+                LibrarySections.NameFamilies.SizeClass),
+            (LibrarySections.DependencyStructure.Name,
+                LibrarySections.DependencyStructure.SizeClass),
             (LibrarySections.BodyShapes.Name,
                 LibrarySections.BodyShapes.SizeClass),
             (LibrarySections.BodyShapeSummary.Name,
@@ -611,6 +616,8 @@ public partial class SectionPipelineTests
                 SectionNames.UnsafeMembers,
                 SectionNames.MemberMetrics,
                 SectionNames.LibraryMetrics,
+                SectionNames.NameFamilies,
+                SectionNames.DependencyStructure,
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
                 SectionNames.CloneCandidates,
@@ -768,6 +775,38 @@ public partial class SectionPipelineTests
             noMetadataDocument.RootElement.TryGetProperty(
                 "resource_triage",
                 out _));
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_IncompletePreservesEvidenceWithoutFailureProjection()
+    {
+        var inspection = new LibraryInspection();
+        var complete =
+            new FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete([]);
+        var limitation = new Analysis.ResourceLifecycleLimitation(
+            Analysis.ResourceLifecycleLimitationKind.UnsupportedFlow,
+            "Address-taken resource flow is unsupported.");
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Incomplete(
+                complete,
+                [],
+                [limitation]),
+            () => new Dictionary<
+                int,
+                (string? Stable, string Visibility, string Selector)>());
+
+        var incomplete =
+            Assert.IsType<ResourceTriageResult.Incomplete>(
+                inspection.ResourceTriageQueryResult);
+        Assert.Same(complete, incomplete.Inspection);
+        Assert.Same(limitation, Assert.Single(incomplete.Limitations));
+        Assert.Same(
+            complete,
+            inspection.ResourceLifecycleInspection!.Value);
+        Assert.Null(inspection.InspectionFailures);
+        Assert.Empty(inspection.ResourceTriage!);
     }
 
     [Fact]
@@ -1843,7 +1882,9 @@ public partial class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 ImplementationProfilesQuery.Definition,
+                LibraryDependencyStructureQuery.Definition,
                 LibraryMetricsQuery.Definition,
+                LibraryNameFamilyQuery.Definition,
                 MetadataImageQuery.Definition,
                 MethodClassificationDemand.AsyncMethods,
                 MethodClassificationDemand.LibraryInfo,
