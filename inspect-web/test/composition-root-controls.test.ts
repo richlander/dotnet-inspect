@@ -240,6 +240,31 @@ test("Top Leverage decorates source families without filter or history state", (
     /methodLeverageEnabled|memberLeverageFilter|onMethodLeverageActivate|onMethodLeverageFilterSelect/);
 });
 
+test("settled API Diff evidence decorates exact Type and Member navigation rows", () => {
+  const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
+  assert.match(
+    typeNav,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)[\s\S]*achievements\.push\(apiDiffAchievement\)/,
+  );
+
+  const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
+  assert.match(
+    memberNav,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*memberApiDiffAchievements\(\s*diffPresence\.memberFingerprints,\s*group,\s*index\)/,
+  );
+
+  const memberDiff = sourceText(
+    functionDeclaration("memberApiDiffAchievements"));
+  assert.match(
+    memberDiff,
+    /index === null[\s\S]*group\.overloads\.slice\(index, index \+ 1\)[\s\S]*memberFingerprints\.has\(overload\.anchorDigest\)/,
+  );
+  assert.match(
+    stylesSource,
+    /\.item-achievement-glyph\.api-diff[\s\S]*color: var\(--purple\)/,
+  );
+});
+
 test("platform call graphs carry the target pack into lazy acquisition", () => {
   assert.equal(
     platformPackFromProvenance(
