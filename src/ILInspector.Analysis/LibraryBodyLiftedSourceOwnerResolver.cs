@@ -463,11 +463,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         {
             MethodDefinition ownerMethod =
                 _reader.GetMethodDefinition(ownerHandle);
-            _asyncSourceResolver
-                .TryResolveStateMachineExecutionMethod(
-                    ownerHandle,
-                    ownerMethod,
-                    out _);
+            TryResolveStateMachineExecutionMethod(
+                ownerHandle,
+                ownerMethod,
+                out _);
         }
 
         var candidates = new LiftedMethodCandidates(
@@ -524,8 +523,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     ref relationshipCount);
                 MethodDefinition ownerMethod =
                     _reader.GetMethodDefinition(ownerHandle);
-                if (_asyncSourceResolver
-                    .TryResolveStateMachineExecutionMethod(
+                if (TryResolveStateMachineExecutionMethod(
                         ownerHandle,
                         ownerMethod,
                         out MethodDefinitionHandle moveNextHandle))
@@ -562,8 +560,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     ref relationshipCount);
                 MethodDefinition bodyMethod =
                     _reader.GetMethodDefinition(current.Body);
-                if (_asyncSourceResolver
-                    .TryResolveStateMachineExecutionMethod(
+                if (TryResolveStateMachineExecutionMethod(
                         current.Body,
                         bodyMethod,
                         out MethodDefinitionHandle moveNextHandle))
@@ -854,6 +851,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             foreach (TypeDefinitionHandle nested
                 in type.GetNestedTypes())
             {
+                _generatedExpansionWork?.RecordRelationshipNode(nested);
                 pending.Enqueue(nested);
             }
         }
@@ -1061,8 +1059,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 ownerHandle);
         }
 
-        if (!_asyncSourceResolver
-            .TryResolveStateMachineExecutionMethod(
+        if (!TryResolveStateMachineExecutionMethod(
                 ownerHandle,
                 ownerMethod,
                 out MethodDefinitionHandle moveNextHandle))
@@ -1073,6 +1070,23 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             _reader.GetMethodDefinition(moveNextHandle).GetDeclaringType(),
             moveNextHandle);
     }
+
+    bool TryResolveStateMachineExecutionMethod(
+        MethodDefinitionHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        out MethodDefinitionHandle executionMethod) =>
+        _generatedExpansionWork is { } work
+            ? _asyncSourceResolver
+                .TryResolveTargetedStateMachineExecutionMethod(
+                    sourceHandle,
+                    sourceMethod,
+                    work,
+                    out executionMethod)
+            : _asyncSourceResolver
+                .TryResolveStateMachineExecutionMethod(
+                    sourceHandle,
+                    sourceMethod,
+                    out executionMethod);
 
     bool IsManagedEntryPoint(
         MethodDefinitionHandle entryPointHandle)

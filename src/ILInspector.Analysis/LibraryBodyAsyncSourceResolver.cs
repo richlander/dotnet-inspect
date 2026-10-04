@@ -55,6 +55,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
     readonly Lazy<MetadataTypeDefinitionIndex>
         _typeDefinitionIndex;
     readonly Action? _typeDefinitionIndexBuilt;
+    readonly Action? _stateMachineExecutionMethodsBuilt;
 
     internal LibraryBodyAsyncSourceResolver(
         MetadataReader reader,
@@ -68,7 +69,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 TypeDefinitionHandle>>
             localTypeDefinitions,
         Func<EntityHandle, TypeRef> typeFromEntity,
-        Action? typeDefinitionIndexBuilt = null)
+        Action? typeDefinitionIndexBuilt = null,
+        Action? stateMachineExecutionMethodsBuilt = null)
     {
         _reader = reader;
         _assemblyIdentity = assemblyIdentity;
@@ -78,6 +80,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
         _localTypeDefinitions = localTypeDefinitions;
         _typeFromEntity = typeFromEntity;
         _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
+        _stateMachineExecutionMethodsBuilt =
+            stateMachineExecutionMethodsBuilt;
         _classicAsyncExecutionMethods = new(
             BuildClassicAsyncExecutionMethods,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -1039,6 +1043,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
     StateMachineExecutionMethods BuildStateMachineExecutionMethods()
     {
+        _stateMachineExecutionMethodsBuilt?.Invoke();
         var sourcesByStateMachine = new Dictionary<
             MetadataTypeDefinitionName,
             StateMachineExecutionSource>();

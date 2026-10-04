@@ -77,7 +77,7 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     }
 
     internal void RecordRelationshipNode(
-        MethodDefinitionHandle handle)
+        EntityHandle handle)
     {
         _relationshipNodes++;
         if (_relationshipNodes > _limits.MaximumRelationshipNodes)
@@ -99,12 +99,12 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
                         origin.DeclaredOwner))]);
 
     static InvalidOperationException LimitExceeded(
-        MethodDefinitionHandle method,
+        EntityHandle subject,
         string dimension) =>
         new(
             $"Method generated-body expansion {dimension} limit was "
             + "exhausted at "
-            + $"0x{MetadataTokens.GetToken(method):X8}.");
+            + $"0x{MetadataTokens.GetToken(subject):X8}.");
 }
 
 internal sealed record MethodDefinitionGeneratedExpansionResult(

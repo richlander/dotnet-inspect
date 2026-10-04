@@ -327,7 +327,8 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                         _primaryMetadataResolver.CreateScope(
                             liftedType,
                             liftedMethod));
-                if (!_liftedSourceOwnerResolver.TryResolve(
+                if (!_liftedSourceOwnerResolver
+                    .TryResolveForScopeExpansion(
                         liftedHandle,
                         liftedMethod,
                         liftedIdentity,

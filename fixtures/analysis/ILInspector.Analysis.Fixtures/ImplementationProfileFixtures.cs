@@ -81,6 +81,32 @@ public static class GeneratedUnsafeEvidenceSample
                 ref current) + offset;
         return readUnsafe(value);
     }
+
+    public static int SiblingLiftedGeneratedUnsafe(int value)
+    {
+        int offset = 1;
+        Func<int, int> increment = current => current + offset;
+        Func<int, int> readUnsafe = current =>
+            System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref current) + offset;
+        Func<int, int> decrement = current => current - offset;
+        return increment(value)
+            + readUnsafe(value)
+            + decrement(value);
+    }
+}
+
+public static class GeneratedExpansionNestedTypeBudgetSample
+{
+    public static int Identity(int value) => value;
+
+    public sealed class First
+    {
+        public sealed class Second
+        {
+            public sealed class Third;
+        }
+    }
 }
 
 // Public overloads that forward into a non-public same-name implementation
