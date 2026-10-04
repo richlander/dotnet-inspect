@@ -1794,8 +1794,14 @@ mode is the only network prohibition and applies to every traffic family.
 Whether a view requests a traffic family, such as vulnerability data, is a
 disclosure decision owned by that view, not a network capability.
 
-Network access derived from inspected content must be explicit in the command
-surface, use the untrusted-fetch client, have a timeout, and retain provenance.
+Network access to a URL taken from inspected content, such as a SourceLink or
+other content-carried link, must be explicit in the command surface, use the
+untrusted-fetch client, have a timeout, and retain provenance. A symbol-server
+lookup keyed by the PDB identity of an assembly the command inspects, whether
+acquired from a package source or read from a local file, is not such a URL:
+it reaches only a configured symbol server, and it is a default capability
+outside `--offline` under the
+[network policy](progressive-disclosure.md#network-policy).
 Cache paths must be hashed or use validated single components. Downloads should
 land in temporary files and become visible atomically after validation.
 
