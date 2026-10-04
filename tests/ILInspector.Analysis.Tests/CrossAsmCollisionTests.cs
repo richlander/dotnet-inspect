@@ -15,12 +15,22 @@ namespace ILInspector.Analysis.Tests
         [Trait("Speed", "Slow")]
         public void Allocations_ExternalRefTypeSharingNameWithInAssemblyStruct_StaysCounted()
         {
-            var index = LibraryBodyIndex.Open(typeof(CrossAsmCollisionConsumer).Assembly.Location);
-            int token = index.Methods
-                .First(method => method.Name == nameof(CrossAsmCollisionConsumer.ConstructsExternalCollisionRefTypeInLoop))
+            LibraryBodyAnalysisExecution analysis =
+                BodyAnalysisTestExecution.Open(
+                    typeof(CrossAsmCollisionConsumer).Assembly.Location,
+                    includeOpportunities: false);
+            int token = analysis.CallGraph.Methods
+                .First(method =>
+                    method.Name
+                        == nameof(
+                            CrossAsmCollisionConsumer
+                                .ConstructsExternalCollisionRefTypeInLoop))
                 .MetadataToken;
 
-            Assert.True(index.GetMethodSignals().GetValueOrDefault(token, MethodSignals.None).Allocations >= 1);
+            Assert.True(
+                analysis.CallGraph.MethodSignals
+                    .GetValueOrDefault(token, MethodSignals.None)
+                    .Allocations >= 1);
         }
     }
 
