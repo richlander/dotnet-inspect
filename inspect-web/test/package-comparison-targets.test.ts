@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bindDiffContent,
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
   diffTargetDescription,
@@ -29,7 +30,10 @@ test("new Packages default to the previous version and live Workspace including 
   const current = pkg();
   const targets = createPackageComparisonTargets(() => [current]);
   assert.deepEqual(targets.get(current), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
+    diff: { kind: "previous" },
+    diffContent: { kind: "api" },
+    clone: { kind: "workspace" },
+    mode: "diff",
   });
   assert.equal(diffTargetDescription(targets.get(current).diff, versions),
     "Previous listed release");
@@ -44,6 +48,33 @@ test("Library, Type, and Member readers inherit the same Package selection", () 
   }
   targets.selectDiff(current, { kind: "previous" }, versions);
   assert.deepEqual(targets.get(current).diff, { kind: "previous" });
+});
+
+test("Diff content is retained per Package and validates literal predicates", () => {
+  const current = pkg();
+  const other = pkg("Other.Package");
+  const targets = createPackageComparisonTargets(() => [current, other]);
+  targets.selectDiffContent(current, {
+    kind: "string-literals",
+    operator: "contains",
+    value: "https://",
+  });
+  assert.deepEqual(targets.get(current).diffContent, {
+    kind: "string-literals",
+    operator: "contains",
+    value: "https://",
+  });
+  assert.deepEqual(targets.get(other).diffContent, { kind: "api" });
+  assert.throws(() => targets.selectDiffContent(current, {
+    kind: "string-literals",
+    operator: "starts-with",
+    value: "",
+  }), /non-empty/);
+  assert.throws(() => targets.selectDiffContent(current, {
+    kind: "string-literals",
+    operator: "contains",
+    value: "x".repeat(1_025),
+  }), /1,024/);
 });
 
 test("separate same-coordinate models and replacements do not inherit choices", () => {
@@ -79,12 +110,22 @@ test("rollback copies both settings and their associations into the snapshot mod
   const other = pkg("Other.Package");
   const targets = createPackageComparisonTargets(() => [current, other]);
   targets.selectDiff(current, { kind: "exact", version: "2.0.0" }, versions);
+  targets.selectDiffContent(current, {
+    kind: "string-literals",
+    operator: "starts-with",
+    value: "https://",
+  });
   targets.selectClone(current, { kind: "package", package: other });
   const copiedCurrent = structuredClone(current);
   const copiedOther = structuredClone(other);
   targets.copyPackages(new Map([[current, copiedCurrent], [other, copiedOther]]));
   targets.forget(current);
   assert.deepEqual(targets.get(copiedCurrent).diff, { kind: "exact", version: "2.0.0" });
+  assert.deepEqual(targets.get(copiedCurrent).diffContent, {
+    kind: "string-literals",
+    operator: "starts-with",
+    value: "https://",
+  });
   const clone = targets.get(copiedCurrent).clone;
   assert.equal(clone.kind, "package");
   if (clone.kind === "package") assert.equal(clone.package, copiedOther);
@@ -213,6 +254,53 @@ test("bindings dispatch exact versions and captured Package objects without eage
     { kind: "exact", version: "1.0.0" },
     { kind: "package", package: current },
     "retry",
+  ]);
+});
+
+test("Diff content bindings dispatch complete literal selections", () => {
+  class Control {
+    value = "";
+    callback: (() => void) | null = null;
+    addEventListener(_event: string, listener: () => void) {
+      this.callback = listener;
+    }
+  }
+  const content = new Control();
+  const operator = new Control();
+  const value = new Control();
+  const controls = new Map([
+    ["#compare-diff-content", content],
+    ["#compare-string-literal-operator", operator],
+    ["#compare-string-literal-value", value],
+  ]);
+  const events: unknown[] = [];
+  bindDiffContent(fakeDom.parentNode({
+    querySelector: (selector: string) => controls.get(selector) ?? null,
+  }), {
+    kind: "string-literals",
+    operator: "contains",
+    value: "https://",
+  }, selection => events.push(selection));
+
+  operator.value = "starts-with";
+  operator.callback?.();
+  value.value = "http://";
+  value.callback?.();
+  content.value = "api";
+  content.callback?.();
+
+  assert.deepEqual(events, [
+    {
+      kind: "string-literals",
+      operator: "starts-with",
+      value: "https://",
+    },
+    {
+      kind: "string-literals",
+      operator: "contains",
+      value: "http://",
+    },
+    { kind: "api" },
   ]);
 });
 
