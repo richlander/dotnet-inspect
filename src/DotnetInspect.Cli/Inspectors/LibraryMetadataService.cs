@@ -713,8 +713,8 @@ internal static class LibraryMetadataService
             }
         }
 
-        // No embedded/adjacent PDB and download not authorized (Normal / bare-`S`): try a
-        // network-free cache-only read so symbol-dependent sections (Symbols, Signals, SourceLink
+        // No embedded/adjacent PDB and download not planned (an --offline Normal / bare-`S`
+        // render): try a network-free cache-only read so symbol-dependent sections (Symbols, Signals, SourceLink
         // provenance) can reflect an already-cached PDB. cacheOnly never touches the network.
         if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && !allowPdbDownload && readCachedPdb)
         {

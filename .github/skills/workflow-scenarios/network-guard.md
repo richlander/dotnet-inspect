@@ -46,6 +46,7 @@ Use `--offline` when the operation must be prevented rather than observed.
 | `-v:q` | None for a warm local or platform query | Summary only |
 | `-v:m` | None for a warm local or platform query | Metadata from local assembly |
 | default | Depends on the requested subject and cache state | Package and documentation acquisition may be required |
+| `-v:n` | When a rendered section declares PDB facts and no PDB is local or cached | Library Symbols and Signals acquire a missing PDB outside `--offline` |
 | `-v:d` | Often | PDB and SourceLink acquisition may be required |
 
 ## Enforce offline execution

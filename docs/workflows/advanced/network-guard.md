@@ -76,12 +76,13 @@ $INSPECT library System.Text.Json -v:m
 
 No `Network traffic [...]` line is expected for a warm platform query.
 
-## 3. Observe detailed source traffic
+## 3. Observe symbol traffic at normal verbosity
 
-> Goal: a cold detailed query may report symbol and source request starts.
+> Goal: outside `--offline`, `-v:n` renders Symbols and Signals, so a cold
+> query may acquire a missing PDB.
 
 ```bash
-$INSPECT library System.Text.Json -v:d
+$INSPECT library System.Text.Json -v:n
 ```
 
 ```expect

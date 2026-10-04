@@ -1304,14 +1304,36 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibrarySourcePlan_PdbDownloadAuthorizedByDetailedOrInclude()
+    public void LibrarySourcePlan_PdbDownloadFollowsRenderedSectionsOutsideOffline()
     {
-        Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).AllowPdbDownload);
+        // Outside --offline, the implicitly rendered Symbols and Signals sections (Normal and up)
+        // may acquire a missing PDB. Minimal renders neither, so it stays network-free.
+        Assert.False(LibrarySourcePlans.For(Verbosity.Quiet, null).AllowPdbDownload);
+        Assert.False(LibrarySourcePlans.For(Verbosity.Minimal, null).AllowPdbDownload);
+        Assert.True(LibrarySourcePlans.For(Verbosity.Normal, null).AllowPdbDownload);
         Assert.True(LibrarySourcePlans.For(Verbosity.Detailed, null).AllowPdbDownload);
+        Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).CollectSourceFiles);
         Assert.True(LibrarySourcePlans.For(
             Verbosity.Normal,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" })
             .AllowPdbDownload);
+    }
+
+    [Fact]
+    public void LibrarySourcePlan_OfflineNormalReadsOnlyCachedPdb()
+    {
+        LibrarySourcePlan plan = LibrarySourcePlans.For(
+            Verbosity.Normal,
+            null,
+            offline: true);
+
+        Assert.False(plan.AllowPdbDownload);
+        Assert.False(plan.CollectSourceFiles);
+        Assert.True(plan.ReadCachedPdb);
+        Assert.False(LibrarySourcePlans.For(
+            Verbosity.Minimal,
+            null,
+            offline: true).ReadCachedPdb);
     }
 
     [Fact]
@@ -1404,7 +1426,7 @@ public partial class SectionPipelineTests
 
                 var plan = LibrarySourcePlans.For(verbosity, include);
                 bool expectedPdb = include is null
-                    ? verbosity >= Verbosity.Detailed
+                    ? verbosity >= Verbosity.Normal
                     : include.Overlaps(sourceSections);
 
                 Assert.Equal(
