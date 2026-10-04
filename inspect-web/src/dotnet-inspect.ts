@@ -6754,7 +6754,16 @@ function selectedMemberTraitCount(type: AppTypeSurface, trait: string) {
   }
 }
 
+function uploadedLibraryIsActive() {
+  return state.package?.source.kind === "file";
+}
+
 function renderMethodLeverageStatus() {
+  if (uploadedLibraryIsActive()) {
+    return `<div class="metadata-warning" data-method-leverage-status="unavailable">
+      <small>Top Leverage is unavailable for uploaded Libraries.</small>
+    </div>`;
+  }
   const leverage = currentTypeMethodLeverageState();
   if (leverage.status === "failed") {
     return `<div class="metadata-warning" data-method-leverage-status="failed" role="alert">
@@ -7686,7 +7695,7 @@ function typeMethodLeverageTarget(): {
   const type = selectedType();
   if (!pkg
     || !type
-    || state.rootKind === "library") {
+    || uploadedLibraryIsActive()) {
     return null;
   }
   const request: TypeMethodLeverageRequest = pkg.isRuntimePack

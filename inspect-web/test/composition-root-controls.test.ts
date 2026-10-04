@@ -217,7 +217,10 @@ test("automatic Top Leverage acquisition runs independently of background heat",
   assert.match(
     target,
     /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*return null/);
-  assert.match(target, /state\.rootKind === "library"/);
+  assert.match(target, /uploadedLibraryIsActive\(\)/);
+  const uploadedLibrary =
+    sourceText(functionDeclaration("uploadedLibraryIsActive"));
+  assert.match(uploadedLibrary, /state\.package\?\.source\.kind === "file"/);
   assert.doesNotMatch(target, /navMode|methodLeverageEnabled/);
 });
 

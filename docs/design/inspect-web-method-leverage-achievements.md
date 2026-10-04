@@ -174,8 +174,8 @@ cache entry.
 Package and platform routes expose equivalent operations. Each route resolves
 the exact implementation participant before entering the shared Type-scoped
 query. Uploaded Libraries do not yet have a product-owned Analysis lifecycle;
-their control remains explicitly unavailable instead of opening or analyzing
-the image in the Browser host.
+their member inventory states that Top Leverage is unavailable instead of
+opening or analyzing the image in the Browser host.
 
 ### Typed result
 
@@ -257,6 +257,9 @@ Rejected, incomplete, and failed outcomes show a compact diagnostic with a
 Retry action. They do not display an empty winner set or success-shaped absence.
 Retry does not publish until the replacement result is available for the
 current coordinate.
+
+Uploaded-Library inventories show passive unavailability without Retry because
+the Browser has no supported Analysis request to retry.
 
 ## Boundaries
 
