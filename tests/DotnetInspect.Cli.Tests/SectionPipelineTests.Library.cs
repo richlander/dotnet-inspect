@@ -1320,6 +1320,27 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void LibrarySourcePlan_ImplicitDownloadMatchesPipelineRenderSet()
+    {
+        // An implicit render plans a PDB download exactly when a section the library pipeline
+        // renders at that verbosity declares one, so the plan cannot drift from the render rule.
+        var pipeline = LibrarySections.CreatePipeline();
+        foreach (var verbosity in Enum.GetValues<Verbosity>())
+        {
+            HashSet<string> rendered = pipeline.GetCandidateSections(verbosity);
+            bool expected = verbosity >= Verbosity.Normal
+                && LibrarySourcePlans.Sections.ToArray().Any(section =>
+                    section.DownloadPdb
+                    && (section.Modes & LibrarySourcePlanModes.Detailed) != 0
+                    && rendered.Contains(section.Name));
+
+            Assert.Equal(
+                expected,
+                LibrarySourcePlans.For(verbosity, null).AllowPdbDownload);
+        }
+    }
+
+    [Fact]
     public void LibrarySourcePlan_OfflineNormalReadsOnlyCachedPdb()
     {
         LibrarySourcePlan plan = LibrarySourcePlans.For(

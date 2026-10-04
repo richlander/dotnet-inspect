@@ -37,7 +37,7 @@ internal static class LibrarySourcePlans
         Section<LibrarySections.NonNormalizedPaths>(readCachedPdb: true),
     ];
 
-    // The library pipeline owns the verbosity at which each implicitly rendered section appears.
+    // The library pipeline owns which sections an implicit render selects at each verbosity.
     private static readonly Lazy<SectionPipeline<LibraryInspection>> s_pipeline =
         new(LibrarySections.CreatePipeline);
 
@@ -80,12 +80,15 @@ internal static class LibrarySourcePlans
         if (mode == LibrarySourcePlanModes.None)
             return new LibrarySourcePlan(false, false, readCachedPdb);
 
+        HashSet<string>? rendered = hasExplicitSelection
+            ? null
+            : s_pipeline.Value.GetCandidateSections(userVerbosity);
         foreach (var section in s_sections)
         {
             bool selected = hasExplicitSelection
                 ? include!.Contains(section.Name)
                 : (section.Modes & LibrarySourcePlanModes.Detailed) != 0
-                    && RendersImplicitlyAt(section.Name, userVerbosity);
+                    && rendered!.Contains(section.Name);
             if (!selected || (section.Modes & mode) == 0)
                 continue;
 
@@ -99,10 +102,6 @@ internal static class LibrarySourcePlans
             collectSourceFiles,
             readCachedPdb);
     }
-
-    private static bool RendersImplicitlyAt(string section, Verbosity userVerbosity)
-        => userVerbosity >= s_pipeline.Value.GetRequiredVerbosity(
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section });
 
     private static LibrarySourceSectionPlan Section<TDescriptor>(
         bool downloadPdb = false,

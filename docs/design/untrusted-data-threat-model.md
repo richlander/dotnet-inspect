@@ -1797,9 +1797,9 @@ disclosure decision owned by that view, not a network capability.
 Network access to a URL taken from inspected content, such as a SourceLink or
 other content-carried link, must be explicit in the command surface, use the
 untrusted-fetch client, have a timeout, and retain provenance. A symbol-server
-lookup keyed by the PDB identity of an assembly the command already acquired
-is not such a URL: it reaches only a configured symbol server, has the same
-standing as the package acquisition itself, and is a default capability
+lookup keyed by the PDB identity of an assembly the command inspects, whether
+acquired from a package source or read from a local file, is not such a URL:
+it reaches only a configured symbol server, and it is a default capability
 outside `--offline` under the
 [network policy](progressive-disclosure.md#network-policy).
 Cache paths must be hashed or use validated single components. Downloads should

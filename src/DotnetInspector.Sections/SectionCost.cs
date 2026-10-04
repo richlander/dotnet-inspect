@@ -9,13 +9,17 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public enum SectionCost
 {
-    /// <summary>Cheap, bounded, offline. Eligible for every view including bare <c>-S</c>.</summary>
+    /// <summary>
+    /// Cheap and bounded to produce. Eligible for every view including bare <c>-S</c>. A host may
+    /// still plan a section's declared optional enrichment, such as acquiring a missing PDB
+    /// outside <c>--offline</c>, under its network policy.
+    /// </summary>
     NetworkFree,
 
     /// <summary>
     /// Bounded work that may touch the network or warm a PDB but stays within the default latency
     /// budget (roughly sub-second). Auto-runs only at <c>-v:d</c> (detailed); not at bare
-    /// <c>-S</c> or <c>-v:n</c>, both of which stay network-free.
+    /// <c>-S</c> or <c>-v:n</c>.
     /// </summary>
     Moderated,
 
