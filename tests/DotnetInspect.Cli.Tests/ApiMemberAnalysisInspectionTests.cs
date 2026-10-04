@@ -28,7 +28,9 @@ namespace DotnetInspect.Cli.Tests;
 public class ApiMemberAnalysisInspectionTests
 {
     static readonly string SelfPath = typeof(ApiMemberAnalysisInspectionTests).Assembly.Location;
-    static readonly string AnalysisPath = typeof(ILInspector.Analysis.LibraryBodyIndex).Assembly.Location;
+    static readonly string AnalysisPath =
+        typeof(ILInspector.Analysis.LibraryBodyAnalysisExecution)
+            .Assembly.Location;
     static readonly string MetadataPath = typeof(ApiMember).Assembly.Location;
     static readonly string CliPath = typeof(ApiMemberAnalysisInspection).Assembly.Location;
 
@@ -665,8 +667,14 @@ public class ApiMemberAnalysisInspectionTests
         => new(assemblyPath, [], new HashSet<string> { SectionNames.Callers }, scope, null);
 
     static int TokenOf(string assemblyPath, string declaringTypeName, string methodName)
-        => ILInspector.Analysis.LibraryBodyIndex.Open(assemblyPath).Methods
-            .First(m => m.DeclaringType.Name == declaringTypeName && m.Name == methodName)
+        => BodyAnalysisTestExecution.Open(
+                assemblyPath,
+                includeAllocations: false,
+                includeOpportunities: false)
+            .CallGraph.Methods
+            .First(method =>
+                method.DeclaringType.Name == declaringTypeName
+                && method.Name == methodName)
             .MetadataToken;
 
     static int MetadataTokenOf(
@@ -721,12 +729,10 @@ public class ApiMemberAnalysisInspectionTests
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
         string caller =
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
-        int invoke = ILInspector.Analysis.LibraryBodyIndex.Open(target)
-            .DeclaredMethods
-            .Single(method =>
-                method.DeclaringType.Name == "IBodilessApi"
-                && method.Name == "Invoke")
-            .MetadataToken;
+        int invoke = MetadataTokenOf(
+            target,
+            "IBodilessApi",
+            "Invoke");
 
         var inspection = CreateForCallers(target, [caller]);
         var edges = inspection.CallerEdges(invoke);
@@ -752,10 +758,10 @@ public class ApiMemberAnalysisInspectionTests
         {
             string target = Path.Combine(directory, "Malformed.dll");
             File.WriteAllBytes(target, BuildMalformedTarget());
-            int methodToken = ILInspector.Analysis.LibraryBodyIndex.Open(target)
-                .DeclaredMethods
-                .Single(method => method.Name == "Work")
-                .MetadataToken;
+            int methodToken = MetadataTokenOf(
+                target,
+                "",
+                "Work");
 
             var callers = CreateForCallers(target, [SelfPath]);
             var graph = Create(target, [SelfPath]);
@@ -826,11 +832,15 @@ public class ApiMemberAnalysisInspectionTests
     public void CallerEdges_AreUnchangedByNarrowing()
     {
         string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
-        var index = ILInspector.Analysis.LibraryBodyIndex.Open(target);
+        var methods = BodyAnalysisTestExecution.Open(
+                target,
+                includeAllocations: false,
+                includeOpportunities: false)
+            .CallGraph.Methods;
 
         int compared = 0;
         int withEdges = 0;
-        foreach (var method in index.Methods)
+        foreach (var method in methods)
         {
             var narrowed = CreateForCallers(target, FullScope);
 
