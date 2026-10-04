@@ -98,8 +98,10 @@ rung evaluates its next eligible tier.
 
 The ladder neither weakens identity matching nor promotes an inactive or
 identity-ineligible candidate. It validates every delegated snapshot against
-the exact request and captured policy version. A foreign or changed snapshot
-cannot be interpreted as a miss.
+the exact request and policy version captured for that Workspace generation.
+An immutable-generation continuation retains both the predecessor snapshot and
+the fresh successor policy version; a foreign or changed snapshot cannot be
+interpreted as a miss.
 
 `NoNameOwner` is not candidate evidence. It only proves that one rung's
 complete frozen ownership rule does not own the requested name. The final
@@ -595,6 +597,16 @@ as the fast path. After that candidate misses, it uses complete selected-role
 filename inventory to nominate namesake files; boundary-aligned package-family
 prefix affinity ranks those fallback candidates.
 
+Before correlating one `AssemblyRef`, the Package owner issues a request-neutral
+route projection for one exact traversal root. Its eligibility receipt retains
+the exact ladder generation, focal-scope receipt, traversal, root occurrence,
+and prepared execution for every admitted resolved-candidate edge in
+root-relative order. Platform-delegated edges remain explicit in that receipt
+but are not Package candidates. A non-complete traversal or an admitted edge
+without exact candidate evidence produces typed incomplete projection evidence;
+missing, duplicate, foreign-root, or non-admitted executions are malformed
+correspondence and are rejected rather than interpreted as Package absence.
+
 Each `PackageDependencyAssemblyRoute` carries:
 
 - the exact referencing-origin association;
@@ -784,9 +796,12 @@ The caller and host own the numeric policy. The ladder owns consistent charging
 and the rule that permissive scope is not unbounded execution.
 
 Work is charged before the operation that can consume it, with checked
-arithmetic. Owner-specific capacities may be narrower and retain their exact
-failure. Cancellation remains `OperationCanceledException`; it is not
-converted to a successful partial result.
+arithmetic, and charge admission observes the shared deadline. Deferred owner
+work receives cancellation bound to that deadline. Deadline cancellation
+returns typed exhaustion; caller cancellation remains
+`OperationCanceledException` and is not converted to a successful partial
+result. Owner-specific capacities may be narrower and retain their exact
+failure.
 
 Exhaustion returns `Incomplete` with the exact stage, configured maximum,
 consumed work, completed rung prefix, and any safely retained acquisition or

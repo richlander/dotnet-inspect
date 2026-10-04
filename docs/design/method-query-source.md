@@ -261,6 +261,27 @@ Each layer includes only its prerequisites. For example, `Calls` requires
 `Control flow` unless the request asks for both. `Identity` is projection work
 and remains absent from Count or Exists plans that do not need it.
 
+Instruction demand has two independent source-owned facets:
+
+| Facet | Ordered values | Meaning |
+| --- | --- | --- |
+| Access | `ForwardOnly < RetainedPrefix` | Whether all consumers can observe one advancing stream, or any consumer needs replay, independent progress, or IL-offset lookup. |
+| Detail | `OpcodeAndExtent < SelectiveOperands` | Whether consumers need only shallow instruction identity, or may resolve selected operands and branch targets. |
+
+A producer declares its minimum semantic demand, never a physical reader type.
+For one execution group, the source joins Access and Detail independently
+across active producers. A no-retention stream currently satisfies
+`ForwardOnly + OpcodeAndExtent`; any retained-prefix or selective-detail demand
+selects one lazy shallow retained sequence. Forward producers share the same
+advancing frontier when a retained consumer promotes the group. Adding a
+producer can only preserve or increase the joined demand, and producer order
+cannot change the selected source.
+
+The Method-body demand scorecard carries the reference implementation and real
+classifier gates for this rule. Production request-set collapse through the
+Method source remains unverified; this focused contract does not define the
+general capability model shared with Type or Member declaration planning.
+
 Shared lookup support, such as same-image token resolution or authenticated
 state-machine relationships, is execution-scoped work rather than a fictitious
 layer repeated for every method. A source plan declares the support it needs,
@@ -503,6 +524,12 @@ The first production adoption is gated in Release:
 - `TypeAuditEffectiveDiscovery_ListsUnsafeMembers`
 - `TypeAuditEffectiveDiscovery_OmitsUnsafeMembersForSafeType`
 - `TypeCommand_UnsafeMembersDiscovery_DoesNotBuildIndex`
+
+The instruction-demand reference planner is gated in Release:
+
+- `MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand`
+- `MethodBodyAnalyzerPlanner_JoinIsOrderIndependent`
+- `MethodBodyAnalyzerPlanner_PreservesRealClassifierResults`
 
 The following deeper-source gates remain **unverified**:
 

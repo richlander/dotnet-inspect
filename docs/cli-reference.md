@@ -969,7 +969,23 @@ dotnet-inspect find System.Text.Json.JsonSerializer \
   --tfm net10.0
 ```
 
-Default Markdown, tips, table formats, and plain type-search JSON retain their
+Find defaults to TSV, with one stable header and unified Type and Member rows:
+`Coordinate`, `Kind`, `Source`, `Library`, `Pattern`, `Declaration`, `Signature`,
+`Match`, and `Ecosystem`. `Kind` is `type` or `member`; `Declaration` describes
+the class, method, property, or other declaration category. Coordinates are
+display addresses, not substitutes for the internally retained declaration
+identity. Implicit Member matches are included in TSV. `--columns` selects
+columns and `--no-header` suppresses the header.
+
+Settled Member and wildcard Type rows print progressively during source
+search. Ordinary Type patterns wait when implicit Member fallback could
+supersede a weak match. Ecosystem searches publish each settled layer before
+searching the next. Semantic row-selection requests (`-n`, `--rows`, `--tail`)
+retain the existing buffered selection behavior; Count emits its final scalar.
+Diagnostics stay on stderr, and already printed rows remain available if a
+later source fails.
+
+Explicit `--markdown`, table, JSONL, and plain type-search JSON retain their
 existing shapes; plain JSON remains a root result array. When a selected
 Package row feeds Type or Member inspection internally, the handoff preserves
 the selected package-relative implementation asset and compatible TFM rather
@@ -996,10 +1012,11 @@ This searches Aspire's core packages first and, when they fill the window,
 does not realize ASP.NET Core or Runtime. Only named populations are searched:
 registered package prefixes do not trigger package-prefix discovery. If the
 entire selection has no named populations, Find fails with a prefix hint.
-Current Markdown output retains Find's existing Members-before-Results
-sections; rows remain nearest-first within each kind. A follow-on design will
-unify Type and Member result rows and make layer-ordered TSV the progressive
-default for all Find invocations.
+Explicit Markdown output retains Find's existing Members-before-Results
+sections; rows remain nearest-first within each kind. Unbounded default TSV
+instead publishes each layer's settled unified rows before the next layer.
+Selection-bearing requests keep the existing selection order until the
+separately owned row-selection work adopts the unified stream.
 
 ### Package Query over selected implementation libraries
 
@@ -1269,16 +1286,19 @@ dotnet-inspect workspace \
   --active-package 1 \
   --library compile:lib/net10.0/System.Text.Json.dll \
   --type System.Text.Json.JsonSerializer \
-  --lens type.compare
+  --lens .compare
 ```
 
 Add `--member <stable-selector>` and use a `member.*` lens for a Type-to-Member
-destination. `--all-libraries` uses the aggregate Library as the source while
-`--library` still names the destination Type's exact defining Library. A
-source-only `--all-libraries` request omits `--library`; supplying both without
-a Type destination is rejected. Root-only and explicit-empty Packages have no
-All-libraries subject and return a typed non-success snapshot instead of
-throwing.
+destination. The contextual `.<name>` spelling above lowers through the View
+Facet Registry to the exact canonical ID for the destination kind; full IDs
+such as `type.compare` remain the durable spelling in output, packets, and
+cross-host handoffs. `--all-libraries` uses the aggregate Library as the source
+while `--library` still names the destination Type's exact defining Library.
+A source-only `--all-libraries` request omits `--library`; supplying both
+without a Type destination is rejected. Root-only and explicit-empty Packages
+have no All-libraries subject and return a typed non-success snapshot instead
+of throwing.
 
 Selector misses retain the evaluated snapshot and diagnostics. The command
 claims that a Type or Member is not present only when its scoped inventory is

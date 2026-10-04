@@ -39,7 +39,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, withTips.Exit);
         Assert.Empty(withoutTips.Error);
         Assert.Equal(withoutTips.Output, withTips.Output);
-        Assert.Contains("Tips:", withTips.Error);
+        Assert.DoesNotContain("Tips:", withTips.Error);
         Assert.Contains(
             CliCommandText.Render(
             [
@@ -67,7 +67,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.Json.JsonSerializer", output);
-        Assert.Contains("Tips:", error);
+        Assert.DoesNotContain("Tips:", error);
         Assert.Contains(
             "member JsonSerializer --platform System.Text.Json",
             error);

@@ -178,8 +178,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     queryMemberFacts: () => unexpected("queryMemberFacts"),
     queryPackageTypeImplementationHeat: () =>
       unexpected("queryPackageTypeImplementationHeat"),
+    queryPackageTypeMethodLeverage: () =>
+      unexpected("queryPackageTypeMethodLeverage"),
     queryPlatformTypeImplementationHeat: () =>
       unexpected("queryPlatformTypeImplementationHeat"),
+    queryPlatformTypeMethodLeverage: () =>
+      unexpected("queryPlatformTypeMethodLeverage"),
     queryPackageIntegrations: () =>
       unexpected("queryPackageIntegrations"),
     queryPlatformIntegrations: () =>
@@ -269,6 +273,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    prepareEcosystemWorkspaceDefinition: () =>
+      unexpected("prepareEcosystemWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
@@ -2311,12 +2317,14 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageOpportunities",
       "queryPackagePerformance",
       "queryPackageTypeImplementationHeat",
+      "queryPackageTypeMethodLeverage",
       "queryPlatformIntegrations",
       "queryPlatformLibraryMetrics",
       "queryPlatformLibraryStructuralSalience",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
       "queryPlatformTypeImplementationHeat",
+      "queryPlatformTypeMethodLeverage",
     ],
     source: [
       "cancelMemberSourceComparison",
@@ -2356,6 +2364,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "prepareEcosystemWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
@@ -2378,7 +2387,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 105);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 108);
 
   const state = fixture();
   const groups = [

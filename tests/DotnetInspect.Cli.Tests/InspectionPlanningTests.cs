@@ -429,6 +429,11 @@ public sealed class InspectionPlanningTests
             "7a7f0afab9",
             "System.Text.Json.Utf8JsonWriter",
             "WriteStringValue");
+        ViewFacetId overview = InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview)
+            .Id;
         var basis = new ResolvedMemberInspectionBasis(
             new ResolvedInspectionSource(
                 AssemblyResolutionProvenance.Package(
@@ -447,6 +452,7 @@ public sealed class InspectionPlanningTests
                 "System.Text.Json.Utf8JsonWriter",
                 type,
                 anchor),
+            overview,
             new InspectionCatalogReference(
                 InspectionCatalogIdentity.ApiMemberDetail.ToString(),
                 1),
@@ -457,11 +463,6 @@ public sealed class InspectionPlanningTests
                 InspectionRequestVerbosity.Normal,
                 [SectionNames.Signature],
                 InspectionDiscoveryRequest.None));
-        ViewFacetId overview = InspectionViewFacetCatalog.Registry
-            .GetRequiredDescriptor(
-                StructuralSubjectKind.Member,
-                ViewFacetRole.MemberOverview)
-            .Id;
 
         MemberInspectionTerminalPlan[] plans =
         [
@@ -469,10 +470,13 @@ public sealed class InspectionPlanningTests
                 basis,
                 InspectionRequestVerbosity.Normal),
             new EffectiveDiscoveryPlan(basis),
-            new ShareProjectionPlan(basis, overview),
+            new ShareProjectionPlan(basis),
         ];
 
         Assert.All(plans, plan => Assert.Same(basis, plan.Basis));
+        Assert.All(
+            plans,
+            plan => Assert.Equal(overview, plan.Basis.DefaultFacet));
         Assert.Collection(
             plans,
             plan => Assert.IsType<SectionExecutionPlan>(plan),
@@ -538,6 +542,7 @@ public sealed class InspectionPlanningTests
                 member: anchor,
                 structuralPlan: structuralPlan,
                 options: finalOptions));
+        Assert.Equal("member.overview", plan.Basis.DefaultFacet.Value);
         MemberOptions applied =
             MemberInspectionPlanBuilder.ApplySemanticDemand(
                 finalOptions with

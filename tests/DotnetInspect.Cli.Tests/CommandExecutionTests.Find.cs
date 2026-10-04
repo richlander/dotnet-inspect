@@ -258,7 +258,10 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
-            "MapGet");
+            "MapGet",
+            "--markdown",
+            "--tips",
+            "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -287,7 +290,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_ZeroImplicitTypeResults_SuggestsPackageQueryOnStderr()
+    public async Task Find_ZeroDefaultTsvResults_KeepStdoutMachineReadable()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -297,10 +300,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("package query", output);
-        Assert.Contains(
-            $"package query {MissingPackageLikeApiSymbol}",
-            error);
-        Assert.Contains("find searches API symbols", error);
+        Assert.Empty(output);
+        Assert.Contains("No types found", error);
+        Assert.DoesNotContain("package query", error);
     }
 
     [Fact]
@@ -337,6 +339,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Search pattern required.", error);
+        Assert.Contains("Tips:", error);
         Assert.Contains(
             "package query 'Newtonsoft.*'",
             error);
@@ -405,15 +408,20 @@ public partial class CommandExecutionTests
         // pretty-printed JSON document violates. Prefix, closed, and single-row ranges therefore
         // select the same identities in each format.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl", "--rows", window);
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
             "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", window);
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
 
-        // Skip the TSV header; what remains is one data row per line.
-        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+        // JSONL retains the legacy result schema; unified TSV now has its own vocabulary.
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return row.RootElement.GetProperty("type").GetString();
+            }).ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
         var actual = document.RootElement.GetProperty("results")
@@ -502,14 +510,19 @@ public partial class CommandExecutionTests
         // The member search reaches the lowered view through a separate call site; a fix applied to
         // only one of the two would leave --rows silently dropped on the other.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "1..2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--jsonl", "--rows", "1..2");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
             "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "1..2");
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
 
-        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return row.RootElement.GetProperty("member").GetString();
+            }).ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
         var actual = document.RootElement.GetProperty("members")
@@ -531,7 +544,7 @@ public partial class CommandExecutionTests
         var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--json");
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--tsv");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--jsonl");
 
         Assert.Equal(0, jsonExit);
         Assert.Equal(0, tsvExit);
@@ -540,7 +553,9 @@ public partial class CommandExecutionTests
         using var document = JsonDocument.Parse(jsonOutput);
         var keys = document.RootElement.GetProperty("results")[0]
             .EnumerateObject().Select(property => property.Name).ToArray();
-        var tsvColumns = tsvOutput.TrimStart().Split('\n')[0].TrimEnd('\r').Split('\t');
+        using var jsonlRow = JsonDocument.Parse(tsvOutput.TrimStart().Split('\n')[0]);
+        var tsvColumns = jsonlRow.RootElement.EnumerateObject()
+            .Select(property => property.Name).ToArray();
 
         // Compare the key names, not just how many there are: a count alone passes even when the
         // two formats disagree about casing, which is exactly the defect adversarial review found.
@@ -595,7 +610,7 @@ public partial class CommandExecutionTests
     [InlineData("Type,*", "*", "--table")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--json")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--jsonl")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--tsv")]
+    [InlineData("C*,*e", "Coordinate,Source,Signature", "--tsv")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--table")]
     public async Task Find_OverlappingColumnPatterns_AreDeduplicatedInEveryFormat(
         string columns,
@@ -797,10 +812,10 @@ public partial class CommandExecutionTests
         // breaking a valid request.
         var (exit, output, _) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns", "Type", "--columns", "Kind", "--tsv");
+            "--columns", "Coordinate", "--columns", "Kind", "--tsv");
 
         Assert.Equal(0, exit);
-        Assert.StartsWith("type\tkind", output.TrimStart(), StringComparison.Ordinal);
+        Assert.StartsWith("coordinate\tkind", output.TrimStart(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2156,6 +2171,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Object",
+            "--markdown",
             "--package",
             "System.Runtime@4.3.1",
             "--platform",
@@ -2178,7 +2194,7 @@ public partial class CommandExecutionTests
     public async Task Find_Members_ExplicitFlag_RendersMembersSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "Serialize", "--members", "--platform", "System.Text.Json");
+            "find", "Serialize", "--members", "--platform", "System.Text.Json", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Members", output);

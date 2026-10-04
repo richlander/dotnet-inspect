@@ -13,7 +13,6 @@ public static class NetworkTelemetry
 
     private static readonly object Gate = new();
     private static readonly AsyncLocal<NetworkTrafficKind> CurrentKind = new();
-    private static readonly AsyncLocal<ImmutableHashSet<NetworkTrafficKind>?> AllowedKinds = new();
     private static ImmutableArray<IObserver<NetworkRequestObservation>> Subscribers = [];
 
     public static IDisposable Scope(NetworkTrafficKind kind)
@@ -24,13 +23,6 @@ public static class NetworkTelemetry
     }
 
     internal static NetworkTrafficKind CurrentTrafficKind => CurrentKind.Value;
-
-    public static IDisposable Allow(NetworkTrafficKind kind)
-    {
-        var previous = AllowedKinds.Value;
-        AllowedKinds.Value = (previous ?? ImmutableHashSet<NetworkTrafficKind>.Empty).Add(kind);
-        return new AllowedKindScope(previous);
-    }
 
     public static IDisposable Subscribe(IObserver<NetworkRequestObservation> observer)
     {
@@ -44,16 +36,14 @@ public static class NetworkTelemetry
         return new Subscription(observer);
     }
 
-    internal static bool RecordRequestStarting(
+    internal static void RecordRequestStarting(
         HttpRequestMessage request,
         string clientKind)
     {
-        var trafficKind = CurrentKind.Value;
         var observation = NetworkRequestObservation.Create(
             request,
             clientKind,
-            trafficKind,
-            IsAllowedByPolicy(trafficKind));
+            CurrentKind.Value);
 
         Activity.Current?.AddEvent(new ActivityEvent(
             RequestStartingEventName,
@@ -67,8 +57,6 @@ public static class NetworkTelemetry
 
         foreach (var subscriber in subscribers)
             subscriber.OnNext(observation);
-
-        return observation.IsAllowedByPolicy;
     }
 
     private sealed class Subscription(IObserver<NetworkRequestObservation> observer) : IDisposable
@@ -86,21 +74,6 @@ public static class NetworkTelemetry
     {
         public void Dispose() => CurrentKind.Value = previous;
     }
-
-    private sealed class AllowedKindScope(ImmutableHashSet<NetworkTrafficKind>? previous) : IDisposable
-    {
-        public void Dispose() => AllowedKinds.Value = previous;
-    }
-
-    private static bool IsAllowedByPolicy(NetworkTrafficKind kind) =>
-        kind switch
-        {
-            // Package load/search traffic is always allowed. NuGet and GitHub
-            // vulnerability enrichment share one view-gated capability.
-            NetworkTrafficKind.VulnerabilityData or NetworkTrafficKind.AdvisoryData =>
-                AllowedKinds.Value?.Contains(NetworkTrafficKind.VulnerabilityData) == true,
-            _ => true
-        };
 }
 
 public sealed record NetworkRequestObservation(
@@ -110,15 +83,13 @@ public sealed record NetworkRequestObservation(
     InertString? Host,
     string ClientKind,
     NetworkTrafficKind TrafficKind,
-    bool IsAllowedByPolicy,
     string? RequestWhat,
     string? RequestWhy)
 {
     internal static NetworkRequestObservation Create(
         HttpRequestMessage request,
         string clientKind,
-        NetworkTrafficKind trafficKind,
-        bool isAllowedByPolicy)
+        NetworkTrafficKind trafficKind)
     {
         var uri = request.RequestUri;
         return new NetworkRequestObservation(
@@ -130,7 +101,6 @@ public sealed record NetworkRequestObservation(
                 : null,
             clientKind,
             trafficKind,
-            isAllowedByPolicy,
             RequestTelemetry.Current.What,
             RequestTelemetry.Current.Why);
     }
@@ -142,7 +112,6 @@ public sealed record NetworkRequestObservation(
             ["http.request.method"] = Method,
             ["dotnet_inspect.http.client_kind"] = ClientKind,
             ["dotnet_inspect.network.kind"] = TrafficKind.ToTelemetryName(),
-            ["dotnet_inspect.network.policy.allowed"] = IsAllowedByPolicy
         };
 
         if (Url is { } url)
@@ -235,12 +204,6 @@ internal sealed class NetworkTrafficLogConsumer(TextWriter sink, Func<string, st
 
         sink.WriteLine(contain(
             $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}"));
-
-        if (observation is { TrafficKind: NetworkTrafficKind.VulnerabilityData, IsAllowedByPolicy: false })
-        {
-            sink.WriteLine(contain(
-                $"Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section: {observation.Method} {observation.Url}"));
-        }
     }
 
     public void OnCompleted()

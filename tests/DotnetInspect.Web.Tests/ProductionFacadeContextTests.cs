@@ -136,6 +136,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageOpportunities",
             "QueryPackagePerformance",
             "QueryPackageTypeImplementationHeat",
+            "QueryPackageTypeMethodLeverage",
             "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryMetrics",
@@ -143,6 +144,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformOpportunities",
             "QueryPlatformPerformance",
             "QueryPlatformTypeImplementationHeat",
+            "QueryPlatformTypeMethodLeverage",
         ],
         [SourceAssembly] =
         [
@@ -194,6 +196,7 @@ public sealed class ProductionFacadeContextTests
             "ListHomeDemos",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
+            "PrepareEcosystemWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",
@@ -248,7 +251,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(130, everyExport.Length);
+        Assert.Equal(133, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
