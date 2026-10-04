@@ -65,9 +65,15 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
     {
         internal PackageOwned(
             AssemblyBindingRequest request,
+            PackageAssemblyReferenceExternalRoute route,
             PackageAssemblyReferenceSupplierOutcome.Selected package)
-            : base(request, package) =>
+            : base(request, package)
+        {
+            Route = route;
             Package = package;
+        }
+
+        public PackageAssemblyReferenceExternalRoute Route { get; }
 
         public PackageAssemblyReferenceSupplierOutcome.Selected Package
         { get; }
@@ -242,7 +248,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
         {
             case PackageAssemblyReferenceSupplierOutcome.Selected selected:
                 return new ExternalAssemblyReferenceSupplierOutcome
-                    .PackageOwned(request, selected);
+                    .PackageOwned(request, packageRoute, selected);
             case PackageAssemblyReferenceSupplierOutcome.Ambiguous:
                 return new ExternalAssemblyReferenceSupplierOutcome
                     .Ambiguous(

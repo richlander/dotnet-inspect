@@ -31,15 +31,24 @@ accessibility filter states the whole admitted population before any
 non-public row is loaded:
 
 ```text
-Accessibility   public · 16
+Accessibility   public · 11
 ```
 
-Its dropdown offers `all · 87`, `public · 16`, `protected · 0`,
+Its declaration dropdown offers `all · 82`, `public · 11`, `protected · 0`,
 `internal · 44`, and `private · 27`. `all` requests the union of those four
 accessibility buckets under the current spelling and hidden admission; it does
 not admit hidden declarations. Kind, accessibility, spelling, and trait are
 single-choice filters, so the narrow Member pane renders them as labeled
 dropdowns rather than horizontally clipped chip strips.
+
+Inspect Web starts the declaration request and contextual-extension request
+independently. It paints the 11 public declarations as soon as the home
+assembly answers, without waiting for workspace receiver discovery. A separate
+extension state later reports the five receiver-targeted declarations available
+from the home assembly. Once cross-assembly indexing is adopted, the same state
+may include additional admitted workspace assemblies. A composed display may
+say `16 total (11 declared + 5 extensions)`; it must not rewrite the declaration
+Count from 11 to 16 or turn extension failure into declaration incompleteness.
 
 Every filtering option carries an exact declaration Count. Accessibility
 Counts describe all buckets; Kind and Trait Counts describe the currently
@@ -49,10 +58,11 @@ interface-implementation fact, not inferred implicit correspondence. The
 control order is Kind, Accessibility, Trait, then Spelling. Spelling is last
 because it changes the declaration unit rather than filtering declarations.
 
-The list shows 8 rows for those 16 members. Each overload family's row, such as
+The declaration list shows rows for those 11 members. Each overload family's
+row, such as
 `Parse 5×` or `Deserialize 5×`, colors its name differently. That text color
 tells the reader that the row holds overloads, and where the difference
-between 8 rows and 16 members lives. It is a different channel from heat,
+between rows and actual members lives. It is a different channel from heat,
 which tints a row's background and colors the parent row's status text.
 
 The reader selects `private`. The Browser requests that Type's Rows under
@@ -66,9 +76,9 @@ count is 0.
 The same `Filters` disclosure, collapsed by default, offers:
 
 ```text
-Kind            all kinds · 16
-Accessibility   public · 16
-Trait           all · 16
+Kind            all kinds · 11
+Accessibility   public · 11
+Trait           all · 11
 Spelling        C#
 ```
 
@@ -91,15 +101,16 @@ After adoption:
 
 ```console
 $ dotnet-inspect type JsonDocument --package System.Text.Json@10.0.0 --count
-16
+11
 $ dotnet-inspect type JsonDocument --package System.Text.Json@10.0.0 \
     --where "accessibility=private" --count
 27
 ```
 
-Both hosts read accessibility numbers from the Composition Count. Inspect Web
-reads Kind and Trait facet Counts from the Metadata-owned exact population.
-Neither host counts rows in UI code.
+Both hosts read declaration accessibility numbers from the declaration
+Composition Count. Inspect Web reads declaration Kind and Trait facet Counts
+from the Metadata-owned exact population and reads extension Counts from the
+separate contextual result. Neither host counts rows in UI code.
 
 ## Typed handoffs
 
@@ -109,9 +120,10 @@ Neither host counts rows in UI code.
    declaration and that declaration's bucket. One predicate issues these facts
    for extraction and counting in both spellings.
 2. The Type document owner binds the `accessibility` and `receiver`
-   projections to those facts. It returns Member-group Rows for one intent, or
-   the Composition Count, whose declaration Counts total the nested overload
-   Counts of those Rows.
+   projections to those facts. It returns declared Member-group Rows for one
+   intent, or the declaration Composition Count, whose Counts total the nested
+   overload Counts of those Rows. Contextual extensions retain a separate
+   result and completion state.
 3. The CLI lowers `--where "accessibility=…"`, `--spelling`, `--all`, and
    `--count` to that request. Inspect Web lowers the chip and spelling
    selections to the same request.
@@ -178,8 +190,9 @@ the step says otherwise.
    `Methods (6 logical, 10 overloads)`). This retires the Type-subject
    materialize-then-count path, the Member Index name heuristic, and the
    `N logical` heading.
-5. Inspect Web: show the Composition Count on the chips and in the `Members`
-   heading, and color overload family rows' names as
+5. Inspect Web: show the declaration Composition Count on the chips and in the
+   `Members` heading immediately, request contextual extensions independently,
+   and color overload family rows' names as
    [Inspect Web navigation presentation](inspect-web-navigation-presentation.md#type-navigation)
    states.
    Offer the spelling row in `Filters`. Request Rows per selected bucket and

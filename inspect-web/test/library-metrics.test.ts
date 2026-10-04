@@ -111,11 +111,14 @@ test("keeps structural salience out of the Metrics presentation", () => {
   );
 });
 
-test("keeps detailed distributions out of the website presentation", () => {
+test("keeps detailed distributions and redundant summary copy out of Metrics", () => {
   const html = render();
 
   assert.doesNotMatch(html, /Detailed distributions|metrics-table/);
-  assert.match(html, /Compiled IL metrics for <strong>Example\.Core<\/strong>/);
+  assert.doesNotMatch(
+    html,
+    /Compiled IL metrics for|not authored-source complexity/,
+  );
 });
 
 test("treemap cells expose exact type activation and evidence semantics", () => {
@@ -238,6 +241,20 @@ test("relationship topology keeps same-display generic arities distinct", () => 
   assert.ok(edge);
   assert.notEqual(edge[1], edge[2]);
   assert.match(html, /2 most connected types/);
+});
+
+test("relationship arcs expose exact selection evidence and a detail surface", () => {
+  const html = render();
+
+  assert.match(
+    html,
+    /data-metrics-relationship data-source-type-key="Example\.Core\.Engine" data-source-type-display="Example\.Core\.Engine" data-target-type-key="Example\.Core\.Store" data-target-type-display="Example\.Core\.Store" data-call-site-count="4"[^>]*tabindex="0" role="button" aria-pressed="false"/,
+  );
+  assert.match(html, /data-metrics-relationship-detail aria-live="polite"/);
+  assert.match(html, /data-metrics-relationship-source/);
+  assert.match(html, /data-metrics-relationship-target/);
+  assert.match(html, /Relationship depth/);
+  assert.match(html, /Select an arc for details/);
 });
 
 test("reciprocal relationships use distinct geometry independent of insertion lanes", () => {

@@ -393,7 +393,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
 
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(overview.locator(
-    ".package-overview-summary .section-title h2"))
+    ".package-info-section > .section-title h2"))
     .toHaveText("Package Info");
 });
 
@@ -465,7 +465,8 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator("#package-version")).toBeVisible();
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
-    await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
+    await expect(page.locator(".overview-surface-head p"))
+      .toHaveText("Type Count unavailable · Member Count unavailable");
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "Example.Package@1.0.0", "net10.0",
     ]);
@@ -476,7 +477,7 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator(".comparison-target-policy"))
       .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
     await expect(overview.locator(
-      ".package-overview-summary .section-title h2"))
+      ".package-info-section > .section-title h2"))
       .toHaveText("Package Info");
     await expect(overview.locator(
       ".package-overview-resources .section-title h2"))
@@ -795,7 +796,6 @@ test("metadata accessors retain their established overload detail route", async 
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-spelling]").selectOption("metadata");
   await chooseSubject(page, "member", "Member");
-  await page.locator(".member-surface-list .overload-row").click();
 
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
@@ -895,29 +895,27 @@ test("aggregate Library remains active through Spotlight Type and Member results
     .toHaveValue("public");
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
   expect(await page.locator("html").getAttribute(
     "data-member-group-document-request",
   )).toBeNull();
 
   await page.keyboard.press("1");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
 
   await page.keyboard.press("ArrowRight");
-  await expect(subjectTab(page, "type"))
+  await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("ArrowLeft");
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
 
-  await page.locator(".member-surface-list .overload-row").click();
   await page.keyboard.press("Backspace");
-  await expect(page.locator("#member-surface-title")).toHaveText("Run");
-  await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
 
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(".subject-path-segment").nth(1))
@@ -1165,6 +1163,14 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const instanceMember = {
     ...run,
     signature: "public void Run(int value)",
+    parameters: [{
+      name: "value",
+      type: "int",
+      modifier: null,
+      hasDefault: false,
+      defaultValue: null,
+      description: null,
+    }],
     metadataToken: 0x06000002,
     declarationMetadataToken: 0x06000002,
     stableSelector: "Run:2",
@@ -1288,9 +1294,49 @@ test("Member filters use dropdowns and request all accessibility buckets", async
 
   await filteredRun.click();
   await expect(page.locator(".member-surface-head"))
-    .toContainText("Exact declaration 2");
+    .toContainText("method · 2 of 2");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(0);
   await expect(page.locator(".signature-code"))
     .toContainText("public void Run(int value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Run","Run:2",100663298,false\]$/,
+  );
+  await expect(page.getByText(
+    "M:Example.Widget.Run(System.Int32)",
+    { exact: true },
+  )).toBeVisible();
+
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("#inspector-panel [data-member]").click();
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(2);
+
+  await page.locator("[data-member-trait-filter]")
+    .selectOption("instance");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("method · 2 of 2");
+  await expect(page.locator(".signature-code"))
+    .toContainText("public void Run(int value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Run","Run:2",100663298,false\]$/,
+  );
+  await expect(page.locator("#type-list [data-nav-overload]"))
+    .toHaveCount(0);
+  await expect(page.locator(
+    '#type-list [data-nav-member] .family-count',
+  )).toHaveCount(0);
+  await expect(page.locator(
+    '#type-list [data-nav-member] .type-name',
+  )).toContainText("Run(int)");
 });
 
 for (const width of [900, 390]) {
@@ -1439,6 +1485,8 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
   await page.goBack();
@@ -1507,6 +1555,8 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await selectLibrary(page, core.id);
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Package");
+  await chooseSubject(page, "library", "Library");
   await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
 
   await page.goBack();

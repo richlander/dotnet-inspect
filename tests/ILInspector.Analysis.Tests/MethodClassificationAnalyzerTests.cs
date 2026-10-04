@@ -76,8 +76,8 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("Plain");
         ImmutableArray<byte> image = builder.Build();
 
-        ImmutableArray<ClassifiedMethodRow> runtime = Rows(image, RuntimeAsyncAnalyzer.Instance);
-        ImmutableArray<ClassifiedMethodRow> compiler = Rows(image, CompilerAsyncAnalyzer.Instance);
+        ImmutableArray<ClassifiedMethodRow> runtime = Rows(image, RuntimeAsyncClassificationProducer.Instance);
+        ImmutableArray<ClassifiedMethodRow> compiler = Rows(image, CompilerAsyncClassificationProducer.Instance);
 
         Assert.Equal(["Runtime", "Both"], runtime.Select(static row => row.MethodName.ToString()));
         Assert.All(runtime, static row => Assert.Equal(MethodClassification.RuntimeAsync, row.Classification));
@@ -111,21 +111,21 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("Plain");
         ImmutableArray<byte> image = builder.Build();
 
-        ImmutableArray<ClassifiedMethodRow> async = Rows(image, AsyncAnalyzer.Instance);
+        ImmutableArray<ClassifiedMethodRow> async = Rows(image, AsyncClassificationProducer.Instance);
         Assert.Equal(
             [("RuntimeWithHostileAttribute", MethodClassification.RuntimeAsync), ("Compiler", MethodClassification.StateMachineAsync)],
             async.Select(static row => (row.MethodName.ToString(), row.Classification)));
         Assert.Equal(
             2,
-            Execute(image, new ProducerRequest(AsyncAnalyzer.Instance)).ResultOf(AsyncAnalyzer.Instance).Value!.Count);
+            Execute(image, new ProducerRequest(AsyncClassificationProducer.Instance)).ResultOf(AsyncClassificationProducer.Instance).Value!.Count);
         Assert.Equal(
             MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.Declaration,
-            AsyncAnalyzer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
+            AsyncClassificationProducer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
 
         // Neither the one pass nor compiler async alone reads the runtime-async
         // method's attribute: reading it would abort.
         ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> compiler =
-            Execute(image, new ProducerRequest(CompilerAsyncAnalyzer.Instance)).ResultOf(CompilerAsyncAnalyzer.Instance);
+            Execute(image, new ProducerRequest(CompilerAsyncClassificationProducer.Instance)).ResultOf(CompilerAsyncClassificationProducer.Instance);
         Assert.Equal(1, compiler.Value!.Count);
     }
 
@@ -144,12 +144,12 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("C");
         ImmutableArray<byte> image = builder.Build();
 
-        MethodDefinitionExecution execution = Execute(image, new ProducerRequest(CompilerAsyncAnalyzer.Instance, terminal));
-        ClosedQueryResult<ClassifiedMethodRow> value = execution.ResultOf(CompilerAsyncAnalyzer.Instance).Value!;
+        MethodDefinitionExecution execution = Execute(image, new ProducerRequest(CompilerAsyncClassificationProducer.Instance, terminal));
+        ClosedQueryResult<ClassifiedMethodRow> value = execution.ResultOf(CompilerAsyncClassificationProducer.Instance).Value!;
 
         Assert.Equal(
             MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.Declaration,
-            CompilerAsyncAnalyzer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
+            CompilerAsyncClassificationProducer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
         switch (terminal)
         {
             case ProducerTerminal.Rows:
@@ -183,7 +183,7 @@ public sealed class MethodClassificationAnalyzerTests
         ImmutableArray<byte> image = builder.Build();
 
         ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result =
-            Execute(image, new ProducerRequest(PInvokeAnalyzer.Instance, ProducerTerminal.Rows)).ResultOf(PInvokeAnalyzer.Instance);
+            Execute(image, new ProducerRequest(PInvokeClassificationProducer.Instance, ProducerTerminal.Rows)).ResultOf(PInvokeClassificationProducer.Instance);
         Assert.True(result.HasValue, $"{result.Outcome} {result.Failure} {result.Critical}");
         ClassifiedMethodRow row = Assert.Single(result.Value!.Rows);
 
@@ -206,8 +206,8 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("Truncated", Bytes(0x00, 0x01, 0x01));
         ImmutableArray<byte> image = builder.Build();
 
-        MethodDefinitionExecution execution = Execute(image, new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
-        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result = execution.ResultOf(PointerSignatureAnalyzer.Instance);
+        MethodDefinitionExecution execution = Execute(image, new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal));
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result = execution.ResultOf(PointerSignatureClassificationProducer.Instance);
 
         if (terminal == ProducerTerminal.Exists)
         {
@@ -233,17 +233,17 @@ public sealed class MethodClassificationAnalyzerTests
         {
             MethodDefinitionExecution execution = Execute(
                 image,
-                new ProducerRequest(PInvokeAnalyzer.Instance, terminal),
-                new ProducerRequest(RuntimeAsyncAnalyzer.Instance, terminal),
-                new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+                new ProducerRequest(PInvokeClassificationProducer.Instance, terminal),
+                new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, terminal),
+                new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal));
 
             Assert.False(execution.Receipt.IdentityBudgetArmed);
             Assert.Equal(0, execution.Receipt.IdentityWorkCharged);
-            Assert.False(execution.ResultOf(PointerSignatureAnalyzer.Instance).Value!.HasRows);
+            Assert.False(execution.ResultOf(PointerSignatureClassificationProducer.Instance).Value!.HasRows);
         }
 
-        MethodDefinitionExecution counted = Execute(image, new ProducerRequest(PointerSignatureAnalyzer.Instance));
-        Assert.Equal(2, counted.ResultOf(PointerSignatureAnalyzer.Instance).Value!.Count);
+        MethodDefinitionExecution counted = Execute(image, new ProducerRequest(PointerSignatureClassificationProducer.Instance));
+        Assert.Equal(2, counted.ResultOf(PointerSignatureClassificationProducer.Instance).Value!.Count);
     }
 
     [Fact]
@@ -258,11 +258,11 @@ public sealed class MethodClassificationAnalyzerTests
 
         // Each closing is its own request in its own work description:
         // nothing derives Count from Rows.
-        MethodDefinitionExecution rows = Execute(image, new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows));
-        MethodDefinitionExecution count = Execute(image, new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Count));
+        MethodDefinitionExecution rows = Execute(image, new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Rows));
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Count));
 
-        ClosedQueryResult<ClassifiedMethodRow> listed = rows.ResultOf(RuntimeAsyncAnalyzer.Instance).Value!;
-        ClosedQueryResult<ClassifiedMethodRow> counted = count.ResultOf(RuntimeAsyncAnalyzer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> listed = rows.ResultOf(RuntimeAsyncClassificationProducer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> counted = count.ResultOf(RuntimeAsyncClassificationProducer.Instance).Value!;
         Assert.Equal(2, listed.Rows.Length);
         Assert.Equal(listed.Rows.Length, counted.Count);
         Assert.False(counted.HasRows);
@@ -286,19 +286,19 @@ public sealed class MethodClassificationAnalyzerTests
         // Alone, the analyzer's pass runs as its kernel, specialized to the
         // scope's struct classification: it tests the gate inline and never
         // looks up the classifier's cache.
-        MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+        MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal));
         Assert.Equal(0, kernel.GateCacheLookups);
 
         // Beside an independent producer, the pass is interpreted.
         MethodDefinitionExecution interpreted = Execute(
             image,
-            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal),
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal),
             new ProducerRequest(Independent.Instance));
         Assert.Equal(1, interpreted.GateCacheLookups);
 
         // Both pass shapes answer as before.
-        ClosedQueryResult<ClassifiedMethodRow> alone = kernel.ResultOf(PointerSignatureAnalyzer.Instance).Value!;
-        ClosedQueryResult<ClassifiedMethodRow> fused = interpreted.ResultOf(PointerSignatureAnalyzer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> alone = kernel.ResultOf(PointerSignatureClassificationProducer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> fused = interpreted.ResultOf(PointerSignatureClassificationProducer.Instance).Value!;
         Assert.Equal(terminal == ProducerTerminal.Exists ? 1 : 2, alone.Count);
         Assert.Equal(alone.Count, fused.Count);
     }
@@ -315,10 +315,10 @@ public sealed class MethodClassificationAnalyzerTests
         // Planning never ranks or merges closings, so no order yields a lossy plan.
         ProducerContractException error = Assert.Throws<ProducerContractException>(() => ProducerPlanner.Plan(
         [
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, first),
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, second),
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, first),
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, second),
         ]));
-        Assert.Contains(RuntimeAsyncAnalyzer.Instance.Identity, error.Message, StringComparison.Ordinal);
+        Assert.Contains(RuntimeAsyncClassificationProducer.Instance.Identity, error.Message, StringComparison.Ordinal);
         Assert.Contains(first.ToString(), error.Message, StringComparison.Ordinal);
         Assert.Contains(second.ToString(), error.Message, StringComparison.Ordinal);
     }
@@ -330,33 +330,33 @@ public sealed class MethodClassificationAnalyzerTests
     public void Planner_IdenticalDuplicateRequestIsAccepted(ProducerTerminal terminal)
     {
         WorkDescription description = Plan(
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, terminal),
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, terminal));
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, terminal),
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, terminal));
 
-        Assert.Equal(terminal, description.TerminalOf(RuntimeAsyncAnalyzer.Instance));
-        Assert.Equal([RuntimeAsyncAnalyzer.Instance], description.Producers);
+        Assert.Equal(terminal, description.TerminalOf(RuntimeAsyncClassificationProducer.Instance));
+        Assert.Equal([RuntimeAsyncClassificationProducer.Instance], description.Producers);
     }
 
     [Fact]
     public void Planner_IdenticalHeadIsAcceptedAndDistinctLimitsConflict()
     {
         ProducerRequest head = ProducerRequest.Head(
-            RuntimeAsyncAnalyzer.Instance,
+            RuntimeAsyncClassificationProducer.Instance,
             2);
         WorkDescription description = Plan(head, head);
 
         Assert.Equal(
             ProducerTerminal.Rows,
-            description.TerminalOf(RuntimeAsyncAnalyzer.Instance));
+            description.TerminalOf(RuntimeAsyncClassificationProducer.Instance));
         Assert.Equal(
             2,
-            description.RowLimitOf(RuntimeAsyncAnalyzer.Instance));
+            description.RowLimitOf(RuntimeAsyncClassificationProducer.Instance));
 
         ProducerContractException error =
             Assert.Throws<ProducerContractException>(() => ProducerPlanner.Plan(
             [
-                ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 2),
-                ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 3),
+                ProducerRequest.Head(RuntimeAsyncClassificationProducer.Instance, 2),
+                ProducerRequest.Head(RuntimeAsyncClassificationProducer.Instance, 3),
             ]));
         Assert.Contains("Head(2)", error.Message, StringComparison.Ordinal);
         Assert.Contains("Head(3)", error.Message, StringComparison.Ordinal);
@@ -366,9 +366,9 @@ public sealed class MethodClassificationAnalyzerTests
     public void Planner_HeadRequiresAPositiveRowLimit()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 0));
+            ProducerRequest.Head(RuntimeAsyncClassificationProducer.Instance, 0));
         Assert.Throws<ArgumentException>(() => new ProducerRequest(
-            RuntimeAsyncAnalyzer.Instance,
+            RuntimeAsyncClassificationProducer.Instance,
             ProducerTerminal.Complete,
             rowLimit: 1));
     }
@@ -386,10 +386,10 @@ public sealed class MethodClassificationAnalyzerTests
 
         ProducerRequest[] requests =
         [
-            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Count),
-            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Exists),
-            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows),
-            ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 1),
+            new(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Count),
+            new(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Exists),
+            new(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Rows),
+            ProducerRequest.Head(RuntimeAsyncClassificationProducer.Instance, 1),
         ];
         foreach (ProducerRequest request in requests)
         {
@@ -435,18 +435,18 @@ public sealed class MethodClassificationAnalyzerTests
 
         MethodDefinitionExecution kernel = Execute(
             image,
-            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal));
         MethodDefinitionExecution interpreted = Execute(
             image,
-            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal),
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal),
             new ProducerRequest(Independent.Instance));
 
         Assert.NotNull(kernel.Receipt.Critical);
         Assert.NotNull(interpreted.Receipt.Critical);
         Assert.Equal(interpreted.Receipt.UnitsVisited, kernel.Receipt.UnitsVisited);
         Assert.Equal(2, kernel.Receipt.UnitsVisited);
-        ProducerParticipation kp = kernel.Receipt.For(PointerSignatureAnalyzer.Instance);
-        ProducerParticipation ip = interpreted.Receipt.For(PointerSignatureAnalyzer.Instance);
+        ProducerParticipation kp = kernel.Receipt.For(PointerSignatureClassificationProducer.Instance);
+        ProducerParticipation ip = interpreted.Receipt.For(PointerSignatureClassificationProducer.Instance);
         Assert.Equal(
             (ip.Outcome, ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
             (kp.Outcome, kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
@@ -458,7 +458,7 @@ public sealed class MethodClassificationAnalyzerTests
     // ---- Helpers ----
 
     static readonly ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>>[] Analyzers =
-        [PInvokeAnalyzer.Instance, AsyncAnalyzer.Instance, RuntimeAsyncAnalyzer.Instance, CompilerAsyncAnalyzer.Instance, PointerSignatureAnalyzer.Instance];
+        [PInvokeClassificationProducer.Instance, AsyncClassificationProducer.Instance, RuntimeAsyncClassificationProducer.Instance, CompilerAsyncClassificationProducer.Instance, PointerSignatureClassificationProducer.Instance];
 
     static BlobBuilder PointerParameter() =>
         GateFixtureImage.VoidSignature(static t => t.Pointer().Int32());
@@ -487,15 +487,15 @@ public sealed class MethodClassificationAnalyzerTests
     {
         MethodDefinitionExecution execution = Execute(
             image,
-            new ProducerRequest(PInvokeAnalyzer.Instance, ProducerTerminal.Rows),
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows),
-            new ProducerRequest(CompilerAsyncAnalyzer.Instance, ProducerTerminal.Rows),
-            new ProducerRequest(PointerSignatureAnalyzer.Instance, ProducerTerminal.Rows));
+            new ProducerRequest(PInvokeClassificationProducer.Instance, ProducerTerminal.Rows),
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Rows),
+            new ProducerRequest(CompilerAsyncClassificationProducer.Instance, ProducerTerminal.Rows),
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance, ProducerTerminal.Rows));
         return (
-            execution.ResultOf(PInvokeAnalyzer.Instance).Value!.Rows,
-            [.. execution.ResultOf(RuntimeAsyncAnalyzer.Instance).Value!.Rows,
-                .. execution.ResultOf(CompilerAsyncAnalyzer.Instance).Value!.Rows],
-            execution.ResultOf(PointerSignatureAnalyzer.Instance).Value!.Rows);
+            execution.ResultOf(PInvokeClassificationProducer.Instance).Value!.Rows,
+            [.. execution.ResultOf(RuntimeAsyncClassificationProducer.Instance).Value!.Rows,
+                .. execution.ResultOf(CompilerAsyncClassificationProducer.Instance).Value!.Rows],
+            execution.ResultOf(PointerSignatureClassificationProducer.Instance).Value!.Rows);
     }
 
     static ImmutableArray<ClassifiedMethodRow> Rows(
@@ -580,14 +580,14 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("OnInstanceType", PointerParameter(), PublicStatic, attributeConstructors: extension);
         ImmutableArray<byte> image = builder.Build();
 
-        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
-        ImmutableArray<ClassifiedMethodRow> rows = Rows(image, ExtensionMethodAnalyzer.Instance);
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodClassificationProducer.Instance, ProducerTerminal.Count));
+        ImmutableArray<ClassifiedMethodRow> rows = Rows(image, ExtensionMethodClassificationProducer.Instance);
 
         // Legacy compares a compatibility message only within sixteen bytes
         // of its length, so the DiagnosticId variant is an ordinary
         // deprecation (hidden) for both; the 2,048 repeated markers are read
         // once per row by the gate where legacy rescans at every marker.
-        Assert.Equal(4, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+        Assert.Equal(4, count.ResultOf(ExtensionMethodClassificationProducer.Instance).Value!.Count);
         Assert.Equal(
             ["Visible", "BrowsableAdvanced", "CompilerCompatibility", "ManyCompatibilityMarkers"],
             rows.Select(static row => row.MethodName.ToString()));
@@ -656,9 +656,9 @@ public sealed class MethodClassificationAnalyzerTests
                 attributeConstructors: extension);
         ImmutableArray<byte> image = builder.Build();
 
-        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodClassificationProducer.Instance, ProducerTerminal.Count));
 
-        Assert.Equal(3, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+        Assert.Equal(3, count.ResultOf(ExtensionMethodClassificationProducer.Instance).Value!.Count);
         Assert.Equal(0, LegacyExtensionMethodCount(image));
     }
 
@@ -677,9 +677,9 @@ public sealed class MethodClassificationAnalyzerTests
         ImmutableArray<byte> image = [.. File.ReadAllBytes(anchor.Assembly.Location)];
         int legacy = LegacyExtensionMethodCount(image);
 
-        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodAnalyzer.Instance, ProducerTerminal.Count));
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodClassificationProducer.Instance, ProducerTerminal.Count));
 
         Assert.True(legacy > 0);
-        Assert.Equal(legacy, count.ResultOf(ExtensionMethodAnalyzer.Instance).Value!.Count);
+        Assert.Equal(legacy, count.ResultOf(ExtensionMethodClassificationProducer.Instance).Value!.Count);
     }
 }

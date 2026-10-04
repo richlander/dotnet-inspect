@@ -407,6 +407,22 @@ SourceHouse, Metadata, Query, CLI, or Browser internals. The first-adopter
 implementation may pair the settlement with the one bounded CLI adoption
 allowed by the design-scope rules.
 
+The CLI-first implementation realizes slice 2 with
+`PortablePdbSettlement`. Its request binds one `PdbContext` to the exact
+`ResolvedAssemblyReference` registration that opened it. Embedded content
+settles first, followed by provenance-neutral exact positive-store reuse. For
+typed `PlatformAsset` provenance, the implemented external policy is MSDL;
+non-platform external policy remains a typed unsupported-provenance result
+until its owning adoption slice. The explicit positive store keeps the legacy
+process-global symbol miss cache out of this route.
+
+CLI member Source Locations opens the exact runtime implementation descriptor
+without ambient adjacent-PDB probing, settles it, and loads the repeatable
+result into the existing SourceLink context. SourceHouse's supplied-PDB input
+is unchanged. Receipts distinguish successful HTTP body transfer from admitted
+Portable PDB content, so an exact-identity rejection is not reported as an
+acquired candidate.
+
 Each implementation adoption publishes exact-base/head NativeAOT evidence for
 the production command it changes. The CLI-first slice measures the
 `System.Text.Json` Source Locations command with an empty operation-owned store
@@ -417,7 +433,7 @@ deterministic; it cannot substitute for the warm-store comparison.
 
 ### Contract evidence
 
-Implementation must gate at least:
+The complete adoption must gate at least:
 
 - platform `System.Text.Json` Source Locations acquiring a matching Portable
   PDB through the CLI-first settlement path;
@@ -438,6 +454,11 @@ Implementation must gate at least:
 - a later provider succeeding after an earlier rejection or failure; and
 - every Acquired result reopening repeatable matching content after the
   acquisition operation has completed.
+
+The CLI-first slice gates the first two items, pathless positive-store behavior,
+GUID-plus-stamp rejection, limits and store failures as non-absence, and
+repeatable result content. Package-local, negative-observation, later-provider,
+and Browser-host gates land with their owning slices.
 
 The platform CLI scenario and a real NuGet package with published Portable PDB
 evidence are the production fixtures. Synthetic PDB identity and provider
