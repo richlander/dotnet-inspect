@@ -23,8 +23,38 @@ public sealed record LibraryTypeDocumentInspectionRequest
     public ApiSurfaceExtractionBounds Bounds { get; }
 }
 
+public sealed class LibraryTypeDocumentSubjectCorrespondence
+{
+    internal LibraryTypeDocumentSubjectCorrespondence(
+        LibraryReference requestedLibrary,
+        LibraryContentReference definingApiContent)
+    {
+        RequestedLibrary = requestedLibrary
+            ?? throw new ArgumentNullException(
+                nameof(requestedLibrary));
+        DefiningApiContent = definingApiContent
+            ?? throw new ArgumentNullException(
+                nameof(definingApiContent));
+        if (!ReferenceEquals(
+                definingApiContent.Library.ApiAssembly,
+                definingApiContent)
+            || !definingApiContent.HasRole(
+                LibraryContentRole.ApiAssembly))
+        {
+            throw new ArgumentException(
+                "The defining content must be its Library's API assembly.",
+                nameof(definingApiContent));
+        }
+    }
+
+    public LibraryReference RequestedLibrary { get; }
+    public LibraryReference DefiningLibrary =>
+        DefiningApiContent.Library;
+    public LibraryContentReference DefiningApiContent { get; }
+}
+
 public sealed record LibraryTypeDocumentCorrespondence(
-    LibraryContentReference ApiContent,
+    LibraryTypeDocumentSubjectCorrespondence Subject,
     AssemblyReferenceIdentity AssemblyIdentity,
     int AssemblyBytes,
     MetadataTypeDocumentInspectionOutcome Document);
@@ -190,7 +220,9 @@ public static class LibraryTypeDocumentInspection
             cancellationToken.ThrowIfCancellationRequested();
             return new LibraryTypeDocumentInspectionOutcome.Completed(
                 new(
-                    reference,
+                    new(
+                        request.Library,
+                        reference),
                     identity,
                     assemblyBytes,
                     document));

@@ -244,6 +244,7 @@ public static class TypeDocumentInspectionOperation
             new TypeDocumentInspectionOutcome.Available(
                 new(
                     new(
+                        correspondence.Subject,
                         assembly,
                         document.Subject.Type.ModuleVersionId,
                         plan.Type,

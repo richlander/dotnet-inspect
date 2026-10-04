@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Text.Json.Serialization;
 
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using InertText;
@@ -55,6 +56,7 @@ public sealed record TypeDocumentDeclarationSignature(
 public sealed record TypeSubject
 {
     public TypeSubject(
+        LibraryTypeDocumentSubjectCorrespondence libraryCorrespondence,
         LibraryAssemblyIdentity assembly,
         Guid moduleVersionId,
         MetadataTypeDefinitionName type,
@@ -66,6 +68,9 @@ public sealed record TypeSubject
         bool definesCoreLibraryRoot,
         int? declaringTypeDefinitionToken)
     {
+        LibraryCorrespondence = libraryCorrespondence
+            ?? throw new ArgumentNullException(
+                nameof(libraryCorrespondence));
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
         if (moduleVersionId == Guid.Empty)
@@ -91,6 +96,17 @@ public sealed record TypeSubject
         DeclaringTypeDefinitionToken = declaringTypeDefinitionToken;
     }
 
+    [JsonIgnore]
+    public LibraryTypeDocumentSubjectCorrespondence LibraryCorrespondence { get; }
+    [JsonIgnore]
+    public LibraryReference RequestedLibrary =>
+        LibraryCorrespondence.RequestedLibrary;
+    [JsonIgnore]
+    public LibraryReference DefiningLibrary =>
+        LibraryCorrespondence.DefiningLibrary;
+    [JsonIgnore]
+    public LibraryContentReference DefiningApiContent =>
+        LibraryCorrespondence.DefiningApiContent;
     public LibraryAssemblyIdentity Assembly { get; }
     public Guid ModuleVersionId { get; }
     public MetadataTypeDefinitionName Type { get; }

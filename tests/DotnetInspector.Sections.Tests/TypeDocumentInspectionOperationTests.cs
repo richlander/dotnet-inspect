@@ -114,6 +114,63 @@ public sealed class TypeDocumentInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        SubjectOnly_RetainsDistinctLibraryAuthorityForIdenticalBytes()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        ManagedMetadataIdentity.Assembly identity =
+            LibraryInspectionTestLibrary.Identity(content);
+        await using LibraryInspectionTestLibrary first =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                identity);
+        await using LibraryInspectionTestLibrary second =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                identity);
+
+        TypeDocument firstDocument =
+            Available(Execute(first));
+        TypeDocument secondDocument =
+            Available(Execute(second));
+
+        await first.RetireAsync();
+        await second.RetireAsync();
+
+        Assert.Same(
+            first.Reference,
+            firstDocument.Subject.RequestedLibrary);
+        Assert.Same(
+            first.Reference,
+            firstDocument.Subject.DefiningLibrary);
+        Assert.Same(
+            first.Reference.ApiAssembly,
+            firstDocument.Subject.DefiningApiContent);
+        Assert.Same(
+            second.Reference,
+            secondDocument.Subject.RequestedLibrary);
+        Assert.Same(
+            second.Reference.ApiAssembly,
+            secondDocument.Subject.DefiningApiContent);
+        Assert.NotSame(
+            firstDocument.Subject.RequestedLibrary,
+            secondDocument.Subject.RequestedLibrary);
+        Assert.NotSame(
+            firstDocument.Subject.DefiningApiContent,
+            secondDocument.Subject.DefiningApiContent);
+        Assert.Equal(
+            firstDocument.Subject.Assembly,
+            secondDocument.Subject.Assembly);
+        Assert.Equal(
+            firstDocument.Subject.ModuleVersionId,
+            secondDocument.Subject.ModuleVersionId);
+        Assert.Equal(
+            firstDocument.Subject.TypeDefinitionToken,
+            secondDocument.Subject.TypeDefinitionToken);
+    }
+
+    [Fact]
     public async Task CountOnly_BindsSubjectAndPopulation()
     {
         byte[] content =
@@ -173,6 +230,7 @@ public sealed class TypeDocumentInspectionOperationTests
             Available(Execute(library, count: new()));
         TypeSubject source = document.Subject;
         var mismatched = new TypeSubject(
+            source.LibraryCorrespondence,
             source.Assembly,
             source.ModuleVersionId,
             source.Type,
