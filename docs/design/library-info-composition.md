@@ -121,6 +121,14 @@ Source and Version come from the same host resolution. The direct Library does
 not carry the package or Platform coordinate, so provenance is the host's
 statement, not a document fact.
 
+For an exact direct managed file whose complete request is the compact `-v:q`
+context, the selected assembly reference is lowered directly to the facts-only
+Library plan. The CLI adds only its file and source presentation context; it
+does not construct the mutable legacy `LibraryInspection`. Selecting `Library
+Info` still composes the document facts with legacy counts whose population
+owners have not yet replaced them. Native images and manifestless managed
+modules remain on the legacy path.
+
 ## Version
 
 Version keeps its current fallback order:
@@ -182,6 +190,9 @@ Release gates in the CLI tests:
 - `Antlr` 3.5.0.2, which carries no Informational Version, keeps
   `Version | 3.5.0.2` from its Assembly Version;
 - the `-v:q` summary shows the same values as `Library Info` and no Modified;
+- the exact direct-file `-v:q` summary does not invoke the legacy Library
+  inspection service, while a `Library Info` control proves the gate observes
+  that service;
 - a native PE asset, such as `runtimes/win-x64/native/capstone.dll` from
   `Gee.External.Capstone` 2.3.0, keeps its current `Library Info` and `-v:q`
   rows, including `Compilation | Native`;

@@ -37,12 +37,28 @@ internal sealed record LibraryScalarFields(
         LibraryInspection data,
         LibraryDocumentInspection? documentInspection = null)
     {
-        // Views that carry no assembly identity render no scalar fields, as before.
-        if (data.AssemblyInfo is not { } info)
-            return null;
-        if (documentInspection?.Document is { } document)
-            return FromDocument(data, document);
-        if (documentInspection?.Failure is { } failure)
+        if (documentInspection?.Envelope?.Content
+            is LibraryInspectionOutcome.Available available)
+        {
+            return FromDocument(data, available.Document);
+        }
+
+        string? failure = documentInspection switch
+        {
+            {
+                Envelope.Content:
+                    LibraryInspectionOutcome.Rejected rejected,
+            } => rejected.Reason.ToString(),
+            {
+                Envelope.Content:
+                    LibraryInspectionOutcome.Failed failed,
+            } => failed.Reason.ToString(),
+            { Envelope: not null } => "LibraryUnavailable",
+            { ExecutionFailure: { } executionFailure } =>
+                executionFailure,
+            _ => null,
+        };
+        if (failure is not null)
         {
             return new(
                 null, null, null, null, null, null, null, false, null,
@@ -51,6 +67,10 @@ internal sealed record LibraryScalarFields(
                 $"unavailable ({failure})");
         }
 
+        // Views that carry neither a document nor legacy assembly identity
+        // render no scalar fields.
+        if (data.AssemblyInfo is not { } info)
+            return null;
         return FromLegacy(data, info);
     }
 

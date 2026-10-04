@@ -71,16 +71,63 @@ public sealed class LibraryInfoCompositionTests
     }
 
     [Fact]
+    public async Task NativeCompactSummary_KeepsTheLegacyPath()
+    {
+        LibraryMetadataService.InspectionCountForTests = 0;
+
+        (int exit, string output, string error) =
+            await RunAsync(
+                "library",
+                Asset("native", "capstone.dll"),
+                "-v:q");
+
+        Assert.True(exit == 0, error);
+        Assert.Contains("Arch: x64", output, StringComparison.Ordinal);
+        Assert.True(
+            LibraryMetadataService.InspectionCountForTests > 0);
+    }
+
+    [Fact]
     public async Task CompactSummary_MatchesLibraryInfoWithoutModified()
     {
+        LibraryMetadataService.InspectionCountForTests = 0;
         (int exit, string output, string error) =
             await RunAsync("library", Asset("runtime", "System.Net.Sockets.dll"), "-v:q");
 
         Assert.True(exit == 0, error);
+        Assert.Equal(
+            0,
+            LibraryMetadataService.InspectionCountForTests);
         Assert.Contains("Version: 11.0.0-rc.1.26425.128", output, StringComparison.Ordinal);
         Assert.Contains("TFM: .NETCoreApp,Version=v11.0", output, StringComparison.Ordinal);
         Assert.Contains("Size: 601.3 KB", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Modified", output, StringComparison.Ordinal);
+
+        LibraryMetadataService.InspectionCountForTests = 0;
+        (int tracedExit, string tracedOutput, string tracedError) =
+            await RunAsync(
+                "library",
+                Asset("runtime", "System.Net.Sockets.dll"),
+                "-v:q",
+                "--trace");
+
+        Assert.True(tracedExit == 0, tracedError);
+        Assert.Equal(output, tracedOutput);
+        Assert.True(
+            LibraryMetadataService.InspectionCountForTests > 0);
+    }
+
+    [Fact]
+    public async Task LibraryInfo_UsesLegacyCountsSoTheGateObservesItsInspection()
+    {
+        LibraryMetadataService.InspectionCountForTests = 0;
+
+        string info = await LibraryInfoAsync(
+            Asset("runtime", "System.Net.Sockets.dll"));
+
+        Assert.Contains("| Types |", info, StringComparison.Ordinal);
+        Assert.True(
+            LibraryMetadataService.InspectionCountForTests > 0);
     }
 
     [Fact]
@@ -168,6 +215,19 @@ public sealed class LibraryInfoCompositionTests
             Assert.Contains("| Architecture | AnyCPU |", output, StringComparison.Ordinal);
             Assert.DoesNotContain("Library Document", output, StringComparison.Ordinal);
             Assert.DoesNotContain("not a managed assembly", error, StringComparison.Ordinal);
+
+            LibraryMetadataService.InspectionCountForTests = 0;
+            (int compactExit, string compactOutput, string compactError) =
+                await RunAsync("library", path, "-v:q");
+
+            Assert.True(compactExit == 0, compactError);
+            Assert.Contains("Arch: AnyCPU", compactOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "not a managed assembly",
+                compactError,
+                StringComparison.Ordinal);
+            Assert.True(
+                LibraryMetadataService.InspectionCountForTests > 0);
         }
         finally
         {
