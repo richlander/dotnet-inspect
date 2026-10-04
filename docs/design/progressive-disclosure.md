@@ -464,12 +464,14 @@ policy. Its rules about request provenance and host preflight still apply.
 Only the policy that decides which capabilities a gesture requests has
 changed.
 
-Adoption status: this policy leads the implementation. Today the CLI requests
-`PdbAcquire` only on exact section selection, `-v:d`, or explicit effective
-discovery. Package descriptions already show by default; a single type's docs
-and a single subject's source do not yet. Until adoption
-([#8729](https://github.com/richlander/dotnet-inspect/issues/8729)) lands,
-the current behavior is what ships.
+Adoption status: `--offline` is the only network prohibition in code. Network
+telemetry observes requests and never blocks them, so any producer that needs
+PDB facts may acquire a missing PDB outside `--offline`. Today the CLI requests
+`PdbAcquire` when a PDB-dependent section is selected exactly, at `-v:d`, or by
+explicit effective discovery; the gesture that selects such a section moves to
+facet selection under the
+[CLI verbosity retirement](cli-verbosity-retirement.md). Package descriptions
+already show by default; a single type's docs do not yet.
 
 ### Capability machinery
 

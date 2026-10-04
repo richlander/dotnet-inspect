@@ -29,6 +29,13 @@ public static class TypeCommand
 {
     public const string Name = "type";
 
+    static readonly ViewFacetId ExactTypeDefaultFacet =
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Type,
+                ViewFacetRole.TypeApi)
+            .Id;
+
     private static readonly InspectionEnvelopeJsonContract<
         ExactTypeInspectionResult> ExactTypeJsonContract =
             new(
@@ -1863,7 +1870,7 @@ public static class TypeCommand
                             + "representation."));
             }
 
-            return new(new ViewFacetId("type.api"), Refusal: null);
+            return new(ExactTypeDefaultFacet, Refusal: null);
         }
     }
 
