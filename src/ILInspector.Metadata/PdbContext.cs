@@ -2181,7 +2181,7 @@ public partial class PdbContext : IDisposable
         ValidateDebugDirectoryBounds();
         CodeViewDebugDirectoryData? portableCodeView = null;
         CodeViewDebugDirectoryData? windowsCodeView = null;
-        bool embeddedPdbLoaded = false;
+        DebugDirectoryEntry? embeddedPdbEntry = null;
 
         foreach (var entry in _peReader.ReadDebugDirectory())
         {
@@ -2251,22 +2251,26 @@ public partial class PdbContext : IDisposable
                 HasEmbeddedPdb = true;
                 if (!loadEmbeddedPdb)
                     continue;
-                if (embeddedPdbLoaded)
+                if (embeddedPdbEntry is not null)
                 {
                     throw new BadImageFormatException(
                         "The PE image carries multiple embedded portable PDB entries.");
                 }
-                embeddedPdbLoaded = true;
-                LoadEmbeddedPortablePdbEntry(
-                    entry,
-                    maxEmbeddedPdbBytes,
-                    expansionBudget);
+                embeddedPdbEntry = entry;
             }
         }
 
         if (windowsCodeView != null && portableCodeView != null)
         {
             _log?.Invoke("Found both Windows (.ni.pdb) and Portable PDB entries, using Portable");
+        }
+
+        if (embeddedPdbEntry is { } selectedEntry)
+        {
+            LoadEmbeddedPortablePdbEntry(
+                selectedEntry,
+                maxEmbeddedPdbBytes,
+                expansionBudget);
         }
     }
 
@@ -2304,10 +2308,6 @@ public partial class PdbContext : IDisposable
                 maxEmbeddedPdbBytes);
         }
         expansionBudget?.Reserve(embeddedPdbBytes);
-        EmbeddedPdbSize = embeddedPdbBytes;
-
-        PdbFormat = "Portable";
-        PdbLocation = "Embedded";
 
         ImmutableArray<byte> pdbImage =
             ReadEmbeddedPortablePdbImage(
@@ -2315,15 +2315,42 @@ public partial class PdbContext : IDisposable
                 embeddedPdbBytes);
         var provider =
             MetadataReaderProvider.FromPortablePdbImage(pdbImage);
-        _disposables.Add(provider);
-        _pdbProvider = provider;
-        _pdbReader = provider.GetMetadataReader();
-        _pdbImage = pdbImage;
-        _pdbCorrespondenceEstablished = true;
-        HasPdb = true;
-        PdbVersion++;
+        bool retained = false;
+        try
+        {
+            MetadataReader reader = provider.GetMetadataReader();
+            if (PdbId is { IsPortable: true }
+                && !PdbMatchesAssembly(reader))
+            {
+                LastPdbLoadStatus =
+                    PdbLoadStatus.IdentityMismatch;
+                LastPdbLoadError =
+                    $"Embedded Portable PDB identity does not match {_assemblyDisplayName}.";
+                throw new BadImageFormatException(
+                    LastPdbLoadError);
+            }
 
-        _log?.Invoke("Using embedded PDB");
+            EmbeddedPdbSize = embeddedPdbBytes;
+            PdbFormat = "Portable";
+            PdbLocation = "Embedded";
+            _disposables.Add(provider);
+            _pdbProvider = provider;
+            _pdbReader = reader;
+            _pdbImage = pdbImage;
+            _pdbCorrespondenceEstablished = true;
+            HasPdb = true;
+            PdbVersion++;
+            LastPdbLoadStatus = PdbLoadStatus.Loaded;
+            LastPdbLoadError = null;
+            retained = true;
+
+            _log?.Invoke("Using embedded PDB");
+        }
+        finally
+        {
+            if (!retained)
+                provider.Dispose();
+        }
     }
 
     private int ReadEmbeddedPortablePdbDeclaredSize(DebugDirectoryEntry entry)
