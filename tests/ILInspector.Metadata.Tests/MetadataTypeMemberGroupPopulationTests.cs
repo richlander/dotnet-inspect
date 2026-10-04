@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -170,7 +174,7 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         MetadataTypeMemberComposition composition =
             Required(population.Composition);
         Assert.Equal(
-            (16, 0, 44, 27),
+            (11, 0, 44, 27),
             (
                 composition.Public,
                 composition.Protected,
@@ -178,7 +182,7 @@ public sealed class MetadataTypeMemberGroupPopulationTests
                 composition.Private));
         int exactCount = Required(population.Rows).Items.Sum(
             row => Assert.IsType<int>(row.ExactMemberCount));
-        Assert.Equal(87, exactCount);
+        Assert.Equal(82, exactCount);
         Assert.Equal(
             exactCount,
             Required(population.SelectorCounts).Traits.All);
@@ -258,8 +262,7 @@ public sealed class MetadataTypeMemberGroupPopulationTests
 
         MetadataTypeMemberGroupRow declaredDeserialize = Assert.Single(
             Required(@static.Rows).Items,
-            row => row.Name == "Deserialize"
-                && row.Role is MetadataTypeMemberGroupRole.Declared);
+            row => row.Name == "Deserialize");
         Assert.Equal(25, declaredDeserialize.ExactMemberCount);
         Assert.Equal(
             MetadataTypeMemberGroupReceiverForms.Static,
@@ -267,8 +270,7 @@ public sealed class MetadataTypeMemberGroupPopulationTests
 
         MetadataTypeMemberGroupRow extensionDeserialize = Assert.Single(
             Required(extension.Rows).Items,
-            row => row.Name == "Deserialize"
-                && row.Role is MetadataTypeMemberGroupRole.Declared);
+            row => row.Name == "Deserialize");
         Assert.Equal(
             15,
             extensionDeserialize.ExactMemberCount);
@@ -278,48 +280,16 @@ public sealed class MetadataTypeMemberGroupPopulationTests
 
         MetadataTypeMemberGroupRow allDeserialize = Assert.Single(
             Required(all.Rows).Items,
-            row => row.Name == "Deserialize"
-                && row.Role is MetadataTypeMemberGroupRole.Declared);
+            row => row.Name == "Deserialize");
         Assert.Equal(40, allDeserialize.ExactMemberCount);
         Assert.Equal(
             MetadataTypeMemberGroupReceiverForms.Static
                 | MetadataTypeMemberGroupReceiverForms.Extension,
             allDeserialize.Receivers);
-
-        MetadataTypeDefinitionName document =
-            Name("System.Text.Json", "JsonDocument");
-        MetadataTypeMemberGroupRow[] attachedRows =
-        [
-            .. Required(
-                Inspect(
-                    Request(
-                        document,
-                        receiver:
-                            MetadataTypeMemberGroupReceiverFilter
-                                .Extension,
-                        rows: new(int.MaxValue)))
-                    .Rows)
-                .Items.Where(row =>
-                    row.Role
-                        is MetadataTypeMemberGroupRole.AttachedExtension),
-        ];
-        Assert.NotEmpty(attachedRows);
-        Assert.All(
-            attachedRows,
-            row =>
-            {
-                Assert.NotEqual(document, row.DeclaringType);
-                Assert.Equal(
-                    MetadataTypeMemberGroupCategory.ExtensionMethod,
-                    row.Category);
-                Assert.Equal(
-                    MetadataTypeMemberGroupReceiverForms.Extension,
-                    row.Receivers);
-            });
     }
 
     [Fact]
-    public void SameNamedDeclaredAndAttachedFamiliesRemainDistinct()
+    public void DeclarationPopulation_DoesNotAttachReceiverExtensions()
     {
         MetadataTypeDefinitionName type = Name("Ns`1", "Widget");
         MetadataTypeMemberGroupPopulation population = Inspect(
@@ -329,18 +299,9 @@ public sealed class MetadataTypeMemberGroupPopulationTests
                 rows: new(int.MaxValue),
                 includeSelectorCounts: true));
 
-        MetadataTypeMemberGroupRow[] rows =
-        [
-            .. Required(population.Rows).Items.Where(row =>
-                row.Name == "Extend"),
-        ];
-        Assert.Equal(2, rows.Length);
-
         MetadataTypeMemberGroupRow declared = Assert.Single(
-            rows,
-            row => row.Role
-                is MetadataTypeMemberGroupRole.Declared);
-        Assert.Equal(type, declared.DeclaringType);
+            Required(population.Rows).Items,
+            row => row.Name == "Extend");
         Assert.Equal(
             MetadataTypeMemberGroupCategory.Method,
             declared.Category);
@@ -348,22 +309,64 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             MetadataTypeMemberGroupReceiverForms.This,
             declared.Receivers);
         Assert.Equal(1, declared.ExactMemberCount);
+        Assert.DoesNotContain(
+            Required(population.Rows).Items,
+            row => row.Receivers
+                is MetadataTypeMemberGroupReceiverForms.Extension);
+    }
 
-        MetadataTypeMemberGroupRow attached = Assert.Single(
-            rows,
-            row => row.Role
-                is MetadataTypeMemberGroupRole.AttachedExtension);
-        Assert.NotEqual(type, attached.DeclaringType);
+    [Fact]
+    public void EqualNamesAtDistinctStringOffsetsShareOneGroup()
+    {
+        MetadataTypeMemberGroupPopulation population = Inspect(
+            BuildClassificationBoundaryImage(),
+            Request(
+                Name("Fixtures", "Target"),
+                includeHidden: true,
+                accessibility: MetadataMethodAccessibilityFilter.All,
+                rows: new(int.MaxValue)));
+
+        MetadataTypeMemberGroupRow duplicate = Assert.Single(
+            Required(population.Rows).Items,
+            row => row.Name == "DuplicateNameA");
+        Assert.Equal(MetadataTypeMemberGroupCategory.Method, duplicate.Category);
+        Assert.Equal(2, duplicate.ExactMemberCount);
+    }
+
+    [Fact]
+    public void OnlyPrivateMethodImplBodiesAreExplicitInterfaceDeclarations()
+    {
+        MetadataTypeMemberGroupPopulation population = Inspect(
+            BuildClassificationBoundaryImage(),
+            Request(
+                Name("Fixtures", "Target"),
+                includeHidden: true,
+                accessibility: MetadataMethodAccessibilityFilter.All,
+                rows: new(int.MaxValue),
+                includeSelectorCounts: true));
+
+        MetadataTypeMemberGroupRow publicOverride = Assert.Single(
+            Required(population.Rows).Items,
+            row => row.Name == "PublicOverride");
         Assert.Equal(
-            ["Extensions.WithDot"],
-            attached.DeclaringType.Segments);
+            MetadataTypeMemberGroupCategory.Method,
+            publicOverride.Category);
         Assert.Equal(
-            MetadataTypeMemberGroupCategory.ExtensionMethod,
-            attached.Category);
+            MetadataTypeMemberGroupCategory.ExplicitInterfaceImplementation,
+            Assert.Single(
+                Required(population.Rows).Items,
+                row => row.Name == "Explicit").Category);
         Assert.Equal(
-            MetadataTypeMemberGroupReceiverForms.Extension,
-            attached.Receivers);
-        Assert.Equal(1, attached.ExactMemberCount);
+            MetadataTypeMemberGroupCategory.Property,
+            Assert.Single(
+                Required(population.Rows).Items,
+                row => row.Name == "Value").Category);
+        Assert.Equal(
+            MetadataTypeMemberGroupCategory.Event,
+            Assert.Single(
+                Required(population.Rows).Items,
+                row => row.Name == "Changed").Category);
+        Assert.Equal(1, Required(population.SelectorCounts).Traits.Interface);
     }
 
     [Theory]
@@ -401,24 +404,14 @@ public sealed class MetadataTypeMemberGroupPopulationTests
                 includeSelectorCounts: true),
             path);
 
-        using var session = AssemblyInspectionSession.Open(path);
-        MetadataTypeMemberPopulation eager = Assert.IsType<
-                MetadataTypeMemberPopulationOutcome.Available>(
-                MetadataTypeMemberPopulationInspection.Inspect(
-                    session,
-                    new(
-                        type,
-                        spelling,
-                        includeHidden: true,
-                        MetadataMethodAccessibilityFilter.All),
-                    Unbounded))
-            .Population;
+        MetadataTypeMemberSelectorCounts eager =
+            DeclaredSelectorCounts(type, spelling, path);
 
         Assert.Equal(
-            eager.SelectorCounts.Traits,
+            eager.Traits,
             Required(compact.SelectorCounts).Traits);
         Assert.Equal(
-            eager.SelectorCounts.Kinds.ToDictionary(
+            eager.Kinds.ToDictionary(
                 count => count.Value,
                 count => count.Count,
                 StringComparer.Ordinal),
@@ -471,6 +464,47 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         Assert.Empty(rows.Items);
         Assert.Null(rows.NextOrdinal);
         Assert.True(rows.IncompleteRetainedTextCharacters > 0);
+
+        var zeroMetadataRows = new ApiSurfaceExtractionBounds(
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            maxMetadataRows: 0,
+            int.MaxValue);
+        var metadataIncomplete = Assert.IsType<
+            MetadataTypeMemberGroupPopulationOutcome.Incomplete>(
+            InspectOutcome(count, zeroMetadataRows, RuntimeJsonPath));
+        Assert.Equal(
+            MetadataTypeMemberGroupPopulationBound.MetadataRows,
+            metadataIncomplete.Bound);
+        Assert.Equal(0, metadataIncomplete.Limit);
+        Assert.True(metadataIncomplete.Measured > 0);
+
+        var exactMetadataRows = new ApiSurfaceExtractionBounds(
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            checked((int)metadataIncomplete.Measured),
+            int.MaxValue);
+        Assert.IsType<MetadataTypeMemberGroupPopulationOutcome.Available>(
+            InspectOutcome(count, exactMetadataRows, RuntimeJsonPath));
+
+        var oneBelowMetadataRows = new ApiSurfaceExtractionBounds(
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            checked((int)metadataIncomplete.Measured - 1),
+            int.MaxValue);
+        var oneBelow = Assert.IsType<
+            MetadataTypeMemberGroupPopulationOutcome.Incomplete>(
+            InspectOutcome(count, oneBelowMetadataRows, RuntimeJsonPath));
+        Assert.Equal(
+            MetadataTypeMemberGroupPopulationBound.MetadataRows,
+            oneBelow.Bound);
+        Assert.Equal(metadataIncomplete.Measured, oneBelow.Measured);
     }
 
     static MetadataTypeMemberGroupPopulationRequest Request(
@@ -547,8 +581,241 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         return declaration.InspectTypeMemberGroups(request, bounds);
     }
 
+    static MetadataTypeMemberSelectorCounts DeclaredSelectorCounts(
+        MetadataTypeDefinitionName type,
+        MetadataMemberSpelling spelling,
+        string path)
+    {
+        using var session = AssemblyInspectionSession.Open(path);
+        ApiType subject = Assert.Single(
+            session
+                .DeclarationApiSurface(
+                    ApiSurfaceExtractionScope.IncludeAll)
+                .Types,
+            candidate => candidate.DefinitionName == type);
+        IReadOnlyList<ApiMember> members =
+            ApiTypeMemberPopulationProjection.Project(
+                subject,
+                spelling,
+                includeHidden: true);
+        var kinds = members
+            .GroupBy(member => member.Kind, StringComparer.Ordinal)
+            .Select(group =>
+                new MetadataTypeMemberFacetCount(
+                    group.Key,
+                    group.Count()))
+            .ToImmutableArray();
+        int extensions = members.Count(member => member.IsExtension);
+        int @static = members.Count(member =>
+            !member.IsExtension && member.IsStatic);
+        int instance = members.Count(member =>
+            !member.IsExtension && !member.IsStatic);
+        return new(
+            kinds,
+            new(
+                members.Count,
+                @static,
+                instance,
+                members.Count(member => member.IsVirtual),
+                members.Count(member =>
+                    member.IsExplicitInterfaceImplementation),
+                extensions));
+    }
+
+    static byte[] BuildClassificationBoundaryImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ClassificationBoundary.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("39360AD3-A5C8-4546-83A4-07ED4884D167")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ClassificationBoundary"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        TypeReferenceHandle contract = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IContract"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Target"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        BlobHandle staticVoid = metadata.GetOrAddBlob(
+            (byte[])[0x00, 0x00, 0x01]);
+        BlobHandle instanceVoid = metadata.GetOrAddBlob(
+            (byte[])[0x20, 0x00, 0x01]);
+        BlobHandle instanceInt = metadata.GetOrAddBlob(
+            (byte[])[0x20, 0x00, 0x08]);
+        BlobHandle instanceVoidObject = metadata.GetOrAddBlob(
+            (byte[])[0x20, 0x01, 0x01, 0x1c]);
+
+        AddMethod(
+            metadata,
+            "DuplicateNameA",
+            MethodAttributes.Public | MethodAttributes.Static,
+            staticVoid);
+        AddMethod(
+            metadata,
+            "DuplicateNameB",
+            MethodAttributes.Public | MethodAttributes.Static,
+            staticVoid);
+        MethodDefinitionHandle publicOverride = AddMethod(
+            metadata,
+            "PublicOverride",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig,
+            instanceVoid);
+        MethodDefinitionHandle explicitImplementation = AddMethod(
+            metadata,
+            "Explicit",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            instanceVoid);
+        MethodDefinitionHandle getter = AddMethod(
+            metadata,
+            "get_Value",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            instanceInt);
+        MethodDefinitionHandle adder = AddMethod(
+            metadata,
+            "add_Changed",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            instanceVoidObject);
+
+        metadata.AddMethodImplementation(
+            target,
+            publicOverride,
+            metadata.AddMemberReference(
+                contract,
+                metadata.GetOrAddString("PublicOverride"),
+                instanceVoid));
+        metadata.AddMethodImplementation(
+            target,
+            explicitImplementation,
+            metadata.AddMemberReference(
+                contract,
+                metadata.GetOrAddString("Explicit"),
+                instanceVoid));
+        metadata.AddMethodImplementation(
+            target,
+            getter,
+            metadata.AddMemberReference(
+                contract,
+                metadata.GetOrAddString("get_Value"),
+                instanceInt));
+        metadata.AddMethodImplementation(
+            target,
+            adder,
+            metadata.AddMemberReference(
+                contract,
+                metadata.GetOrAddString("add_Changed"),
+                instanceVoidObject));
+
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob((byte[])[0x28, 0x00, 0x08]));
+        metadata.AddPropertyMap(target, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
+        EventDefinitionHandle @event = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("Changed"),
+            objectType);
+        metadata.AddEventMap(target, @event);
+        metadata.AddMethodSemantics(
+            @event,
+            MethodSemanticsAttributes.Adder,
+            adder);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        byte[] bytes = image.ToArray();
+        ReplaceAsciiOnce(
+            bytes,
+            "DuplicateNameB"u8,
+            "DuplicateNameA"u8);
+        return bytes;
+    }
+
+    static MethodDefinitionHandle AddMethod(
+        MetadataBuilder metadata,
+        string name,
+        MethodAttributes attributes,
+        BlobHandle signature) =>
+        metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+    static void ReplaceAsciiOnce(
+        byte[] image,
+        ReadOnlySpan<byte> from,
+        ReadOnlySpan<byte> to)
+    {
+        Assert.Equal(from.Length, to.Length);
+        int offset = image.AsSpan().IndexOf(from);
+        Assert.True(offset >= 0);
+        Assert.Equal(
+            -1,
+            image.AsSpan(offset + from.Length).IndexOf(from));
+        to.CopyTo(image.AsSpan(offset, to.Length));
+    }
+
     static GroupIdentity Identity(MetadataTypeMemberGroupRow row) =>
-        new(row.DeclaringType, row.Name, row.Category, row.Role);
+        new(row.Name, row.Category);
 
     static MetadataTypeMemberGroupRow WithoutExactCount(
         MetadataTypeMemberGroupRow row) =>
@@ -575,8 +842,6 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             [AppContext.BaseDirectory, "PinnedArtifacts", .. parts]);
 
     readonly record struct GroupIdentity(
-        MetadataTypeDefinitionName DeclaringType,
         string Name,
-        MetadataTypeMemberGroupCategory Category,
-        MetadataTypeMemberGroupRole Role);
+        MetadataTypeMemberGroupCategory Category);
 }

@@ -11,16 +11,9 @@ public enum MetadataTypeMemberGroupCategory
     Operator,
     Finalizer,
     ExplicitInterfaceImplementation,
-    ExtensionMethod,
     Property,
     Field,
     Event,
-}
-
-public enum MetadataTypeMemberGroupRole
-{
-    Declared,
-    AttachedExtension,
 }
 
 [Flags]
@@ -89,7 +82,7 @@ public sealed record MetadataTypeMemberGroupPopulationRequest
             && !includeSelectorCounts)
         {
             throw new ArgumentException(
-                "A Type Member-group population must request Count, Rows, "
+                "A declared Type Member-group population must request Count, Rows, "
                     + "Composition Count, or selector Counts.");
         }
 
@@ -124,10 +117,8 @@ public sealed record MetadataTypeMemberGroupPopulationBinding(
     MetadataTypeMemberGroupReceiverFilter Receiver);
 
 public sealed record MetadataTypeMemberGroupRow(
-    MetadataTypeDefinitionName DeclaringType,
     string Name,
     MetadataTypeMemberGroupCategory Category,
-    MetadataTypeMemberGroupRole Role,
     MetadataTypeMemberGroupReceiverForms Receivers,
     int? ExactMemberCount);
 
@@ -147,6 +138,7 @@ public sealed record MetadataTypeMemberGroupPopulation(
 public enum MetadataTypeMemberGroupPopulationBound
 {
     Members,
+    MetadataRows,
 }
 
 public abstract record MetadataTypeMemberGroupPopulationOutcome
@@ -176,8 +168,8 @@ public abstract record MetadataTypeMemberGroupPopulationOutcome
 }
 
 /// <summary>
-/// Executes terminal-directed Member-group work for one exact Type without
-/// constructing a rich API surface or exact-Member result rows.
+/// Executes terminal-directed declared Member-group work for one exact Type
+/// without constructing a rich API surface or exact-Member result rows.
 /// </summary>
 internal static class MetadataTypeMemberGroupPopulationInspection
 {
@@ -194,6 +186,16 @@ internal static class MetadataTypeMemberGroupPopulationInspection
 
         try
         {
+            long metadataRows =
+                MetadataOperationContext.CountMetadataRows(reader);
+            if (metadataRows > bounds.MaxMetadataRows)
+            {
+                return new MetadataTypeMemberGroupPopulationOutcome.Incomplete(
+                    MetadataTypeMemberGroupPopulationBound.MetadataRows,
+                    bounds.MaxMetadataRows,
+                    metadataRows);
+            }
+
             TypeDefinitionHandle typeHandle = default;
             foreach (TypeDefinitionHandle candidate in reader.TypeDefinitions)
             {
@@ -245,13 +247,6 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                         type.GetCustomAttributes()),
                 classifyLogicalMethodKinds: true,
                 ref sink);
-            if (request.Spelling is MetadataMemberSpelling.CSharp)
-            {
-                ApiSurfaceExtractor.ClassifyAttachedExtensions(
-                    reader,
-                    publicOnly: false,
-                    ref sink);
-            }
 
             return new MetadataTypeMemberGroupPopulationOutcome.Available(
                 sink.Complete(moduleVersionId));
@@ -272,10 +267,39 @@ internal static class MetadataTypeMemberGroupPopulationInspection
     }
 
     private readonly record struct GroupKey(
-        TypeDefinitionHandle DeclaringType,
         StringHandle Name,
-        ClassifiedMemberKind Kind,
-        bool IsAttached);
+        ClassifiedMemberKind Kind);
+
+    private sealed class GroupKeyComparer(MetadataReader reader)
+        : IEqualityComparer<GroupKey>
+    {
+        public bool Equals(GroupKey left, GroupKey right)
+        {
+            if (left.Kind != right.Kind)
+                return false;
+
+            BlobReader leftName = reader.GetBlobReader(left.Name);
+            BlobReader rightName = reader.GetBlobReader(right.Name);
+            if (leftName.RemainingBytes != rightName.RemainingBytes)
+                return false;
+            while (leftName.RemainingBytes > 0)
+            {
+                if (leftName.ReadByte() != rightName.ReadByte())
+                    return false;
+            }
+            return true;
+        }
+
+        public int GetHashCode(GroupKey key)
+        {
+            var hash = new HashCode();
+            hash.Add(key.Kind);
+            BlobReader name = reader.GetBlobReader(key.Name);
+            while (name.RemainingBytes > 0)
+                hash.Add(name.ReadByte());
+            return hash.ToHashCode();
+        }
+    }
 
     private sealed class GroupState
     {
@@ -283,7 +307,7 @@ internal static class MetadataTypeMemberGroupPopulationInspection
         public MetadataTypeMemberGroupReceiverForms Receivers;
     }
 
-    private struct PopulationSink : IClassifiedMemberSink, IAttachedExtensionSink
+    private struct PopulationSink : IClassifiedMemberSink
     {
         private readonly MetadataReader _reader;
         private readonly MetadataTypeMemberGroupPopulationRequest _request;
@@ -296,7 +320,6 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             _kindCounts;
         private MetadataTypeMemberCompositionInspection.CompositionCounts?
             _composition;
-        private TypeDefinitionHandle _attachedDeclaringType;
         private int _members;
         private int _static;
         private int _instance;
@@ -317,7 +340,7 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             _typeHandle = typeHandle;
             _cancellationToken = cancellationToken;
             _groups = request.Count is not null || request.Rows is not null
-                ? []
+                ? new(new GroupKeyComparer(reader))
                 : null;
             _order = request.Rows is not null ? [] : null;
             _kindCounts = request.IncludeSelectorCounts ? [] : null;
@@ -326,34 +349,9 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                     request.IncludeHidden,
                     request.Accessibility)
                 : null;
-            _attachedDeclaringType = default;
         }
 
-        public bool Wants(
-            in ExtensionReceiver receiver,
-            TypeDefinitionHandle declaringType)
-        {
-            _cancellationToken.ThrowIfCancellationRequested();
-            _attachedDeclaringType = declaringType;
-            if (declaringType == _typeHandle)
-                return false;
-            return receiver.TryGetDefinition(
-                    out TypeDefinitionHandle definition)
-                ? definition == _typeHandle
-                : receiver.ReadName() == _request.Type;
-        }
-
-        public void Add(
-            in ExtensionReceiver receiver,
-            in ClassifiedMember member) =>
-            AddCore(member, _attachedDeclaringType);
-
-        public void Add(in ClassifiedMember member) =>
-            AddCore(member, _typeHandle);
-
-        private void AddCore(
-            in ClassifiedMember member,
-            TypeDefinitionHandle declaringType)
+        public void Add(in ClassifiedMember member)
         {
             _cancellationToken.ThrowIfCancellationRequested();
             int measured = checked(++_members);
@@ -402,10 +400,8 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 return;
 
             GroupKey key = new(
-                declaringType,
                 Name(member),
-                member.Kind,
-                member.IsAttached);
+                member.Kind);
             if (!_groups.TryGetValue(key, out GroupState? group))
             {
                 group = new();
@@ -473,36 +469,12 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 MetadataTypeMemberGroupRow>(
                     end - request.StartOrdinal);
             long retainedTextCharacters = 0;
-            var declaringTypes =
-                new Dictionary<
-                    TypeDefinitionHandle,
-                    MetadataTypeDefinitionName>();
             for (int index = request.StartOrdinal; index < end; index++)
             {
                 GroupKey key = order[index];
                 string name = _reader.GetString(key.Name);
-                if (!declaringTypes.TryGetValue(
-                        key.DeclaringType,
-                        out MetadataTypeDefinitionName? declaringType))
-                {
-                    MetadataTypeDefinitionNameReadResult read =
-                        MetadataTypeDefinitionName.Read(
-                            _reader,
-                            key.DeclaringType);
-                    if (read is not MetadataTypeDefinitionNameReadResult.Read
-                            valid)
-                    {
-                        throw new BadImageFormatException(
-                            "A Member-group declaring Type identity could not be read.");
-                    }
-                    declaringType = valid.Name;
-                    declaringTypes.Add(key.DeclaringType, declaringType);
-                }
-
                 retainedTextCharacters = checked(
-                    retainedTextCharacters
-                    + name.Length
-                    + TypeTextLength(declaringType));
+                    retainedTextCharacters + name.Length);
                 if (retainedTextCharacters
                     > _bounds.MaxRetainedTextCharacters)
                 {
@@ -515,12 +487,8 @@ internal static class MetadataTypeMemberGroupPopulationInspection
 
                 GroupState group = _groups![key];
                 rows.Add(new(
-                    declaringType,
                     name,
                     Category(key.Kind),
-                    key.IsAttached
-                        ? MetadataTypeMemberGroupRole.AttachedExtension
-                        : MetadataTypeMemberGroupRole.Declared,
                     group.Receivers,
                     request.IncludeExactMemberCount
                         ? group.Count
@@ -555,15 +523,6 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 _ => throw new InvalidOperationException(
                     "Unknown classified Member kind."),
             };
-
-        private static long TypeTextLength(
-            MetadataTypeDefinitionName type)
-        {
-            long length = type.Namespace.Length;
-            foreach (string segment in type.Segments)
-                length = checked(length + segment.Length);
-            return length;
-        }
     }
 
     private static bool Matches(
@@ -618,7 +577,8 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 MetadataTypeMemberGroupCategory
                     .ExplicitInterfaceImplementation,
             ClassifiedMemberKind.ExtensionMethod =>
-                MetadataTypeMemberGroupCategory.ExtensionMethod,
+                throw new InvalidOperationException(
+                    "A declaration population cannot contain an attached extension."),
             ClassifiedMemberKind.Property =>
                 MetadataTypeMemberGroupCategory.Property,
             ClassifiedMemberKind.Field =>
@@ -640,8 +600,6 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             MetadataTypeMemberGroupCategory
                 .ExplicitInterfaceImplementation =>
                 "explicit-interface-implementation",
-            MetadataTypeMemberGroupCategory.ExtensionMethod =>
-                "extension-method",
             MetadataTypeMemberGroupCategory.Property => "property",
             MetadataTypeMemberGroupCategory.Field => "field",
             MetadataTypeMemberGroupCategory.Event => "event",

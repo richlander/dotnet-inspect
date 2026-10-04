@@ -179,9 +179,7 @@ public sealed class MetadataOperationContext : IDisposable
         ArgumentNullException.ThrowIfNull(reader);
         EnsureAlive();
 
-        long imageMetadataRows = 0;
-        foreach (TableIndex table in Enum.GetValues<TableIndex>())
-            imageMetadataRows += reader.GetTableRowCount(table);
+        long imageMetadataRows = CountMetadataRows(reader);
 
         if (imageMetadataRows > _policy.MaxMetadataRows - _metadataRows)
         {
@@ -197,6 +195,15 @@ public sealed class MetadataOperationContext : IDisposable
         return new MetadataImageAdmissionResult.Admitted(
             imageMetadataRows,
             SnapshotCounters());
+    }
+
+    internal static long CountMetadataRows(MetadataReader reader)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        long count = 0;
+        foreach (TableIndex table in Enum.GetValues<TableIndex>())
+            count = checked(count + reader.GetTableRowCount(table));
+        return count;
     }
 
     internal void Charge(

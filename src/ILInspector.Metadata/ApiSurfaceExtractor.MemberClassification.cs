@@ -6,8 +6,9 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// The unit a Type Member population counts
 /// (docs/design/api-population-scope.md#spelling-within-api-visibility-scope):
-/// C# spelling composes accessors into their property or event declaration and
-/// lists attached extensions; metadata spelling lists each record of the Type.
+/// C# spelling composes accessors into their property or event declaration;
+/// metadata spelling lists each record physically owned by the Type. Contextual
+/// extension populations are requested separately.
 /// </summary>
 public enum MetadataMemberSpelling
 {
@@ -152,8 +153,15 @@ public static partial class ApiSurfaceExtractor
         foreach (var methodHandle in typeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
+            MethodAttributes physicalAccess =
+                method.Attributes & MethodAttributes.MemberAccessMask;
+            bool isExplicitInterfaceImplementation =
+                IsExplicitInterfaceImplementationBody(
+                    methodHandle,
+                    physicalAccess,
+                    explicitImplementationBodies);
             var access = MethodEffectiveAccess(
-                method.Attributes & MethodAttributes.MemberAccessMask,
+                physicalAccess,
                 methodHandle,
                 interfaceImplementations);
             if (publicOnly && access != MethodAttributes.Public)
@@ -175,19 +183,19 @@ public static partial class ApiSurfaceExtractor
                     method,
                     csharp && classifyLogicalMethodKinds,
                     objectFinalizeOverrides,
-                    explicitImplementationBodies.Contains(methodHandle)),
+                    isExplicitInterfaceImplementation),
                 methodHandle,
                 access,
                 IsHiddenMethod(
                     reader,
                     method.GetCustomAttributes(),
-                    explicitImplementationBodies.Contains(methodHandle)),
+                    isExplicitInterfaceImplementation),
                 MethodReceiver(reader, method, extensionContainer),
                 IsAttached: false,
                 IsVirtual:
                     (method.Attributes & MethodAttributes.Virtual) != 0,
                 IsExplicitInterfaceImplementation:
-                    explicitImplementationBodies.Contains(methodHandle)));
+                    isExplicitInterfaceImplementation));
         }
 
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -218,9 +226,14 @@ public static partial class ApiSurfaceExtractor
                     accessors.Getter,
                     accessors.Setter),
                 IsExplicitInterfaceImplementation:
-                    explicitImplementationBodies.Contains(accessors.Getter)
-                    || explicitImplementationBodies.Contains(
-                        accessors.Setter)));
+                    IsExplicitInterfaceImplementationBody(
+                        reader,
+                        accessors.Getter,
+                        explicitImplementationBodies)
+                    || IsExplicitInterfaceImplementationBody(
+                        reader,
+                        accessors.Setter,
+                        explicitImplementationBodies)));
         }
 
         bool isEnum = IsEnum(reader, typeDef);
@@ -313,9 +326,14 @@ public static partial class ApiSurfaceExtractor
                     accessors.Adder,
                     accessors.Remover),
                 IsExplicitInterfaceImplementation:
-                    explicitImplementationBodies.Contains(accessors.Adder)
-                    || explicitImplementationBodies.Contains(
-                        accessors.Remover)));
+                    IsExplicitInterfaceImplementationBody(
+                        reader,
+                        accessors.Adder,
+                        explicitImplementationBodies)
+                    || IsExplicitInterfaceImplementationBody(
+                        reader,
+                        accessors.Remover,
+                        explicitImplementationBodies)));
         }
     }
 

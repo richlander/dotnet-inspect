@@ -828,7 +828,7 @@ shape:
 ```text
 Classes
   Type                                     Members
-  System.Text.Json.JsonDocument            16
+  System.Text.Json.JsonDocument            11
   System.Text.Json.JsonException           9
 ```
 
