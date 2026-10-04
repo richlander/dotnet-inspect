@@ -73,13 +73,13 @@ A recorded local conflict is decisive about the conflict, not about the PR's
 lifecycle. Still take the PR read below when the API answers, and apply the
 [result table](round-orchestration.md#apply-the-result) top-down: merged,
 closed, draft, and head or base-ref mismatch outrank conflict recovery. When
-the API cannot be read on this attempt, start conflict recovery only against
-the last successfully observed open, non-draft PR at the expected head and
-base ref; otherwise keep the recorded conflict and retry the read under the
-round cadence. [Bounded status waiting](round-orchestration.md#bounded-status-waiting)
-owns what a budget that expires in that state publishes: the recorded
-conflict together with the lifecycle-read failure, not the status budget
-report, which describes an unobserved result.
+the API cannot be read on this attempt, do not hold the conflict: resolve and
+push the recovery against the expected base anyway — the agent that pushed
+the head knows the PR was open at that head and base ref and has received no
+merge or close — and take the lifecycle read on the next attempt. A conflict
+is never a waiting state; `waiting` never carries a conflict predicate, and a
+status budget cannot expire holding one, because recovery leaves the wait at
+once ([Bounded status waiting](round-orchestration.md#bounded-status-waiting)).
 
 Fetch on every attempt so base movement is discovered, but rerun the test
 merge only for an unrecorded tip. Base movement alone does not invalidate the

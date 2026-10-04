@@ -103,7 +103,9 @@ unusable review does not spend a round and may be retried on the unchanged head.
 | Failed-gate restart | Required fix pushed, one status attempt, applicable CI rule below, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-A non-Markdown candidate requires green current-head `ci-required` before
+An observed conflict does not make a round wait: it enters conflict recovery
+immediately, and the pushed resolution head satisfies the conflict-recovery
+row. A non-Markdown candidate requires green current-head `ci-required` before
 reviewer dispatch unless the user authorized parallel review or conflict
 recovery applies. A Markdown-only candidate (every changed file is `*.md`)
 substitutes pre-commit `markdownlint` at non-boundary rounds. Only these
@@ -224,7 +226,7 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
-| The local live-base test merge conflicts, or GitHub reports a conflict | Leave the status wait; apply conflict recovery before considering CI. A local conflict is decisive and a GitHub `mergeable` of `null` or `true` does not clear it; the rows above still outrank it. |
+| The local live-base test merge conflicts, or GitHub reports a conflict | Leave the status wait at once; apply conflict recovery before considering CI, never after a budget. A local conflict is decisive and a GitHub `mergeable` of `null` or `true` does not clear it; the rows above still outrank it. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
@@ -247,10 +249,12 @@ Every round attempts one current-head snapshot, starting with the local
 conflict probe. When CI is a reviewer-dispatch prerequisite, pending, missing,
 rate-limited, or transient status enters the 60-minute budget below; expiry publishes the status report and stops without
 dispatch. When CI may remain pending, record that status and continue the
-current review path. A known conflict, required CI completed without success,
-or terminal query failure still takes its transition, subject to the
-lifecycle rule in [GitHub status queries](github-status-queries.md#probe-the-live-base-locally-first)
-when the PR could not be read.
+current review path. A known conflict leaves the wait immediately for
+conflict recovery — a conflict is never a waiting state, `waiting` never
+carries a conflict predicate, and an unreadable API does not hold it (see
+[GitHub status queries](github-status-queries.md#probe-the-live-base-locally-first)).
+Required CI completed without success or a terminal query failure still takes
+its transition.
 
 A reviewer-dispatch CI prerequisite spends up to a 60-minute status budget
 before dispatch. Every third round, and any merge or readiness goal, may use the
@@ -279,8 +283,8 @@ sleeps, or concurrent status requests.
 When the budget expires with status unresolved, obtain a final snapshot. Do not
 publish the report below unless its fetched live base equals
 `conflict-checked-base`; instead classify and surface a fetch or probe
-failure, or a recorded local conflict together with the lifecycle-read
-failure that kept recovery from starting.
+failure. A recorded local conflict never reaches expiry: it left the wait for
+conflict recovery when it was found.
 Then clear `schedule`, keep the unresolved predicates, publish the report, set
 `rec=stop`, and end. This is an informational stop: it ends observation only
 and neither closes nor abandons the PR.

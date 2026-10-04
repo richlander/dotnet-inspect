@@ -457,7 +457,11 @@ Applied without waiting for CI; full conditions live in
 
 - **Conflict:** before a usable review result, supersede and retry the pending
   round; afterward, recover in the next numbered round — or take the
-  exact-head trivial-interaction waiver when eligible.
+  exact-head trivial-interaction waiver when eligible. A conflict is never a
+  waiting state: no status budget, review lock, pending CI, or unreadable API
+  defers it, and `waiting` never carries a conflict predicate. Resolve and
+  push the recovery at once; the only pause is a `HELP` to the user when both
+  sides changed the same logic and either choice loses behavior.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
@@ -579,10 +583,11 @@ approves keeping the PR intact. Full checkpoint mechanics:
   one. The API fields can be rate-limited, `null`, or stale, so they never
   substitute for the probe. Lifecycle outcomes from the same attempt's PR read
   (merged, closed, draft, head or base-ref mismatch) still outrank conflict
-  recovery; when the API cannot be read, a recorded local conflict starts
-  recovery only against the last successfully observed open, non-draft PR at
-  the expected head and base ref. Never report budget exhaustion without
-  probing the final tip. If an hour passes without an authored change while
+  recovery; when the API cannot be read, resolve and push the recovery anyway
+  — the agent that pushed the head knows the PR was open and has seen no
+  merge or close — and take the lifecycle read on the next attempt. A conflict
+  is never a waiting state. Never report budget exhaustion without probing the
+  final tip. If an hour passes without an authored change while
   an independent gate hasn't started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate
   (`.github/workflows/ci.yml`): it passes only when the aggregate itself
