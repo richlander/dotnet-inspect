@@ -188,15 +188,21 @@ public class JoinTypeConflictTests : IDisposable
         // UTF8Encoding's base chain reaches Encoding through the metadata
         // context, so the join types Encoding (the arm instance, not a
         // decoded copy) and records the UTF8Encoding -> Encoding widening.
-        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        // The CoreLib base chain is reachable only through a metadata context
+        // that resolves the trusted platform assemblies, as the CLI's package
+        // resolver and the harness corpus context do.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
         _disposables.Push(source);
         var function = IrImporter.Import(
             source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.MergedCrossAssemblyBaseSlot))!;
 
         Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
-        var load = Assert.Single(function.Descendants.OfType<LoadStackSlot>()
-            .Where(l => l.Type is { Namespace: "System.Text", Name: "Encoding" }));
+        var load = Assert.Single(
+            function.Descendants.OfType<LoadStackSlot>(),
+            l => l.Type is { Namespace: "System.Text", Name: "Encoding" });
         Assert.Contains(
             function.ProvenReferenceWidenings,
             w => w.From is { Namespace: "System.Text", Name: "UTF8Encoding" }
@@ -218,7 +224,9 @@ public class JoinTypeConflictTests : IDisposable
         // implements it in another assembly. The merge must resolve to the
         // interface through the metadata context instead of leaving an
         // untyped slot the printer could only spell as `var`.
-        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
         _disposables.Push(source);
         var function = IrImporter.Import(
             source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.CoalescedCrossAssemblyInterface))!;
@@ -228,7 +236,8 @@ public class JoinTypeConflictTests : IDisposable
         Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), l => l.Type is null);
         Assert.Contains(
             function.ProvenReferenceWidenings,
-            w => w.From is { Name: "EqualityComparer`1" } && w.To is { Name: "IEqualityComparer`1" });
+            w => w.From.ToDisplayString() == "EqualityComparer<string>"
+                && w.To.ToDisplayString() == "IEqualityComparer<string>");
         function.CheckInvariant();
 
         string output = CSharpPrinter.PrintRaised(function).Output!;
