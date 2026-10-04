@@ -1682,14 +1682,16 @@ public static class MemberCommand
                             + "a resolved subject.")));
         }
         else if (exitCode == 0
-            && options.CompanionOutput == CompanionOutput.Tips
-            && (options.OverloadIndex == null || exactMember is not null))
+            && options.CompanionOutput == CompanionOutput.Tips)
         {
             Hints.WriteTips(
                 options.CompanionOutput,
                 () => exactMember is null
-                    ? MemberTipBindings.Resolve(
+                    ? MemberTipBindings.ResolveSelected(
                         type,
+                        ApiCommand.BuildFilteredTypeForSections(
+                            type,
+                            options).Members,
                         options.PlatformAssembly,
                         options.PackagePath,
                         options.AssemblyPath,

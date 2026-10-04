@@ -312,16 +312,43 @@ public partial class CommandExecutionTests
         ];
 
         var withoutTips = await RunAppAsync(arguments);
+        var primaryTips =
+            await RunAppAsync([.. arguments, "--explain", ".tips"]);
         var withTips = await RunAppAsync([.. arguments, "-E", ".tips"]);
 
         Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, primaryTips.Exit);
         Assert.Equal(0, withTips.Exit);
         Assert.Empty(withoutTips.Error);
+        Assert.Empty(primaryTips.Error);
         Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.Equal(primaryTips.Output.Trim(), withTips.Error.Trim());
         Assert.DoesNotContain("Tips:", withTips.Error);
         Assert.Contains("view member detail (source, IL)", withTips.Error);
         Assert.Contains("view type tree", withTips.Error);
         Assert.Contains("dotted member syntax", withTips.Error);
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedOverloadTipsRemainPresent()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+            "-S",
+            SectionNames.Signature,
+            "-E",
+            ".tips");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(SectionNames.Signature, output);
+        Assert.Contains("view member detail (source, IL)", error);
+        Assert.Contains(
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            error);
     }
 
     [Fact]

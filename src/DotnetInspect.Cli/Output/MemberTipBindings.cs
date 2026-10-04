@@ -61,6 +61,28 @@ internal static class MemberTipBindings
             ShellCommandText.CurrentDialect);
     }
 
+    internal static Tip[] ResolveSelected(
+        ApiType type,
+        IEnumerable<ApiMember> members,
+        string? platformAssembly,
+        string? packagePath,
+        string? assemblyPath,
+        string? packageName,
+        string? packageVersion)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(members);
+        return Resolve(
+            type,
+            members,
+            platformAssembly,
+            packagePath,
+            assemblyPath,
+            packageName,
+            packageVersion,
+            ShellCommandText.CurrentDialect);
+    }
+
     internal static Tip[] Resolve(
         ApiType type,
         string? platformAssembly,
