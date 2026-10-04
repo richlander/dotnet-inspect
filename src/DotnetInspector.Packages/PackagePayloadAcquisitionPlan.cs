@@ -47,7 +47,9 @@ public sealed class PackagePayloadAcquisitionPlan
         Action<string>? log,
         PackagePayloadAccess access,
         long rangedSizeCut,
-        bool houseOwnsAccess)
+        bool houseOwnsAccess,
+        IPackageLibraryNamespaceFacts?
+            libraryNamespaceFacts = null)
     {
         ArgumentNullException.ThrowIfNull(getStore);
         if (!Enum.IsDefined(access))
@@ -58,6 +60,7 @@ public sealed class PackagePayloadAcquisitionPlan
         Log = log;
         Access = access;
         HouseOwnsAccess = houseOwnsAccess;
+        LibraryNamespaceFacts = libraryNamespaceFacts;
         ArgumentOutOfRangeException.ThrowIfNegative(rangedSizeCut);
         RangedSizeCut = rangedSizeCut;
     }
@@ -72,7 +75,9 @@ public sealed class PackagePayloadAcquisitionPlan
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
         Action<string>? log = null,
-        long rangedSizeCut = PackageRangedRead.DefaultSizeCut) =>
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut,
+        IPackageLibraryNamespaceFacts?
+            libraryNamespaceFacts = null) =>
         new(
             getStore,
             limits,
@@ -80,7 +85,9 @@ public sealed class PackagePayloadAcquisitionPlan
             log,
             PackagePayloadAccess.Ranged,
             rangedSizeCut,
-            houseOwnsAccess: true);
+            houseOwnsAccess: true,
+            libraryNamespaceFacts:
+                libraryNamespaceFacts);
 
     public PackagePayloadLimits? Limits { get; }
 
@@ -96,6 +103,9 @@ public sealed class PackagePayloadAcquisitionPlan
     public PackagePayloadAccess Access { get; }
 
     internal bool HouseOwnsAccess { get; }
+
+    internal IPackageLibraryNamespaceFacts?
+        LibraryNamespaceFacts { get; }
 
     /// <summary>
     /// Under ranged access, archives at or under this advertised length are

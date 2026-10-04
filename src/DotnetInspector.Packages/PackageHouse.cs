@@ -114,7 +114,7 @@ public abstract class PackageHouseSettlement
 /// <summary>
 /// Host-neutral settlement of exact and selecting package requests.
 /// </summary>
-public sealed class PackageHouse
+public sealed partial class PackageHouse
 {
     private readonly IPackageSourceAuthorization _sourceAuthorization;
     private readonly PackagePayloadAcquisitionPlan? _payloadAcquisition;
@@ -657,6 +657,8 @@ public sealed class PackageHouse
                 string rangedPackageId = candidate.Coordinate.PackageId;
                 PackageHouseContentNarrowingResolution?
                     plannedContentNarrowing = null;
+                PackageHouseLibraryInventoryResolution?
+                    plannedLibraryInventory = null;
                 PackagePayloadAccess payloadAccess =
                     SelectPayloadAccess(request, payloadAcquisition);
                 PackageRangedRead? rangedRead =
@@ -669,10 +671,16 @@ public sealed class PackageHouse
                                         request,
                                         rangedPackageId,
                                         directory,
+                                        payloadAcquisition
+                                            .LibraryNamespaceFacts,
                                         out PackageHouseContentNarrowingResolution?
-                                            contentNarrowing);
+                                            contentNarrowing,
+                                        out PackageHouseLibraryInventoryResolution?
+                                            libraryInventory);
                                 plannedContentNarrowing =
                                     contentNarrowing;
+                                plannedLibraryInventory =
+                                    libraryInventory;
                                 return selected;
                             },
                             payloadAcquisition.RangedSizeCut)
@@ -731,6 +739,8 @@ public sealed class PackageHouse
                 IReadOnlyList<PackageContentEntry>? semanticEntries = null;
                 PackageHouseContentNarrowingResolution?
                     contentNarrowingResolution = null;
+                PackageHouseLibraryInventoryResolution?
+                    libraryInventoryResolution = null;
                 bool semanticManifestUnavailable = false;
                 if (request.ContentQuery is not null)
                 {
@@ -760,6 +770,25 @@ public sealed class PackageHouse
                         semanticEntries = SelectContentEntries(
                             entries,
                             contentNarrowingResolution.EntryPaths);
+                        if (request.ContentQuery
+                                .LibraryAndInventoryTerminal
+                                is { } inventoryTerminal)
+                        {
+                            libraryInventoryResolution =
+                                plannedLibraryInventory is null
+                                || plannedContentNarrowing is null
+                                || !ReferenceEquals(
+                                    plannedContentNarrowing
+                                        .DirectoryGeneration,
+                                    payload.Content.GenerationIdentity)
+                                    ? ResolveLibraryInventory(
+                                        contentNarrowingResolution,
+                                        semanticEntries,
+                                        inventoryTerminal,
+                                        payloadAcquisition
+                                            .LibraryNamespaceFacts)
+                                    : plannedLibraryInventory;
+                        }
                     }
                     else
                     {
@@ -783,9 +812,29 @@ public sealed class PackageHouse
                     ?? [];
                 if (request.ContentQuery is not null)
                 {
+                    IReadOnlyList<string> selectedSemanticEntries =
+                        contentFiles?.SelectedEntries ?? [];
+                    if (libraryInventoryResolution is
+                        {
+                            Completion:
+                                PackageHouseContentNarrowingCompletion.Settled,
+                            SelectionFailure: null,
+                        } projectedInventory)
+                    {
+                        selectedSemanticEntries =
+                        [
+                            .. selectedSemanticEntries,
+                            projectedInventory
+                                .Rows[
+                                    projectedInventory
+                                        .SelectedRowIndex]
+                                .CompileEntry
+                                .Path,
+                        ];
+                    }
                     payloadResult = ProjectSemanticContent(
                         payloadResult,
-                        contentFiles?.SelectedEntries ?? []);
+                        selectedSemanticEntries);
                     payload = payloadResult.Payload
                         ?? throw new InvalidOperationException(
                             "Semantic content projection requires an acquired payload.");
@@ -811,6 +860,23 @@ public sealed class PackageHouse
                         ? new PackageHouseFileList(
                             contentNarrowing,
                             semanticEntries)
+                        : null;
+                PackageHouseLibraryAndInventory? libraryAndInventory =
+                    request.ContentQuery?.LibraryAndInventoryTerminal
+                            is { } selectedLibraryTerminal
+                    && libraryInventoryResolution is
+                        {
+                            Completion:
+                                PackageHouseContentNarrowingCompletion.Settled,
+                            SelectionFailure: null,
+                        } selectedInventoryResolution
+                    && contentNarrowing is not null
+                        ? CreateLibraryAndInventory(
+                            acquisition,
+                            contentNarrowing,
+                            selectedInventoryResolution,
+                            rangedPackageId,
+                            selectedLibraryTerminal.Namespace)
                         : null;
                 if (semanticManifestUnavailable)
                 {
@@ -864,6 +930,65 @@ public sealed class PackageHouse
                         };
                     return new PackageHouseSettlement.Acquired(
                         result,
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
+                }
+                if (libraryInventoryResolution is
+                    {
+                        Completion: not
+                            PackageHouseContentNarrowingCompletion.Settled,
+                        Reason: { } libraryReason,
+                    })
+                {
+                    failures.Add(
+                        new PackageHouseFailure.Stage(
+                            PackageHouseFailureStage.Selection,
+                            libraryReason));
+                    PackageHouseEvidence evidence = new(
+                        request,
+                        decision,
+                        acquisition,
+                        failures: failures,
+                        fileList: fileList,
+                        contentNarrowing: contentNarrowing);
+                    PackageHouseResult result =
+                        libraryInventoryResolution.Completion switch
+                        {
+                            PackageHouseContentNarrowingCompletion.NoMatch =>
+                                new PackageHouseResult.NoMatch(
+                                    evidence,
+                                    libraryReason),
+                            _ => new PackageHouseResult.Rejected(
+                                evidence,
+                                libraryReason),
+                        };
+                    return new PackageHouseSettlement.Acquired(
+                        result,
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
+                }
+                if (libraryInventoryResolution is
+                    {
+                        SelectionFailure: { } libraryFailure,
+                    })
+                {
+                    failures.Add(
+                        new PackageHouseFailure.Stage(
+                            PackageHouseFailureStage.Selection,
+                            libraryFailure));
+                    PackageHouseEvidence evidence = new(
+                        request,
+                        decision,
+                        acquisition,
+                        failures: failures,
+                        fileList: fileList,
+                        contentNarrowing: contentNarrowing);
+                    return new PackageHouseSettlement.Acquired(
+                        new PackageHouseResult.Rejected(
+                            evidence,
+                            libraryFailure),
                         payload,
                         payloadResult,
                         selectionUsesOriginalSources);
@@ -954,7 +1079,8 @@ public sealed class PackageHouse
                         acquisition,
                         failures: failures,
                         fileList: fileList,
-                        contentNarrowing: contentNarrowing);
+                        contentNarrowing: contentNarrowing,
+                        libraryAndInventory: libraryAndInventory);
                     return new PackageHouseSettlement.Acquired(
                         new PackageHouseResult.Settled(
                             acquiredEvidence),
@@ -1706,9 +1832,12 @@ public sealed class PackageHouse
         PackageHouseRequest request,
         string packageId,
         IPackageContent directory,
-        out PackageHouseContentNarrowingResolution? contentNarrowing)
+        IPackageLibraryNamespaceFacts? namespaceFacts,
+        out PackageHouseContentNarrowingResolution? contentNarrowing,
+        out PackageHouseLibraryInventoryResolution? libraryInventory)
     {
         contentNarrowing = null;
+        libraryInventory = null;
         if (request.ContentQuery is { } contentQuery)
         {
             contentNarrowing = ResolveContentNarrowing(
@@ -1716,6 +1845,17 @@ public sealed class PackageHouse
                 packageId,
                 directory,
                 [.. directory.EnumerateEntries()]);
+            if (contentQuery.LibraryAndInventoryTerminal
+                    is { } libraryTerminal)
+            {
+                libraryInventory = ResolveLibraryInventory(
+                    contentNarrowing,
+                    SnapshotEntries(directory),
+                    libraryTerminal,
+                    namespaceFacts);
+                return new PackageRangedSelection(
+                    libraryInventory.MaterializedEntryPaths);
+            }
             return new PackageRangedSelection(
                 contentQuery.FilesTerminal?.Resolve(
                     contentNarrowing.EntryPaths)
@@ -1755,6 +1895,26 @@ public sealed class PackageHouse
                 : selected;
     }
 
+    private static IReadOnlyList<PackageContentEntry> SnapshotEntries(
+        IPackageContent content)
+    {
+        if (content is IPackageArchiveEntryManifest archive
+            && archive.TryGetArchiveEntries(
+                out IReadOnlyList<PackageContentEntry>? entries))
+        {
+            return entries;
+        }
+        if (content is IPackageContentEntryManifest manifest)
+        {
+            using PackageContentEntryScanner scanner =
+                manifest.CreateEntryScanner();
+            return scanner.ReadToEnd();
+        }
+
+        throw new InvalidOperationException(
+            "A semantic package directory must expose validated entry lengths.");
+    }
+
     private static void ValidatePayloadPlanning(
         PackageHouseRequest request,
         PackagePayloadAcquisitionPlan payloadAcquisition)
@@ -1766,6 +1926,13 @@ public sealed class PackageHouse
                 semantic
                     ? "A semantic content query requires a House-planned payload acquisition capability."
                     : "A House-planned payload acquisition capability requires a semantic content query.");
+        }
+        if (request.ContentQuery?.LibraryAndInventoryTerminal
+                is { Namespace: not null }
+            && payloadAcquisition.LibraryNamespaceFacts is null)
+        {
+            throw new InvalidOperationException(
+                "Namespace Library selection requires Metadata-owned namespace facts in the PackageHouse execution plan.");
         }
     }
 
@@ -1783,6 +1950,10 @@ public sealed class PackageHouse
             or
             {
                 FileListTerminal: not null
+            }
+            or
+            {
+                LibraryAndInventoryTerminal: not null
             }
             ? PackagePayloadAccess.Ranged
             : throw new NotSupportedException(
