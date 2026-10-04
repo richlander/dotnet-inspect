@@ -15,6 +15,133 @@ public sealed partial class PackageHouseExecutionTests
 {
     [Fact]
     public async Task
+        AssemblyReferenceRouteProjectionBindsScopeAndOrdersTraversalRoutes()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    IncludeManifest: true));
+        PackageRootBinding rootBinding =
+            CallGraphRootBinding(
+                ("contoso.first", RouteVersion),
+                ("contoso.second", RouteVersion));
+        PackageDependencyTraversalOutcome traversal =
+            await CompleteSupplierTraversalAsync(
+                environment,
+                rootBinding);
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            executions = PreparedRouteExecutions(traversal);
+        ResolutionEnvironment resolution =
+            await ResolutionEnvironment.CreateAsync();
+
+        var completed = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                PackageAssemblyReferenceRouteProjection.Project(
+                    new(
+                        resolution.Generation,
+                        resolution.FocalScope,
+                        traversal,
+                        rootOccurrenceIndex: 0,
+                        [executions[1], executions[0]])));
+
+        Assert.Same(resolution.Generation, completed.Receipt.Generation);
+        Assert.Same(resolution.FocalScope, completed.Receipt.FocalScope);
+        Assert.Same(traversal, completed.Receipt.Traversal);
+        Assert.Equal(
+            [0, 1],
+            completed.Receipt.Routes.Select(
+                static route => route.Subject.EdgeIndex));
+        Assert.All(
+            completed.Receipt.Routes,
+            static route => Assert.Equal(
+                PackageAssemblyReferenceRouteDisposition.PackageCandidate,
+                route.Disposition));
+    }
+
+    [Fact]
+    public async Task
+        AssemblyReferenceRouteProjectionRejectsMissingOrDuplicateExecutions()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    IncludeManifest: true));
+        PackageDependencyTraversalOutcome traversal =
+            await CompleteSupplierTraversalAsync(
+                environment,
+                CallGraphRootBinding(
+                    ("contoso.first", RouteVersion),
+                    ("contoso.second", RouteVersion)));
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            executions = PreparedRouteExecutions(traversal);
+        PackageDependencyTraversalOutcome foreignTraversal =
+            await CompleteSupplierTraversalAsync(
+                environment,
+                CallGraphRootBinding(("contoso.foreign", RouteVersion)));
+        PackageDependencyEdgeRealizationExecution foreignExecution =
+            Assert.Single(PreparedRouteExecutions(foreignTraversal));
+        ResolutionEnvironment resolution =
+            await ResolutionEnvironment.CreateAsync();
+
+        Assert.Throws<ArgumentException>(
+            () => PackageAssemblyReferenceRouteProjection.Project(
+                new(
+                    resolution.Generation,
+                    resolution.FocalScope,
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    [executions[0]])));
+        Assert.Throws<ArgumentException>(
+            () => PackageAssemblyReferenceRouteProjection.Project(
+                new(
+                    resolution.Generation,
+                    resolution.FocalScope,
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    [executions[0], executions[0], executions[1]])));
+        Assert.Throws<ArgumentException>(
+            () => PackageAssemblyReferenceRouteProjection.Project(
+                new(
+                    resolution.Generation,
+                    resolution.FocalScope,
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    [executions[0], executions[1], foreignExecution])));
+    }
+
+    [Fact]
+    public async Task
+        AssemblyReferenceRouteProjectionRejectsForeignFocalScope()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    IncludeManifest: true));
+        PackageDependencyTraversalOutcome traversal =
+            await CompleteSupplierTraversalAsync(
+                environment,
+                CallGraphRootBinding(("contoso.route", RouteVersion)));
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            executions = PreparedRouteExecutions(traversal);
+        ResolutionEnvironment generation =
+            await ResolutionEnvironment.CreateAsync();
+        ResolutionEnvironment foreignScope =
+            await ResolutionEnvironment.CreateAsync();
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageAssemblyReferenceRouteProjectionRequest(
+                generation.Generation,
+                foreignScope.FocalScope,
+                traversal,
+                rootOccurrenceIndex: 0,
+                executions));
+    }
+
+    [Fact]
+    public async Task
         AssemblyReferenceSupplierSelectsExactPackageBeforeLowerTiers()
     {
         AssemblyReferenceIdentity identity = CallGraphTargetIdentity();
@@ -510,12 +637,25 @@ public sealed partial class PackageHouseExecutionTests
                         "net11.0",
                         platformTarget: platformTarget),
                     inventory));
+        ResolutionEnvironment resolution =
+            await ResolutionEnvironment.CreateAsync();
         PackageAssemblyReferenceSupplierAssociation association =
             PackageAssemblyReferenceSupplierAssociation.Create(
                 new PackageAssemblyReferenceSupplierAssociationRequest(
+                    resolution.Generation,
+                    resolution.FocalScope,
                     traversal,
                     rootOccurrenceIndex: 0,
                     [execution]));
+        var projected = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                association.RouteProjection);
+        PackageAssemblyReferenceRouteOccurrence route =
+            Assert.Single(projected.Receipt.Routes);
+        Assert.Equal(
+            PackageAssemblyReferenceRouteDisposition.PlatformDelegated,
+            route.Disposition);
+        Assert.Same(execution, route.Execution);
         using PackageSourceOperationLease operation =
             environment.IssueOperation(
                 execution.Request,
@@ -617,6 +757,27 @@ public sealed partial class PackageHouseExecutionTests
             await CompleteSupplierTraversalAsync(
                 environment,
                 rootBinding);
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            snapshot = PreparedRouteExecutions(traversal);
+        ResolutionEnvironment resolution =
+            await ResolutionEnvironment.CreateAsync();
+        return (
+            PackageAssemblyReferenceSupplierAssociation.Create(
+                new PackageAssemblyReferenceSupplierAssociationRequest(
+                    resolution.Generation,
+                    resolution.FocalScope,
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    snapshot,
+                    limits)),
+            snapshot);
+    }
+
+    private static ImmutableArray<
+        PackageDependencyEdgeRealizationExecution>
+        PreparedRouteExecutions(
+            PackageDependencyTraversalOutcome traversal)
+    {
         var executions =
             ImmutableArray.CreateBuilder<
                 PackageDependencyEdgeRealizationExecution>();
@@ -645,16 +806,7 @@ public sealed partial class PackageHouseExecutionTests
             }
         }
 
-        ImmutableArray<PackageDependencyEdgeRealizationExecution>
-            snapshot = executions.ToImmutable();
-        return (
-            PackageAssemblyReferenceSupplierAssociation.Create(
-                new PackageAssemblyReferenceSupplierAssociationRequest(
-                    traversal,
-                    rootOccurrenceIndex: 0,
-                    snapshot,
-                    limits)),
-            snapshot);
+        return executions.ToImmutable();
     }
 
     private static async Task<PackageDependencyTraversalOutcome>
@@ -713,4 +865,28 @@ public sealed partial class PackageHouseExecutionTests
                     AssemblyResolutionProvenance.Local(
                         "Package supplier association test"))),
             AssemblyResolutionScope.Any);
+
+    private sealed record ResolutionEnvironment(
+        AssemblyReferenceResolutionGenerationReceipt Generation,
+        MemberCallGraphFocalScopeReceipt FocalScope)
+    {
+        internal static async Task<ResolutionEnvironment> CreateAsync()
+        {
+            await using var workspace = new InspectionWorkspace();
+            var scope = Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync());
+            var registrations =
+                Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                    workspace.GetRegistrationSnapshot());
+            MemberCallGraphFocalScopeReceipt focalScope =
+                MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                    scope.Snapshot,
+                    registrations.Revision);
+            return new(
+                AssemblyReferenceResolutionGenerationReceipt.Capture(
+                    scope.Snapshot,
+                    focalScope),
+                focalScope);
+        }
+    }
 }
