@@ -66,6 +66,34 @@ public sealed class TypeDocumentInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        SubjectOnly_GenericTypeRetainsOwnerIssuedDisplaySignature()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        TypeDocument document =
+            Available(
+                Execute(
+                    library,
+                    type: Name(
+                        "System.Text.Json.Serialization",
+                        "JsonConverter`1")));
+
+        Assert.IsType<TypeDocumentDeclarations.NotRequested>(
+            document.Declarations);
+        Assert.Equal(
+            "System.Text.Json.Serialization.JsonConverter<T>",
+            document.Subject.DisplaySignature.ToString());
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task CountOnly_BindsSubjectAndPopulation()
     {
         byte[] content =

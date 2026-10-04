@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
+using InertText;
 
 namespace DotnetInspector.Sections;
 
@@ -45,6 +46,8 @@ public sealed record TypeDocumentSubject(
     Guid ModuleVersionId,
     MetadataTypeDefinitionName Type,
     int TypeDefinitionToken,
+    [property: JsonConverter(typeof(InertStringJsonConverter))]
+    InertString DisplaySignature,
     MetadataTypeDeclarationCategory Category,
     TypeAttributes Attributes,
     bool IsByRefLike,

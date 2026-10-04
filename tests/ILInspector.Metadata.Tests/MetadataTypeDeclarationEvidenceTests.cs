@@ -149,6 +149,9 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 posted.Evidence.DefinitionIdentity.Segments)
                 .ToString());
         Assert.Equal(
+            "System.Int32",
+            posted.Evidence.Signature.DisplayName.ToString());
+        Assert.Equal(
             0,
             Assert.Single(
                 posted.Evidence.DefinitionIdentity
@@ -365,6 +368,10 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             [1, 1],
             posted.Evidence.DefinitionIdentity
                 .IntroducedGenericParameterCounts);
+        Assert.Equal(
+            "ILInspector.Metadata.Tests."
+                + "TypeDeclarationGenericOuter<T>.Inner<U>",
+            posted.Evidence.Signature.DisplayName.ToString());
         var open = Assert.IsType<
             MetadataTypeIdentity.GenericInstance>(
                 posted.Evidence.OpenSelfIdentity);

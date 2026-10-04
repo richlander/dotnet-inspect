@@ -60,9 +60,13 @@ public sealed record MetadataTypeDeclarationFailure(
     long? BudgetLimit,
     long? BudgetAttempted);
 
+public sealed record MetadataTypeDeclarationSignature(
+    InertString DisplayName);
+
 public sealed record MetadataTypeDeclarationEvidence(
     MetadataTypeDefinitionAddress Type,
     MetadataNamedTypeIdentity DefinitionIdentity,
+    MetadataTypeDeclarationSignature Signature,
     MetadataTypeIdentity OpenSelfIdentity,
     MetadataTypeIdentity.Primitive? PrimitiveAlias,
     TypeAttributes Attributes,
@@ -168,9 +172,17 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     "The requested TypeDef does not have a unique structured name.");
             }
 
+            var genericDeclaration =
+                ReadGenericDeclaration(handle);
             ImmutableArray<int> introducedCounts =
-                ReadIntroducedGenericParameterCounts(handle);
+                genericDeclaration.IntroducedCounts;
             int totalGenericParameterCount = introducedCounts.Sum();
+            MetadataTypeDeclarationSignature signature =
+                ReadSignature(
+                    handle,
+                    selectedName,
+                    introducedCounts,
+                    genericDeclaration.ParameterNames);
             int[] declaringRows =
                 ReadDeclaringRows(handle);
 
@@ -253,6 +265,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 new(
                     _request,
                     named.Definition,
+                    signature,
                     openSelf,
                     primitiveAlias,
                     attributes,
@@ -651,7 +664,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 throw Refuse(
                     site,
                     rejected.Failure.RelationshipKind is
-                        { } relationshipKind
+                    { } relationshipKind
                         ? Map(relationshipKind)
                         : MetadataTypeDeclarationFailureReason
                             .MalformedMetadata,
@@ -661,7 +674,10 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         };
     }
 
-    ImmutableArray<int> ReadIntroducedGenericParameterCounts(
+    (
+        ImmutableArray<int> IntroducedCounts,
+        ImmutableArray<string> ParameterNames)
+        ReadGenericDeclaration(
         TypeDefinitionHandle handle)
     {
         MetadataTypeDeclarationSite site = Site(
@@ -719,6 +735,8 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
 
         var introduced =
             ImmutableArray.CreateBuilder<int>(consumed);
+        var parameterNames =
+            ImmutableArray.CreateBuilder<string>();
         int enclosingCount = 0;
         for (int chainIndex = 0;
             chainIndex < consumed;
@@ -752,6 +770,17 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                             .MalformedMetadata,
                         "Type generic parameters have invalid ownership or ordering.");
                 }
+                if (owner == handle)
+                {
+                    parameterNames.Add(
+                        Read(
+                            parameterSite,
+                            () => _reader.GetString(
+                                parameter.Name)));
+                    _context.ObserveWork(
+                        MetadataOperationWorkKind
+                            .GenericParameterNameMaterialization);
+                }
                 cumulativeCount++;
             }
 
@@ -766,7 +795,40 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             introduced.Add(cumulativeCount - enclosingCount);
             enclosingCount = cumulativeCount;
         }
-        return introduced.MoveToImmutable();
+        return (
+            introduced.MoveToImmutable(),
+            parameterNames.ToImmutable());
+    }
+
+    MetadataTypeDeclarationSignature ReadSignature(
+        TypeDefinitionHandle handle,
+        MetadataTypeDefinitionName name,
+        ImmutableArray<int> introducedCounts,
+        ImmutableArray<string> parameterNames)
+    {
+        MetadataTypeDeclarationSite site = Site(
+            MetadataTypeDeclarationStage.IdentityProjection,
+            MetadataTypeDeclarationMechanism.StructuredProjection,
+            handle);
+        int expectedCount = introducedCounts.Sum();
+        if (parameterNames.Length != expectedCount)
+        {
+            throw Refuse(
+                site,
+                MetadataTypeDeclarationFailureReason.MalformedMetadata,
+                "The TypeDef signature disagrees with generic ownership.");
+        }
+
+        Charge(
+            site,
+            MetadataOperationDimension.StructuredNodes);
+        return new(
+            Retain(
+                MetadataTypeNameFormatter.FormatFullName(
+                    name,
+                    parameterNames,
+                    introducedCounts),
+                site));
     }
 
     void ValidateGenericParameterOwnerOrdering(

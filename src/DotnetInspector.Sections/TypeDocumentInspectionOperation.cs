@@ -246,6 +246,7 @@ public static class TypeDocumentInspectionOperation
                         document.Subject.Type.ModuleVersionId,
                         plan.Type,
                         document.Subject.Type.Definition.Value,
+                        document.Subject.Signature.DisplayName,
                         document.Subject.Category,
                         document.Subject.Attributes,
                         document.Subject.IsByRefLike,
