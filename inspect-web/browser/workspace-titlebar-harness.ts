@@ -550,6 +550,8 @@ function detailHtml() {
       contentHtml: packageOverviewMode
         ? renderPackageOverviewContent({
             packageInfoHtml,
+            packageChildrenHtml:
+              '<section class="document-section"><div class="section-title"><h2>Libraries</h2><span>1</span></div></section>',
             comparisonHtml,
             documentsHtml,
           })

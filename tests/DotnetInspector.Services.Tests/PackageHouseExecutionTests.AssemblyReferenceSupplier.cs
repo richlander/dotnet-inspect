@@ -856,6 +856,7 @@ public sealed partial class PackageHouseExecutionTests
 
         Assert.Equal(identity, packageOwned.Package.Selection.Assembly.Identity);
         Assert.Same(request, packageOwned.Request);
+        Assert.Same(packageRoute, packageOwned.Route);
         Assert.Same(
             packageRoutes.Receipt,
             packageRoute.PackageRoutes);
