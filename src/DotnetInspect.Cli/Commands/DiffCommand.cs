@@ -3428,6 +3428,7 @@ public record DiffOptions : IProjectionOptions
     /// selects Diff's default analysis set.
     /// </summary>
     public string[]? Analysis { get; init; }
+    public string[] Where { get; init; } = [];
     public bool Legend { get; init; }
     public string[]? Discover { get; init; }
     public bool Schema { get; init; }

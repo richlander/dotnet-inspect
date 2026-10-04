@@ -254,12 +254,12 @@ public sealed class PackageRootBinding
             out _);
     }
 
-    static bool ReceiptUsesCompatibleImplementationSelection(
+    internal static bool ReceiptUsesCompatibleImplementationSelection(
         PackageCompileAssetSelectionReceipt receipt) =>
         receipt.Policy == PackageCompileAssetSelectionPolicy.ExplicitTarget
         && receipt.Selection.UsesCompatibleImplementationSelection;
 
-    static string? ReceiptSelectionTargetFramework(
+    internal static string? ReceiptSelectionTargetFramework(
         PackageCompileAssetSelectionReceipt receipt) =>
         receipt.Policy != PackageCompileAssetSelectionPolicy.ExactTarget
             ? receipt.Selection.ImplementationTargetFramework
@@ -268,7 +268,7 @@ public sealed class PackageRootBinding
             : receipt.Selection.TargetFramework
                 ?? receipt.RequestedTargetFramework;
 
-    static string? ReceiptCompileTargetFramework(
+    internal static string? ReceiptCompileTargetFramework(
         PackageCompileAssetSelectionReceipt receipt) =>
         receipt.RequestedTargetFramework
         ?? receipt.Selection.TargetFramework;

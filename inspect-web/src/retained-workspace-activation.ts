@@ -32,9 +32,19 @@ interface PackageQueryRetainedWorkspaceDefinitionInput
   };
 }
 
+interface EcosystemRetainedWorkspaceDefinitionInput
+  extends RetainedWorkspaceDefinitionIdentity {
+  readonly canonicalPacket?: never;
+  readonly packageQuery?: never;
+  readonly ecosystem: {
+    readonly id: string;
+  };
+}
+
 type RetainedWorkspaceDefinitionInput =
   | PacketRetainedWorkspaceDefinitionInput
-  | PackageQueryRetainedWorkspaceDefinitionInput;
+  | PackageQueryRetainedWorkspaceDefinitionInput
+  | EcosystemRetainedWorkspaceDefinitionInput;
 
 type RetainedWorkspaceDefinition = RetainedWorkspaceDefinitionInput & {
   readonly id: string;
@@ -80,6 +90,12 @@ export interface RetainedWorkspaceActivationClient {
     canonicalLocation: string,
     packageId: string,
     version: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult>;
+  prepareEcosystemWorkspaceDefinition?(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    ecosystemId: string,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   commitRetainedWorkspaceActivation(
     receipt: string,
@@ -270,9 +286,10 @@ export function createRetainedWorkspaceActivationController(
         "This engine does not support Workspace package-source descriptions.",
       );
     }
-    if (definition.packageQuery !== undefined) {
+    if ("ecosystem" in definition
+      || definition.packageQuery !== undefined) {
       throw new Error(
-        "Package-query Workspace definitions do not require package-source descriptions.",
+        "This Workspace definition does not require a package-source description.",
       );
     }
 
@@ -515,10 +532,12 @@ export function createRetainedWorkspaceActivationController(
     }
     if (input.label.trim().length === 0
       || input.canonicalLocation.trim().length === 0
-      || (input.packageQuery === undefined
-        ? input.canonicalPacket.trim().length === 0
-        : input.packageQuery.packageId.trim().length === 0
-          || input.packageQuery.version.trim().length === 0)) {
+      || ("ecosystem" in input
+        ? input.ecosystem.id.trim().length === 0
+        : input.packageQuery === undefined
+          ? input.canonicalPacket.trim().length === 0
+          : input.packageQuery.packageId.trim().length === 0
+            || input.packageQuery.version.trim().length === 0)) {
       throw new Error(
         "A retained Workspace definition requires a label, canonical location, and restoration input.",
       );
@@ -582,7 +601,24 @@ export function createRetainedWorkspaceActivationController(
       try {
         const credentialEndpoints = Object.keys(packageSourceCredentials);
         let preparation: BrowserRetainedWorkspacePreparationResult;
-        if (definition.packageQuery !== undefined) {
+        if ("ecosystem" in definition) {
+          if (credentialEndpoints.length !== 0) {
+            throw new Error(
+              "Ecosystem Workspace definitions do not accept credential bindings.",
+            );
+          }
+          if (client.prepareEcosystemWorkspaceDefinition === undefined) {
+            throw new Error(
+              "This engine does not support Ecosystem Workspace definitions.",
+            );
+          }
+          preparation = await client.prepareEcosystemWorkspaceDefinition(
+            definition.id,
+            definition.label,
+            definition.canonicalLocation,
+            definition.ecosystem.id,
+          );
+        } else if (definition.packageQuery !== undefined) {
           if (credentialEndpoints.length !== 0) {
             throw new Error(
               "Package-query Workspace definitions do not accept credential bindings.",

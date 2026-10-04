@@ -796,6 +796,36 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInPolicyKeepsVocabularyAtItsOwnerCatalogs()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == "vocabulary-dependencies");
+        Assert.Equal(
+            [
+                DependencyGraphKind.Project,
+                DependencyGraphKind.Assembly,
+            ],
+            rule.Graphs);
+        Assert.NotNull(rule.AllowOnly);
+        Assert.Equal(
+            [
+                "$platform",
+                "DotnetInspector.Queries",
+                "ILInspector.Decompiler",
+            ],
+            rule.AllowOnly);
+
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "vocabulary-dependencies",
+            "DotnetInspector.Vocabulary",
+            "DotnetInspector.Sections");
+    }
+
+    [Fact]
     public void CheckedInBroadProductRulesExcludeCallerGraphFixtures()
     {
         string repository = FindRepositoryRoot();

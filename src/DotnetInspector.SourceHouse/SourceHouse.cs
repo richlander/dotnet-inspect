@@ -399,7 +399,7 @@ public static partial class SourceHouse
                AssemblyInspectionSession.Open(descriptor))
         {
             ApiSurfaceExtractionResult extraction =
-                session.BoundedApiSurface(
+                session.BoundedCompatibilityApiSurface(
                     ApiSurfaceExtractionScope.IncludeAll,
                     request.Plan.Limits.TargetBounds);
             if (extraction
@@ -422,7 +422,7 @@ public static partial class SourceHouse
                 && RequiresCompilerGeneratedSurface(request.Target))
             {
                 extraction =
-                    session.BoundedApiSurface(
+                    session.BoundedCompatibilityApiSurface(
                         ApiSurfaceExtractionScope.IncludeAll,
                         request.Plan.Limits.TargetBounds,
                         includeCompilerGenerated: true);

@@ -3,9 +3,11 @@ using System.Text.Json;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Inspector.Findings;
+using QuerySpace;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -13,6 +15,82 @@ public sealed class AnalysisParticipationRegistrationTests
 {
     static InspectionCapabilityCatalog ProductCatalog()
         => InspectionCapabilityCatalog.Create([DiffAnalysisCatalog.ProductModule]);
+
+    [Fact]
+    public void FailedRetainedComparisonDiagnostic_DoesNotDependOnTransitionsView()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Library,
+                targetCount: 1,
+                ["api", "string-literals"]));
+        StringLiteralComparisonQueryPlan query =
+            Assert.IsType<StringLiteralComparisonQueryPlanResult.Accepted>(
+                StringLiteralComparisonQuery.ResolveIntent(
+                    StringLiteralComparisonQuery.CreateIntent(
+                        PortableQueryOperator.Contains,
+                        "https://"),
+                    TestContext.Current.CancellationToken)).Plan;
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Library,
+            "library:sample",
+            "Sample");
+        var findingSubject =
+            new FindingSubject(subject.Id, subject.Display);
+        var comparisons = new RetainedFindingComparisonSet(
+        [
+            new RetainedFindingComparison<StringLiteralUseOccurrence>(
+                subject,
+                StringLiteralUseFindings.Descriptor,
+                FindingComparison.Compare<StringLiteralUseOccurrence>(
+                    new FindingInspection<StringLiteralUseOccurrence>.Failed(
+                        new InspectionError(
+                            findingSubject,
+                            StringLiteralUseFindings.Descriptor,
+                            "String literal scan exceeded its work limit.")),
+                    new FindingInspection<StringLiteralUseOccurrence>.Complete(
+                        []))),
+        ]);
+        var input = new DiffAnalysisInput(
+            new ApiSurface(),
+            new ApiSurface(),
+            [],
+            [],
+            new HashSet<string>(),
+            [],
+            apiMemberTargetIdentities: null,
+            prepareBodySignals: null,
+            stringLiteralQuery: query,
+            prepareStringLiterals: () => comparisons);
+
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    catalog,
+                    accepted,
+                    input,
+                    DiffAnalysisDocumentViews.Changes));
+
+        Assert.Null(inspection.Content.Transitions);
+        Assert.Single(comparisons.Failures);
+        InspectionDiagnostic diagnostic = Assert.Single(
+            inspection.Diagnostics,
+            diagnostic =>
+                diagnostic.Code
+                    == "diff-analysis.finding-comparison-failed");
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Error,
+            diagnostic.Severity);
+        Assert.Contains(
+            "String literal scan exceeded its work limit.",
+            diagnostic.Summary.ToString(),
+            StringComparison.Ordinal);
+    }
 
     [Fact]
     public void AnalysisIdentity_ConformsToGrammarAndIsUniquePerBuild()
@@ -26,7 +104,16 @@ public sealed class AnalysisParticipationRegistrationTests
         ];
 
         Assert.Equal(
-            ["api", "api-attribute", "allocation", "call-site", "unsafety", "csharp", "il"],
+            [
+                "api",
+                "api-attribute",
+                "allocation",
+                "call-site",
+                "unsafety",
+                "string-literals",
+                "csharp",
+                "il",
+            ],
             participating.Select(analysis => analysis.Id.Value));
         Assert.All(
             participating,
@@ -201,7 +288,7 @@ public sealed class AnalysisParticipationRegistrationTests
         AnalysisReportSurfaceKind.Library,
         "api",
         DiffAnalysisDocumentViews.Transitions,
-        DiffAnalysisViewRejectionReason.TransitionsRequireTypeOrMember)]
+        DiffAnalysisViewRejectionReason.TransitionsRequireSupportedSurface)]
     public void DiffAnalysisViews_RejectUnsupportedCombinations(
         AnalysisReportSurfaceKind surface,
         string analysis,
@@ -234,6 +321,10 @@ public sealed class AnalysisParticipationRegistrationTests
         AnalysisReportSurfaceKind.Member,
         "allocation",
         DiffAnalysisDocumentViews.Summary)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Library,
+        "string-literals",
+        DiffAnalysisDocumentViews.Transitions)]
     public void DiffAnalysisViews_AcceptSupportedCombinations(
         AnalysisReportSurfaceKind surface,
         string analysis,
@@ -248,6 +339,32 @@ public sealed class AnalysisParticipationRegistrationTests
                 [analysis]));
 
         Assert.Null(DiffAnalysisViewAdmission.Validate(accepted, views));
+    }
+
+    [Fact]
+    public void LibraryTransitions_AreDeclaredOnlyByStringLiterals()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        AnalysisDescriptor api = catalog.Analyses.Single(
+            registration => registration.Analysis.Id.Value == "api").Analysis;
+        AnalysisDescriptor literals = catalog.Analyses.Single(
+            registration => registration.Analysis.Id.Value
+                == "string-literals").Analysis;
+
+        Assert.Empty(
+            api.ParticipationFor(AnalysisOperationKind.Compare)!
+                .For(AnalysisReportSurfaceKind.Library)!
+                .Projections);
+        Assert.Equal(
+            [DiffAnalysisCatalog.TransitionsProjection.Id],
+            literals.ParticipationFor(AnalysisOperationKind.Compare)!
+                .For(AnalysisReportSurfaceKind.Library)!
+                .Projections.Select(projection => projection.Id));
+        Assert.Equal(
+            [StringLiteralUseFindings.Descriptor.Id],
+            literals.ParticipationFor(AnalysisOperationKind.Compare)!
+                .For(AnalysisReportSurfaceKind.Library)!
+                .Descriptors.Select(descriptor => descriptor.Id));
     }
 
     [Fact]

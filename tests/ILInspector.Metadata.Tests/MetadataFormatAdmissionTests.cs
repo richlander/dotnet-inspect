@@ -153,7 +153,7 @@ public sealed class MetadataFormatAdmissionTests
         return peReader.PEHeaders.CorHeaderStartOffset;
     }
 
-    static void RemoveMetadataDirectory(byte[] image)
+    internal static void RemoveMetadataDirectory(byte[] image)
     {
         using var peReader = Open(image);
         PEHeader peHeader = peReader.PEHeaders.PEHeader!;

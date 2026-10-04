@@ -277,6 +277,56 @@ test("product descriptors own order, labels, status, and exact action identity",
     value.navigation.snapshot.hierarchy[1]!.action);
 });
 
+test("active Ecosystem uses the catalog-authored retained label", () => {
+  const source = posting();
+  const ecosystem = subject(
+    "ecosystem.aspire",
+    "Ecosystem",
+    "ecosystem.aspire",
+    source.navigation.snapshot.workspace.id);
+  const value: BrowserRetainedWorkspacePosting = {
+    ...source,
+    label: "Aspire",
+    definition: {
+      tabs: [],
+      contexts: [],
+      registrations: [],
+      activeTabId: null,
+      selectedContextId: null,
+    },
+    navigation: {
+      ...source.navigation,
+      snapshot: {
+        ...source.navigation.snapshot,
+        activePackage: null,
+        activeSubject: ecosystem,
+        packages: [],
+        hierarchy: [
+          source.navigation.snapshot.hierarchy[0]!,
+          {
+            kind: "Ecosystem",
+            label: "ecosystem.aspire",
+            subject: ecosystem,
+            state: "Current",
+            isActive: true,
+            isRetained: true,
+            evidence: [],
+            action: null,
+          },
+        ],
+      },
+    },
+    packages: [],
+    platforms: [],
+  };
+
+  const presentation = createNavigationDescriptorPresentation(value);
+
+  assert.equal(presentation.subjectLabel, "Aspire");
+  assert.equal(presentation.subjects[0]!.identity, "ecosystem.aspire");
+  assert.equal(presentation.subjects[0]!.label, "Aspire");
+});
+
 test("descriptor bar preserves duplicate labels by identity and shows failures", () => {
   const presentation = createNavigationDescriptorPresentation(posting());
   const html = renderNavigationDescriptorBar({

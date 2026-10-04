@@ -305,10 +305,13 @@
   <Folder Name="/tools/">
     <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/AotProbe/AotProbe.csproj" />
+    <Project Path="tools/CatalogCallGraphScorecard/CatalogCallGraphScorecard.csproj" />
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
     <Project Path="tools/MemberBodySizeScorecard/MemberBodySizeScorecard.csproj" />
     <Project Path="tools/MemberGroupScorecard/MemberGroupScorecard.csproj" />
     <Project Path="tools/BodyUseScorecard/BodyUseScorecard.csproj" />
+    <Project Path="tools/MethodBodyTraversalScorecard/MethodBodyTraversalScorecard.csproj" />
+    <Project Path="tools/MethodBodyDemandScorecard/MethodBodyDemandScorecard.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/LibraryInfoCountScorecard/LibraryInfoCountScorecard.csproj" />
@@ -325,5 +328,6 @@
     <Project Path="tools/RoundTripCompilation/RoundTripCompilation.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
     <Project Path="tools/SourceCorpusCensus/SourceCorpusCensus.csproj" />
+    <Project Path="tools/SubjectRelationsScorecard/SubjectRelationsScorecard.csproj" />
   </Folder>
 </Solution>

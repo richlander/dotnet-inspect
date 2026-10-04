@@ -385,9 +385,13 @@ with the search result. Empty optional cells do not change the header.
 
 The shared presentation layer owns this table vocabulary and Markout lowering.
 The CLI binds its existing typed search results to that presentation, writes
-one header unless `--no-header` is requested, and flushes settled rows without
-waiting for later sources or layers. TSV cells use Markout's existing inert
-text and control-character encoding; diagnostics never enter the table.
+one header unless `--no-header` is requested, and flushes the first settled row
+immediately. Later rows use bounded batches of 64, flushing each full batch and
+any partial batch at an ecosystem-layer boundary, completion, cancellation,
+failure, or disposal. TSV cells use Markout's existing inert text and
+control-character encoding; diagnostics never enter the table. The batching
+buffer is bounded independently of the search result collections, whose
+retention is unchanged.
 
 Progressive does not mean provisional. Direct Member and wildcard Type
 matches can settle while sources are searched. Type answers whose implicit
@@ -413,8 +417,9 @@ execution remains separately owned by #9100. Existing Find views remain for
 explicit formats; no second search or metadata decoder is introduced.
 
 `FindProgressiveTsvTests` is the PR-fast Release gate for the stable mixed-kind
-header, per-row visibility, projection, safe cell framing, source callbacks,
-cancellation after a printed source, and buffered strict-Window failure.
+header, immediate first-row visibility, full and partial batch publication,
+projection, safe cell framing, source callbacks, cancellation after a printed
+source, and buffered strict-Window failure.
 The existing Find command and service suites enforce explicit-format
 compatibility and the retained selection behavior.
 

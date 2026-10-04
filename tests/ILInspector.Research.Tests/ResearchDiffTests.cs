@@ -75,6 +75,39 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FindingRetention_IndexesOnlyFailedComparisons()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var findingSubject = new FindingSubject(subject.Id, subject.Display);
+        var failed = new RetainedFindingComparison<AllocationOccurrence>(
+            subject,
+            AnalysisFindings.AllocationDescriptor,
+            FindingComparison.Compare<AllocationOccurrence>(
+                new FindingInspection<AllocationOccurrence>.Failed(
+                    new InspectionError(
+                        findingSubject,
+                        AnalysisFindings.AllocationDescriptor,
+                        "allocation inspection failed")),
+                new FindingInspection<AllocationOccurrence>.Complete([])));
+        var retained = new RetainedFindingComparisonSet(
+        [
+            failed,
+            new RetainedFindingComparison<UnsafetyOccurrence>(
+                subject,
+                AnalysisFindings.UnsafetyDescriptor,
+                AnalysisFindings.CompareUnsafety([], [], findingSubject)),
+        ]);
+
+        Assert.Same(failed, Assert.Single(retained.Failures));
+        Assert.Equal(
+            "old: allocation inspection failed",
+            failed.Failure);
+    }
+
+    [Fact]
     public void FindingRetention_CombineMergesDescriptorBuckets()
     {
         var subject = new ResearchSubjectKey(
