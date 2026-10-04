@@ -121,6 +121,16 @@ test("reciprocal relationship evidence remains independently reachable", async (
   await expect(detail.locator("[data-metrics-relationship-rank]"))
     .toHaveText("30/30 most connected");
 
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+  await expect(page.locator(".metrics-dependency-structure")).toBeVisible();
+  await expect(visibleEdges).toHaveCount(30);
+  await expect(limitOutput).toHaveText("30 / 30");
+  await expect(lastEdge).toHaveAttribute("aria-pressed", "true");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("30/30 most connected");
+
   await limit.focus();
   await limit.press("Home");
   await expect(visibleEdges).toHaveCount(8);
@@ -149,4 +159,138 @@ test("reciprocal relationship evidence remains independently reachable", async (
       viewport!.y + viewport!.height + .5,
     );
   }
+});
+
+test("dependency edges reveal exact-type explanations", async ({ page }) => {
+  await page.goto("/browser/library-metrics.html");
+  await expect(page.locator(".metrics-dependency-structure")).toHaveCount(0);
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+  const edge = page.locator('[data-dependency-edge-index="0"]');
+  const detail = page.locator('[data-dependency-edge-detail="0"]');
+  const activation = page.locator("#metrics-activated-type");
+
+  await edge.focus();
+  await edge.press("Enter");
+  await expect(detail).toHaveAttribute("open", "");
+  await expect(detail).toContainText("Example.A");
+  await expect(detail).toContainText("Example.B");
+
+  await detail.locator(
+    '[data-dependency-type-key="Example.B"]',
+  ).click();
+  await expect(activation).toHaveText("Example.B");
+});
+
+test("dependency layout preserves issued levels and cycles responsively", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto("/browser/library-metrics.html");
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  await expect(page.locator(".metrics-dependency-level")).toHaveText([
+    "Level 0",
+    "Level 1",
+    "Level 2",
+  ]);
+  await expect(page.locator(".metrics-dependency-node-cycle")).toHaveCount(2);
+  const cycleDirections = await page.locator("path.metrics-dependency-edge")
+    .evaluateAll(elements => elements
+      .map(element => ({
+        title: element.querySelector("title")?.textContent ?? "",
+        path: element.getAttribute("d") ?? "",
+        markerEnd: element.getAttribute("marker-end") ?? "",
+      }))
+      .filter(edge =>
+        edge.title.includes("Example.Core depends on Example.Workflows") ||
+        edge.title.includes("Example.Workflows depends on Example.Core")));
+  expect(cycleDirections).toHaveLength(2);
+  expect(new Set(cycleDirections.map(edge => edge.path)).size).toBe(2);
+  expect(cycleDirections.every(edge =>
+    edge.markerEnd === "url(#metrics-dependency-arrow)")).toBe(true);
+  const viewport = page.locator(".metrics-dependency-viewport");
+  const geometry = await viewport.evaluate(element => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    right: element.getBoundingClientRect().right,
+    documentWidth: document.documentElement.clientWidth,
+  }));
+
+  expect(geometry.scrollWidth).toBeGreaterThanOrEqual(geometry.clientWidth);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.documentWidth + .5);
+});
+
+test("level-zero reciprocal cycle routes remain inside the viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto("/browser/library-metrics.html?dependency=cycle-zero");
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  const geometry = await page.locator("path.metrics-dependency-edge")
+    .evaluateAll(elements => {
+      const first = elements[0];
+      if (!(first instanceof SVGGraphicsElement) || !first.ownerSVGElement)
+        throw new Error("Dependency SVG is missing.");
+      const svg = first.ownerSVGElement;
+      return {
+        viewBoxWidth: svg.viewBox.baseVal.width,
+        paths: elements.map(element => {
+          if (!(element instanceof SVGGraphicsElement))
+            throw new Error("Dependency edge is not graphical.");
+          const bounds = element.getBBox();
+          return {
+            left: bounds.x,
+            right: bounds.x + bounds.width,
+            path: element.getAttribute("d") ?? "",
+            markerEnd: element.getAttribute("marker-end") ?? "",
+          };
+        }),
+      };
+    });
+
+  expect(geometry.paths).toHaveLength(2);
+  expect(new Set(geometry.paths.map(path => path.path)).size).toBe(2);
+  for (const path of geometry.paths) {
+    expect(path.left).toBeGreaterThanOrEqual(0);
+    expect(path.right).toBeLessThanOrEqual(geometry.viewBoxWidth);
+    expect(path.markerEnd).toBe("url(#metrics-dependency-arrow)");
+  }
+});
+
+test("deep dependency levels scroll without shrinking labels", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto("/browser/library-metrics.html?dependency=deep");
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  const geometry = await page.locator(".metrics-dependency-viewport")
+    .evaluate(element => {
+      const svg = element.querySelector(".metrics-dependency-structure");
+      const label = element.querySelector(".metrics-dependency-level");
+      if (!(svg instanceof SVGSVGElement) ||
+          !(label instanceof SVGTextElement)) {
+        throw new Error("Dependency layout is incomplete.");
+      }
+      const matrix = label.getScreenCTM();
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        svgWidth: svg.getBoundingClientRect().width,
+        labelScale: matrix === null ? 0 : Math.hypot(matrix.a, matrix.b),
+      };
+    });
+
+  expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
+  expect(geometry.svgWidth).toBeGreaterThanOrEqual(2_580);
+  expect(geometry.labelScale).toBeGreaterThanOrEqual(.99);
 });

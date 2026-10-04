@@ -27,9 +27,10 @@ When the member list shows an overloaded method family, its nested overload
 rows show which overloads carry the most code and which overloads are hubs the
 others call. Two channels carry that claim:
 
-- **Heat**: a tint whose strength follows each overload's size relative to the
-  largest same-name method size in its family, including methods that are not
-  listed overloads (for example, due to accessibility filtering).
+- **Heat**: a tint for overloads in the family's upper size half whose strength
+  follows each overload's size relative to the largest same-name method size in
+  its family, including methods that are not listed overloads (for example, due
+  to accessibility filtering).
 - **Implementation-hub achievement**: a glyph on an overload that same-name
   methods call and that calls no same-name method itself.
 
@@ -274,6 +275,12 @@ declared without a body, not as an unavailable body. When the family's
 coverage has an unavailable body or an incomplete measurement, the maximum is
 unknown and the family shows no heat.
 
+The **family median** is the conventional median of every measured size in the
+analyzed family, including methods outside the public roster. For an even
+population, it is the mean of the two middle sizes. A method must be strictly
+larger than the median to show heat, so equal-size methods at the boundary are
+never split arbitrarily.
+
 An overload is a **hub** when all of the following hold:
 
 - at least one relationship has another analyzed-family method as its caller
@@ -317,8 +324,11 @@ member name.
 
 ### Heat
 
-Heat applies only to overloads whose size is at least half the family
-maximum. Every other row is untinted.
+Heat applies only to overloads whose size is both greater than half the family
+maximum and greater than the family median. Every other row is untinted. The
+maximum-relative floor excludes upper-half methods that remain small beside a
+dominant implementation; the median criterion keeps heat focused on the
+family's larger implementations without selecting an arbitrary number of rows.
 
 - The tint is anchored on the right edge of the row and fades toward the left,
   leaving the left edge for hover, selection, and the achievement rail.
@@ -408,6 +418,10 @@ Subjects:
     instructions, 8 hubs; and
   - `JsonSerializer.Serialize`: all-forwarder overloads with a largest body of
     16 instructions.
+- `System.Text.Json` 11.0.0-preview.7.26381.103, `net10.0`:
+  `JsonSerializer.DeserializeAsync` has 10 public overloads measuring 16, 16,
+  13, 13, 13, 13, 13, 13, 9, and 9 instructions. Its median is 13, so only the
+  two 16-instruction overloads show heat.
 - Dapper 2.1.89: `SqlMapper.QueryAsync` has public forwarders of 5 to 22
   instructions and a private `QueryAsync(IDbConnection, Type,
   CommandDefinition)` whose 23-instruction stub starts a 441-instruction
