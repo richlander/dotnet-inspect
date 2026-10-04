@@ -82,6 +82,7 @@ export interface TypeSummary {
 export interface MemberOverloadSummary {
   signature: string;
   stableSelector?: string | null;
+  anchorDigest?: string | null;
   graphOnly?: boolean;
   parameters?: readonly OverloadLabelParameter[];
   returnType?: string | null;
