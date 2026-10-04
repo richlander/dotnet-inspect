@@ -85,6 +85,25 @@
       ]
     },
     {
+      "id": "browser-hosts-never-reference-installed-adapters",
+      "source": "docs/design/platform-house-reference-processing.md#assembly-reference-processing; consolidation tracker #9240 slice 3",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web",
+        "DotnetInspect.Web.*"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web*/*.csproj"
+      ],
+      "deny": [
+        "DotnetInspector.PlatformHouse.Installed",
+        "DotnetInspector.Sections.Installed"
+      ]
+    },
+    {
       "id": "dotnet-inspect-cli-project-dependencies-stay-within-host-ratchet",
       "source": "docs/design/inspection-layers.md#the-layers; composition tracker #8843",
       "graphs": [
@@ -108,14 +127,10 @@
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
-        "DotnetInspector.PlatformHouse.Execution.Installed",
-        "DotnetInspector.PlatformHouse.Execution.Packages",
         "DotnetInspector.PlatformHouse.Installed",
         "DotnetInspector.PlatformHouse.Packages",
         "DotnetInspector.PlatformQueries",
         "DotnetInspector.Platforms",
-        "DotnetInspector.Platforms.Installed",
-        "DotnetInspector.Platforms.Packages",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
         "DotnetInspector.ResearchQueries",
@@ -169,15 +184,10 @@
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
-        "DotnetInspector.PlatformHouse.Execution",
-        "DotnetInspector.PlatformHouse.Execution.Installed",
-        "DotnetInspector.PlatformHouse.Execution.Packages",
         "DotnetInspector.PlatformHouse.Installed",
         "DotnetInspector.PlatformHouse.Packages",
         "DotnetInspector.PlatformQueries",
         "DotnetInspector.Platforms",
-        "DotnetInspector.Platforms.Installed",
-        "DotnetInspector.Platforms.Packages",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
         "DotnetInspector.ResearchQueries",

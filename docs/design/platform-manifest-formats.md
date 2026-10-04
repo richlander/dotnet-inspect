@@ -78,17 +78,18 @@ same-named `runtimeconfig.json` and `deps.json`.
 
 ## Boundary and dependency direction
 
-The implementation lives in `DotnetInspector.Platforms.Formats`.
+The implementation lives in the `Formats` folder of the
+`DotnetInspector.Platforms` contract floor, under the
+`DotnetInspector.Platforms.Formats` namespace.
 
 ```text
-DotnetInspector.Platforms
 UntrustedDocuments.HardenedJson
         |
         v
-DotnetInspector.Platforms.Formats
+DotnetInspector.Platforms (currency and Formats)
         |
         v
-source adapters, including DotnetInspector.Platforms.Installed
+source adapters, including DotnetInspector.PlatformHouse.Installed
 ```
 
 The dependency on `UntrustedDocuments` consumes only the repository's
@@ -169,7 +170,8 @@ it observes, including entries that do not become managed members.
 
 1. This owner introduces reusable byte-to-model interpretation.
 2. The step 4b first adopter,
-   `DotnetInspector.Platforms.Installed`, acquires manifests from one explicit
+   `DotnetInspector.PlatformHouse.Installed` (namespace
+   `DotnetInspector.Platforms.Installed`), acquires manifests from one explicit
    hive and consumes these models while resolving the installed implementation
    closure.
 3. Step 5 package-backed platform sources may consume the same readers from
@@ -179,7 +181,7 @@ it observes, including entries that do not become managed members.
 
 ## Evidence gates
 
-`DotnetInspector.Platforms.Formats.Tests` proves:
+`PlatformManifestReaderTests` in `DotnetInspector.Platforms.Tests` proves:
 
 - global and per-reference runtime settings;
 - dependency-free runtime configurations;

@@ -76,25 +76,22 @@ returns path-backed results. This owner does not wrap that behavior.
 
 ## Boundary and dependency direction
 
-The source implementation lives in
-`DotnetInspector.Platforms.Installed`.
+The source implementation lives in the `Platforms` folder of
+`DotnetInspector.PlatformHouse.Installed`, under the
+`DotnetInspector.Platforms.Installed` namespace, beside the installed House
+adapter and its execution.
 
 ```text
 DotnetInspector.Platforms
 ILInspector.Metadata
-        |
-        v
-DotnetInspector.Platforms.Installed
-        |
-        v
-DotnetInspector.PlatformHouse.Installed
-        |
-        v
 DotnetInspector.PlatformHouse
+        |
+        v
+DotnetInspector.PlatformHouse.Installed (source, adapter, execution)
 ```
 
-`DotnetInspector.Platforms.Installed` may depend on the package-neutral target
-currency and Metadata identity projection. It must not reference:
+The installed source may depend on the package-neutral target currency and
+Metadata identity projection. It must not reference:
 
 - `DotnetInspector.Packages` or NuGet implementations;
 - `DotnetInspector.Services`;

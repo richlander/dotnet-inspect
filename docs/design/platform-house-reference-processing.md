@@ -107,8 +107,8 @@ source contributions, source-to-target correspondence, or target selection.
 The completion identity remains because it binds a detached completion receipt
 to its separately live operation value.
 
-Exact-target, one-Library shared ownership handoff is implemented in
-`DotnetInspector.PlatformHouse.Execution` under #7237. It validates selected
+Exact-target, one-Library shared ownership handoff is implemented in the
+`Execution` folder of `DotnetInspector.PlatformHouse` under #7237. It validates selected
 resource-free source content against the exact request, target, population,
 view, Artifact reference, and assembly identity before atomically constructing
 one `LibraryReference` and `LibraryContentOwner`. Artifact registration
@@ -119,8 +119,8 @@ resource-free value and composed receipt.
 Reference-only, reference-plus-implementation, and implementation-only role
 closure are gated in Release.
 
-Installed successful-result materialization is implemented in
-`DotnetInspector.PlatformHouse.Execution.Installed` under #7269. It accepts
+Installed successful-result materialization is implemented in the
+`Execution` folder of `DotnetInspector.PlatformHouse.Installed` under #7269. It accepts
 only owner-issued successful installed source results for one exact assembly
 demand, selects that assembly from each immutable source snapshot, and
 publishes the required views into one request-bounded Artifact generation.
@@ -150,7 +150,7 @@ fall back; every other unobserved terminal capable of hiding performed work
 cannot be reused as though its invocation consumed nothing.
 
 Selected-target complete reference-population realization is implemented in
-`DotnetInspector.PlatformHouse.Execution` under #7892. It composes the same
+the `Execution` folder of `DotnetInspector.PlatformHouse` under #7892. It composes the same
 family-default target selector, source-policy reducer, cumulative finite-work
 accounting, and selected-association route with the complete-population
 Artifact materializer. Installed and package-backed factories prepare only
@@ -160,8 +160,8 @@ Artifact session while retaining the original request, selected target,
 discovery and realization settlements, and cumulative work. Terminal paths
 transfer neither authority.
 
-Package-backed successful-result materialization is implemented in
-`DotnetInspector.PlatformHouse.Execution.Packages` under #7304. It accepts only
+Package-backed successful-result materialization is implemented in the
+`Execution` folder of `DotnetInspector.PlatformHouse.Packages` under #7304. It accepts only
 adapter-issued successful package reference and implementation results for one
 exact assembly demand. Source-specific preparation selects one equivalent
 immutable member per requested view and retains package candidate, configured
@@ -169,8 +169,7 @@ authority, producer identity, content generation, payload origin, member
 coordinate, and digest evidence as resource-free Artifact provenance.
 
 Installed and package-backed preparation both invoke the source-neutral
-Artifact materialization kernel in
-`DotnetInspector.PlatformHouse.Execution`. The kernel bounds one Artifact
+Artifact materialization kernel in `DotnetInspector.PlatformHouse`. The kernel bounds one Artifact
 generation to the selected content, obtains Metadata's exact projections,
 rejects physical managed-identity mismatch, invokes the generic one-Library
 executor, and owns query/content authority cleanup and Artifact retirement
@@ -185,8 +184,8 @@ retired because successful package Platform realizations already own detached
 immutable bytes. No source client, Package Source lease, package payload, or
 store lifetime enters the Artifact, Library, or House result.
 
-Installed reference-only complete-population materialization is implemented in
-`DotnetInspector.PlatformHouse.Execution.Installed` under #7322. It consumes one
+Installed reference-only complete-population materialization is implemented
+in the `Execution` folder of `DotnetInspector.PlatformHouse.Installed` (#7322). It consumes one
 authoritative adapter-issued installed reference population, preserves source
 order, publishes every distinct managed assembly into one finite Artifact
 generation, obtains Metadata's exact projection for each Artifact, and
@@ -2104,14 +2103,20 @@ Workspace registration snapshot
 ```
 
 `DotnetInspector.Platforms` remains the lower resource-free contract floor. It
-does not acquire House request, source, package, pruning, Metadata, or result
-dependencies.
+carries the target currency and the
+[platform manifest formats](platform-manifest-formats.md), whose only
+dependency is the hardened-JSON floor `UntrustedDocuments`; it does not acquire
+House request, source, package, pruning, Metadata, or result dependencies.
 
-The operational House begins in the separate host-neutral
-`DotnetInspector.PlatformHouse.Execution` project above the
-`DotnetInspector.PlatformHouse` contract seam, Metadata, Artifact content
-children, and shared Library ownership. Source adapters continue to depend only
-on the contract seam while producing their source results. During Artifact
+The operational House lives in the `Execution` folder of the host-neutral
+`DotnetInspector.PlatformHouse` assembly, above its contract seam, Metadata,
+Artifact content children, and shared Library ownership. The installed and
+package-backed source adapters (`DotnetInspector.PlatformHouse.Installed` and
+`DotnetInspector.PlatformHouse.Packages`) each carry their platform source, the
+House adapter, and the source-specific execution in one assembly; they depend
+on the House assembly for the contract seam and the materialization kernel
+while producing their source results, and the browser host never references
+the installed assembly (`browser-hosts-never-reference-installed-adapters`). During Artifact
 materialization, application orchestration wraps each selected realization in
 `PlatformLibraryArtifactProvenance`, retains Metadata's owner-issued projection
 from the Artifact admission callback, and passes the resulting resource-free

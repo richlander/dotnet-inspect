@@ -64,7 +64,8 @@ defines the platform-owned contract for realizing one exact installed
 implementation-platform closure. It is the package-free installed counterpart
 to remotely acquired implementation packs. It does not construct a workspace,
 assign a platform role, or grant core-library trust. The implementation does
-now lives in `DotnetInspector.Platforms.Installed`; host-neutral manifest
+now lives in `DotnetInspector.PlatformHouse.Installed` (namespace
+`DotnetInspector.Platforms.Installed`); host-neutral manifest
 interpretation is delegated to
 [Platform Manifest Formats](platform-manifest-formats.md).
 

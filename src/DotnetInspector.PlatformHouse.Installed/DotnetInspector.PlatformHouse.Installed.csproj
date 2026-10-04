@@ -10,13 +10,14 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>PlatformHouse adapter for explicit installed reference-pack sources</Description>
+    <Description>Installed platform discovery, reference-pack realization, and the PlatformHouse adapter and execution for installed sources</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
-    <ProjectReference Include="../DotnetInspector.Platforms.Installed/DotnetInspector.Platforms.Installed.csproj" />
+    <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
+    <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
   </ItemGroup>
 
 </Project>
