@@ -1209,6 +1209,7 @@ test("unavailable exact Member populations omit selector counts", () => {
         memberKindCount,
         typeMemberPopulationKey: () =>
           `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
+        currentTypeMethodLeverageState: () => ({ status: "idle" }),
         escapeHtml: (value: string) => value,
       });
     if (!rendered

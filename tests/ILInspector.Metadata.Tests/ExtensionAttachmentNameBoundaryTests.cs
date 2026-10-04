@@ -232,6 +232,103 @@ public sealed class ExtensionAttachmentNameBoundaryTests
     }
 
     [Fact]
+    public void SessionApiSurface_RequiresExplicitCompatibilityProjection()
+    {
+        byte[] image = BuildImage();
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+
+        AssertWidgetProjection(
+            session.ApiSurface(includeAll: true),
+            expected: false);
+        AssertWidgetProjection(
+            session.CompatibilityApiSurface(includeAll: true),
+            expected: true);
+    }
+
+    [Fact]
+    public void BoundedSessionApiSurface_ChargesOnlyDeclarations()
+    {
+        byte[] image = BuildImage();
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+        ApiSurface declarations =
+            session.ApiSurface(includeAll: true);
+        int declarationMemberCount =
+            declarations.Types.Sum(type => type.Members.Count);
+        var bounds = new ApiSurfaceExtractionBounds(
+            declarations.Types.Count,
+            declarationMemberCount,
+            declarations.InspectionFailures.Count,
+            declarations.TypeForwarders.Count,
+            int.MaxValue,
+            int.MaxValue);
+
+        var extracted = Assert.IsType<
+            ApiSurfaceExtractionResult.Extracted>(
+                session.BoundedApiSurface(
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    bounds));
+        Assert.Equal(
+            declarationMemberCount,
+            extracted.Surface.Types.Sum(type => type.Members.Count));
+
+        var exceeded = Assert.IsType<
+            ApiSurfaceExtractionResult.Exceeded>(
+                session.BoundedCompatibilityApiSurface(
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    bounds));
+        Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
+    }
+
+    [Fact]
+    public void ResolvedSessionApiSurface_RequiresExplicitCompatibilityProjection()
+    {
+        byte[] image = BuildImage();
+        ResolvedAssemblyReference source = Descriptor(image);
+        using var session = AssemblyInspectionSession.Open(source);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface declarations = session.ApiSurface(
+            source,
+            catalog,
+            NoResolverAssemblyBindingPolicy.Instance,
+            ApiSurfaceExtractionScope.IncludeAll);
+        AssertWidgetProjection(declarations, expected: false);
+        AssertWidgetProjection(
+            session.CompatibilityApiSurface(
+                source,
+                catalog,
+                NoResolverAssemblyBindingPolicy.Instance,
+                ApiSurfaceExtractionScope.IncludeAll),
+            expected: true);
+
+        var bounds = new ApiSurfaceExtractionBounds(
+            declarations.Types.Count,
+            declarations.Types.Sum(type => type.Members.Count),
+            declarations.InspectionFailures.Count,
+            declarations.TypeForwarders.Count,
+            int.MaxValue,
+            int.MaxValue);
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            session.BoundedApiSurface(
+                source,
+                catalog,
+                NoResolverAssemblyBindingPolicy.Instance,
+                ApiSurfaceExtractionScope.IncludeAll,
+                bounds));
+        var exceeded = Assert.IsType<
+            ApiSurfaceExtractionResult.Exceeded>(
+                session.BoundedCompatibilityApiSurface(
+                    source,
+                    catalog,
+                    NoResolverAssemblyBindingPolicy.Instance,
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    bounds));
+        Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
+    }
+
+    [Fact]
     public void ExtractUntil_ReturnsDeclarationMembersOnly()
     {
         using var peReader = new PEReader(ImmutableArray.Create(BuildImage()));
@@ -290,6 +387,38 @@ public sealed class ExtensionAttachmentNameBoundaryTests
 
         Assert.Equal("System", definition.Namespace);
         Assert.Equal([expectedName], definition.Segments);
+    }
+
+    static void AssertWidgetProjection(
+        ApiSurface surface,
+        bool expected)
+    {
+        ApiType widget = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "Ns`1" && type.Name == "Widget");
+        Assert.Equal(
+            expected,
+            widget.Members.Any(member =>
+                member.Kind == "extension-method"
+                && member.Name == "Extend"));
+        Assert.Contains(
+            surface.Types.SelectMany(type => type.Members),
+            member => member.Kind == "method"
+                && member.Name == "Extend"
+                && member.IsExtension);
+    }
+
+    static ResolvedAssemblyReference Descriptor(byte[] image)
+    {
+        using var peReader = new PEReader(
+            ImmutableArray.Create(image));
+        return ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                peReader.GetMetadataReader()),
+            path: null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local(
+                "session population boundary test"));
     }
 
     static byte[] BuildImage()
