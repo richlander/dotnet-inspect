@@ -195,7 +195,9 @@ snapshot runs and how its result changes round state.
 ### Obtain one snapshot
 
 Every snapshot begins with the local live-base conflict probe and only then
-reads GitHub; a rate-limited or stale API never skips the probe. Follow
+reads GitHub; a rate-limited or stale API never skips the probe. The probe
+decides whether the candidate conflicts; the table below still ranks the PR
+read's lifecycle and head/base outcomes above conflict recovery. Follow
 [GitHub status queries](github-status-queries.md#probe-the-live-base-locally-first)
 for the probe and the rest of that document for API selection, request
 ordering, fixed-head checks, and response classification. This document does
@@ -220,13 +222,13 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
-| The local live-base test merge conflicts, or GitHub reports a conflict | Leave the status wait; apply conflict recovery before considering CI. The local result decides; a GitHub `mergeable` of `null` or `true` does not override it. |
+| The local live-base test merge conflicts, or GitHub reports a conflict | Leave the status wait; apply conflict recovery before considering CI. The local result decides the conflict; a GitHub `mergeable` of `null` or `true` does not override it, while the rows above still outrank it. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
 | Green `ci-required` and positive mergeability at the expected head | Leave the status wait and continue when no other predicate remains. |
 | CI or mergeability is pending or missing | Preserve the unresolved status members and apply the round cadence below. |
-| Rate-limited or transient query failure | The local probe already ran for this attempt. Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. |
+| Rate-limited or transient query failure (including a transient probe fetch failure) | Record the concrete failure and retry-not-before time, preserve the unresolved status members and any recorded local conflict, and apply the round cadence below. |
 | Terminal query failure | Leave the status wait with `rec=stop`, surface the failure, and end. |
 
 Read the table top-down. Conflict recovery outranks CI, terminal non-green

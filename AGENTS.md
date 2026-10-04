@@ -573,10 +573,14 @@ approves keeping the PR intact. Full checkpoint mechanics:
   instead of polling. Every status attempt — before reviewer dispatch, at each
   bounded-wait snapshot, at a check-in, and in merge preflight — begins with
   the local conflict probe: fetch the live base and test-merge the candidate
-  head before any GitHub query. A local conflict enters conflict recovery at
-  once, whatever GitHub's mergeability fields report and whether or not the API
-  answers; those fields can be rate-limited, `null`, or stale, so they confirm
-  the probe and never replace it. Never report budget exhaustion without
+  head against any base tip not yet probed, before any GitHub query. The
+  local result decides whether the candidate conflicts; GitHub's mergeability
+  fields can be rate-limited, `null`, or stale, so they confirm the probe and
+  never replace it. Lifecycle outcomes from the same attempt's PR read
+  (merged, closed, draft, head or base-ref mismatch) still outrank conflict
+  recovery; when the API cannot be read, a recorded local conflict starts
+  recovery only against the last successfully observed open, non-draft PR at
+  the expected head and base ref. Never report budget exhaustion without
   probing the final tip. If an hour passes without an authored change while
   an independent gate hasn't started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate

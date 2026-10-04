@@ -23,8 +23,9 @@ objects. A merge or readiness goal also justifies GraphQL because
 `mergeStateStatus` is the documented field that reports a blocked merge.
 During a bounded third- or sixth-round wait, GraphQL may also provide CI status
 when the REST **primary** limit is exhausted because the primary limits are
-separate, but the lifecycle and status reads remain separated by the local
-conflict probe below. Do not switch APIs to evade a secondary limit.
+separate; the local conflict probe below still runs first, and the lifecycle
+and status reads remain separate requests. Do not switch APIs to evade a
+secondary limit.
 
 ## Probe the live base locally, first
 
@@ -33,15 +34,23 @@ request: the eligibility check before reviewer dispatch, every bounded-wait
 snapshot, every scheduled check-in, and merge preflight. The probe needs only
 `git fetch` against the repository remote, so it runs when the GitHub API is
 rate-limited, returns `mergeable: null` while GitHub is still computing the
-test merge, or reports a stale value for a head it has not re-evaluated. Those
-API fields confirm the probe; they never replace it. An agent that spends a
-status budget on CI reads while the candidate already conflicts with `main`
-has skipped this step.
+test merge, or reports a stale value for a head it has not re-evaluated. For
+conflict detection those API fields confirm the probe; they never replace it.
+An agent that spends a status budget on CI reads while the candidate already
+conflicts with `main` has skipped this step.
 
 ```bash
 git fetch origin "$base_ref"
 base_tip=$(git rev-parse FETCH_HEAD)
+git rev-parse --verify -q "$head_sha^{commit}" >/dev/null
+git rev-parse --verify -q "$base_tip^{commit}" >/dev/null
 ```
+
+Both `rev-parse` checks must succeed before the test merge; `git merge-tree`
+also exits 1 for an unresolvable ref, so an unverified input would read as a
+conflict. A failed check is a probe failure: fetch the missing head (for
+example `git fetch origin "$head_sha"`) and retry once, then classify as
+below.
 
 Compare `base_tip` with the `conflict-checked-base` recorded for the expected
 head and base ref. When no tip is recorded or the tip changed, run the
@@ -52,12 +61,21 @@ git merge-tree --write-tree "$head_sha" "$base_tip"
 ```
 
 Exit status zero records `conflict-checked-base=$base_tip` and allows the
-snapshot to continue to the GitHub reads below. Exit status one means the
-candidate conflicts with the live base: enter conflict recovery immediately,
-without querying CI and regardless of what GitHub later reports. Any other
-exit status is a probe failure, not evidence of either outcome; classify a
-concrete transport failure as transient and an invalid ref, missing object, or
-command failure as terminal.
+attempt to continue to the GitHub reads below. Exit status one with a tree
+OID on the first line of standard output means the candidate conflicts with
+the live base; record the conflict and skip the CI reads. Any other outcome is
+a probe failure, not evidence of either result: classify a concrete transport
+failure (fetch) as transient, handled like a transient query failure, and an
+unverifiable ref, missing object, or command failure as terminal.
+
+A recorded local conflict is decisive about the conflict, not about the PR's
+lifecycle. Still take the PR read below when the API answers, and apply the
+[result table](round-orchestration.md#apply-the-result) top-down: merged,
+closed, draft, and head or base-ref mismatch outrank conflict recovery. When
+the API cannot be read on this attempt, start conflict recovery only against
+the last successfully observed open, non-draft PR at the expected head and
+base ref; otherwise keep the recorded conflict and retry the read under the
+round cadence.
 
 Fetch on every attempt so base movement is discovered, but rerun the test
 merge only for an unrecorded tip. Base movement alone does not invalidate the
@@ -90,9 +108,10 @@ Handle lifecycle, candidate mismatch, and `mergeable: false` before checks:
   candidate mismatch that invalidates all review and merge authorization.
 - Treat `mergeable: false` as not conflict-free. GitHub's GraphQL
   `MergeableState.CONFLICTING` documents the corresponding conflict meaning.
-  Treat `mergeable: null` or `true` as no information beyond the local probe
-  that already ran; GitHub computes the test merge lazily and may report a
-  value for an older evaluation.
+  For conflict detection, treat `mergeable: null` or `true` as no information
+  beyond the local probe that already ran; GitHub computes the test merge
+  lazily and may report a value for an older evaluation. Positive mergeability
+  for merge preflight and six-round boundaries keeps its own meaning below.
 
 When CI state is still required, copy the validated 40-character head into a
 separate request. The same response body projects both the aggregate gate and
