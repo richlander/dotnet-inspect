@@ -4,6 +4,8 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.ILDiff.Tests;
 
 public class SignatureDecoderSafetyTests

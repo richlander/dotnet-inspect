@@ -10,6 +10,8 @@ using ILInspector.Metadata;
 using ILInspector.Research;
 using Inspector.Findings;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspector.ResearchSections;
 
 [Flags]

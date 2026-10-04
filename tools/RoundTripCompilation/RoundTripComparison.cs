@@ -8,6 +8,8 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspector.RoundTripCompilation;
 
 public enum RoundTripEvidenceStatus

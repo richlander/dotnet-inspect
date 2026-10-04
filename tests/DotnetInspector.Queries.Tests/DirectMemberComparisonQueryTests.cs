@@ -13,6 +13,8 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspector.Queries.Tests;
 
 public sealed class DirectMemberComparisonQueryTests
