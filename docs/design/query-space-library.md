@@ -240,12 +240,17 @@ The five lifetime classes map onto two assemblies:
 
 | Assembly | Lifetime classes | Contents | Dependencies |
 | --- | --- | --- | --- |
-| `QuerySpace.Primitives` | Declaration; Portable request | Facets, row vocabularies, value-vocabulary declarations and snapshot identity, operation registrations, query-space definitions and descriptors, portable intents, row associations, terminal requirements, and every shared structural identity | Platform only; listed in `dependency-free-contract-floors` |
-| `QuerySpace` | Resolved plan and binding; Execution context; Result | Planners, normalized operands, structural plans, typed accessors, bindings, reference execution, results, and receipts | Platform and `QuerySpace.Primitives` |
+| `QuerySpace.Primitives` | Declaration; Portable request | Facets, row vocabularies, value-vocabulary declarations and snapshot identity, operation registrations, query-space definitions and descriptors, portable intents, row associations, terminal requirements, and every shared structural identity | Platform only, without `System.Text.Json`; listed in `dependency-free-contract-floors` |
+| `QuerySpace` | Resolved plan and binding; Execution context; Result; the portable payload codec | Planners, normalized operands, structural plans, typed accessors, bindings, reference execution, results, receipts, and `PortableQueryPayloadCodec` | Platform, including `System.Text.Json`, and `QuerySpace.Primitives` |
 
-`Primitives` contains no planner, binding, evaluator, or execution type. A
-type that holds a live source, enumerator, buffer, or cancellation source
-cannot be placed there. This follows
+`Primitives` contains no planner, binding, evaluator, execution, or codec
+type. A type that holds a live source, enumerator, buffer, or cancellation
+source cannot be placed there. The portable intent and payload *types* are
+Portable-request data and belong to `Primitives`; the codec that gives an
+intent its canonical byte spelling is machinery over that data and stays in
+`QuerySpace`, where [Portable query payload](portable-query-payload.md)
+already places it. The two sit on opposite sides of the split so that the
+floor carries no serializer. This follows
 [`ILInspector.MetadataPrimitives`](library-family-boundaries.md): a
 dependency-free floor of mechanical currencies beneath an assembly that owns
 the semantics built on them.
@@ -472,15 +477,18 @@ owner defines the exact supported modes, fallback behavior, and diagnostics.
 
 ## Dependencies and platforms
 
-Both assemblies may depend on .NET platform libraries, including
-`System.Text.Json` for the canonical payload codec. Neither has an external
-package, product, CLI, Browser, Markout, or Roslyn dependency. STJ-generated
-witness and adapter integration remains outside the core library.
+`QuerySpace` may depend on .NET platform libraries, including
+`System.Text.Json`, which the canonical payload codec uses to read a payload;
+its canonical writer is handwritten. Neither assembly has an external package,
+product, CLI, Browser, Markout, or Roslyn dependency. STJ-generated witness
+and adapter integration remains outside the core library.
 
-`QuerySpace.Primitives` depends on the platform only and is listed in the
-`dependency-free-contract-floors` rule of `eng/dependency-policy.json`, which
-enforces that claim over the project and compiled-assembly graphs. That gate
-is a fresh evidence choice for a new assembly.
+`QuerySpace.Primitives` depends on the platform only and references no
+serializer, `System.Text.Json` included; it holds data and identities, not
+codecs. It is listed in the `dependency-free-contract-floors` rule of
+`eng/dependency-policy.json`, which enforces the dependency claim over the
+project and compiled-assembly graphs. That gate is a fresh evidence choice for
+a new assembly.
 
 For `QuerySpace` itself, the user's earlier evidence choice stands: its
 negative external-package and product dependency claim has **no automated
@@ -582,7 +590,7 @@ does not reopen this document to absorb its adopting owner's semantics.
 | Focused STJ integration gates | When integration lands, an explicitly supplied runtime witness or post-compilation evidence establishes exact context and root correspondence; direction respects effective generation mode, and an STJ property never creates query semantics implicitly. |
 | Dependency report | The implementation PR reports the core project's evaluated project, package, and platform assembly references; by explicit user choice, no automated absence gate is required and the negative external-package and product dependency claim remains unverified. |
 | `dependency-free-contract-floors` covers `QuerySpace.Primitives` | After the split, a project or package reference added to `Primitives` fails the dependency-policy gate over both graphs. |
-| `PrimitivesCarriesOnlyDeclarationAndRequestTypes` | After the split, a public-surface inventory of `QuerySpace.Primitives` contains no planner, binding, evaluator, execution-context, or result type; the lifetime-class assignment is enforced, not described. |
+| `PrimitivesCarriesOnlyDeclarationAndRequestTypes` | After the split, a public-surface inventory of `QuerySpace.Primitives` contains no planner, binding, evaluator, execution-context, codec, or result type; the lifetime-class assignment is enforced, not described. |
 
 ## Non-claims
 
