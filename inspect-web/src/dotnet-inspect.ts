@@ -8170,7 +8170,7 @@ function memberNavEntries(type: AppTypeSurface): MemberNavEntry[] {
   for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
     if (group.key === state.selectedMemberKey
-      && (group.sourceOverloadCount ?? group.overloads.length) > 1) {
+      && memberGroupUsesFamilySurface(group)) {
       group.overloads.forEach((_, index) => entries.push({ kind: "overload", group, index }));
     }
   }

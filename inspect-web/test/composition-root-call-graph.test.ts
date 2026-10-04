@@ -1134,6 +1134,9 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     entries,
     /for \(const group of visibleMemberGroups\(type\)\)[\s\S]*?const graphGroup = selectedGraphMemberGroup\(type\);[\s\S]*?entries\.push\(\{ kind: "member", group: graphGroup }\)/);
+  assert.match(
+    entries,
+    /group\.key === state\.selectedMemberKey[\s\S]*memberGroupUsesFamilySurface\(group\)/);
   const cursor =
     appSource.match(/function memberNavCursor\([\s\S]*?\n}\n\nfunction selectMemberNavEntry/)?.[0]
     ?? "";

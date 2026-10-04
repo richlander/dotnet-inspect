@@ -1047,6 +1047,42 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(html, /←→ sections/);
 });
 
+test("the member nav renders one active declaration as an exact member", () => {
+  const group = {
+    key: "method:Run",
+    name: "Run",
+    kind: "method",
+    overloads: [{
+      signature: "public void Run(int value)",
+      parameters: [{ name: "value", type: "int" }],
+    }],
+    sourceOverloadCount: 2,
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: group.key,
+    selectedOverloadIndex: 1,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /<span class="type-name"><span class="sig-name">Run<\/span><span class="sig-punct">\(.*<span class="sig-keyword">int<\/span><span class="sig-punct">\)<\/span><\/span>/);
+  assert.doesNotMatch(html, /family-name|family-count|data-nav-overload/);
+  assert.match(
+    html,
+    /data-nav-member="method:Run" role="option" aria-selected="true"/);
+  assert.match(html, /data-nav-selection="member:method:Run"/);
+});
+
 test("the member nav labels a selected graph-only target", () => {
   const graphGroup = {
     key: "graph:method:MoveNext",
@@ -2555,7 +2591,7 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
 });
 
-test("filtered overload rows retain their exact source index", () => {
+test("a filtered singleton retains exact selection without an overload row", () => {
   const group = {
     key: "method:Parse",
     name: "Parse",
@@ -2569,10 +2605,7 @@ test("filtered overload rows retain their exact source index", () => {
   };
   const html = renderMemberNav({
     type: jsonDocument,
-    entries: [
-      { kind: "member", group },
-      { kind: "overload", group, index: 0 },
-    ],
+    entries: [{ kind: "member", group }],
     memberCount: 3,
     visibleMemberCount: 1,
     filterControlsHtml: "",
@@ -2582,7 +2615,6 @@ test("filtered overload rows retain their exact source index", () => {
     typeDisplayName,
     shortKind,
     highlight,
-    overloadSourceIndex: () => 2,
     memberAchievements: (_group, index) => index === null
       ? []
       : [{
@@ -2591,14 +2623,14 @@ test("filtered overload rows retain their exact source index", () => {
         }],
   });
 
+  assert.match(html, /data-nav-selection="member:method:Parse"/);
   assert.match(
     html,
-    /data-nav-overload="2" role="option" aria-selected="true"/,
-  );
+    /data-nav-member="method:Parse" role="option" aria-selected="true"/);
+  assert.doesNotMatch(html, /data-nav-overload|family-count/);
   assert.equal(
     html.match(/item-achievement-glyph top-leverage/g)?.length,
     1,
-    "the family parent must not inherit its exact winner's achievement",
+    "the exact member row retains its declaration achievement",
   );
-  assert.match(html, /family-count">3×/);
 });

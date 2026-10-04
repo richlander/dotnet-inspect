@@ -1,5 +1,11 @@
 import type { MemberSection, TypeLens } from "./data.ts";
-import type { MemberGroup, MemberOverloadSummary } from "./type-panel.ts";
+import {
+  memberGroupUsesFamilySurface,
+  type MemberGroup,
+  type MemberOverloadSummary,
+} from "./type-panel.ts";
+
+export { memberGroupUsesFamilySurface } from "./type-panel.ts";
 
 export const MEMBER_TRAITS = [
   ["", "all"],
@@ -220,15 +226,6 @@ export function selectedConcreteOverload<T>(
 ): T | undefined {
   if (overloads.length > 1 && selectedIndex == null) return undefined;
   return overloads[selectedIndex ?? 0];
-}
-
-export function memberGroupUsesFamilySurface(
-  group: {
-    readonly overloads: readonly unknown[];
-    readonly sourceOverloadCount?: number;
-  } | null | undefined,
-): boolean {
-  return (group?.overloads.length ?? 0) > 1;
 }
 
 export function selectedSourceOverload<T extends StableMemberOverload>(

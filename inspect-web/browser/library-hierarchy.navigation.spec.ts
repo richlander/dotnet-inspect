@@ -1162,6 +1162,14 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const instanceMember = {
     ...run,
     signature: "public void Run(int value)",
+    parameters: [{
+      name: "value",
+      type: "int",
+      modifier: null,
+      hasDefault: false,
+      defaultValue: null,
+      description: null,
+    }],
     metadataToken: 0x06000002,
     declarationMetadataToken: 0x06000002,
     stableSelector: "Run:2",
@@ -1298,6 +1306,36 @@ test("Member filters use dropdowns and request all accessibility buckets", async
     "M:Example.Widget.Run(System.Int32)",
     { exact: true },
   )).toBeVisible();
+
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("#inspector-panel [data-member]").click();
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(2);
+
+  await page.locator("[data-member-trait-filter]")
+    .selectOption("instance");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("method · 2 of 2");
+  await expect(page.locator(".signature-code"))
+    .toContainText("public void Run(int value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Run","Run:2",100663298,false\]$/,
+  );
+  await expect(page.locator("#type-list [data-nav-overload]"))
+    .toHaveCount(0);
+  await expect(page.locator(
+    '#type-list [data-nav-member] .family-count',
+  )).toHaveCount(0);
+  await expect(page.locator(
+    '#type-list [data-nav-member] .type-name',
+  )).toContainText("Run(int)");
 });
 
 for (const width of [900, 390]) {
