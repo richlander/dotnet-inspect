@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Collections.Immutable;
 
 using ILInspector.Metadata;
@@ -1966,70 +1965,26 @@ public sealed class CatalogCallGraphScope : IDisposable
                 var ranges =
                     new Dictionary<GraphNodeIdentity, EdgeRange>(
                         index.Count);
-                var callerGroups =
-                    new Dictionary<GraphNodeIdentity, int>();
                 int start = 0;
                 foreach ((
                     GraphNodeIdentity identity,
                     List<int> group) in index)
                 {
                     int edgeStart = start;
-                    int[] orderedEdgeIndexes =
-                        [.. OrderReverseEdges(group, edges)];
-                    int[] groupIds =
-                        ArrayPool<int>.Shared.Rent(group.Count);
-                    int[] groupPositions =
-                        ArrayPool<int>.Shared.Rent(group.Count);
                     int groupCount = 0;
-                    callerGroups.Clear();
-                    Array.Clear(groupPositions, 0, group.Count);
-                    try
+                    foreach (IGrouping<GraphNodeIdentity, int> callerGroup
+                        in OrderReverseEdges(group, edges)
+                            .GroupBy(
+                                edgeIndex =>
+                                    edges[edgeIndex]
+                                        .Caller.Evidence.Identity))
                     {
-                        for (int position = 0;
-                            position < orderedEdgeIndexes.Length;
-                            position++)
+                        groupCount++;
+                        foreach (int edgeIndex in callerGroup)
                         {
-                            GraphNodeIdentity caller =
-                                edges[orderedEdgeIndexes[position]]
-                                    .Caller.Evidence.Identity;
-                            if (!callerGroups.TryGetValue(
-                                    caller,
-                                    out int groupId))
-                            {
-                                groupId = groupCount++;
-                                callerGroups.Add(caller, groupId);
-                            }
-                            groupIds[position] = groupId;
-                            groupPositions[groupId]++;
-                        }
-
-                        int nextPosition = 0;
-                        for (int groupId = 0;
-                            groupId < groupCount;
-                            groupId++)
-                        {
-                            int groupSize = groupPositions[groupId];
-                            groupPositions[groupId] = nextPosition;
-                            nextPosition += groupSize;
-                        }
-
-                        for (int position = 0;
-                            position < orderedEdgeIndexes.Length;
-                            position++)
-                        {
-                            int groupId = groupIds[position];
-                            indexedEdges[
-                                edgeStart
-                                + groupPositions[groupId]++] =
-                                edges[orderedEdgeIndexes[position]];
+                            indexedEdges[start++] = edges[edgeIndex];
                         }
                     }
-                    finally
-                    {
-                        ArrayPool<int>.Shared.Return(groupIds);
-                        ArrayPool<int>.Shared.Return(groupPositions);
-                    }
-                    start += group.Count;
                     ranges.Add(
                         identity,
                         new(
