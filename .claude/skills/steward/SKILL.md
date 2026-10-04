@@ -37,8 +37,10 @@ in:
 - [`docs/stacked-prs.md`](../../../docs/stacked-prs.md) — restacking and
   upper-slice rules.
 
-When this skill and an owning document disagree, the owning document wins;
-fix the skill.
+When this skill and an owning document disagree, the owning document wins.
+Every `SKILL.md` is a release-managed central file, so do not edit this one
+to repair the disagreement unless that edit is authorized; record a
+suggestion on the current release tracker instead.
 
 ## The one rule that changes everything else
 
@@ -57,7 +59,7 @@ whether and when a push is allowed:
   numbered round through the canonical cycle.
 
 "Usable review result" means every required reviewer returned a report that
-was neither cancelled, empty, nor policy-blocked.
+was not cancelled, empty, policy-blocked, or otherwise unusable.
 
 ## Event to action
 
@@ -67,19 +69,20 @@ flight. Then take the row that matches.
 
 | Event | Action | Owner |
 | --- | --- | --- |
-| `ci-required` red, no usable review yet | Root-cause it. If this PR's code: fix, focused gate, integrate, push, retry the pending round. If base-red or a service the diff does not touch: port an existing fix and push, or comment once naming the check and why it is not this PR's, then at most one re-run. "Flake" is never a root cause. | [Recovery transitions](../../../docs/round-orchestration.md#review-clean-and-recovery), AGENTS.md *CI red* rules |
-| `ci-required` red after a usable review | Record the exact failure, remove `review-clean`, reconcile, close and report the round as gate-failed, then push the repair as the next numbered round. Transient failure with concrete evidence: keep the lock and retry the gate once. | Same |
-| Merge conflict notice | Conflict recovery has first priority. Merge the base into the head (never rebase or force-push published history, except your own stack slices), regenerate generated files with repo tooling, validate, push. Before a usable review: retry the pending round. After: next numbered round, or the exact-head trivial-interaction waiver when eligible. | AGENTS.md *Before changing files*; [Trivial-interaction waiver](../../../docs/round-orchestration.md#trivial-interaction-re-review-waiver) |
-| Base branch moved, no conflict | Do nothing to the head. Base movement alone never invalidates a candidate or justifies a round. Before any agent-driven merge or mutation, classify the landed range (no interaction, trivial, significant, conflict) and report it. | [Carry-forward after clean reviews](../../../docs/round-orchestration.md#carry-forward-after-clean-reviews) |
+| `ci-required` red, no usable review yet | Root-cause it. If the failure is this PR's: supersede the candidate through the full cycle (integrate the effective base, fix, focused gate, integrate again, push) and retry the pending round. If it is not this PR's (red on the base too, or a check the diff cannot affect): comment once on the PR naming the check and the existing or newly filed issue, record that issue under `Blocked` in the round report, and do not port another contributor's change into this PR. Retry an unchanged head only with concrete transient evidence. "Flake" is never a root cause. | [Recovery transitions](../../../docs/round-orchestration.md#review-clean-and-recovery); AGENTS.md *Before changing files* (no unrelated or another contributor's changes); [The round report](../../../docs/round-orchestration.md#the-round-report) (`Blocked`) |
+| `ci-required` red after a usable review | Record the exact failure, remove `review-clean`, reconcile, close and report the round as gate-failed, then push the repair as the next numbered round. A transient failure with concrete evidence keeps the unchanged head locked and retries the gate. | Same |
+| Merge conflict notice | Conflict recovery has first priority. Merge the effective base into the head (never rebase or force-push published history, except your own stack slices under the stack rules), resolve, run the focused gate, push. Before a usable review: retry the pending round. After: reconcile, close and report the spent round, remove `review-clean`, then push the recovery as the next numbered round, or take the exact-head trivial-interaction waiver when eligible. | AGENTS.md *Before changing files*; [Recovery transitions](../../../docs/round-orchestration.md#review-clean-and-recovery); [Trivial-interaction waiver](../../../docs/round-orchestration.md#trivial-interaction-re-review-waiver) |
+| Base branch moved, no conflict | For a `main`-targeting PR, do nothing to the head: base movement alone never invalidates a candidate or justifies a round. Before any agent-driven merge or mutation, classify the landed range (no interaction, trivial, significant, conflict) and report it. Upper stack slices follow their parent and must restack. | [Carry-forward after clean reviews](../../../docs/round-orchestration.md#carry-forward-after-clean-reviews); AGENTS.md *Stacked PRs*; [`docs/stacked-prs.md`](../../../docs/stacked-prs.md) |
 | "Base branch recovered" notice | Bring the base in and push so CI re-runs against the fixed base; if still red it is this PR's failure now. This is a recovery push, so it supersedes or restarts per the rows above. | Harness notice rules; recovery transitions |
 | Review-bot finding (Claude Code Review, Claude Approvals row) | Verify it. A red-circle or blocking row is a finding: carry it into the round report and fix it in the next candidate; reply on the thread only when the fix is formed. Optional (yellow/purple) findings get one line and a resolve, and ride the next code push. Never start a push solely for an optional finding. | Harness review rules; [Reconciliation](../../../docs/round-orchestration.md#reconciliation) |
 | Human review comment | Small and local: implement in the next candidate and reply. Large or ambiguous: reply with a proposal; the author decides. Re-request the reviewer after pushing for a changes-requested review. | Harness review rules |
 | Check suite green on the current head | If a round is clearly planned and authorized and the eligibility row is satisfied, dispatch the reviewer at the exact head. Otherwise the PR waits; say so once and keep the check-in. | [Eligibility table](../../../docs/round-orchestration.md#eligibility-table) |
-| Reviewer report returned | Reconcile publicly, emit the complete round report (never shortened), reconcile the `review-clean` label, and either continue to the next authorized round or pause for a design question, unmet performance goal, or expired grant. | [The round report](../../../docs/round-orchestration.md#the-round-report) |
+| Reviewer report returned | Reconcile publicly, reconcile the `review-clean` label first, then emit the complete round report (never shortened), and either continue to the next authorized round or pause for a design question, unmet performance goal, or expired grant. | [The round report](../../../docs/round-orchestration.md#the-round-report); AGENTS.md *Keep the review-clean label current* |
 | Six-round boundary reached | Stop. Fresh green current-head `ci-required` and positive mergeability, then the block-approval checkpoint; round 12 and later presume splitting. | [Block boundaries and splitting](../../../docs/round-orchestration.md#block-boundaries-and-splitting) |
 | Merge authorization given | Run merge preflight against live GitHub state for the exact head and base ref; merge only if every preflight item passes. | [Merge preflight](../../../docs/round-orchestration.md#merge-preflight) |
-| PR merged or closed | Unsubscribe, cancel pending check-ins, remove the development and reviewer worktrees, restate the session theme in one or two sentences, and propose the next work within it. | AGENTS.md *Session theme and resume*, [Agent session state](../../../docs/agent-session-state.md) |
-| Scheduled check-in, nothing changed | Re-check state, do not comment or message, re-arm silently per the cadence below. | This skill |
+| PR merged | Unsubscribe, cancel pending check-ins, remove the development and reviewer worktrees, restate the session theme in one or two sentences, and propose the next work within it. | AGENTS.md *Session theme and resume* and *Before changing files*; [Agent session state](../../../docs/agent-session-state.md) |
+| PR closed without merge | Unsubscribe, cancel pending check-ins, publish the human action or stopped state, and end. Remove the development worktree only when AGENTS.md *Before changing files* allows it. | [Agent session state](../../../docs/agent-session-state.md); AGENTS.md *Before changing files* |
+| Scheduled check-in, nothing changed | Re-check state, do not comment or message, re-arm silently per the cadence below. Applies only while the PR waits on people; a wait on CI that gates reviewer dispatch follows Bounded status waiting instead. | Harness check-in rule; [Bounded status waiting](../../../docs/round-orchestration.md#bounded-status-waiting) |
 
 ## Reviewer dispatch
 
@@ -118,32 +121,54 @@ and bind the merge mutation to the expected head.
 
 ## Check-in cadence
 
-When the PR only waits on reviewers or CI, keep one safety-net self check-in
-armed: the first about 50 minutes after the last activity, later ones about
-4 hours apart. A quiet check-in re-arms silently. Stop after three quiet
-check-ins in a row, when the PR merges or closes, when the user says stop, or
-when the user has not written since the PR went up and the first check-in
-found nothing new. Any new activity resets the count. On stopping, cancel the
-pending check-in and say once, in one line, that check-ins have stopped.
+Two different waits apply, and they must not be confused.
+
+- **Waiting on CI that gates reviewer dispatch, a readiness goal, or a
+  boundary approval** is owned by
+  [Bounded status waiting](../../../docs/round-orchestration.md#bounded-status-waiting):
+  a 60-minute budget measured from the first scheduled wait, one schedule at a
+  time, never beyond the deadline, and on expiry the visible status budget
+  report and `rec=stop`. The harness cadence below does not extend it.
+- **Waiting on people** (reviewers, merge authorization, a design decision)
+  with CI green and no thread owed is the harness's safety-net check-in: the
+  first about 50 minutes after the last activity, later ones about 4 hours
+  apart. A quiet check-in re-arms silently. Stop after three quiet check-ins
+  in a row, when the PR merges or closes, when the user says stop, or when the
+  user has not written since the PR went up and the first check-in found
+  nothing new. Any new activity resets the count. On stopping, cancel the
+  pending check-in and say once, in one line, that check-ins have stopped.
 
 ## Tool surface in cloud sessions
 
-- GitHub is reached through the GitHub MCP tools; `gh` is not available.
-  Read `docs/github-api-operations.md` for the REST shapes they mirror.
+- Use whichever GitHub surface the session provides (`gh api`, the GitHub
+  MCP tools, or REST through the proxy); check availability rather than
+  assuming it. Merge preflight needs the GraphQL snapshot that
+  [`docs/github-status-queries.md`](../../../docs/github-status-queries.md)
+  describes, and every merge mutation binds the expected head per
+  [`docs/github-api-operations.md`](../../../docs/github-api-operations.md),
+  whichever tool issues it. Metadata mutations use REST endpoints, never
+  `gh pr edit`.
 - End every GitHub comment, review, or reply you author with the attribution
-  footer the harness specifies; end commits with the trailers it specifies;
-  put no model identifier in commits, PR titles, or PR bodies.
+  footer the harness specifies, and end commits with the trailers it
+  specifies.
 - Reviewer worktrees live under `.worktrees/` or an OS temporary directory
   and are read-only for the reviewer; remove them after the round.
 
 ## Nevers (restated, not owned here)
 
+From `AGENTS.md`:
+
 - Never amend, rebase, or force-push published history, except your own
   stack slices under the stack rules.
-- Never skip, disable, or quarantine a test to get green.
-- Never push an empty commit or close and reopen a PR to kick CI.
 - Never edit a release-managed central file (`AGENTS.md`, root `README.md`,
   `docs/overview.md`, `docs/architecture.md`, any `SKILL.md`) without explicit
   authorization; add a tracker suggestion instead.
-- Never claim merge readiness from label state alone.
+- Never merge without explicit authorization for that PR, and never claim
+  merge readiness from label state alone.
 - Never present unfinished behavior as supported.
+- Never include unrelated or another contributor's changes in a candidate.
+
+From the harness, which this skill cannot override:
+
+- Never skip, disable, or quarantine a test to get green.
+- Never push an empty commit or close and reopen a PR to kick CI.
