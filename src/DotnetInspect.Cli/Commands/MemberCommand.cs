@@ -2164,7 +2164,7 @@ public static class MemberCommand
             ?? throw new InvalidOperationException(
                 "The selected member could not be resolved in the decompilation assembly.");
         ApiType targetType =
-            session.ApiSurface(includeAll: true).Types.Single(
+            session.CompatibilityApiSurface(includeAll: true).Types.Single(
                 candidate =>
                     candidate.FullName == lookupType);
         ApiMember? targetMember =

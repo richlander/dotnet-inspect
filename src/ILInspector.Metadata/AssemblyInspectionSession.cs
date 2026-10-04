@@ -460,18 +460,24 @@ public sealed class AssemblyInspectionSession :
     public AssemblyIdentityNames IdentityNames()
         => AssemblyIdentityScanner.Scan(_image.PEReader);
 
-    /// <summary>The public (or, with <paramref name="includeAll"/>, full) API surface.</summary>
-    public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
-        => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
-
     /// <summary>
     /// The public (or, with <paramref name="includeAll"/>, full) declarations
     /// physically owned by each API Type.
     /// </summary>
-    public ApiSurface DeclarationApiSurface(
+    public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
+        => ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            includeAll,
+            typesOnly);
+
+    /// <summary>
+    /// Temporary compatibility surface that appends same-image extension
+    /// projections to their receiver Types.
+    /// </summary>
+    public ApiSurface CompatibilityApiSurface(
         bool includeAll = false,
         bool typesOnly = false)
-        => ApiSurfaceExtractor.ExtractDeclarations(
+        => ApiSurfaceExtractor.Extract(
             _image.PEReader,
             includeAll,
             typesOnly);
@@ -511,11 +517,48 @@ public sealed class AssemblyInspectionSession :
             typesOnly,
             includeCompilerGenerated);
 
+    internal ApiSurface CompatibilityApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        bool includeAll,
+        bool typesOnly,
+        bool includeCompilerGenerated) =>
+        CompatibilityApiSurface(
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
     /// <summary>
-    /// Projects one explicit API scope with resolution-aware generic
-    /// constraints.
+    /// Projects declarations at one explicit API scope with resolution-aware
+    /// generic constraints.
     /// </summary>
     public ApiSurface ApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false) =>
+        ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            source,
+            catalog,
+            bindingPolicy,
+            scope,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// Projects a temporary compatibility surface with resolution-aware
+    /// generic constraints.
+    /// </summary>
+    public ApiSurface CompatibilityApiSurface(
         ResolvedAssemblyReference source,
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
@@ -557,28 +600,46 @@ public sealed class AssemblyInspectionSession :
             out code);
     }
 
-    /// <summary>The API surface at one explicit extraction scope.</summary>
-    public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
-        => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
-
     /// <summary>
     /// The declarations physically owned by each API Type at one explicit
     /// extraction scope.
     /// </summary>
-    public ApiSurface DeclarationApiSurface(
-        ApiSurfaceExtractionScope scope,
-        bool typesOnly = false)
+    public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
         => ApiSurfaceExtractor.ExtractDeclarations(
             _image.PEReader,
             scope,
             typesOnly);
 
     /// <summary>
-    /// The API surface at one explicit extraction scope under hard retention bounds. An image
-    /// that does not fit is abandoned before it is materialized, and reported as
-    /// <see cref="ApiSurfaceExtractionResult.Exceeded"/> rather than returned shortened.
+    /// The temporary compatibility surface at one explicit extraction scope.
+    /// </summary>
+    public ApiSurface CompatibilityApiSurface(
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false)
+        => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
+
+    /// <summary>
+    /// The declarations physically owned by each API Type under hard retention
+    /// bounds. An image that does not fit is abandoned before it is
+    /// materialized and reported as
+    /// <see cref="ApiSurfaceExtractionResult.Exceeded"/>.
     /// </summary>
     public ApiSurfaceExtractionResult BoundedApiSurface(
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ApiSurfaceExtractor.ExtractDeclarationsBounded(
+            _image.PEReader,
+            scope,
+            bounds,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// The temporary compatibility surface under hard retention bounds.
+    /// </summary>
+    public ApiSurfaceExtractionResult BoundedCompatibilityApiSurface(
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
@@ -591,23 +652,24 @@ public sealed class AssemblyInspectionSession :
             includeCompilerGenerated);
 
     /// <summary>
-    /// The declarations physically owned by each API Type under hard retention
-    /// bounds.
+    /// Projects bounded declarations with resolution-aware generic constraints.
     /// </summary>
-    public ApiSurfaceExtractionResult BoundedDeclarationApiSurface(
+    public ApiSurfaceExtractionResult BoundedApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
-        bool typesOnly = false,
         bool includeCompilerGenerated = false)
         => ApiSurfaceExtractor.ExtractDeclarationsBounded(
-            _image.PEReader,
-            scope,
-            bounds,
-            typesOnly,
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds,
             includeCompilerGenerated);
 
-    /// <summary>Projects bounded API facts with resolution-aware generic constraints.</summary>
-    public ApiSurfaceExtractionResult BoundedApiSurface(
+    /// <summary>
+    /// Projects a bounded temporary compatibility surface with
+    /// resolution-aware generic constraints.
+    /// </summary>
+    public ApiSurfaceExtractionResult BoundedCompatibilityApiSurface(
         ResolvedAssemblyReference source,
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
