@@ -815,11 +815,11 @@ extraction directories.
 
 **Declaration and contextual Member populations.** Assembly Inspection can
 publish a completed declaration-only `ApiSurface` through
-`ApiSurfaceExtractor.ExtractDeclarations`, its bounded peer, and the
-`AssemblyInspectionSession` declaration peers. At the current Assembly
+`AssemblyInspectionSession.ApiSurface`, its bounded peer, and the underlying
+`ApiSurfaceExtractor.ExtractDeclarations` operations. At the current Assembly
 Inspection boundary, callers make separate declaration and extension-relation
 requests. A caller may issue both against the same retained session, but the
-results remain separate. This slice does not introduce a combined
+results remain separate. This boundary does not introduce a combined
 population-selection request; #9183 owns that later QuerySpace composition.
 
 A declaration request publishes one completed `ApiSurface`. Each
@@ -834,22 +834,29 @@ surface.
 `ExtractUntil` is always declaration-only. A prefix walk cannot soundly project
 an extension declared after its stopping point, and its initial production
 consumer is the natural-order Type inventory used by finite Find terminals.
-During migration only, the existing full, bounded, resolved, and
-compact-summary compatibility entry points remain an exception: they append
-same-image receiver projections before publishing their compatibility surface.
-The declaration and compatibility paths select their result during one image
-walk; neither builds the other surface and filters it afterward. Compatibility
-extraction does not discover cross-assembly extensions. #9192 introduces the
-declaration lane without claiming compile-time immutability for the
-compatibility DTO graph; retiring the compatibility projection remains part of
-the adoption tracked by #9183.
+During migration only, the explicitly named retained-session
+`CompatibilityApiSurface` operations and the extractor's existing full,
+bounded, resolved, and compact-summary entry points remain an exception: they
+append same-image receiver projections before publishing their compatibility
+surface. Current product consumers use those explicitly named session
+operations where preserving their existing extension view requires it. The
+declaration and compatibility paths select their result during one image walk;
+neither builds the other surface and filters it afterward. Compatibility
+extraction does not discover cross-assembly extensions. #9192 introduced the
+declaration lane, and #9207 makes it the retained-session default without
+claiming compile-time immutability for the compatibility DTO graph. Retiring
+the compatibility projection remains part of the adoption tracked by #9183.
 
 `DeclarationSurface_KeepsExtensionsOnTheirPhysicalDeclaringTypes`,
 `DeclarationSurface_DoesNotAttachExtensionsToLocalReceivers`,
 `BoundedDeclarationSurface_DoesNotChargeContextualRows`, and
 `ExtractUntil_ReturnsDeclarationMembersOnly` gate the population boundary and
-bounded behavior. Existing extension-attachment tests gate compatibility entry
-points until their retirement.
+bounded behavior. `SessionApiSurface_RequiresExplicitCompatibilityProjection`,
+`BoundedSessionApiSurface_ChargesOnlyDeclarations`, and
+`ResolvedSessionApiSurface_RequiresExplicitCompatibilityProjection` gate the
+retained-session default and explicit compatibility operations. Existing
+extension-attachment tests gate compatibility entry points until their
+retirement.
 
 **Cross-assembly constraint bridge.** Type/member extraction, assembly-set diff endpoints,
 wide platform type browse, and direct Research API comparison use the Metadata-owned
