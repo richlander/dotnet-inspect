@@ -943,47 +943,88 @@ public sealed class AssemblyReferenceResolutionLadderTests
             await ResolutionEnvironment.CreateAsync();
         ResolvedAssemblyReference assembly = TestAssembly();
         AssemblyBindingRequest binding = ReferenceRequest(assembly);
-        var cancellationObserved = false;
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var cancellationObserved = false;
+            AssemblyReferenceResolutionOutcome outcome =
+                await ExecuteAsync(
+                    Request(
+                        environment,
+                        binding,
+                        new AssemblyBindingPolicyVersion(),
+                        async (_, cancellationToken) =>
+                        {
+                            try
+                            {
+                                await Task.Delay(
+                                    TimeSpan.FromSeconds(5),
+                                    cancellationToken);
+                            }
+                            catch (OperationCanceledException)
+                                when (cancellationToken
+                                    .IsCancellationRequested)
+                            {
+                                cancellationObserved = true;
+                                throw;
+                            }
+
+                            throw new InvalidOperationException(
+                                "The deadline must cancel deferred context work.");
+                        },
+                        (_, _, _) => throw new InvalidOperationException(),
+                        budget: Budget(
+                            deadline:
+                                DateTimeOffset.UtcNow
+                                    .AddMilliseconds(20))));
+
+            var incomplete = Assert.IsType<
+                AssemblyReferenceResolutionOutcome.Incomplete>(outcome);
+            var exhaustion = Assert.IsType<
+                AssemblyReferenceResolutionWorkExhaustion>(
+                    incomplete.Evidence);
+            Assert.Equal(
+                AssemblyReferenceResolutionWorkKind.Deadline,
+                exhaustion.Kind);
+            Assert.True(cancellationObserved);
+            Assert.Empty(incomplete.Trace);
+        }
+    }
+
+    [Fact]
+    public async Task DistantFiniteDeadlineAllowsContextWork()
+    {
+        ResolutionEnvironment environment =
+            await ResolutionEnvironment.CreateAsync();
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        var version = new AssemblyBindingPolicyVersion();
 
         AssemblyReferenceResolutionOutcome outcome =
             await ExecuteAsync(
                 Request(
                     environment,
                     binding,
-                    new AssemblyBindingPolicyVersion(),
-                    async (_, cancellationToken) =>
-                    {
-                        try
-                        {
-                            await Task.Delay(
-                                TimeSpan.FromSeconds(5),
-                                cancellationToken);
-                        }
-                        catch (OperationCanceledException)
-                            when (cancellationToken.IsCancellationRequested)
-                        {
-                            cancellationObserved = true;
-                            throw;
-                        }
-
-                        throw new InvalidOperationException(
-                            "The deadline must cancel deferred context work.");
-                    },
+                    version,
+                    (_, _) => ValueTask.FromResult<
+                        AssemblyReferenceResolutionContextOutcome>(
+                        new AssemblyReferenceResolutionContextOutcome
+                            .Selected(
+                                binding,
+                                environment.Generation,
+                                new(
+                                    version,
+                                    AssemblyBindingSelection
+                                        .Found(assembly)))),
                     (_, _, _) => throw new InvalidOperationException(),
                     budget: Budget(
                         deadline:
-                            DateTimeOffset.UtcNow.AddMilliseconds(100))));
+                            DateTimeOffset.UtcNow.AddDays(365))));
 
-        var incomplete = Assert.IsType<
-            AssemblyReferenceResolutionOutcome.Incomplete>(outcome);
-        var exhaustion = Assert.IsType<
-            AssemblyReferenceResolutionWorkExhaustion>(
-                incomplete.Evidence);
+        var resolved = Assert.IsType<
+            AssemblyReferenceResolutionOutcome.Resolved>(outcome);
         Assert.Equal(
-            AssemblyReferenceResolutionWorkKind.Deadline,
-            exhaustion.Kind);
-        Assert.True(cancellationObserved);
-        Assert.Empty(incomplete.Trace);
+            AssemblyReferenceResolutionRung.ReferencingContext,
+            resolved.Rung);
     }
 
     [Fact]

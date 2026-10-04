@@ -99,6 +99,89 @@ public sealed record AssemblyReferenceResolutionWorkReceipt(
     long WorkspaceReplacements,
     AssemblyReferenceResolutionWorkExhaustion? Exhaustion);
 
+internal sealed class AssemblyReferenceResolutionDeadlineCancellation
+    : IDisposable
+{
+    static readonly TimeSpan MaximumTimerInterval =
+        TimeSpan.FromDays(30);
+
+    readonly object _gate = new();
+    readonly TimeProvider _timeProvider;
+    readonly DateTimeOffset _deadline;
+    readonly CancellationTokenSource _cancellation = new();
+    ITimer? _timer;
+    bool _disposed;
+
+    internal AssemblyReferenceResolutionDeadlineCancellation(
+        TimeProvider timeProvider,
+        DateTimeOffset deadline)
+    {
+        _timeProvider = timeProvider;
+        _deadline = deadline;
+        _timer = _timeProvider.CreateTimer(
+            static state =>
+                ((AssemblyReferenceResolutionDeadlineCancellation)state!)
+                    .OnTimer(),
+            this,
+            Timeout.InfiniteTimeSpan,
+            Timeout.InfiniteTimeSpan);
+        _timer.Change(
+            NextInterval(),
+            Timeout.InfiniteTimeSpan);
+    }
+
+    internal CancellationToken Token => _cancellation.Token;
+
+    internal bool IsCancellationRequested =>
+        _cancellation.IsCancellationRequested;
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            _timer?.Dispose();
+            _timer = null;
+            _cancellation.Dispose();
+        }
+    }
+
+    TimeSpan NextInterval()
+    {
+        TimeSpan remaining =
+            _deadline - _timeProvider.GetUtcNow();
+        if (remaining <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+
+        return remaining <= MaximumTimerInterval
+            ? remaining
+            : MaximumTimerInterval;
+    }
+
+    void OnTimer()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            TimeSpan next = NextInterval();
+            if (next <= TimeSpan.Zero)
+            {
+                _cancellation.Cancel();
+                return;
+            }
+
+            _timer!.Change(
+                next,
+                Timeout.InfiniteTimeSpan);
+        }
+    }
+}
+
 /// <summary>
 /// Shared finite-work ledger for one assembly-reference resolution attempt.
 /// Work is charged before the operation that can consume it.
@@ -258,18 +341,28 @@ public sealed class AssemblyReferenceResolutionWorkLedger
         }
     }
 
-    internal CancellationTokenSource CreateDeadlineCancellation()
+    internal AssemblyReferenceResolutionDeadlineCancellation
+        CreateDeadlineCancellation() =>
+        new(_timeProvider, Budget.Deadline);
+
+    internal AssemblyReferenceResolutionWorkExhaustion
+        RecordDeadlineExhaustion()
     {
-        TimeSpan delay;
         lock (_gate)
         {
-            DateTimeOffset now = _timeProvider.GetUtcNow();
-            delay = Budget.Deadline <= now
-                ? TimeSpan.Zero
-                : Budget.Deadline - now;
-        }
+            if (_exhaustion is not null)
+                return _exhaustion;
 
-        return new(delay, _timeProvider);
+            _exhaustion =
+                new AssemblyReferenceResolutionWorkExhaustion(
+                    AssemblyReferenceResolutionWorkKind.Deadline,
+                    ConfiguredMaximum: null,
+                    Consumed: null,
+                    Requested: null,
+                    Budget.Deadline,
+                    _timeProvider.GetUtcNow());
+            return _exhaustion;
+        }
     }
 
     internal AssemblyReferenceResolutionWorkReceipt Capture()
@@ -1070,7 +1163,8 @@ public static class AssemblyReferenceResolutionLadder
                 trace);
         }
 
-        using CancellationTokenSource deadlineCancellation =
+        using AssemblyReferenceResolutionDeadlineCancellation
+            deadlineCancellation =
             request.Work.CreateDeadlineCancellation();
         using CancellationTokenSource operationCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
@@ -1648,9 +1742,7 @@ public static class AssemblyReferenceResolutionLadder
         ImmutableArray<AssemblyReferenceResolutionRungAttempt>.Builder trace)
     {
         AssemblyReferenceResolutionWorkExhaustion exhaustion =
-            request.Work.ObserveExhaustion()
-            ?? throw new InvalidOperationException(
-                "Deadline cancellation must retain deadline exhaustion.");
+            request.Work.RecordDeadlineExhaustion();
         return Incomplete(
             request,
             rung,
