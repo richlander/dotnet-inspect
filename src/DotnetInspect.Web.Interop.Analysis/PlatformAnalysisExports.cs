@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Research;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
@@ -134,27 +135,12 @@ public static partial class AnalysisExports
                 assemblyFileName,
                 pack))
         {
-            LibraryMetricsResult result =
+            AssemblyContextEntry<LibraryMetricsResult> result =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
                     static (group, participant) =>
                         AssemblyContextLibraryMetricsQuery
-                            .ExecuteParticipant(group, participant))
-                    switch
-                    {
-                        AssemblyContextEntry<LibraryMetricsResult>.Available
-                            available => available.Value,
-                        AssemblyContextEntry<LibraryMetricsResult>.Rejected rejected =>
-                            new LibraryMetricsResult.Failed(
-                                new InvalidOperationException(
-                                    $"{rejected.Subject.Identity.Name}: "
-                                        + $"{rejected.Failure.Kind} "
-                                        + $"({rejected.Failure.Detail})")),
-                        AssemblyContextEntry<LibraryMetricsResult>.Failed failed =>
-                            new LibraryMetricsResult.Failed(failed.Error),
-                        _ => throw new InvalidOperationException(
-                            "Unknown platform Library Metrics result."),
-                    };
+                            .ExecuteParticipant(group, participant));
             metrics = AnalysisExports.ProjectLibraryMetrics(
                 result,
                 new BrowserCompileLibraryAvailability(
@@ -173,6 +159,47 @@ public static partial class AnalysisExports
         string assemblyFileName,
         string pack) =>
         QueryPlatformLibraryMetrics(
+            targetFramework,
+            "",
+            assemblyFileName,
+            pack);
+
+    [JSExport]
+    public static async Task<string> QueryPlatformLibraryDependencyStructure(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack)
+    {
+        BrowserLibraryDependencyStructure structure;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            AssemblyContextEntry<LibraryDependencyStructureResult> result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    static (group, participant) =>
+                        AssemblyContextLibraryDependencyStructureQuery
+                            .ExecuteParticipant(group, participant));
+            structure = AnalysisExports.ProjectLibraryDependencyStructure(
+                result);
+        }
+
+        return JsonSerializer.Serialize(
+            structure,
+            BrowserAnalysisJsonContext.Default
+                .BrowserLibraryDependencyStructure);
+    }
+
+    public static Task<string> QueryPlatformLibraryDependencyStructure(
+        string targetFramework,
+        string assemblyFileName,
+        string pack) =>
+        QueryPlatformLibraryDependencyStructure(
             targetFramework,
             "",
             assemblyFileName,

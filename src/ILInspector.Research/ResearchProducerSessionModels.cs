@@ -3,6 +3,8 @@ using System.Collections.Immutable;
 using ILInspector.Decompiler;
 using ILInspector.Instructions;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 /// <summary>The closed set of Research-local implementation producers.</summary>

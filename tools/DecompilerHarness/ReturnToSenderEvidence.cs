@@ -3,6 +3,8 @@ using Inspector.Findings;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.DecompilerHarness;
 
 internal sealed record ReturnToSenderEvidenceRow(

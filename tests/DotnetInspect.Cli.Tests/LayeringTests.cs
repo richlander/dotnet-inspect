@@ -12,6 +12,8 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Queries;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspect.Cli.Tests;
 
 public sealed class LayeringTests

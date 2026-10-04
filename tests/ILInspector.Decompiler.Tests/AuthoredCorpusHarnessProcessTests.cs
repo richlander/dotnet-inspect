@@ -14,6 +14,8 @@ using System.Text.Json;
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
