@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -828,6 +829,214 @@ internal sealed class LibraryBodyAsyncSourceResolver
         return true;
     }
 
+    internal bool TryResolveTargetedStateMachineExecutionMethod(
+        MethodDefinitionHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        MethodDefinitionGeneratedExpansionWork work,
+        out MethodDefinitionHandle executionMethod)
+    {
+        executionMethod = default;
+        StateMachineAttributeInfo attribute =
+            StateMachineExecutionAttribute(
+                sourceMethod.GetCustomAttributes());
+        if (!attribute.Present
+            || MethodClassificationScanner.ClassifyAsyncMethod(
+                    _reader,
+                    sourceMethod)
+                == MethodClassification.RuntimeAsync)
+        {
+            return false;
+        }
+        if (attribute.Rejected)
+        {
+            throw new BadImageFormatException(
+                "The state-machine attribute is malformed or ambiguous.");
+        }
+        if (attribute.Ignored)
+            return false;
+        if (!HasAnalyzableIlBody(sourceMethod)
+            || attribute.SerializedType is not { } serializedType
+            || StateMachineTypeDefinitionName(serializedType)
+                is not { } stateMachineType
+            || !HasUniqueTargetedStateMachineClaim(
+                sourceHandle,
+                sourceMethod.GetDeclaringType(),
+                stateMachineType,
+                work)
+            || !TryResolveTargetedStateMachineType(
+                sourceMethod.GetDeclaringType(),
+                stateMachineType,
+                out TypeDefinitionHandle stateMachineHandle)
+            || stateMachineHandle.IsNil)
+        {
+            throw new BadImageFormatException(
+                "The state-machine source does not map to a unique valid "
+                + "execution body.");
+        }
+
+        bool resolved = attribute.Kind switch
+        {
+            StateMachineKind.ClassicAsync =>
+                TryGetAsyncStateMachineMoveNext(
+                    stateMachineHandle,
+                    out executionMethod,
+                    work),
+            StateMachineKind.AsyncIterator =>
+                ImplementsAsyncIteratorStateMachine(
+                    _reader.GetTypeDefinition(stateMachineHandle))
+                && TryGetAsyncStateMachineMoveNext(
+                    stateMachineHandle,
+                    out executionMethod,
+                    work),
+            StateMachineKind.Iterator =>
+                TryGetIteratorStateMachineMoveNext(
+                    stateMachineHandle,
+                    out executionMethod,
+                    work),
+            _ => false,
+        };
+        if (!resolved)
+        {
+            throw new BadImageFormatException(
+                "The state-machine source does not map to a unique valid "
+                + "execution body.");
+        }
+        return true;
+    }
+
+    bool HasUniqueTargetedStateMachineClaim(
+        MethodDefinitionHandle sourceHandle,
+        TypeDefinitionHandle sourceType,
+        MetadataTypeDefinitionName stateMachineType,
+        MethodDefinitionGeneratedExpansionWork work)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                _reader,
+                sourceType,
+                chain,
+                out int count,
+                out _,
+                out _))
+        {
+            return false;
+        }
+
+        MethodDefinitionHandle claimant = default;
+        foreach (TypeDefinitionHandle typeHandle in chain[..count])
+        {
+            TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
+            foreach (MethodDefinitionHandle methodHandle
+                in type.GetMethods())
+            {
+                work.RecordCandidateDefinition(methodHandle);
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(methodHandle);
+                if (MethodClassificationScanner.ClassifyAsyncMethod(
+                        _reader,
+                        method)
+                    == MethodClassification.RuntimeAsync)
+                {
+                    continue;
+                }
+
+                StateMachineAttributeInfo candidate =
+                    StateMachineExecutionAttribute(
+                        method.GetCustomAttributes());
+                bool claimsTarget = candidate.ClaimedSerializedTypes.Any(
+                    claim => StateMachineTypeDefinitionName(claim)
+                        ?.Equals(stateMachineType)
+                        == true);
+                if (!claimsTarget)
+                    continue;
+                if (candidate.Rejected
+                    || candidate.SerializedType is null
+                    || !claimant.IsNil)
+                {
+                    return false;
+                }
+                claimant = methodHandle;
+            }
+        }
+
+        return claimant == sourceHandle;
+    }
+
+    bool TryResolveTargetedStateMachineType(
+        TypeDefinitionHandle sourceType,
+        MetadataTypeDefinitionName stateMachineType,
+        out TypeDefinitionHandle stateMachineHandle)
+    {
+        stateMachineHandle = default;
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                _reader,
+                sourceType,
+                chain,
+                out int count,
+                out _,
+                out _)
+            || count == 0
+            || stateMachineType.Segments.Length < count)
+        {
+            return false;
+        }
+
+        TypeDefinition root =
+            _reader.GetTypeDefinition(chain[count - 1]);
+        if (!_reader.StringComparer.Equals(
+                root.Namespace,
+                stateMachineType.Namespace))
+        {
+            return false;
+        }
+        for (int segment = 0; segment < count; segment++)
+        {
+            TypeDefinition sourceSegment =
+                _reader.GetTypeDefinition(
+                    chain[count - segment - 1]);
+            if (!_reader.StringComparer.Equals(
+                    sourceSegment.Name,
+                    stateMachineType.Segments[segment]))
+            {
+                return false;
+            }
+        }
+
+        TypeDefinitionHandle current = sourceType;
+        for (int segment = count;
+            segment < stateMachineType.Segments.Length;
+            segment++)
+        {
+            TypeDefinitionHandle match = default;
+            foreach (TypeDefinitionHandle nested
+                in _reader.GetTypeDefinition(current).GetNestedTypes())
+            {
+                TypeDefinition candidate =
+                    _reader.GetTypeDefinition(nested);
+                if (!_reader.StringComparer.Equals(
+                        candidate.Name,
+                        stateMachineType.Segments[segment]))
+                {
+                    continue;
+                }
+                if (!match.IsNil)
+                    return false;
+                match = nested;
+            }
+            if (match.IsNil)
+                return false;
+            current = match;
+        }
+
+        stateMachineHandle = current;
+        return true;
+    }
+
     StateMachineExecutionMethods BuildStateMachineExecutionMethods()
     {
         var sourcesByStateMachine = new Dictionary<
@@ -1279,7 +1488,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
     bool TryGetAsyncStateMachineMoveNext(
         TypeDefinitionHandle typeHandle,
-        out MethodDefinitionHandle moveNext)
+        out MethodDefinitionHandle moveNext,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         moveNext = default;
         var type = _reader.GetTypeDefinition(typeHandle);
@@ -1310,6 +1520,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
             var body = (MethodDefinitionHandle)
                 implementation.MethodBody;
+            work?.RecordCandidateDefinition(body);
             MethodDefinition bodyDefinition =
                 _reader.GetMethodDefinition(body);
             if (bodyDefinition.GetDeclaringType()
@@ -1327,6 +1538,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
         foreach (var handle in type.GetMethods())
         {
+            work?.RecordCandidateDefinition(handle);
             MethodDefinition method =
                 _reader.GetMethodDefinition(handle);
             if (!HasAnalyzableIlBody(method)
@@ -1347,7 +1559,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
     bool TryGetIteratorStateMachineMoveNext(
         TypeDefinitionHandle typeHandle,
-        out MethodDefinitionHandle moveNext)
+        out MethodDefinitionHandle moveNext,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         moveNext = default;
         TypeDefinition type =
@@ -1375,6 +1588,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
             }
             var body = (MethodDefinitionHandle)
                 implementation.MethodBody;
+            work?.RecordCandidateDefinition(body);
             MethodDefinition bodyDefinition =
                 _reader.GetMethodDefinition(body);
             if (bodyDefinition.GetDeclaringType()
@@ -1392,6 +1606,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
         foreach (MethodDefinitionHandle handle in type.GetMethods())
         {
+            work?.RecordCandidateDefinition(handle);
             MethodDefinition method =
                 _reader.GetMethodDefinition(handle);
             if (!HasAnalyzableIlBody(method)

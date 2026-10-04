@@ -64,6 +64,25 @@ public static class ImplementationProfileSample
         => Changed?.Invoke();
 }
 
+public static class GeneratedUnsafeEvidenceSample
+{
+    public static async Task<int> AsyncGeneratedUnsafe(int value)
+    {
+        await Task.Yield();
+        return System.Runtime.CompilerServices.Unsafe.As<int, int>(
+            ref value);
+    }
+
+    public static int LiftedGeneratedUnsafe(int value)
+    {
+        int offset = 1;
+        Func<int, int> readUnsafe = current =>
+            System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref current) + offset;
+        return readUnsafe(value);
+    }
+}
+
 // Public overloads that forward into a non-public same-name implementation
 // (the JsonDocument.Parse shape), and a public hub that a non-public
 // overload also calls (the JsonConvert.ToString shape).

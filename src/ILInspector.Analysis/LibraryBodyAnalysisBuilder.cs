@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using Inspector.Findings;
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -58,6 +59,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _implementationMetricWork;
     readonly ImplementationMetricExecutionRecorder?
         _implementationMetricRecorder;
+    readonly MethodDefinitionGeneratedExpansionWork?
+        _generatedExpansionWork;
 
     internal LibraryBodyAnalysisBuilder(
         string path,
@@ -78,7 +81,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         ImplementationMetricWorkBudget?
             implementationMetricWork = null,
         ImplementationMetricExecutionRecorder?
-            implementationMetricRecorder = null)
+            implementationMetricRecorder = null,
+        MethodDefinitionGeneratedExpansionWork?
+            generatedExpansionWork = null)
     {
         _path = path;
         _reader = reader;
@@ -101,6 +106,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             implementationMetricWork;
         _implementationMetricRecorder =
             implementationMetricRecorder;
+        _generatedExpansionWork =
+            generatedExpansionWork;
         _methodReferenceResolver =
             new LibraryBodyMethodReferenceResolver(
                 reader,
@@ -150,7 +157,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _asyncSourceResolver,
                 methodBodyReferenceIndexed,
                 implementationMetricWork,
-                implementationMetricRecorder);
+                implementationMetricRecorder,
+                generatedExpansionWork);
         _declaredSourceResolver =
             new LibraryBodyDeclaredSourceResolver(
                 reader,
@@ -192,6 +200,22 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _asyncSiblingAccessibilityAnalyzer,
                 _genericConstraintClassifier
                     .HasGenericConstraints);
+    }
+
+    internal MethodDefinitionGeneratedExpansionResult
+        ExpandGeneratedExecutionBodies(
+            ImmutableArray<MethodDefinitionHandle> directMethods)
+    {
+        if (_generatedExpansionWork is null)
+        {
+            throw new InvalidOperationException(
+                "Generated expansion work was not configured.");
+        }
+
+        return _declaredSourceResolver
+            .ExpandGeneratedExecutionBodies(
+                directMethods,
+                _generatedExpansionWork);
     }
 
     public void Dispose() =>

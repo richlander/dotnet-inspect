@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.ExceptionServices;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -64,6 +65,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         _implementationMetricWork;
     readonly ImplementationMetricExecutionRecorder?
         _implementationMetricRecorder;
+    readonly MethodDefinitionGeneratedExpansionWork?
+        _generatedExpansionWork;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -84,6 +87,12 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey,
         Lazy<LiftedOwnerGroupEvidence>>
         _scopeExpansionLiftedOwnerGroups = new();
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<IReadOnlyDictionary<
+            LiftedOwnerGroupKey,
+            ImmutableArray<MethodDefinitionHandle>>>>
+        _targetedLiftedMethodsByOwnerType = new();
     readonly Lazy<IReadOnlyDictionary<
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
@@ -98,7 +107,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         ImplementationMetricWorkBudget?
             implementationMetricWork = null,
         ImplementationMetricExecutionRecorder?
-            implementationMetricRecorder = null)
+            implementationMetricRecorder = null,
+        MethodDefinitionGeneratedExpansionWork?
+            generatedExpansionWork = null)
     {
         _reader = reader;
         _peReader = peReader;
@@ -110,9 +121,22 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             implementationMetricWork;
         _implementationMetricRecorder =
             implementationMetricRecorder;
+        _generatedExpansionWork =
+            generatedExpansionWork;
         _liftedMethodsByOwner = new(
             BuildLiftedMethodsByOwner,
             LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    internal ImmutableArray<MethodDefinitionHandle>
+        PotentialLiftedMethods(
+            MethodDefinitionHandle ownerHandle)
+    {
+        MethodDefinition owner = _reader.GetMethodDefinition(ownerHandle);
+        var group = new LiftedOwnerGroupKey(
+            owner.GetDeclaringType(),
+            _reader.GetString(owner.Name));
+        return LiftedMethodsForGroup(group);
     }
 
     internal bool TryResolve(
@@ -409,9 +433,21 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             return evidence;
         }
 
-        if (!_liftedMethodsByOwner.Value.TryGetValue(
-                group,
-                out ImmutableArray<MethodDefinitionHandle> liftedMethods))
+        ImmutableArray<MethodDefinitionHandle> liftedMethods;
+        if (ownerMethodScope is null)
+        {
+            if (!_liftedMethodsByOwner.Value.TryGetValue(
+                    group,
+                    out liftedMethods))
+            {
+                return evidence;
+            }
+        }
+        else
+        {
+            liftedMethods = LiftedMethodsForGroup(group);
+        }
+        if (liftedMethods.IsDefaultOrEmpty)
         {
             return evidence;
         }
@@ -745,8 +781,89 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             }
             bodyOwners.Add(owner);
             relationshipCount++;
+            _generatedExpansionWork?.RecordRelationshipNode(body);
             pending.Enqueue((body, owner));
         }
+    }
+
+    ImmutableArray<MethodDefinitionHandle> LiftedMethodsForGroup(
+        LiftedOwnerGroupKey group)
+    {
+        IReadOnlyDictionary<
+            LiftedOwnerGroupKey,
+            ImmutableArray<MethodDefinitionHandle>> methods =
+            _targetedLiftedMethodsByOwnerType
+                .GetOrAdd(
+                    group.OwnerType,
+                    ownerType => new Lazy<
+                        IReadOnlyDictionary<
+                            LiftedOwnerGroupKey,
+                            ImmutableArray<MethodDefinitionHandle>>>(
+                        () => BuildTargetedLiftedMethods(ownerType),
+                        LazyThreadSafetyMode.ExecutionAndPublication))
+                .Value;
+        return methods.TryGetValue(
+                group,
+                out ImmutableArray<MethodDefinitionHandle> grouped)
+            ? grouped
+            : [];
+    }
+
+    IReadOnlyDictionary<
+        LiftedOwnerGroupKey,
+        ImmutableArray<MethodDefinitionHandle>>
+        BuildTargetedLiftedMethods(TypeDefinitionHandle ownerType)
+    {
+        var builders = new Dictionary<
+            LiftedOwnerGroupKey,
+            ImmutableArray<MethodDefinitionHandle>.Builder>();
+        var pending = new Queue<TypeDefinitionHandle>();
+        var visited = new HashSet<TypeDefinitionHandle>();
+        pending.Enqueue(ownerType);
+        while (pending.Count > 0)
+        {
+            TypeDefinitionHandle typeHandle = pending.Dequeue();
+            if (!visited.Add(typeHandle))
+                continue;
+
+            TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
+            foreach (MethodDefinitionHandle methodHandle
+                in type.GetMethods())
+            {
+                _generatedExpansionWork?.RecordCandidateDefinition(
+                    methodHandle);
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(methodHandle);
+                if (TryGetLiftedOwnerGroup(
+                        method,
+                        out LiftedOwnerGroupKey group))
+                {
+                    if (!builders.TryGetValue(
+                            group,
+                            out ImmutableArray<
+                                MethodDefinitionHandle>.Builder?
+                                methods))
+                    {
+                        methods = ImmutableArray.CreateBuilder<
+                            MethodDefinitionHandle>();
+                        builders.Add(group, methods);
+                    }
+                    methods.Add(methodHandle);
+                }
+            }
+            foreach (TypeDefinitionHandle nested
+                in type.GetNestedTypes())
+            {
+                pending.Enqueue(nested);
+            }
+        }
+
+        return builders.ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value
+                .OrderBy(static handle =>
+                    MetadataTokens.GetRowNumber(handle))
+                .ToImmutableArray());
     }
 
     IReadOnlyDictionary<
@@ -1044,6 +1161,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                         .SourceAttributionBodyProbe);
         _implementationMetricWork
             ?.ReserveAttributionProbeBody(methodToken);
+        _generatedExpansionWork?.RecordProbeBody(methodHandle);
         MethodBodyBlock body =
             _peReader.GetMethodBody(method.RelativeVirtualAddress);
         byte[] il = body.GetILBytes() ?? [];
@@ -1051,6 +1169,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             ?.ReserveAttributionProbeIlBytes(
                 methodToken,
                 il.Length);
+        _generatedExpansionWork?.RecordProbeEncodedIlBytes(
+            methodHandle,
+            il.Length);
         var calledDefinitions = new HashSet<int>();
         var referencedDefinitions = new HashSet<int>();
         var referencedMembers = new HashSet<MethodReferenceKey>(
