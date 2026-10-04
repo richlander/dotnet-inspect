@@ -1245,15 +1245,12 @@ public static partial class SourceExports
                     Status: CSharpDecompilationStatus.Available,
                     Text: { } text,
                 },
-            } => new(
-                new BrowserSource(
-                    "decompiled",
-                    decompiledProvenance,
-                    null,
-                    null,
-                    text),
-                [],
-                ProjectMemberSourceDiagnostics(diagnostics)),
+            } settled => DecompiledMemberSource(
+                decompiledProvenance,
+                text,
+                settled.Attempt,
+                pdbSourceLimitation: null,
+                diagnostics),
             AssemblyMemberDecompilationEntry.Settled settled =>
                 throw new InvalidOperationException(
                     "Decompiler source unavailable: "
@@ -1267,6 +1264,64 @@ public static partial class SourceExports
             _ => throw new InvalidOperationException(
                 "Unknown assembly member decompilation result."),
         };
+
+    static BrowserMemberSource DecompiledMemberSource(
+        InertString provenance,
+        string fallbackText,
+        CSharpDecompilationAttempt attempt,
+        string? pdbSourceLimitation,
+        IEnumerable<InspectionDiagnostic>? diagnostics)
+        => new(
+            new BrowserSource(
+                "decompiled",
+                provenance,
+                null,
+                pdbSourceLimitation,
+                fallbackText),
+            ProjectDecompiledMemberParts(attempt, fallbackText),
+            ProjectMemberSourceDiagnostics(diagnostics));
+
+    static BrowserMemberSourcePart[] ProjectDecompiledMemberParts(
+        CSharpDecompilationAttempt attempt,
+        string fallbackText) =>
+        ProjectDecompiledMemberParts(
+            attempt.MemberDeclarationText ?? fallbackText,
+            fallbackText);
+
+    internal static BrowserMemberSourcePart[] ProjectDecompiledMemberParts(
+        string declaration) =>
+        ProjectDecompiledMemberParts(declaration, declaration);
+
+    static BrowserMemberSourcePart[] ProjectDecompiledMemberParts(
+        string declaration,
+        string transportedText)
+    {
+        MemberTextParts? parts =
+            MemberSourcePartsProjection.GetDecompiledParts(declaration);
+        if (parts is not { } catalog)
+            return [];
+
+        string memberText = declaration.Substring(
+            catalog.Member.Start,
+            catalog.Member.Length);
+        int memberStart = transportedText.IndexOf(
+            memberText,
+            StringComparison.Ordinal);
+        if (memberStart < 0
+            || transportedText.IndexOf(
+                memberText,
+                memberStart + memberText.Length,
+                StringComparison.Ordinal) >= 0)
+        {
+            return [];
+        }
+
+        return ProjectMemberParts(
+            declaration,
+            catalog,
+            catalog.Member.Length,
+            memberStart);
+    }
 
     internal static BrowserSource Adapt(
         AssemblyTypeSourceEntry result,
@@ -1397,16 +1452,22 @@ public static partial class SourceExports
         IEnumerable<InspectionDiagnostic>? diagnostics)
     {
         BrowserSource browserSource = Adapt(source, decompiledProvenance);
-        BrowserMemberSourcePart[] parts = includeParts
-            && source is AssemblyMemberSource.Pdb
+        BrowserMemberSourcePart[] parts = source switch
+        {
+            AssemblyMemberSource.Pdb
             {
                 MemberDocument: { } document,
-            }
-                ? ProjectMemberParts(
+            } when includeParts =>
+                ProjectMemberParts(
                     document.Text,
                     document.Parts,
-                    browserSource.Text.Length)
-                : [];
+                    browserSource.Text.Length),
+            AssemblyMemberSource.Decompiled decompiled when includeParts =>
+                ProjectDecompiledMemberParts(
+                    decompiled.Decompilation,
+                    decompiled.Text),
+            _ => [],
+        };
         return new BrowserMemberSource(
             browserSource,
             parts,
@@ -1428,30 +1489,33 @@ public static partial class SourceExports
     internal static BrowserMemberSourcePart[] ProjectMemberParts(
         string documentText,
         MemberTextParts parts,
-        int memberTextLength)
+        int memberTextLength,
+        int transportedMemberStart = 0)
     {
         ArgumentNullException.ThrowIfNull(documentText);
         ArgumentNullException.ThrowIfNull(parts);
         if (memberTextLength < 0)
             throw new ArgumentOutOfRangeException(nameof(memberTextLength));
+        if (transportedMemberStart < 0)
+            throw new ArgumentOutOfRangeException(nameof(transportedMemberStart));
         if (parts.Member.Length != memberTextLength)
         {
             throw new InvalidOperationException(
-                "The authored member span does not match the transported member text.");
+                "The member span does not match the transported member text.");
         }
 
         int memberStart = parts.Member.Start;
         BrowserMemberSourceSpan Rebase(MemberTextPart part)
         {
-            int start = checked(part.Start - memberStart);
-            if (start < 0 || part.End > parts.Member.End)
+            int relativeStart = checked(part.Start - memberStart);
+            if (relativeStart < 0 || part.End > parts.Member.End)
             {
                 throw new InvalidOperationException(
-                    "An authored member part falls outside the transported member text.");
+                    "A member part falls outside the transported member text.");
             }
 
             return new BrowserMemberSourceSpan(
-                start,
+                checked(transportedMemberStart + relativeStart),
                 part.Length,
                 part.Lines.StartLine,
                 part.Lines.EndLine,
