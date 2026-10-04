@@ -205,9 +205,13 @@ public sealed class MethodBodyIdentityTests
         string path,
         Func<MethodIdentity, bool> predicate)
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.Open(
+                path,
+                includeAllocations: false,
+                includeOpportunities: false);
         MethodIdentity method =
-            index.DeclaredMethods.Single(predicate);
+            analysis.CallGraph.DeclaredMethods.Single(predicate);
         Assert.True(MethodBodyIdentityFactory.TryCreate(
             method,
             out MethodBodyIdentity? structured));
