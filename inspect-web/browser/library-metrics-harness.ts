@@ -5,6 +5,7 @@ import type {
 import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
+  type LibraryMetricsRelationshipState,
 } from "../src/library-metrics.ts";
 
 const types = [
@@ -172,6 +173,29 @@ const dependencyData: BrowserLibraryDependencyStructure = {
   diagnostics: [],
   failure: null,
 };
+const levelZeroCycleData: BrowserLibraryDependencyStructure = {
+  ...dependencyData,
+  population: {
+    examinedCallCount: 3,
+    internalCallCount: 3,
+    externalCallCount: 0,
+    unresolvedCallCount: 0,
+    incompleteBodyCount: 0,
+    typeCount: 3,
+    namespaceCount: 2,
+  },
+  namespaces: dependencyData.namespaces
+    .filter(node =>
+      node.namespace === "Example.Core"
+      || node.namespace === "Example.Workflows")
+    .map(node => ({ ...node, level: 0 })),
+  namespaceEdges: dependencyData.namespaceEdges.filter(edge =>
+    (edge.sourceNamespace === "Example.Core"
+      && edge.targetNamespace === "Example.Workflows")
+    || (edge.sourceNamespace === "Example.Workflows"
+      && edge.targetNamespace === "Example.Core")),
+  totalNamespaceEdgeCount: 2,
+};
 const deepDependencyData: BrowserLibraryDependencyStructure = {
   outcome: "available",
   methodologyVersion: "library-dependency-structure.v1",
@@ -215,17 +239,22 @@ const deepDependencyData: BrowserLibraryDependencyStructure = {
   diagnostics: [],
   failure: null,
 };
-const selectedDependencyData =
-  new URLSearchParams(window.location.search).get("dependency") === "deep"
-    ? deepDependencyData
+const dependencyFixture =
+  new URLSearchParams(window.location.search).get("dependency");
+const selectedDependencyData = dependencyFixture === "deep"
+  ? deepDependencyData
+  : dependencyFixture === "cycle-zero"
+    ? levelZeroCycleData
     : dependencyData;
 const appElement = document.querySelector("#app");
 if (!(appElement instanceof HTMLElement))
   throw new Error("Library metrics harness root is missing.");
 const app = appElement;
+let relationshipState: LibraryMetricsRelationshipState | null = null;
 
 function render(
   dependency: BrowserLibraryDependencyStructure | null,
+  dependencyLoading = false,
 ): void {
   app.innerHTML = renderLibraryMetricsSurface({
     libraryName: "Example",
@@ -238,10 +267,11 @@ function render(
     loading: false,
     error: "",
     data,
-    dependencyFresh: dependency !== null,
-    dependencyLoading: false,
+    dependencyFresh: dependency !== null || dependencyLoading,
+    dependencyLoading,
     dependencyError: "",
     dependencyData: dependency,
+    relationshipState,
     escapeHtml: value => String(value).replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -254,7 +284,13 @@ function render(
     activateType: typeKey => {
       activation.value = typeKey;
     },
-    loadDependencyStructure: () => render(selectedDependencyData),
+    loadDependencyStructure: () => {
+      render(null, true);
+      setTimeout(() => render(selectedDependencyData), 0);
+    },
+    updateRelationshipState: state => {
+      relationshipState = state;
+    },
   });
 }
 

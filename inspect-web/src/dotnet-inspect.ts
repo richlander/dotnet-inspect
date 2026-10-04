@@ -344,6 +344,7 @@ import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
+  type LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
 import {
   captureMemberFocus,
@@ -1449,6 +1450,8 @@ const initialState = {
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
   packageLibraryMetricsKey: "",
+  packageLibraryMetricsRelationshipState:
+    null as LibraryMetricsRelationshipState | null,
   packageLibraryDependencyStructure: null,
   packageLibraryDependencyStructureLoading: false,
   packageLibraryDependencyStructureError: "",
@@ -10740,6 +10743,8 @@ function renderPackageLibraryMetrics() {
       state.packageLibraryDependencyStructureError,
     dependencyData:
       state.packageLibraryDependencyStructure,
+    relationshipState:
+      state.packageLibraryMetricsRelationshipState,
     escapeHtml,
   });
 }
@@ -13874,6 +13879,9 @@ function bindEvents() {
       observeAsync(
         loadPackageLibraryDependencyStructure(),
         "Loading library dependency structure"),
+    updateRelationshipState: relationshipState => {
+      state.packageLibraryMetricsRelationshipState = relationshipState;
+    },
   });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);

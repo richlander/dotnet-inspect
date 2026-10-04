@@ -589,8 +589,10 @@ cache.
    response carries the total edge count so the host discloses any omitted
    edges. TypeScript positions nodes by their issued levels, marks their issued
    cycle indices, preserves distinct directional arrows for reciprocal selected
-   relationships, and activates explaining types by exact type key. Cycle
-   badges describe the complete analyzed topology even when edge selection
+   relationships, and activates explaining types by exact type key. Dependency
+   loading rerenders preserve the Metrics relationship selection and visible
+   arc control. Cycle badges describe the complete analyzed topology even when
+   edge selection
    omits a cycle-forming relationship. It does not derive SCCs, levels,
    completeness, or relationships. This interactive SVG and native-details
    lowering deliberately bypasses Markout because

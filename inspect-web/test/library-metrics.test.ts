@@ -221,6 +221,15 @@ test("renders analysis-issued dependency levels, cycles, and explanations", () =
     /data-dependency-type-key="Example\.Core\.Engine"/,
   );
   assert.match(html, /1 additional contributing type edge not shown/);
+  const reciprocalPaths = [...html.matchAll(
+    /<path class="metrics-dependency-edge" d="([^"]+)"[^>]*><title>([^<]+)<\/title><\/path>/g,
+  )].filter(match =>
+    match[2]?.includes("Example.Core depends on Example.Storage")
+    || match[2]?.includes("Example.Storage depends on Example.Core"));
+  assert.equal(reciprocalPaths.length, 2);
+  for (const path of reciprocalPaths) {
+    assert.doesNotMatch(path[1]!, /(?:^|[ ,])-/);
+  }
 });
 
 test("discloses bounded and qualified dependency evidence", () => {
@@ -278,6 +287,45 @@ test("requires explicit dependency demand and keeps loading distinct", () => {
   });
   assert.match(loading, /Building dependency structure/);
   assert.doesNotMatch(loading, /Load dependency structure/);
+});
+
+test("preserves relationship interaction state across dependency renders", () => {
+  const relationshipState = {
+    visibleCount: 1,
+    selectedSourceTypeKey: "Example.Core.Engine",
+    selectedTargetTypeKey: "Example.Core.Store",
+  };
+  const variants = [
+    render({ relationshipState }),
+    render({
+      relationshipState,
+      dependencyFresh: true,
+      dependencyLoading: true,
+    }),
+    render({
+      relationshipState,
+      dependencyFresh: true,
+      dependencyData,
+    }),
+    render({
+      relationshipState,
+      dependencyFresh: true,
+      dependencyError: "Dependency selection failed.",
+    }),
+  ];
+
+  for (const html of variants) {
+    assert.match(
+      html,
+      /data-source-type-key="Example\.Core\.Engine"[^>]*aria-pressed="true"/,
+    );
+    assert.match(
+      html,
+      /data-metrics-relationship-detail-selection>/,
+    );
+    assert.match(html, />1\/1 most connected<\/strong>/);
+    assert.match(html, />4 retained call sites<\/strong>/);
+  }
 });
 
 test("keeps empty and unavailable dependency outcomes distinct", () => {

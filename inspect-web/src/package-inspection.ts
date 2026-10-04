@@ -26,6 +26,9 @@ import type {
   AppPackage,
   AppTypeSurface,
 } from "./package-acquisition.ts";
+import type {
+  LibraryMetricsRelationshipState,
+} from "./library-metrics.ts";
 
 export type PackagePerformance = BrowserPackagePerformance;
 export type PackageLibraryMetrics = BrowserLibraryMetrics;
@@ -106,6 +109,8 @@ export interface PackageInspectionState {
   packageLibraryMetricsLoading: boolean;
   packageLibraryMetricsError: string;
   packageLibraryMetricsKey: string;
+  packageLibraryMetricsRelationshipState:
+    LibraryMetricsRelationshipState | null;
   packageLibraryDependencyStructure:
     PackageLibraryDependencyStructure | null;
   packageLibraryDependencyStructureLoading: boolean;
@@ -360,6 +365,7 @@ export function createPackageInspectionCoordinator(
       state.packageLibraryMetricsLoading = false;
       state.packageLibraryMetricsError = "";
       state.packageLibraryMetricsKey = "";
+      state.packageLibraryMetricsRelationshipState = null;
       state.packageLibraryDependencyStructure = null;
       state.packageLibraryDependencyStructureLoading = false;
       state.packageLibraryDependencyStructureError = "";
@@ -622,6 +628,7 @@ export function createPackageInspectionCoordinator(
       state.packageLibraryMetrics = null;
       state.packageLibraryMetricsError = "";
       state.packageLibraryMetricsLoading = true;
+      state.packageLibraryMetricsRelationshipState = null;
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack

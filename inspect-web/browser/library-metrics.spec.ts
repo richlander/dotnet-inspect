@@ -121,6 +121,16 @@ test("reciprocal relationship evidence remains independently reachable", async (
   await expect(detail.locator("[data-metrics-relationship-rank]"))
     .toHaveText("30/30 most connected");
 
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+  await expect(page.locator(".metrics-dependency-structure")).toBeVisible();
+  await expect(visibleEdges).toHaveCount(30);
+  await expect(limitOutput).toHaveText("30 / 30");
+  await expect(lastEdge).toHaveAttribute("aria-pressed", "true");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("30/30 most connected");
+
   await limit.focus();
   await limit.press("Home");
   await expect(visibleEdges).toHaveCount(8);
@@ -212,6 +222,46 @@ test("dependency layout preserves issued levels and cycles responsively", async 
 
   expect(geometry.scrollWidth).toBeGreaterThanOrEqual(geometry.clientWidth);
   expect(geometry.right).toBeLessThanOrEqual(geometry.documentWidth + .5);
+});
+
+test("level-zero reciprocal cycle routes remain inside the viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto("/browser/library-metrics.html?dependency=cycle-zero");
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  const geometry = await page.locator("path.metrics-dependency-edge")
+    .evaluateAll(elements => {
+      const first = elements[0];
+      if (!(first instanceof SVGGraphicsElement) || !first.ownerSVGElement)
+        throw new Error("Dependency SVG is missing.");
+      const svg = first.ownerSVGElement;
+      return {
+        viewBoxWidth: svg.viewBox.baseVal.width,
+        paths: elements.map(element => {
+          if (!(element instanceof SVGGraphicsElement))
+            throw new Error("Dependency edge is not graphical.");
+          const bounds = element.getBBox();
+          return {
+            left: bounds.x,
+            right: bounds.x + bounds.width,
+            path: element.getAttribute("d") ?? "",
+            markerEnd: element.getAttribute("marker-end") ?? "",
+          };
+        }),
+      };
+    });
+
+  expect(geometry.paths).toHaveLength(2);
+  expect(new Set(geometry.paths.map(path => path.path)).size).toBe(2);
+  for (const path of geometry.paths) {
+    expect(path.left).toBeGreaterThanOrEqual(0);
+    expect(path.right).toBeLessThanOrEqual(geometry.viewBoxWidth);
+    expect(path.markerEnd).toBe("url(#metrics-dependency-arrow)");
+  }
 });
 
 test("deep dependency levels scroll without shrinking labels", async ({

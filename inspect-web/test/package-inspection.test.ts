@@ -97,6 +97,7 @@ function inspectionState(
     packageLibraryMetricsLoading: false,
     packageLibraryMetricsError: "",
     packageLibraryMetricsKey: "",
+    packageLibraryMetricsRelationshipState: null,
     packageLibraryDependencyStructure: null,
     packageLibraryDependencyStructureLoading: false,
     packageLibraryDependencyStructureError: "",
@@ -418,6 +419,11 @@ test("library metrics do not widen into dependency analysis", async () => {
   assert.equal(dependencyQueries, 0);
   assert.equal(state.packageLibraryDependencyStructure, null);
 
+  state.packageLibraryMetricsRelationshipState = {
+    visibleCount: 24,
+    selectedSourceTypeKey: "Example.Source",
+    selectedTargetTypeKey: "Example.Target",
+  };
   await coordinator.loadLibraryDependencyStructure(
     selected,
     "Example.Package@1.2.3/net10.0/Example.Package",
@@ -428,6 +434,11 @@ test("library metrics do not widen into dependency analysis", async () => {
     state.packageLibraryDependencyStructure,
     libraryDependencyStructureResult(),
   );
+  assert.deepEqual(state.packageLibraryMetricsRelationshipState, {
+    visibleCount: 24,
+    selectedSourceTypeKey: "Example.Source",
+    selectedTargetTypeKey: "Example.Target",
+  });
 });
 
 test("dependency loading does not start explicit pruning work", async () => {
