@@ -16,7 +16,7 @@ import type {
 
 type TypeLeveragePole = "sea-level" | "mountain-peak";
 
-export interface TypeLeverageCue {
+interface TypeLeverageCue {
   readonly pole: TypeLeveragePole;
   readonly description: string;
 }
