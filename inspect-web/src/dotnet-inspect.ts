@@ -584,12 +584,14 @@ import {
   type CatalogPackage,
 } from "./catalog-requests.ts";
 import {
+  bindDiffContent,
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
   isCompareMode,
   renderPackageComparisonTargets,
   resolveEffectiveDiffTarget,
   type CompareMode,
+  type DiffContent,
 } from "./package-comparison-targets.ts";
 import {
   bindLibraryApiDiffRows,
@@ -7187,13 +7189,32 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
     query: (() => {
       switch (subject.kind) {
         case "library":
-          return {
-            surface: "Library",
-            analyses: ["api"],
-            views: "Changes",
-            typeNames: [],
-            memberTargetIdentities: [],
-          };
+          {
+            const content =
+              packageComparisonTargets.get(pkg).diffContent;
+            return content.kind === "api"
+              ? {
+                  surface: "Library",
+                  analyses: ["api"],
+                  views: "Changes",
+                  typeNames: [],
+                  memberTargetIdentities: [],
+                }
+              : {
+                  surface: "Library",
+                  analyses: ["string-literals"],
+                  views: "Transitions",
+                  typeNames: [],
+                  memberTargetIdentities: [],
+                  predicate: {
+                    key: "Literal",
+                    operator: content.operator === "contains"
+                      ? "Contains"
+                      : "StartsWith",
+                    value: content.value,
+                  },
+                };
+          }
         case "type":
           return {
             surface: "Type",
@@ -7457,6 +7478,34 @@ LibraryApiDiffMemberExploreContext | null {
   );
 }
 
+function renderLibraryDiffTools(subject: CompareSubject): string {
+  if (subject.kind !== "library") return "";
+  const content = packageComparisonTargets.get(subject.pkg).diffContent;
+  const literalControls = content.kind === "string-literals"
+    ? `<label class="compare-tool">
+        Match
+        <select id="compare-string-literal-operator">
+          <option value="contains"${content.operator === "contains" ? " selected" : ""}>Contains</option>
+          <option value="starts-with"${content.operator === "starts-with" ? " selected" : ""}>Starts with</option>
+        </select>
+      </label>
+      <label class="compare-tool">
+        Value
+        <input id="compare-string-literal-value" value="${escapeHtml(content.value)}" maxlength="1024" spellcheck="false">
+      </label>`
+    : "";
+  return `<div class="compare-tools" aria-label="Diff content">
+    <label class="compare-tool">
+      Content
+      <select id="compare-diff-content">
+        <option value="api"${content.kind === "api" ? " selected" : ""}>Public API</option>
+        <option value="string-literals"${content.kind === "string-literals" ? " selected" : ""}>String literals</option>
+      </select>
+    </label>
+    ${literalControls}
+  </div>`;
+}
+
 function renderCompareSurface(): string {
   const subject = currentCompareSubject();
   if (!subject) return "";
@@ -7482,6 +7531,9 @@ function renderCompareSurface(): string {
     ...options,
     subjectLabel,
     targetText,
+    ...(subject.kind === "library"
+      ? { tools: renderLibraryDiffTools(subject) }
+      : {}),
     ...(memberContext === null
       ? {}
       : { memberDiffSection: memberDiffExplorer.renderInline(memberContext) }),
@@ -7547,6 +7599,18 @@ function selectCompareMode(mode: CompareMode) {
   packageComparisonTargets.selectMode(pkg, mode);
   state.compareCloneSelectedRank = null;
   render();
+}
+
+function selectLibraryDiffContent(content: DiffContent) {
+  const subject = currentCompareSubject();
+  if (subject?.kind !== "library") return;
+  try {
+    packageComparisonTargets.selectDiffContent(subject.pkg, content);
+    render();
+  } catch (error: unknown) {
+    showToast(errorMessage(error));
+    render();
+  }
 }
 
 function scopedPlatformLibrary() {
@@ -14625,6 +14689,14 @@ function bindCompareEvents() {
       render();
     },
   });
+  const subject = currentCompareSubject();
+  if (subject?.kind === "library") {
+    bindDiffContent(
+      document,
+      packageComparisonTargets.get(subject.pkg).diffContent,
+      selectLibraryDiffContent,
+    );
+  }
   bindLibraryApiDiffRows(document, {
     activateType: activateCompareType,
     activateMember: activateCompareMember,

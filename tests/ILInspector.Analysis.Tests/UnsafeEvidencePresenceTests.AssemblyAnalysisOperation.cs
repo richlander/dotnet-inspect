@@ -653,7 +653,17 @@ public partial class UnsafeEvidencePresenceTests
             MethodDefinitionSourceCompletion.Satisfied,
             execution.SourceReceipt.Completion);
         Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            1,
+            execution.SourceReceipt.Coverage.BodiesAttempted.Count);
         Assert.Equal(1, execution.SourceReceipt.BodiesAcquired);
+        Assert.Equal(
+            1,
+            execution.SourceReceipt.Coverage.ModuleLookupMethods.Count);
+        Assert.Equal(1, execution.SourceReceipt.ModuleLookups);
+        Assert.True(
+            execution.SourceReceipt.Coverage.ModuleLookupMethods.Contains(
+                MetadataTokens.MethodDefinitionHandle(1)));
     }
 
     [Fact]

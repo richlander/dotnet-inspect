@@ -158,6 +158,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(repoOption);
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(analysisOption);
+        diffCommand.Options.Add(opts.RowWhere);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
 #if DEBUG

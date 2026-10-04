@@ -25,7 +25,8 @@ public sealed record DiffAnalysisLibraryInspectionRequest(
     Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
         PrepareBodySignals,
     Func<ImplementationDiffResult>? PrepareImplementation,
-    IReadOnlyList<DiffAnalysisHostUnavailability> HostUnavailability);
+    IReadOnlyList<DiffAnalysisHostUnavailability> HostUnavailability,
+    StringLiteralComparisonQueryPlan? StringLiteralQuery = null);
 
 /// <summary>
 /// Completes one selected-Library comparison once, retaining both generic Diff
@@ -54,7 +55,14 @@ public static class DiffAnalysisLibraryInspection
                 perEndpointLimits);
         LibraryApiDiffOutcome libraryApi =
             LibraryApiDiffPresentationAdapter.Create(comparison);
-        DiffAnalysisInput input = CreateInput(comparison, libraryApi, request);
+        DiffAnalysisInput input = CreateInput(
+            beforeGroup,
+            before,
+            afterGroup,
+            after,
+            comparison,
+            libraryApi,
+            request);
         return DiffAnalysisInspection.Execute(
             new DiffAnalysisInspectionRequest(
                 request.Name,
@@ -68,10 +76,25 @@ public static class DiffAnalysisLibraryInspection
     }
 
     private static DiffAnalysisInput CreateInput(
+        AssemblyContextGroup beforeGroup,
+        AssemblyContextParticipant before,
+        AssemblyContextGroup afterGroup,
+        AssemblyContextParticipant after,
         AssemblyContextApiComparisonResult comparison,
         LibraryApiDiffOutcome libraryApi,
         DiffAnalysisLibraryInspectionRequest request)
     {
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals =
+            request.StringLiteralQuery is { } literal
+                ? () => StringLiteralComparisonQuery.ExecuteParticipants(
+                    beforeGroup,
+                    before,
+                    afterGroup,
+                    after,
+                    $"library:{request.Name}",
+                    request.Name,
+                    literal)
+                : null;
         if (comparison.Before.Surface is { } beforeSurface
             && comparison.After.Surface is { } afterSurface)
         {
@@ -86,7 +109,9 @@ public static class DiffAnalysisLibraryInspection
                 request.PrepareBodySignals,
                 request.PrepareImplementation,
                 comparison.Comparison,
-                request.HostUnavailability);
+                request.HostUnavailability,
+                request.StringLiteralQuery,
+                prepareStringLiterals);
         }
 
         string reason = libraryApi switch
@@ -98,8 +123,14 @@ public static class DiffAnalysisLibraryInspection
         };
         DiffAnalysisHostUnavailability[] unavailableAnalyses =
         [
-            .. request.Selection.Analyses.Select(analysis =>
-                new DiffAnalysisHostUnavailability(analysis.Id, reason)),
+            .. request.Selection.Analyses
+                .Where(analysis =>
+                    analysis.ParticipationFor(request.Selection.Operation)
+                        ?.For(request.Selection.Surface)
+                        ?.ProducerRoute
+                    != DiffAnalysisCatalog.StringLiteralRoute)
+                .Select(analysis =>
+                    new DiffAnalysisHostUnavailability(analysis.Id, reason)),
         ];
         return DiffAnalysisInput.WithoutApiSurfaces(
             request.BeforePaths,
@@ -109,6 +140,8 @@ public static class DiffAnalysisLibraryInspection
             request.ApiMemberTargetIdentities,
             request.PrepareBodySignals,
             request.PrepareImplementation,
-            unavailableAnalyses);
+            unavailableAnalyses,
+            request.StringLiteralQuery,
+            prepareStringLiterals);
     }
 }
