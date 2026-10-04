@@ -637,19 +637,28 @@ materialized IR node," checkable the same way. This is why instance 2 rides on
 instance 1: they share the type-propagation spine, so instance 2 is *mostly the
 deletion* of print-time typing once propagation exists — not a second engine.
 
-### Mutually exclusive switch-section ranges
+### Direct block-contained ranges
 
-A raised `Switch` supplies one bounded live-range proof before storage
-materialization: its `SwitchSection` bodies are mutually exclusive. A reused
-stack slot may therefore receive a fresh identity for one section when every
-reference to that slot belongs to a section of the same switch, every referenced
-section contains exactly one top-level store followed by one or more top-level
-loads in its direct body block, and at least two section ranges have different
-types. A candidate declines when its store reads the same slot, a load precedes
-the store, nested control flow or an unraised control transfer appears in the
-range, a reference exists outside the switch, or all section ranges already
-agree. The rewrite renumbers one complete section range at a time; it does not
-move evaluation, infer a join type, or add a control-flow edge.
+A direct `Block` supplies one bounded live-range proof before storage
+materialization: when every reference to a reused stack slot belongs to a block
+that contains exactly one top-level store followed by one or more loads, no load
+observes a definition from another block. The path may execute, skip, repeat, or
+enter structured control around a complete range; the store still executes in
+the same block before every load that uses its identity.
+
+The proof requires at least two referenced blocks and at least two testified
+range types. It declines when a referenced block lacks its own store or load,
+contains multiple stores, reads the slot in the store value, loads before the
+store, or contains nested control, a retained label, or an unraised transfer
+between the store and its last load. The rewrite groups equal testified types
+and renumbers one complete type group at a time. It does not move evaluation,
+infer a join type, or add a control-flow edge.
+
+The earlier mutually exclusive `SwitchSection` proof is a special case: each
+admitted section range is direct and block-contained. The general proof retains
+those gates without a parallel switch-specific path and also admits ranges in
+different sequential or nested blocks when every block independently owns its
+definition and uses.
 
 The pass remains before PDB lexical-scope retention. Reapplying it after
 `PdbLocalScopePass` is not sound under the block-local proof: a retained lexical
@@ -659,18 +668,28 @@ experimental late rerun changed
 `Microsoft.CodeAnalysis.CSharp.LocalRewriter.MakeConversionNodeCore` without
 reducing the 140 residual splits and left a shared post-branch read separated
 from one reaching definition. The product pass instead admits only the
-switch-issued mutual-exclusion proof above.
+pre-PDB direct-block proof above.
 
 The motivating real package is dotnet-inspect.any 0.14.0.
 `CSharpPrinter.DeconstructionTargetText` reuses one stack position for
 independent property-target and field-target values in separate switch
 sections; `ApiCommand.TryGetBareApiPayload` reuses another across independent
-payload sections. `PublishedSwitchSectionRangesSplitBeforeMaterialization`
-pins both package assets and gates their decided materialization, while
-synthetic positive and decline cases gate downstream joins, read-before-write,
-nested control flow, and same-typed sections. On the fixed corpus the proof
-reduces residual printer split slots from 140 to 138 with zero collection
-failures and no introduced residual identity.
+payload sections. `LibrarySections.References.CanRender` has a sequential
+example: the authored `References` and `TransitiveReferences` patterns use one
+evaluation-stack position, but each null-conditional result is stored and
+consumed wholly within its own block. The current printer emits separate
+`S_1` and `S_1_1` declarations for those unrelated list types.
+
+`PublishedDirectBlockRangesSplitBeforeMaterialization` pins the package assets
+and gates all three decided materializations. Synthetic positive and decline
+cases gate downstream joins, read-before-write, labels, and same-typed ranges.
+On the fixed 14-assembly corpus the generalized proof reduces residual printer
+split slots from 138 to 131 with zero collection failures and no introduced
+residual identity. The seven removed identities are the package
+`References.CanRender` witness and six Roslyn ranges in
+`ApplyDeconstructionConversion`, `GenerateDisposeCall`,
+`GetEffectiveParametersInNormalForm`, `ShouldMethodDisplayReadOnly`,
+`MakeParameters`, and `VisitLock`.
 
 ## Instance 3 — definite assignment (noted, deferred)
 
