@@ -11301,7 +11301,9 @@ function loadPackageSurface(pkg: AppPackage): Promise<boolean> {
         throw new Error(
           `The broad Package surface for ${pkg.id} is unavailable.`);
       }
-      const expanded = createNuGetPackageModel(load.surface);
+      const expanded = pkg.packageChildren
+        ? createNuGetPackageModel(load.surface, pkg.packageChildren)
+        : createNuGetPackageModel(load.surface);
       Object.assign(pkg, {
         ...expanded,
         versionSettlement: pkg.versionSettlement,

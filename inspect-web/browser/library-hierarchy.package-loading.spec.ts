@@ -248,6 +248,55 @@ test("Package Overview opens an owner-issued tool Library child", async ({
     .toHaveText("Type Count unavailable · Member Count unavailable");
 });
 
+test("lazy Library acquisition keeps partial Package totals unavailable", async ({
+  page,
+}) => {
+  const unavailableAsset = "lib/net10.0/Example.Unavailable.dll";
+  await installPackageLoadingFacades(page, {
+    deferChanges: false,
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: "System.Text.Json",
+        packageVersion: "10.0.0",
+        targetFramework: "net10.0",
+        libraries: [{
+          assetId: core.id,
+          assetPath: core.asset,
+          assemblyName: core.name,
+          role: "Compile",
+        }, {
+          assetId: unavailableAsset,
+          assetPath: unavailableAsset,
+          assemblyName: "Example.Unavailable",
+          role: "Compile",
+        }],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+  });
+  await page.goto(frameworkRoot);
+
+  await page.locator(`[data-package-child-library="${core.id}"]`).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+  await chooseSubject(page, "package", "Package");
+
+  await expect(page.locator(".package-overview-surface .api-surface-head p"))
+    .toHaveText("Type Count unavailable · Member Count unavailable");
+});
+
 test("Package Overview opens an owner-issued RID Package child", async ({
   page,
 }) => {
