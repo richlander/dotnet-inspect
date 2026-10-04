@@ -268,6 +268,17 @@ test("Ecosystems is a first-class product catalog destination", async ({
       + " [data-workspace-platform],"
       + " [data-workspace-framework-library]",
   )).toHaveCount(0);
+  const ecosystemLocation = page.url();
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await page.goBack();
+  await expect(page).toHaveURL(ecosystemLocation);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL("/");
 
   await page.goto("/");
   await page.getByRole("link", { name: "Ecosystems", exact: true }).click();

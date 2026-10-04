@@ -25928,8 +25928,13 @@ window.addEventListener("popstate", () => {
   }
   if (restoredActiveManagedWorkspace
     && activeRetainedWorkspacePosting?.canonicalLocation === location.href) {
+    const subjectKind =
+      activeRetainedWorkspacePosting.navigation.snapshot.activeSubject.kind
+        .toLowerCase();
     state.credits = false;
     state.home = false;
+    state.workspaceSubjectOpen =
+      subjectKind === "ecosystem" || state.package === null;
     render({ synchronizeUrl: false });
     return;
   }
