@@ -119,6 +119,11 @@ public sealed class MemberFindSemanticEvaluationTests
             roundTripMatch.Declaration.DeclaringType);
         Assert.IsType<ExactLibrarySourceCoordinate.Local>(
             roundTripMatch.Declaration.Source.Coordinate);
+        Assert.Equal(
+            block.Matches[0].Declaration.Source.Selection,
+            roundTripMatch.Declaration.Source.Selection);
+        Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
+            roundTripMatch.Declaration.Source.Selection);
     }
 
     [Fact]
@@ -390,6 +395,7 @@ public sealed class MemberFindSemanticEvaluationTests
                                             .DotNetRuntime),
                                     new(
                                         subject.Identity)),
+                            subject.Provenance,
                             contextOrder: 0,
                             memberOrder,
                             subject.Identity)));
@@ -468,6 +474,7 @@ public sealed class MemberFindSemanticEvaluationTests
                                                 .DotNetRuntime),
                                         new(
                                             subject.Identity)),
+                            subject.Provenance,
                             contextOrder: 0,
                             memberOrder,
                             subject.Identity)));
@@ -499,6 +506,116 @@ public sealed class MemberFindSemanticEvaluationTests
             ExactLibrarySourceCoordinate.Platform>(
                 block.Matches[1].Declaration.Source
                     .Coordinate);
+    }
+
+    [Fact]
+    public void SourceIdentity_DistinguishesExactSelections()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        AssemblyReferenceIdentity assemblyIdentity =
+            ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "selection identity"))
+                .Identity;
+        var libraryIdentity =
+            new ManagedMetadataIdentity.Assembly(
+                assemblyIdentity);
+        var packageCoordinate =
+            new ExactLibrarySourceCoordinate.Package(
+                PackageSourceCoordinate.Create(
+                    "Semantic.Test",
+                    "1.0.0"),
+                libraryIdentity);
+        var packageNet8 =
+            new FindSourceIdentity(
+                packageCoordinate,
+                AssemblyResolutionProvenance.Package(
+                    "Semantic.Test",
+                    "1.0.0",
+                    "net8.0",
+                    rid: null,
+                    assetPath:
+                        "ref/net8.0/Semantic.Test.dll"),
+                contextOrder: 0,
+                memberOrder: 0,
+                assemblyIdentity);
+        var packageNet10 =
+            new FindSourceIdentity(
+                packageCoordinate,
+                AssemblyResolutionProvenance.Package(
+                    "Semantic.Test",
+                    "1.0.0",
+                    "net10.0",
+                    rid: null,
+                    assetPath:
+                        "ref/net10.0/Semantic.Test.dll"),
+                contextOrder: 0,
+                memberOrder: 0,
+                assemblyIdentity);
+        Assert.Equal(
+            packageNet8.Coordinate,
+            packageNet10.Coordinate);
+        Assert.NotEqual(packageNet8, packageNet10);
+
+        var platformCoordinate =
+            new ExactLibrarySourceCoordinate.Platform(
+                new(PlatformFamily.DotNetRuntime),
+                libraryIdentity);
+        var platform100 =
+            new FindSourceIdentity(
+                platformCoordinate,
+                AssemblyResolutionProvenance.Platform(
+                    "Microsoft.NETCore.App",
+                    "10.0.12",
+                    "selection identity"),
+                contextOrder: 0,
+                memberOrder: 0,
+                assemblyIdentity);
+        var platform101 =
+            new FindSourceIdentity(
+                platformCoordinate,
+                AssemblyResolutionProvenance.Platform(
+                    "Microsoft.NETCore.App",
+                    "10.0.13",
+                    "selection identity"),
+                contextOrder: 0,
+                memberOrder: 0,
+                assemblyIdentity);
+        Assert.Equal(
+            platform100.Coordinate,
+            platform101.Coordinate);
+        Assert.NotEqual(platform100, platform101);
+    }
+
+    [Fact]
+    public async Task Evaluation_RejectsMismatchedSelectionEvidence()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            CreateGroup(workspace, path);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(
+                ["WorkspaceQueryMember"],
+                FindVisibility.Public);
+
+        Assert.Throws<ArgumentException>(
+            () => MemberFindSourceEvaluator
+                .EvaluateAssemblyContext(
+                    question,
+                    group,
+                    static (subject, memberOrder) =>
+                        new(
+                            new ExactLibrarySourceCoordinate.Local(
+                                new(subject.Identity)),
+                            AssemblyResolutionProvenance.Local(
+                                "different selection"),
+                            contextOrder: 0,
+                            memberOrder,
+                            subject.Identity)));
     }
 
     [Fact]
@@ -544,6 +661,7 @@ public sealed class MemberFindSemanticEvaluationTests
                 new(
                     new ExactLibrarySourceCoordinate.Local(
                         new(subject.Identity)),
+                    subject.Provenance,
                     contextOrder: 0,
                     memberOrder,
                     subject.Identity));

@@ -660,6 +660,7 @@ internal sealed class PackageSearchQuerySources
                     "A package Member source requires an exact coordinate.");
         var identity = new FindSourceIdentity(
             coordinate,
+            subject.Provenance,
             contextOrder: 0,
             memberOrder,
             subject.Identity);

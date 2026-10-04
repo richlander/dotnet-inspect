@@ -309,6 +309,7 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
                             "A Platform Member source requires an exact coordinate.");
                 var identity = new FindSourceIdentity(
                     coordinate,
+                    subject.Provenance,
                     contextOrder: 0,
                     memberOrder,
                     subject.Identity);

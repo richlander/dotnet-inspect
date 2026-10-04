@@ -689,6 +689,12 @@ public static class MemberFindSourceEvaluator
                 "A Member source identity must name the exact assembly-context participant.",
                 nameof(source));
         }
+        if (source.Selection != subject.Provenance)
+        {
+            throw new ArgumentException(
+                "A Member source identity must retain the participant's exact selection evidence.",
+                nameof(source));
+        }
     }
 
     private sealed class EvaluationState

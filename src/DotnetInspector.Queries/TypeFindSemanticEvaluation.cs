@@ -256,21 +256,25 @@ public sealed record FindSourceIdentity
 {
     public FindSourceIdentity(
         ExactLibrarySourceCoordinate coordinate,
+        AssemblyResolutionProvenance selection,
         int contextOrder,
         int memberOrder,
         AssemblyReferenceIdentity assemblyIdentity)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(assemblyIdentity);
         ArgumentOutOfRangeException.ThrowIfNegative(contextOrder);
         ArgumentOutOfRangeException.ThrowIfNegative(memberOrder);
         Coordinate = coordinate;
+        Selection = selection;
         ContextOrder = contextOrder;
         MemberOrder = memberOrder;
         AssemblyIdentity = assemblyIdentity;
     }
 
     public ExactLibrarySourceCoordinate Coordinate { get; }
+    public AssemblyResolutionProvenance Selection { get; }
     public int ContextOrder { get; }
     public int MemberOrder { get; }
     public AssemblyReferenceIdentity AssemblyIdentity { get; }
@@ -646,6 +650,7 @@ public static class TypeFindSourceEvaluator
             var source =
                 new FindSourceIdentity(
                     member.Coordinate,
+                    member.Selection,
                     contextOrder,
                     memberOrder,
                     member.AssemblyIdentity);
