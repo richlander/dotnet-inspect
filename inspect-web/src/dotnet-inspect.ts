@@ -25944,6 +25944,7 @@ window.addEventListener("popstate", () => {
         .toLowerCase();
     const restoredLocation =
       subjectKind === "ecosystem" ? null : await parseLocation();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     state.credits = false;
     state.home = false;
     state.workspaceSubjectOpen =

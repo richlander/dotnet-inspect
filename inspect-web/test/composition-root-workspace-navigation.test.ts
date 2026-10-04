@@ -510,6 +510,9 @@ test("complete Workspace URLs use page-session retained activation", () => {
     /sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable[\s\S]*if \(managedHistoryWorkspaceAvailable[\s\S]*tryOpenSourceBearingWorkspace/);
   assert.match(
     history,
+    /if \(restoredActiveManagedWorkspace[\s\S]*await parseLocation\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*state\.credits = false/);
+  assert.match(
+    history,
     /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable/);
   assert.match(
     history,
