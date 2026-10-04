@@ -147,6 +147,7 @@ src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
 src/MsdlProxy
+src/TsJsExport.Contracts
 src/mdi
 src/runfaster
 src/ts-jsexport
