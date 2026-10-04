@@ -62,9 +62,9 @@ function succeeded(
   compileAssetId = "lib/net11.0/Example.dll",
 ): BrowserLibraryApiDiffResult {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     request: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion,
       targetVersion,
@@ -75,6 +75,7 @@ function succeeded(
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
     kind: "Succeeded",
     value: {
@@ -153,12 +154,18 @@ function inspection(
     readonly surface?: "Library" | "Type" | "Member";
     readonly views?: string;
     readonly analyses?: readonly string[];
+    readonly predicate?: {
+      readonly key: string;
+      readonly operator: string;
+      readonly value: string;
+    };
     readonly outcomes?: readonly {
       readonly analysis: string;
       readonly kind: "Compared" | "Unavailable" | "Failed";
       readonly findings: readonly string[];
       readonly detail?: string | null;
     }[];
+    readonly transitions?: readonly unknown[];
   } = {},
 ): NonNullable<BrowserLibraryApiDiffResult["inspection"]> {
   const share: InspectionShare = {
@@ -178,6 +185,15 @@ function inspection(
         surface: analysis.surface ?? "Library",
         views: analysis.views ?? "Changes",
         analyses: analysis.analyses ?? ["api"],
+        predicates: analysis.predicate === undefined
+          ? []
+          : [{
+              key: analysis.predicate.key,
+              operator: analysis.predicate.operator === "Contains"
+                ? "contains"
+                : "starts-with",
+              value: analysis.predicate.value,
+            }],
       },
       outcomes: analysis.outcomes ?? [{
         analysis: "api",
@@ -185,6 +201,7 @@ function inspection(
         findings: ["metadata.type", "metadata.member"],
         detail: null,
       }],
+      transitions: analysis.transitions ?? null,
       apiInspectionFailures: [],
       changes: { types: [] },
       libraryApi: content,
@@ -286,7 +303,7 @@ test("subject-scoped selections drive the generic Diff request", async () => {
   await Promise.resolve();
 
   assert.deepEqual(observed, {
-    schemaVersion: 2,
+    schemaVersion: 3,
     packageId: "Example.Package",
     currentVersion: "2.0.0",
     targetVersion: "1.0.0",
@@ -297,6 +314,76 @@ test("subject-scoped selections drive the generic Diff request", async () => {
     views: "Changes, Summary, Transitions",
     typeNames: ["Example.Widget"],
     memberTargetIdentities: ["digest-run"],
+    predicate: null,
+  });
+  assert.equal(state.libraryApiDiff.status, "ready");
+});
+
+test("literal selections retain the exact predicate in request identity", async () => {
+  const packageModel = {};
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const requests: BrowserLibraryApiDiffRequest[] = [];
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: (_operationId, request) => {
+      requests.push(request);
+      return Promise.resolve({
+        ...succeeded("1.0.0"),
+        request,
+        inspection: inspection(
+          { outcome: "available", document: {} },
+          {
+            surface: "Library",
+            views: "Transitions",
+            analyses: ["string-literals"],
+            predicate: {
+              key: "Literal",
+              operator: "Contains",
+              value: "https://",
+            },
+            outcomes: [{
+              analysis: "string-literals",
+              kind: "Compared",
+              findings: ["analysis.string-literal-use"],
+            }],
+            transitions: [],
+          },
+        ),
+      });
+    },
+    cancel: () => undefined,
+    describeError: String,
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  const literalSelection: LibraryApiDiffSelection = {
+    ...selection(packageModel),
+    query: {
+      surface: "Library",
+      analyses: ["string-literals"],
+      views: "Transitions",
+      typeNames: [],
+      memberTargetIdentities: [],
+      predicate: {
+        key: "Literal",
+        operator: "Contains",
+        value: "https://",
+      },
+    },
+  };
+
+  coordinator.reconcile(literalSelection);
+  await Promise.resolve();
+  coordinator.reconcile(literalSelection);
+
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0]?.predicate, {
+    key: "Literal",
+    operator: "Contains",
+    value: "https://",
   });
   assert.equal(state.libraryApiDiff.status, "ready");
 });
@@ -335,7 +422,7 @@ test("replacement Package contexts cancel old work and suppress late publication
   assert.deepEqual(cancellations, ["one"]);
   assert.deepEqual(requests, [
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -346,9 +433,10 @@ test("replacement Package contexts cancel old work and suppress late publication
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.5.0",
@@ -359,6 +447,7 @@ test("replacement Package contexts cancel old work and suppress late publication
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
   ]);
   pending.get("one")?.resolve(succeeded("1.0.0"));
@@ -620,6 +709,14 @@ test("application generic Diff selection uses producer-owned identities", () => 
   assert.doesNotMatch(
     selectionSource,
     /memberTargetIdentities: \[[^\]]*anchorDigest/,
+  );
+  assert.match(
+    selectionSource,
+    /analyses: \["string-literals"\],[\s\S]*?views: "Transitions"[\s\S]*?key: "Literal"[\s\S]*?operator: content\.operator === "contains"[\s\S]*?"Contains"[\s\S]*?"StartsWith"/,
+  );
+  assert.match(
+    appSource,
+    /<option value="string-literals"[\s\S]*?>String literals<\/option>/,
   );
 });
 
@@ -1073,6 +1170,189 @@ test("Member Diff leads with specialized content and omits host availability sta
   assert.doesNotMatch(html, /Browser\/Wasm does not construct method-body comparison inputs/);
   assert.match(html, /data-diff-analysis="csharp"[\s\S]*C# failed[\s\S]*Decompiler comparison failed/);
   assert.doesNotMatch(html, /Selected Diff views|Transitions/);
+});
+
+test("string literal Transitions render complete literals as full-width rows", () => {
+  const result = {
+    ...succeeded("1.0.0"),
+    inspection: inspection(
+      { outcome: "available", document: {} },
+      {
+        surface: "Library",
+        views: "Transitions",
+        analyses: ["string-literals"],
+        predicate: {
+          key: "Literal",
+          operator: "Contains",
+          value: "https://",
+        },
+        outcomes: [{
+          analysis: "string-literals",
+          kind: "Compared",
+          findings: ["analysis.string-literal-use"],
+        }],
+        transitions: [
+          {
+            transition: "PairFinding.Removed",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "https://old.example and https://shared.example",
+            new: "absent",
+            detail: null,
+          },
+          {
+            transition: "PairFinding.Added",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "absent",
+            new: "https://new.example",
+            detail: null,
+          },
+          {
+            transition: "PairFinding.Present",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "prefix https://embedded.example",
+            new: "prefix https://embedded.example",
+            detail: null,
+          },
+        ],
+      },
+    ),
+  };
+
+  const html = renderLibraryApiDiff(readyState(result), String);
+
+  assert.match(html, /3 matching literals/);
+  assert.match(
+    html,
+    /<code>https:\/\/old\.example and https:\/\/shared\.example<\/code>/,
+  );
+  assert.match(html, /<code>https:\/\/new\.example<\/code>/);
+  assert.match(
+    html,
+    /<code>prefix https:\/\/embedded\.example<\/code>/,
+  );
+  assert.equal(
+    html.match(/prefix https:\/\/embedded\.example/g)?.length,
+    1,
+  );
+  assert.doesNotMatch(html, /<code>absent<\/code>/);
+  assert.match(html, /data-transition="Removed"[\s\S]*>Removed<\/span>/);
+  assert.match(html, /data-transition="Added"[\s\S]*>Added<\/span>/);
+  assert.doesNotMatch(html, /changed Types/);
+});
+
+test("failed string literal inspection remains visible and incomplete", () => {
+  const result = {
+    ...succeeded("1.0.0"),
+    inspection: inspection(
+      { outcome: "available", document: {} },
+      {
+        surface: "Library",
+        views: "Transitions",
+        analyses: ["string-literals"],
+        predicate: {
+          key: "Literal",
+          operator: "Contains",
+          value: "https://",
+        },
+        outcomes: [{
+          analysis: "string-literals",
+          kind: "Compared",
+          findings: ["analysis.string-literal-use"],
+        }],
+        transitions: [
+          {
+            transition: "FindingComparison.Failed",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "failed",
+            new: "complete",
+            detail: "String literal scan exceeded its work limit.",
+          },
+          {
+            transition: "PairFinding.Present",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "https://example.test",
+            new: "https://example.test",
+            detail: null,
+          },
+        ],
+      },
+    ),
+  };
+
+  const html = renderLibraryApiDiff(readyState(result), String);
+
+  assert.match(
+    html,
+    /Comparison incomplete\. 1 matching literal; 1 literal inspection failure\./,
+  );
+  assert.match(html, /String literal inspection incomplete/);
+  assert.match(html, /String literal scan exceeded its work limit\./);
+  assert.match(html, /<code>https:\/\/example\.test<\/code>/);
+  assert.doesNotMatch(html, /Comparison complete/);
+  assert.doesNotMatch(html, /<code>failed<\/code>|<code>complete<\/code>/);
+});
+
+test("string literal presentation survives an unavailable API projection", () => {
+  const baseline = succeeded("1.0.0");
+  const result: BrowserLibraryApiDiffResult = {
+    ...baseline,
+    kind: "Unavailable",
+    value: null,
+    unavailable: {
+      kind: "TargetIncomplete",
+      target: endpoint("1.0.0"),
+      current: endpoint("2.0.0"),
+    },
+    inspection: inspection(
+      { outcome: "unavailable", document: null },
+      {
+        surface: "Library",
+        views: "Transitions",
+        analyses: ["string-literals"],
+        predicate: {
+          key: "Literal",
+          operator: "StartsWith",
+          value: "https://",
+        },
+        outcomes: [{
+          analysis: "string-literals",
+          kind: "Compared",
+          findings: ["analysis.string-literal-use"],
+        }],
+        transitions: [{
+          transition: "PairFinding.Present",
+          finding: "analysis.string-literal-use",
+          target: "Example",
+          from: "1.0.0",
+          to: "2.0.0",
+          old: "https://example.test",
+          new: "https://example.test",
+          detail: null,
+        }],
+      },
+    ),
+  };
+
+  const html = renderLibraryApiDiff(readyState(result), String);
+
+  assert.match(html, /https:\/\/example\.test/);
+  assert.match(html, /1 matching literal/);
+  assert.doesNotMatch(html, /Comparison unavailable/);
 });
 
 test("malformed change rows are rejected at the transport boundary", async () => {

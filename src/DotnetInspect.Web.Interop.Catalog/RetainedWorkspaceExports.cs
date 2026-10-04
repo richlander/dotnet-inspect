@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
@@ -49,6 +50,27 @@ public static partial class CatalogExports
                     canonicalLocation,
                     packageId,
                     version)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
+    public static async Task<string> PrepareEcosystemWorkspaceDefinition(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string ecosystemId)
+    {
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService
+                .PrepareEcosystemAsync(
+                    retainedDefinitionId,
+                    label,
+                    canonicalLocation,
+                    ecosystemId)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             result,
@@ -473,6 +495,13 @@ internal static class BrowserRetainedWorkspaceActivationService
         "Workspace credential bindings must be one JSON object of "
         + "source endpoints to username/PAT objects.";
 
+    static readonly ViewFacetId EcosystemDefaultFacet =
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Ecosystem,
+                ViewFacetRole.EcosystemOverview)
+            .Id;
+
     static readonly object Gate = new();
     static readonly Dictionary<
         string,
@@ -574,6 +603,70 @@ internal static class BrowserRetainedWorkspaceActivationService
                 null,
                 null,
                 new("InvalidRequest", ex.Message));
+        }
+
+        return await PrepareAsync(request).ConfigureAwait(false);
+    }
+
+    internal static async Task<BrowserRetainedWorkspacePreparationResult>
+        PrepareEcosystemAsync(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string ecosystemId)
+    {
+        if (!EcosystemPackId.TryCreate(
+                ecosystemId,
+                out EcosystemPackId? id))
+        {
+            return FailedPreparation(
+                "InvalidRequest",
+                $"'{ecosystemId}' is not a valid Ecosystem identity.");
+        }
+
+        EcosystemWorkspaceRegistrationSelectionResult selection =
+            EcosystemPackCatalog.SelectWorkspaceRegistration(id);
+        if (selection is EcosystemWorkspaceRegistrationSelectionResult.Unknown)
+        {
+            return FailedPreparation(
+                "UnknownEcosystem",
+                $"Ecosystem '{id}' is not in the product catalog.");
+        }
+        if (selection
+            is EcosystemWorkspaceRegistrationSelectionResult.Unavailable)
+        {
+            return FailedPreparation(
+                "UnavailableEcosystem",
+                $"Ecosystem '{id}' has no Workspace registration.");
+        }
+
+        WorkspaceEcosystemRegistrationDeclaration declaration =
+            ((EcosystemWorkspaceRegistrationSelectionResult.Known)selection)
+                .Declaration;
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan([id]);
+        WorkspaceRegistration.Ecosystem registration =
+            plan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Declaration,
+                        declaration));
+        BrowserRetainedWorkspaceActivationRequest request;
+        try
+        {
+            request = new(
+                retainedDefinitionId,
+                label,
+                canonicalLocation,
+                new CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemInput(
+                        plan,
+                        registration.Declaration.Id,
+                        EcosystemDefaultFacet));
+        }
+        catch (ArgumentException ex)
+        {
+            return FailedPreparation("InvalidRequest", ex.Message);
         }
 
         return await PrepareAsync(request).ConfigureAwait(false);
@@ -1286,6 +1379,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             posting.CanonicalLocation,
             canonicalPacket,
             Definition(
+                posting.RestorationRequest,
                 canonicalPacket,
                 posting.Definition),
             BrowserCatalogWireProjection.Project(
@@ -1321,6 +1415,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             posting.RealizationId,
             posting.PublicationOrdinal,
             Definition(
+                posting.RestorationRequest,
                 posting.CanonicalPacket,
                 posting.Definition),
             BrowserCatalogWireProjection.Project(posting.Navigation),
@@ -1408,9 +1503,22 @@ internal static class BrowserRetainedWorkspaceActivationService
             : null;
 
     static BrowserRetainedWorkspaceDefinitionState Definition(
+        CompleteRestorationRequestBasis restorationRequest,
         string? canonicalPacket,
-        CommittedScenarioDefinitionSet definition)
+        CommittedScenarioDefinitionSet? definition)
     {
+        if (restorationRequest
+            is CompleteRestorationRequestBasis.RegistrationOnlyEcosystemInput
+                ecosystem)
+        {
+            return RegistrationOnlyEcosystemDefinition(ecosystem);
+        }
+
+        if (definition is null)
+        {
+            throw new InvalidOperationException(
+                "A retained Workspace definition is required.");
+        }
         CommittedNavigationDefinition navigation =
             definition.Navigation
             ?? throw new InvalidOperationException(
@@ -1452,6 +1560,23 @@ internal static class BrowserRetainedWorkspaceActivationService
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
             definition.Scenario.Context);
+    }
+
+    static BrowserRetainedWorkspaceDefinitionState
+        RegistrationOnlyEcosystemDefinition(
+            CompleteRestorationRequestBasis.RegistrationOnlyEcosystemInput
+                request)
+    {
+        _ = request.Plan.Registrations
+            .OfType<WorkspaceRegistration.Ecosystem>()
+            .Single(registration =>
+                registration.Declaration.Id == request.Ecosystem);
+        return new(
+            [],
+            [],
+            [.. request.Plan.Registrations.Select(Registration)],
+            ActiveTabId: null,
+            SelectedContextId: null);
     }
 
     static BrowserRetainedWorkspaceDefinitionState ExternalPackageDefinition(
@@ -1572,6 +1697,16 @@ internal static class BrowserRetainedWorkspaceActivationService
             settlement.Succeeded,
             settlement.Reason.ToString(),
             settlement.Failure?.Message);
+
+    static BrowserRetainedWorkspacePreparationResult FailedPreparation(
+        string kind,
+        string message) =>
+        new(
+            "failed",
+            null,
+            null,
+            null,
+            new(kind, message));
 
     static string AuthorityResult(NavigationAuthorityResult result) =>
         result switch

@@ -6,8 +6,8 @@ using ILInspector.Metadata;
 namespace DotnetInspector.PlatformQueries;
 
 /// <summary>
-/// One Platform assembly-reference result bound to the exact owner-issued
-/// request that produced its receipt.
+/// One Platform-family assembly-reference result bound to the exact
+/// owner-issued request that produced its receipt.
 /// </summary>
 public sealed class ExternalAssemblyReferencePlatformResult
 {
@@ -79,8 +79,7 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
         internal PlatformOwned(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome.Missing package,
-            PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-                platform,
+            PlatformAssemblyReferenceBindingOutcome.Selected platform,
             AssemblyBindingDecision.Resolved binding)
             : base(request, package)
         {
@@ -92,8 +91,7 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
         public PackageAssemblyReferenceSupplierOutcome.Missing Package
         { get; }
 
-        public PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-            Platform
+        public PlatformAssemblyReferenceBindingOutcome.Selected Platform
         { get; }
 
         public AssemblyBindingDecision.Resolved Binding { get; }
@@ -105,24 +103,18 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
         internal NameOwnedNoMatch(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome.Missing package,
-            PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-                platform,
-            AssemblyBindingDecision.Missing binding)
+            PlatformAssemblyReferenceBindingOutcome.Missing platform)
             : base(request, package)
         {
             Package = package;
             Platform = platform;
-            Binding = binding;
         }
 
         public PackageAssemblyReferenceSupplierOutcome.Missing Package
         { get; }
 
-        public PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-            Platform
+        public PlatformAssemblyReferenceBindingOutcome.Missing Platform
         { get; }
-
-        public AssemblyBindingDecision.Missing Binding { get; }
     }
 
     public sealed record NoSupplier :
@@ -131,24 +123,18 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
         internal NoSupplier(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome.Missing package,
-            PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-                platform,
-            AssemblyBindingDecision.Missing binding)
+            PlatformAssemblyReferenceBindingOutcome.Missing platform)
             : base(request, package)
         {
             Package = package;
             Platform = platform;
-            Binding = binding;
         }
 
         public PackageAssemblyReferenceSupplierOutcome.Missing Package
         { get; }
 
-        public PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-            Platform
+        public PlatformAssemblyReferenceBindingOutcome.Missing Platform
         { get; }
-
-        public AssemblyBindingDecision.Missing Binding { get; }
     }
 
     public sealed record Unavailable :
@@ -157,11 +143,11 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
         internal Unavailable(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome packageStage,
-            PlatformHouseOutcome<AssemblyBindingDecision>? platform)
+            PlatformAssemblyReferenceBindingOutcome? platform)
             : base(request, packageStage) =>
             Platform = platform;
 
-        public PlatformHouseOutcome<AssemblyBindingDecision>? Platform
+        public PlatformAssemblyReferenceBindingOutcome? Platform
         { get; }
     }
 
@@ -171,11 +157,11 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
         internal Ambiguous(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome packageStage,
-            PlatformHouseOutcome<AssemblyBindingDecision>? platform)
+            PlatformAssemblyReferenceBindingOutcome? platform)
             : base(request, packageStage) =>
             Platform = platform;
 
-        public PlatformHouseOutcome<AssemblyBindingDecision>? Platform
+        public PlatformAssemblyReferenceBindingOutcome? Platform
         { get; }
     }
 
@@ -185,11 +171,11 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
         internal Incomplete(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome packageStage,
-            PlatformHouseOutcome<AssemblyBindingDecision>? platform)
+            PlatformAssemblyReferenceBindingOutcome? platform)
             : base(request, packageStage) =>
             Platform = platform;
 
-        public PlatformHouseOutcome<AssemblyBindingDecision>? Platform
+        public PlatformAssemblyReferenceBindingOutcome? Platform
         { get; }
     }
 
@@ -199,7 +185,7 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
         internal Failed(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome packageStage,
-            PlatformHouseOutcome<AssemblyBindingDecision>? platform,
+            PlatformAssemblyReferenceBindingOutcome? platform,
             string reason)
             : base(request, packageStage)
         {
@@ -207,7 +193,7 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
             Reason = reason;
         }
 
-        public PlatformHouseOutcome<AssemblyBindingDecision>? Platform
+        public PlatformAssemblyReferenceBindingOutcome? Platform
         { get; }
 
         public string Reason { get; }
@@ -216,14 +202,13 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
 
 /// <summary>
 /// Composes the ordinary reachable-Package supplier stage with one deferred,
-/// target-aware Platform binding operation.
+/// complete target-aware Platform family binding result.
 /// </summary>
 public static class ExternalAssemblyReferenceSupplierAssociation
 {
     public static async ValueTask<
         ExternalAssemblyReferenceSupplierOutcome> ExecuteAsync(
-            PackageAssemblyReferenceSupplierAssociation packageAssociation,
-            AssemblyBindingRequest request,
+            PackageAssemblyReferenceExternalRoute packageRoute,
             AssemblyBindingSelection referencingContextSelection,
             PackageHouse packageHouse,
             PackageSourceOperationLease packageSourceOperation,
@@ -231,12 +216,11 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 AssemblyBindingRequest,
                 CancellationToken,
                 ValueTask<
-                    ExternalAssemblyReferencePlatformResult>>
+                    PlatformAssemblyReferenceBindingOutcome>>
                 resolvePlatform,
             CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(packageAssociation);
-        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(packageRoute);
         ArgumentNullException.ThrowIfNull(
             referencingContextSelection);
         ArgumentNullException.ThrowIfNull(packageHouse);
@@ -245,13 +229,15 @@ public static class ExternalAssemblyReferenceSupplierAssociation
         cancellationToken.ThrowIfCancellationRequested();
 
         PackageAssemblyReferenceSupplierOutcome package =
-            await packageAssociation.ResolveAsync(
-                    request,
+            await PackageAssemblyReferenceRouteAdapter.ExecuteAsync(
+                    packageRoute,
                     referencingContextSelection,
                     packageHouse,
-                    packageSourceOperation)
+                    packageSourceOperation,
+                    cancellationToken)
                 .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
+        AssemblyBindingRequest request = packageRoute.Request;
         switch (package)
         {
             case PackageAssemblyReferenceSupplierOutcome.Selected selected:
@@ -286,7 +272,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
 
         var missing =
             (PackageAssemblyReferenceSupplierOutcome.Missing)package;
-        ExternalAssemblyReferencePlatformResult platform =
+        PlatformAssemblyReferenceBindingOutcome platform =
             await resolvePlatform(
                     request,
                     cancellationToken)
@@ -299,7 +285,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
         CompletePlatform(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome.Missing package,
-            ExternalAssemblyReferencePlatformResult platform)
+            PlatformAssemblyReferenceBindingOutcome platform)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(package);
@@ -316,77 +302,54 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 "The Platform stage must retain the unchanged Metadata binding request.",
                 nameof(platform));
         }
-
-        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
-            platform.Outcome;
-        return outcome switch
+        if (!ReferenceEquals(
+                platform.Route.PackageRoutes,
+                package.Route))
         {
-            PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-            {
-                Value: AssemblyBindingDecision.Resolved binding,
-            } completed =>
+            throw new ArgumentException(
+                "The Package and Platform stages must retain the exact Package route receipt.",
+                nameof(platform));
+        }
+
+        return platform switch
+        {
+            PlatformAssemblyReferenceBindingOutcome.Selected selected =>
                 new ExternalAssemblyReferenceSupplierOutcome.PlatformOwned(
                     request,
                     package,
-                    completed,
-                    binding),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-            {
-                Value: AssemblyBindingDecision.Missing binding,
-            } completed =>
+                    selected,
+                    selected.Binding),
+            PlatformAssemblyReferenceBindingOutcome.Missing missing =>
                 CompleteMissing(
                     request,
                     package,
-                    completed,
-                    binding),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-            {
-                Value: AssemblyBindingDecision.Unavailable,
-            } =>
+                    missing),
+            PlatformAssemblyReferenceBindingOutcome.Unavailable =>
                 new ExternalAssemblyReferenceSupplierOutcome.Unavailable(
                     request,
                     package,
-                    outcome),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Completed
-            {
-                Value: AssemblyBindingDecision.Ambiguous,
-            } =>
+                    platform),
+            PlatformAssemblyReferenceBindingOutcome.Ambiguous =>
                 new ExternalAssemblyReferenceSupplierOutcome.Ambiguous(
                     request,
                     package,
-                    outcome),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Completed =>
-                new ExternalAssemblyReferenceSupplierOutcome.Failed(
-                    request,
-                    package,
-                    outcome,
-                    "Platform binding returned a rejected or unsupported completed decision."),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Unavailable =>
-                new ExternalAssemblyReferenceSupplierOutcome.Unavailable(
-                    request,
-                    package,
-                    outcome),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Ambiguous =>
-                new ExternalAssemblyReferenceSupplierOutcome.Ambiguous(
-                    request,
-                    package,
-                    outcome),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete =>
+                    platform),
+            PlatformAssemblyReferenceBindingOutcome.Incomplete =>
                 new ExternalAssemblyReferenceSupplierOutcome.Incomplete(
                     request,
                     package,
-                    outcome),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Failed =>
+                    platform),
+            PlatformAssemblyReferenceBindingOutcome.Failed =>
                 new ExternalAssemblyReferenceSupplierOutcome.Failed(
                     request,
                     package,
-                    outcome,
+                    platform,
                     "Platform binding failed."),
-            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected =>
+            PlatformAssemblyReferenceBindingOutcome.Rejected =>
                 new ExternalAssemblyReferenceSupplierOutcome.Failed(
                     request,
                     package,
-                    outcome,
+                    platform,
                     "Platform binding rejected its request or owner evidence."),
             _ => throw new InvalidOperationException(
                 "Unknown Platform assembly-reference outcome."),
@@ -396,10 +359,9 @@ public static class ExternalAssemblyReferenceSupplierAssociation
     static ExternalAssemblyReferenceSupplierOutcome CompleteMissing(
         AssemblyBindingRequest request,
         PackageAssemblyReferenceSupplierOutcome.Missing package,
-        PlatformHouseOutcome<AssemblyBindingDecision>.Completed platform,
-        AssemblyBindingDecision.Missing binding)
+        PlatformAssemblyReferenceBindingOutcome.Missing platform)
     {
-        if (binding.Disposition
+        if (platform.Disposition
                 == AssemblyBindingMissDisposition.NameOwnedNoMatch
             || package.Disposition
                 == AssemblyBindingMissDisposition.NameOwnedNoMatch)
@@ -408,17 +370,15 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 .NameOwnedNoMatch(
                     request,
                     package,
-                    platform,
-                    binding);
+                    platform);
         }
-        if (binding.Disposition
+        if (platform.Disposition
             == AssemblyBindingMissDisposition.NoNameOwner)
         {
             return new ExternalAssemblyReferenceSupplierOutcome.NoSupplier(
                 request,
                 package,
-                platform,
-                binding);
+                platform);
         }
 
         return new ExternalAssemblyReferenceSupplierOutcome.Failed(

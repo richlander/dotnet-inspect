@@ -86,10 +86,10 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
-    public void WriterPublishesEachRowBeforeCompletionWithStableHeaderAndSafeCells()
+    public void WriterPublishesFirstRowThenFlushesPartialBatchWithStableHeaderAndSafeCells()
     {
         using var output = new StringWriter();
-        using var writer = new FindDiscoveryTsvWriter(output);
+        var writer = new FindDiscoveryTsvWriter(output);
         var type = new TypeFindResult
         {
             FullName = "System.Text.Json.JsonSerializer",
@@ -105,12 +105,39 @@ public class FindProgressiveTsvTests
             Field("System.Text.Json.JsonSerializer.Serialize"),
             Field("member"), Field("runtime"), Field("System.Text.Json"),
             Field("tab\tnewline\n"), Field("method"), Field(""), Field("direct"), Field("")));
+        Assert.Equal(first, output.ToString());
+        writer.Flush();
+        string[] flushedLines = output.ToString().TrimEnd('\n').Split('\n');
+        Assert.Equal(3, flushedLines.Length);
+        Assert.Equal(first, string.Join('\n', flushedLines.Take(2)) + "\n");
+        Assert.Contains(@"tab\^Inewline\^J", flushedLines[2]);
         writer.Write(FindDiscoveryOutput.Project(type));
+        Assert.Equal(3, output.ToString().TrimEnd('\n').Split('\n').Length);
+        writer.Dispose();
         string[] lines = output.ToString().TrimEnd('\n').Split('\n');
         Assert.Equal(4, lines.Length);
-        Assert.Equal(first, string.Join('\n', lines.Take(2)) + "\n");
-        Assert.Contains(@"tab\^Inewline\^J", lines[2]);
         Assert.All(lines, line => Assert.Equal(9, line.Split('\t').Length));
+    }
+
+    [Fact]
+    public void WriterPublishesFullBatchWithoutWaitingForCompletion()
+    {
+        using var output = new StringWriter();
+        using var writer = new FindDiscoveryTsvWriter(output);
+        FindDiscoveryRow row = Row("System.String");
+        writer.Write(row);
+        string first = output.ToString();
+        for (int index = 1; index < 64; index++)
+            writer.Write(Row($"System.String.Member{index}"));
+        Assert.Equal(first, output.ToString());
+
+        writer.Write(Row("System.String.Member64"));
+
+        string[] lines = output.ToString().TrimEnd('\n').Split('\n');
+        Assert.Equal(66, lines.Length);
+        Assert.Single(lines, line =>
+            line.StartsWith("coordinate\t", StringComparison.Ordinal));
+        Assert.Equal("System.String.Member64", lines[^1].Split('\t')[0]);
     }
 
     [Fact]
@@ -196,4 +223,10 @@ public class FindProgressiveTsvTests
     }
 
     private static InertString Field(string value) => new(TextPolicy.Field, value);
+
+    private static FindDiscoveryRow Row(string coordinate) =>
+        new(
+            Field(coordinate), Field("member"), Field("runtime"),
+            Field("System.Private.CoreLib"), Field("*"), Field("method"),
+            Field(""), Field("direct"), Field(""));
 }

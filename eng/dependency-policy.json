@@ -732,6 +732,22 @@
       ]
     },
     {
+      "id": "vocabulary-dependencies",
+      "source": "docs/design/vocabulary.md#ownership",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Vocabulary"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspector.Queries",
+        "ILInspector.Decompiler"
+      ]
+    },
+    {
       "id": "js-export-surface-dependencies",
       "source": "docs/design/ts-jsexport.md",
       "graphs": [

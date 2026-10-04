@@ -226,17 +226,15 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData(null, "Bare '-E' is reserved")]
     [InlineData(".references", "reusable references")]
     [InlineData(".unknown", "Unknown companion projection '.unknown'")]
     public void UnavailableCompanionProjection_IsRejected(
-        string? projection,
+        string projection,
         string expected)
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        string[] tokens = projection is null
-            ? ["member", "JsonSerializer", "-E"]
-            : ["member", "JsonSerializer", "-E", projection];
+        string[] tokens =
+            ["member", "JsonSerializer", "-E", projection];
 
         var result = root.Parse(tokens);
 

@@ -72,7 +72,16 @@ export function createNavigationDescriptorPresentation(
 ): NavigationDescriptorPresentation {
   const snapshot = posting.navigation.snapshot;
   const actions = collectActions(snapshot);
-  const hierarchy = snapshot.hierarchy.map(subjectPresentation);
+  const activeEcosystem =
+    snapshot.activeSubject.kind.toLowerCase() === "ecosystem";
+  const hierarchy = snapshot.hierarchy
+    .map(subjectPresentation)
+    .map(item =>
+      activeEcosystem
+        && item.current
+        && item.kind.toLowerCase() === "ecosystem"
+        ? { ...item, label: posting.label }
+        : item);
   const workspace = hierarchy.find(item =>
     item.kind.toLowerCase() === "workspace");
   if (workspace === undefined) {
@@ -83,7 +92,9 @@ export function createNavigationDescriptorPresentation(
 
   return {
     workspace,
-    subjectLabel: snapshot.activeSubject.label,
+    subjectLabel: activeEcosystem
+      ? posting.label
+      : snapshot.activeSubject.label,
     subjects: hierarchy.filter(item =>
       item.kind.toLowerCase() !== "workspace"),
     inspectors: snapshot.lenses.map(lensPresentation),

@@ -651,7 +651,7 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         using var session = AssemblyInspectionSession.Open(path);
         ApiType subject = Assert.Single(
             session
-                .DeclarationApiSurface(
+                .ApiSurface(
                     ApiSurfaceExtractionScope.IncludeAll)
                 .Types,
             candidate => candidate.DefinitionName == type);

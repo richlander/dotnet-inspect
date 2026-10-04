@@ -21,6 +21,153 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
+    public async Task Member_CommandExplanation_IsAcquisitionFree()
+    {
+        var (exit, output, error) =
+            await RunAppAsync("member", "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# Explain member", output);
+        Assert.Contains("Context: Member command", output);
+        Assert.Contains("Selected Content:", output);
+        Assert.DoesNotContain("Related Operations", output);
+    }
+
+    [Fact]
+    public async Task Member_ExactExplanation_UsesResolvedSubject()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context: Exact Member", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+        Assert.Contains("Default View: member.overview", output);
+        Assert.Contains("Selected Content: Signature", output);
+        Assert.Contains("member.inspect", output);
+        Assert.Contains("type.hierarchy", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_BareExplanation_PreservesStdoutAndUsesStderr(
+        bool selectOverload)
+    {
+        string[] arguments =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            selectOverload
+                ? $"{nameof(MemberCallGraphFixture.RootCall)}:1"
+                : nameof(MemberCallGraphFixture.RootCall),
+        ];
+
+        var ordinary = await RunAppAsync(arguments);
+        var explained = await RunAppAsync([.. arguments, "-E"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, explained.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(ordinary.Output, explained.Output);
+        Assert.Contains("Context: Exact Member", explained.Error);
+        Assert.Contains("Selected Content: Signature", explained.Error);
+        Assert.DoesNotContain("Tips:", explained.Error);
+    }
+
+    [Fact]
+    public async Task Member_ExactExplanation_ComposesWithTips()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            "-E",
+            ".tips");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Context: Exact Member", output);
+        Assert.DoesNotContain("Tips:", error);
+        Assert.Contains("view member detail (source, IL)", error);
+        Assert.Contains("view type tree", error);
+    }
+
+    [Theory]
+    [InlineData("-E", "same complete explanation twice")]
+    [InlineData("-S", "terminal content operation")]
+    public async Task Member_Explain_RejectsCompetingContentOperations(
+        string option,
+        string expectedError)
+    {
+        string[] tail = option == "-E"
+            ? [option]
+            : [option, SectionNames.Signature];
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "member",
+                typeof(MemberCallGraphFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+                "--explain",
+                .. tail,
+            ]);
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+    }
+
+    [Theory]
+    [InlineData("Serialize", "ambiguous")]
+    [InlineData("DefinitelyMissing", "No members matched")]
+    public async Task Member_Explain_UnresolvedSubjectDoesNotFallBackToCommand(
+        string member,
+        string expectedError)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            member,
+            "--explain");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+        Assert.DoesNotContain("Explain member", error);
+    }
+
+    [Fact]
+    public async Task Member_Explain_PartialSubjectDoesNotFallBackToCommand()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "--explain");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires one exact Member selector", error);
+        Assert.DoesNotContain("Explain member", error);
+    }
+
+    [Fact]
     public async Task Member_JsonTipsPreserveStdoutAndUseStderr()
     {
         string[] arguments =

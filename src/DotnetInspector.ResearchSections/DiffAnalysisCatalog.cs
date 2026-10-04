@@ -24,6 +24,9 @@ public static class DiffAnalysisCatalog
     public static AnalysisDeclarationId ApiAttributeRoute { get; } =
         new("producer.diff.api-attribute-comparison");
 
+    public static AnalysisDeclarationId StringLiteralRoute { get; } =
+        new("producer.diff.string-literal-comparison");
+
     /// <summary>The typed body-signal comparison (<c>BodySignalComparisonQuery</c>).</summary>
     public static AnalysisDeclarationId BodySignalRoute { get; } =
         new("producer.diff.body-signal-comparison");
@@ -69,11 +72,14 @@ public static class DiffAnalysisCatalog
                 InspectionCost.NetworkFree,
                 [
                     (AnalysisReportSurfaceKind.Library, LibraryAnchor,
-                        [MetadataFindings.TypeDescriptor, MetadataFindings.MemberDescriptor]),
+                        [MetadataFindings.TypeDescriptor, MetadataFindings.MemberDescriptor],
+                        false),
                     (AnalysisReportSurfaceKind.Type, TypeAnchors,
-                        [MetadataFindings.TypeDescriptor, MetadataFindings.MemberDescriptor]),
+                        [MetadataFindings.TypeDescriptor, MetadataFindings.MemberDescriptor],
+                        true),
                     (AnalysisReportSurfaceKind.Member, MemberAnchors,
-                        [MetadataFindings.MemberDescriptor]),
+                        [MetadataFindings.MemberDescriptor],
+                        true),
                 ],
                 ApiRoute,
                 ProduceApi),
@@ -82,7 +88,8 @@ public static class DiffAnalysisCatalog
                 InspectionCost.NetworkFree,
                 [
                     (AnalysisReportSurfaceKind.Type, TypeAnchors,
-                        [MetadataFindings.AttributeDescriptor]),
+                        [MetadataFindings.AttributeDescriptor],
+                        true),
                 ],
                 ApiAttributeRoute,
                 ProduceApiAttributes),
@@ -90,11 +97,24 @@ public static class DiffAnalysisCatalog
             RegisterBody("call-site", AnalysisFindings.CallSiteDescriptor, ProduceBody<DirectCall>),
             RegisterBody("unsafety", AnalysisFindings.UnsafetyDescriptor, ProduceBody<UnsafetyOccurrence>),
             Register(
+                "string-literals",
+                InspectionCost.Moderated,
+                [
+                    (
+                        AnalysisReportSurfaceKind.Library,
+                        LibraryAnchor,
+                        new[] { StringLiteralUseFindings.Descriptor },
+                        true),
+                ],
+                StringLiteralRoute,
+                ProduceStringLiterals),
+            Register(
                 "csharp",
                 InspectionCost.Moderated,
                 [
                     (AnalysisReportSurfaceKind.Member, SingleMemberAnchor,
-                        [CSharpFindings.LineDescriptor]),
+                        [CSharpFindings.LineDescriptor],
+                        true),
                 ],
                 RetainedResearchRoute,
                 ProduceRetained<CSharpCanonicalLine>),
@@ -103,7 +123,8 @@ public static class DiffAnalysisCatalog
                 InspectionCost.Moderated,
                 [
                     (AnalysisReportSurfaceKind.Member, SingleMemberAnchor,
-                        [IlFindings.OperationDescriptor]),
+                        [IlFindings.OperationDescriptor],
+                        true),
                 ],
                 RetainedResearchRoute,
                 ProduceRetained<CanonicalIlOperation>),
@@ -142,6 +163,16 @@ public static class DiffAnalysisCatalog
                 .Participation.ProducerRoute == RetainedResearchRoute);
     }
 
+    public static bool RequiresStringLiteralQuery(
+        AnalysisSetValidationResult.Accepted selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.Analyses.Any(analysis =>
+            analysis.ParticipationFor(selection.Operation)
+                ?.For(selection.Surface)
+                ?.ProducerRoute == StringLiteralRoute);
+    }
+
     static InspectionAnalysisRegistration RegisterBody(
         string identity,
         FindingDescriptor descriptor,
@@ -149,7 +180,11 @@ public static class DiffAnalysisCatalog
         => Register(
             identity,
             InspectionCost.Moderated,
-            [(AnalysisReportSurfaceKind.Member, SingleMemberAnchor, [descriptor])],
+            [(
+                AnalysisReportSurfaceKind.Member,
+                SingleMemberAnchor,
+                new[] { descriptor },
+                true)],
             BodySignalRoute,
             context => produce(context, descriptor));
 
@@ -158,7 +193,8 @@ public static class DiffAnalysisCatalog
         InspectionCost cost,
         (AnalysisReportSurfaceKind Surface,
             AnalysisTargetRoleDescriptor Anchor,
-            FindingDescriptor[] Descriptors)[] surfaces,
+            FindingDescriptor[] Descriptors,
+            bool ExposesTransitions)[] surfaces,
         AnalysisDeclarationId route,
         Func<DiffAnalysisProducerContext, DiffAnalysisProduction> produce)
     {
@@ -167,7 +203,8 @@ public static class DiffAnalysisCatalog
             .. surfaces.Select(surface => new AnalysisSurfaceParticipation(
                 surface.Surface,
                 surface.Descriptors,
-                route)),
+                route,
+                surface.ExposesTransitions ? [TransitionsProjection] : [])),
         ];
         var descriptor = new AnalysisDescriptor(
             new AnalysisDeclarationId(identity),
@@ -226,6 +263,14 @@ public static class DiffAnalysisCatalog
                                 subject,
                                 typeName))))));
     }
+
+    static DiffAnalysisProduction ProduceStringLiterals(
+        DiffAnalysisProducerContext context)
+        => DiffAnalysisProduction.Compared(
+            KeyedFindingComparison.Of(
+                (context.Input.PrepareStringLiterals
+                    ?? throw new InvalidOperationException(
+                        "The string-literal comparison was not prepared."))()));
 
     static DiffAnalysisProduction ProduceBody<T>(
         DiffAnalysisProducerContext context,
