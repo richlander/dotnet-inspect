@@ -93,6 +93,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             LiftedOwnerGroupKey,
             ImmutableArray<MethodDefinitionHandle>>>>
         _targetedLiftedMethodsByOwnerType = new();
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<TargetedLiftedDeclaringTypeChain>>
+        _targetedLiftedDeclaringTypeChains = new();
     readonly Lazy<IReadOnlyDictionary<
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
@@ -831,7 +835,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     methodHandle);
                 MethodDefinition method =
                     _reader.GetMethodDefinition(methodHandle);
-                if (TryGetLiftedOwnerGroup(
+                if (TryGetTargetedLiftedOwnerGroup(
                         method,
                         out LiftedOwnerGroupKey group))
                 {
@@ -911,13 +915,11 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         out bool rejected)
     {
         group = default;
-        string name = _reader.GetString(method.Name);
-        if (!CompilerGeneratedNames.TryGetLiftedOwnerName(
-                name,
-                out string ownerName))
+        if (!TryGetLiftedOwnerName(
+                method,
+                out string ownerName,
+                out rejected))
         {
-            rejected =
-                CompilerGeneratedNames.HasLiftedMethodMarker(name);
             return false;
         }
 
@@ -935,8 +937,68 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             rejected = true;
             return false;
         }
+        if (count == 0)
+        {
+            rejected = true;
+            return false;
+        }
 
-        int ownerIndex = count - 1;
+        group = CreateLiftedOwnerGroup(
+            chain[..count],
+            ownerName);
+        rejected = false;
+        return true;
+    }
+
+    bool TryGetTargetedLiftedOwnerGroup(
+        MethodDefinition method,
+        out LiftedOwnerGroupKey group)
+    {
+        group = default;
+        if (!TryGetLiftedOwnerName(
+                method,
+                out string ownerName,
+                out _))
+        {
+            return false;
+        }
+
+        TargetedLiftedDeclaringTypeChain chain =
+            GetTargetedLiftedDeclaringTypeChain(
+                method.GetDeclaringType());
+        if (!chain.Complete || chain.Types.IsEmpty)
+            return false;
+
+        group = CreateLiftedOwnerGroup(
+            chain.Types.AsSpan(),
+            ownerName);
+        return true;
+    }
+
+    bool TryGetLiftedOwnerName(
+        MethodDefinition method,
+        out string ownerName,
+        out bool rejected)
+    {
+        string name = _reader.GetString(method.Name);
+        if (!CompilerGeneratedNames.TryGetLiftedOwnerName(
+                name,
+                out ownerName))
+        {
+            rejected =
+                CompilerGeneratedNames.HasLiftedMethodMarker(name);
+            return false;
+        }
+
+        rejected = false;
+        return true;
+    }
+
+    LiftedOwnerGroupKey CreateLiftedOwnerGroup(
+        ReadOnlySpan<TypeDefinitionHandle> chain,
+        string ownerName)
+    {
+        int ownerIndex = chain.Length - 1;
         while (ownerIndex > 0
             && _reader.GetString(
                     _reader.GetTypeDefinition(chain[ownerIndex]).Name)
@@ -945,9 +1007,43 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             ownerIndex--;
         }
 
-        group = new(chain[ownerIndex], ownerName);
-        rejected = false;
-        return true;
+        return new(chain[ownerIndex], ownerName);
+    }
+
+    TargetedLiftedDeclaringTypeChain
+        GetTargetedLiftedDeclaringTypeChain(
+            TypeDefinitionHandle declaringType) =>
+            _targetedLiftedDeclaringTypeChains.GetOrAdd(
+                declaringType,
+                handle => new Lazy<
+                    TargetedLiftedDeclaringTypeChain>(
+                    () => BuildTargetedLiftedDeclaringTypeChain(
+                        handle),
+                    LazyThreadSafetyMode.ExecutionAndPublication))
+                .Value;
+
+    TargetedLiftedDeclaringTypeChain
+        BuildTargetedLiftedDeclaringTypeChain(
+            TypeDefinitionHandle declaringType)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        bool complete =
+            MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    _reader,
+                    declaringType,
+                    chain,
+                    out int count,
+                    out _,
+                    out _);
+        for (int index = 1; index < count; index++)
+        {
+            _generatedExpansionWork?.RecordRelationshipNode(
+                chain[index]);
+        }
+        return new([.. chain[..count]], complete);
     }
 
     IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>
@@ -1402,6 +1498,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     readonly record struct LiftedDefinitionReference(
         MethodDefinitionHandle Method,
         bool Ambiguous);
+
+    sealed record TargetedLiftedDeclaringTypeChain(
+        ImmutableArray<TypeDefinitionHandle> Types,
+        bool Complete);
 
     sealed class LiftedOwnerGroupEvidence
     {

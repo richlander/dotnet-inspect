@@ -113,6 +113,18 @@ public static class GeneratedExpansionAsyncSiblingSample
     }
 }
 
+public static class GeneratedExpansionLiftedChainBudgetSample
+{
+    public static int LiftedGeneratedUnsafe(int value)
+    {
+        int offset = 1;
+        Func<int, int> readUnsafe = current =>
+            System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref current) + offset;
+        return readUnsafe(value);
+    }
+}
+
 public static class GeneratedExpansionNestedTypeBudgetSample
 {
     public static int Identity(int value) => value;

@@ -497,7 +497,7 @@ public partial class UnsafeEvidencePresenceTests
             maximumGeneratedMethods: 100,
             maximumProbeBodies: 100,
             maximumProbeEncodedIlBytes: 1_000_000,
-            maximumRelationshipNodes: 7);
+            maximumRelationshipNodes: 9);
         AssemblyAnalysisOperation<int> operation = CreateOperation(
             path,
             MethodDefinitionSourceBreadth
@@ -514,11 +514,60 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Null(execution.SourceReceipt.SourceFailure);
         MethodDefinitionGeneratedExpansionCoverage expansion =
             execution.SourceReceipt.Coverage.GeneratedExpansion;
-        Assert.Equal(7, expansion.RelationshipNodes);
+        Assert.Equal(9, expansion.RelationshipNodes);
         Assert.True(
             expansion.Origins.Count(origin => origin.Kind
                 == MethodDefinitionGeneratedExpansionOriginKind
                     .LiftedExecutionBody) >= 4);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundsLiftedDeclaringTypeTraversal()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionLiftedChainBudgetSample");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            type,
+            "LiftedGeneratedUnsafe");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 1);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(method)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.SourceReceipt.Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.SourceReceipt.SourceFailure);
+        Assert.Contains(
+            "relationship-node limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            execution.SourceReceipt.Coverage.GeneratedExpansion
+                .RelationshipNodes);
     }
 
     [Fact]
