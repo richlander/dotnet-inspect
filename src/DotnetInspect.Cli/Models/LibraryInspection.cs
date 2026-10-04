@@ -545,6 +545,22 @@ public class LibraryInspection
         }
     }
 
+    private LibraryDependencyStructureQueryResult?
+        _dependencyStructureQueryResult;
+
+    /// <summary>Typed dependency-structure inspection result.</summary>
+    [JsonIgnore]
+    public LibraryDependencyStructureQueryResult?
+        DependencyStructureQueryResult
+    {
+        get => _dependencyStructureQueryResult;
+        set
+        {
+            _dependencyStructureQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     /// <summary>
     /// Safe, local optimization opportunities inferred from IL/body evidence. Internal backing
     /// for the kind-scoped performance sections and the nested <see cref="Performance"/> JSON
@@ -807,15 +823,70 @@ public class LibraryInspection
         set => _asyncMethodCount = value;
     }
 
-    /// <summary>Whether the async analyzer found any method, by its rows or its count.</summary>
+    private int? _extensionMethodCount;
+
+    /// <summary>
+    /// The number of public static extension methods on static extension
+    /// types, from the extension analyzer's Count: the method half of the
+    /// Library Info Extension Methods row.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ExtensionMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Extension) is null ? _extensionMethodCount : null;
+        set => _extensionMethodCount = value;
+    }
+
+    private bool? _pInvokeMethodPresence;
+
+    /// <summary>
+    /// Exact P/Invoke section applicability from the analyzer's Exists
+    /// closing; null when no applicability consumer asked.
+    /// </summary>
+    [JsonIgnore]
+    public bool? PInvokeMethodPresence
+    {
+        get => MethodClassificationFailureOf(
+            MethodClassificationAnalyzer.PInvoke) is null
+                ? _pInvokeMethodPresence
+                : null;
+        set => _pInvokeMethodPresence = value;
+    }
+
+    private bool? _asyncMethodPresence;
+
+    /// <summary>
+    /// Exact async section applicability from the analyzer's Exists closing;
+    /// null when no applicability consumer asked.
+    /// </summary>
+    [JsonIgnore]
+    public bool? AsyncMethodPresence
+    {
+        get => MethodClassificationFailureOf(
+            MethodClassificationDemand.AsyncAnalyzer) is null
+                ? _asyncMethodPresence
+                : null;
+        set => _asyncMethodPresence = value;
+    }
+
+    /// <summary>
+    /// Whether the async analyzer found any method, by Exists, rows, or Count.
+    /// </summary>
     [JsonIgnore]
     public bool HasAsyncMethods =>
-        AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false } || AsyncMethodCount > 0;
+        AsyncMethodPresence == true
+        || AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false }
+        || AsyncMethodCount > 0;
 
-    /// <summary>Whether the P/Invoke analyzer found any method, by its rows or its count.</summary>
+    /// <summary>
+    /// Whether the P/Invoke analyzer found any method, by Exists, rows, or
+    /// Count.
+    /// </summary>
     [JsonIgnore]
     public bool HasPInvokeMethods =>
-        PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false } || PInvokeMethodCount > 0;
+        PInvokeMethodPresence == true
+        || PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false }
+        || PInvokeMethodCount > 0;
 
     private FindingInspection<EcosystemIntegrationSignalInfo>? _ecosystemIntegrationInspection;
     private FindingInspection<OpenTelemetrySignalInfo>? _openTelemetryInspection;
@@ -1067,6 +1138,24 @@ public class LibraryInspection
                         SectionNames.NameFamilies,
                         LibraryNameFamilyQuery.Definition.Name,
                         nameFamilyFailure.Error.Message));
+                }
+                if (DependencyStructureQueryResult
+                    is LibraryDependencyStructureQueryResult.Failed
+                        dependencyStructureFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.DependencyStructure,
+                        LibraryDependencyStructureQuery.Definition.Name,
+                        dependencyStructureFailure.Error.Message));
+                }
+                if (DependencyStructureQueryResult
+                    is LibraryDependencyStructureQueryResult.SelectionFailed
+                        dependencyStructureSelectionFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.DependencyStructure,
+                        LibraryDependencyStructureQuery.Definition.Name,
+                        dependencyStructureSelectionFailure.Detail));
                 }
                 if (OptimizationOpportunitiesQueryResult
                     is OptimizationOpportunitiesResult.Failed optimizationFailure)

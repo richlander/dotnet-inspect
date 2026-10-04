@@ -1217,7 +1217,7 @@ public partial class PackageCommand
 
             // Handle --layout mode: show file tree and exit early
             if (options.ListLayout)
-                return ListPackageLayout(extractPath, options, packageName, options.TipLevel);
+                return ListPackageLayout(extractPath, options, packageName, options.CompanionOutput);
 
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)
@@ -1336,11 +1336,6 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline,
                     includeSignals: enrichesSignals);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
-                producerOptions)
-                ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
-                : null;
-
             var result = await PackageInspector.InspectAsync(
                 resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,

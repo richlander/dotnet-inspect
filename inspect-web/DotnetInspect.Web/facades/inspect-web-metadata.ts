@@ -704,6 +704,8 @@ export interface BrowserTypeSurface {
   readonly displayName: string;
   readonly namespace: string;
   readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
   readonly accessibility: string;
   readonly accessibilityId: string;
   readonly assembly: string;

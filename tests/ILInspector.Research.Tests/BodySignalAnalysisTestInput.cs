@@ -20,7 +20,7 @@ internal static class BodySignalAnalysisTestInput
             receipt,
             index.CallGraph,
             index.CallGraph.Methods,
-            index.CompatibilityIndex().GeneratedFrameworkTypes,
+            index.Optimization.GeneratedFrameworkTypes,
             index.CallGraph.MethodSignals,
             index.Allocations.Occurrences,
             index.CallGraph.DirectCallsByEvidenceMethod,

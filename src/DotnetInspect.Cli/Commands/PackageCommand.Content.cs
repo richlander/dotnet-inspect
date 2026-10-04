@@ -635,10 +635,6 @@ public partial class PackageCommand
                 RequiresIdentifierMetadata(producerOptions, pipeline);
             bool wantsPackageMetadata =
                 RequiresPackageMetadata(producerOptions, pipeline);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
-                producerOptions)
-                ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
-                : null;
             var result = await PackageInspector.InspectAsync(
                 resolution,
                 resolvedPackageName,

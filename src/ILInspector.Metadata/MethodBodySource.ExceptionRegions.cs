@@ -47,12 +47,20 @@ public sealed partial class MethodBodySource
         Read(methodToken, int.MaxValue);
 
     /// <summary>
+    /// Method bodies read through any source in this process, by
+    /// <see cref="Read(int, int)"/> or <see cref="ReadBounded"/>. The overview
+    /// cost gate asserts an overview reads none (docs/design/progressive-disclosure.md#overview-cost).
+    /// </summary>
+    internal static int ReadCountForTests;
+
+    /// <summary>
     /// Reads one complete method body and its physical exception clauses under
     /// a hard IL-byte limit.
     /// </summary>
     public MethodBodyReadResult Read(int methodToken, int maxILBytes)
     {
         _ensureAlive();
+        System.Threading.Interlocked.Increment(ref ReadCountForTests);
         ArgumentOutOfRangeException.ThrowIfNegative(maxILBytes);
 
         if (!TryGetMethodDefinition(

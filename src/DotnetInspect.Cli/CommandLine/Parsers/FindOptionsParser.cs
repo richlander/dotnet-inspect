@@ -56,7 +56,7 @@ public static class FindOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(FindOptions Options, Verbosity Verbosity, TipLevel TipLevel) : FindParseResult;
+    public record Success(FindOptions Options, Verbosity Verbosity, CompanionOutput CompanionOutput) : FindParseResult;
 
     /// <summary>
     /// Parses find command options asynchronously (due to package prefix resolution).
@@ -165,11 +165,11 @@ public static class FindOptionsParser
             TypeFilter = typeFilter,
             QueryPlan = queryPlan,
             Count = parseResult.GetValue(opts.Count),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            JsonOutput = opts.ResolveFormat(parseResult, OutputFormat.Tsv) == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
-            Tabular = opts.ResolveTabular(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
+            Tabular = opts.ResolveTabular(parseResult, OutputFormat.Tsv),
+            Tsv = opts.ResolveTsv(parseResult, OutputFormat.Tsv),
+            Jsonl = opts.ResolveJsonl(parseResult, OutputFormat.Tsv),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
@@ -183,9 +183,9 @@ public static class FindOptionsParser
             SourceOptions = sourceOptions
         };
 
-        var tipLevel = opts.ParseTipLevel(parseResult);
+        var companionOutput = opts.ParseCompanionOutput(parseResult);
 
-        return new Success(options, verbosity, tipLevel);
+        return new Success(options, verbosity, companionOutput);
     }
 
     private static bool TryParseEcosystems(

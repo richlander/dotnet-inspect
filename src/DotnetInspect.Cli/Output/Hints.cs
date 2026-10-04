@@ -17,19 +17,18 @@ public record Tip(string Subcommand, string Args, string Comment)
 
 public static class Hints
 {
-    public static void WriteTips(TipLevel level, params Tip[] tips)
+    public static void WriteTips(
+        CompanionOutput companionOutput,
+        Func<Tip[]> createTips)
     {
-        WriteTips(level, tips, randomize: false);
-    }
+        if (companionOutput == CompanionOutput.None) return;
 
-    public static void WriteTips(TipLevel level, Tip[] tips, bool randomize)
-    {
-        if (level == TipLevel.Quiet || tips.Length == 0) return;
-        int max = level == TipLevel.Minimal ? 3 : 6;
+        Console.Out.Flush();
 
-        var visible = randomize
-            ? tips.OrderBy(_ => Random.Shared.Next()).Take(max).ToList()
-            : tips.Take(max).ToList();
+        Tip[] tips = createTips();
+        if (tips.Length == 0) return;
+
+        var visible = tips.Take(3).ToList();
 
         var view = new TipsView
         {
@@ -53,7 +52,6 @@ public static class Hints
                 CSharpIdentifier.ContainRenderedText(t.Comment))).ToList()
         };
 
-        Console.Out.Flush();
         CommandError.WriteBlankLine();
         #pragma warning disable RS0030 // An accounted stderr sink: every field of the view was contained above (issue #3319).
         MarkoutSerializer.Serialize(view, Console.Error, new PlainTextFormatter(), TipsViewContext.Default);

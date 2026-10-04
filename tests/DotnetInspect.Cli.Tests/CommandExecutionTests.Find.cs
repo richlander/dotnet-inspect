@@ -16,7 +16,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", ".Add*", "--ecosystem", "aspire", "-n", "20",
-            "--json", "--compact", "--verbose", "--tips", "q");
+            "--json", "--compact", "--verbose");
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -36,7 +36,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "JsonSerializer", "--ecosystem", "aspnetcore",
-            "--json", "--compact", "--tips", "q");
+            "--json", "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -60,7 +60,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "find", "JsonSerializer", "--ecosystem", "aspire", "-n", "3",
-            "--json", "--compact", "--tips", "q");
+            "--json", "--compact");
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -77,7 +77,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "JsonSerializer,AddProject", "--ecosystem", "aspire",
-            "-n", "12", "--json", "--compact", "--tips", "q");
+            "-n", "12", "--json", "--compact");
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -99,7 +99,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "System.Text", "--ecosystem", "runtime", "-n", "3",
-            "--json", "--compact", "--tips", "q");
+            "--json", "--compact");
 
         Assert.Equal(0, exit);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -112,7 +112,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "JsonSerializer", "-n", "2",
-            "--table", "--tips", "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -133,9 +133,7 @@ public partial class CommandExecutionTests
                 + "Microsoft.AspNetCore.Builder.WebApplication,"
                 + "System.Collections.Generic.Dictionary*",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -182,9 +180,7 @@ public partial class CommandExecutionTests
             "find",
             ".MapGet",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -216,9 +212,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -243,9 +237,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -267,6 +259,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             "MapGet",
+            "--markdown",
             "--tips",
             "q");
 
@@ -288,9 +281,7 @@ public partial class CommandExecutionTests
             "find",
             "Enumerator*",
             "--platform",
-            "System.Collections",
-            "--tips",
-            "q");
+            "System.Collections");
 
         Assert.Equal(0, exit);
         Assert.Contains("LinkedList", output);
@@ -299,35 +290,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_ZeroImplicitTypeResults_SuggestsPackageQueryOnStderr()
+    public async Task Find_ZeroDefaultTsvResults_KeepStdoutMachineReadable()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
             MissingPackageLikeApiSymbol,
-            "--tips",
-            "m");
+            "-E",
+            ".tips");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("package query", output);
-        Assert.Contains(
-            $"package query {MissingPackageLikeApiSymbol}",
-            error);
-        Assert.Contains("find searches API symbols", error);
+        Assert.Empty(output);
+        Assert.Contains("No types found", error);
+        Assert.DoesNotContain("package query", error);
     }
 
     [Fact]
-    public async Task Find_ZeroStructuredResults_DoNotEmitHumanGuidance()
+    public async Task Find_ZeroStructuredResults_PreserveJsonAndEmitTipsOnStderr()
     {
-        var (exit, output, error) = await RunAppAsync(
+        var withoutTips = await RunAppAsync(
+            "find",
+            MissingPackageLikeApiSymbol,
+            "--json");
+        var withTips = await RunAppAsync(
             "find",
             MissingPackageLikeApiSymbol,
             "--json",
-            "--tips",
-            "d");
+            "-E",
+            ".tips");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        using var document = JsonDocument.Parse(output);
+        Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, withTips.Exit);
+        Assert.Empty(withoutTips.Error);
+        Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.Contains(
+            $"package query {MissingPackageLikeApiSymbol}",
+            withTips.Error);
+        using var document = JsonDocument.Parse(withTips.Output);
         Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
         Assert.Empty(document.RootElement.EnumerateArray().ToArray());
     }
@@ -340,6 +339,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Search pattern required.", error);
+        Assert.Contains("Tips:", error);
         Assert.Contains(
             "package query 'Newtonsoft.*'",
             error);
@@ -350,7 +350,7 @@ public partial class CommandExecutionTests
     public async Task Find_NamespacePatternIncludesBroaderMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "System.Text", "--platform", "--table", "--tips", "q");
+            "find", "System.Text", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -408,15 +408,20 @@ public partial class CommandExecutionTests
         // pretty-printed JSON document violates. Prefix, closed, and single-row ranges therefore
         // select the same identities in each format.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl", "--rows", window);
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
             "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", window);
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
 
-        // Skip the TSV header; what remains is one data row per line.
-        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+        // JSONL retains the legacy result schema; unified TSV now has its own vocabulary.
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return row.RootElement.GetProperty("type").GetString();
+            }).ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
         var actual = document.RootElement.GetProperty("results")
@@ -505,14 +510,19 @@ public partial class CommandExecutionTests
         // The member search reaches the lowered view through a separate call site; a fix applied to
         // only one of the two would leave --rows silently dropped on the other.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "1..2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--jsonl", "--rows", "1..2");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
             "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "1..2");
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
 
-        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return row.RootElement.GetProperty("member").GetString();
+            }).ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
         var actual = document.RootElement.GetProperty("members")
@@ -534,7 +544,7 @@ public partial class CommandExecutionTests
         var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--json");
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--tsv");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--jsonl");
 
         Assert.Equal(0, jsonExit);
         Assert.Equal(0, tsvExit);
@@ -543,7 +553,9 @@ public partial class CommandExecutionTests
         using var document = JsonDocument.Parse(jsonOutput);
         var keys = document.RootElement.GetProperty("results")[0]
             .EnumerateObject().Select(property => property.Name).ToArray();
-        var tsvColumns = tsvOutput.TrimStart().Split('\n')[0].TrimEnd('\r').Split('\t');
+        using var jsonlRow = JsonDocument.Parse(tsvOutput.TrimStart().Split('\n')[0]);
+        var tsvColumns = jsonlRow.RootElement.EnumerateObject()
+            .Select(property => property.Name).ToArray();
 
         // Compare the key names, not just how many there are: a count alone passes even when the
         // two formats disagree about casing, which is exactly the defect adversarial review found.
@@ -598,7 +610,7 @@ public partial class CommandExecutionTests
     [InlineData("Type,*", "*", "--table")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--json")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--jsonl")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--tsv")]
+    [InlineData("C*,*e", "Coordinate,Source,Signature", "--tsv")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--table")]
     public async Task Find_OverlappingColumnPatterns_AreDeduplicatedInEveryFormat(
         string columns,
@@ -800,10 +812,10 @@ public partial class CommandExecutionTests
         // breaking a valid request.
         var (exit, output, _) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns", "Type", "--columns", "Kind", "--tsv");
+            "--columns", "Coordinate", "--columns", "Kind", "--tsv");
 
         Assert.Equal(0, exit);
-        Assert.StartsWith("type\tkind", output.TrimStart(), StringComparison.Ordinal);
+        Assert.StartsWith("coordinate\tkind", output.TrimStart(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -908,8 +920,6 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--tips",
-            "q",
         };
         if (format is not null)
             args.Add(format);
@@ -937,9 +947,7 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -962,9 +970,7 @@ public partial class CommandExecutionTests
             missing,
             "--rows",
             "2..3",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("2", output.Trim());
@@ -988,9 +994,7 @@ public partial class CommandExecutionTests
             "--rows",
             "1..100000",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1016,9 +1020,7 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -1044,9 +1046,7 @@ public partial class CommandExecutionTests
             missing,
             "--rows",
             "2..3",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("2", output.Trim());
@@ -1073,9 +1073,7 @@ public partial class CommandExecutionTests
             missing,
             "--rows",
             "2..3",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("2", output.Trim());
@@ -1100,9 +1098,7 @@ public partial class CommandExecutionTests
             "--rows",
             "1..2",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(0, exit);
         Assert.False(string.IsNullOrWhiteSpace(output));
@@ -1125,9 +1121,7 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains(nameof(CommandExecutionTests), output);
@@ -1151,9 +1145,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--tail",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains(nameof(CommandExecutionTests), output);
@@ -1176,9 +1168,7 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -1367,9 +1357,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1446,8 +1434,6 @@ public partial class CommandExecutionTests
                 "--tfm",
                 "net10.0",
                 "--json",
-                "--tips",
-                "q",
             };
             if (includeAll)
                 arguments.Add("--all");
@@ -1511,9 +1497,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -1543,9 +1527,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0",
             "--all",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1578,9 +1560,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1616,9 +1596,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1667,9 +1645,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1733,8 +1709,6 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0",
             "--json",
-            "--tips",
-            "q",
             "-n",
             "1");
 
@@ -1762,9 +1736,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "-n",
             "3",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1801,8 +1773,6 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0",
             "--json",
-            "--tips",
-            "q",
             "-n",
             "8");
 
@@ -1860,9 +1830,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Text.Json.Nodes",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1925,9 +1893,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Text.Json.Serialization.*",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1972,9 +1938,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             $"{NamespacePattern},{DirectPattern}",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2034,9 +1998,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Text.Json.JsonSerializer",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2072,9 +2034,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "--tfm",
             "net11.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2103,8 +2063,6 @@ public partial class CommandExecutionTests
             "find",
             "System.Text.Json.Nodes",
             "--json",
-            "--tips",
-            "q",
             "-n",
             "3");
 
@@ -2141,9 +2099,7 @@ public partial class CommandExecutionTests
             "World.Blue.Nodes",
             "--library",
             typeof(World.Blue.Nodes.Foo).Assembly.Location,
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2179,9 +2135,7 @@ public partial class CommandExecutionTests
             "World.Blue.Nodes.*",
             "--library",
             typeof(World.Blue.Nodes.Foo).Assembly.Location,
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2217,14 +2171,13 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Object",
+            "--markdown",
             "--package",
             "System.Runtime@4.3.1",
             "--platform",
             "System.Private.CoreLib",
             "--tfm",
-            "net10.0",
-            "--tips",
-            "q");
+            "net10.0");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Results", output);
@@ -2241,7 +2194,7 @@ public partial class CommandExecutionTests
     public async Task Find_Members_ExplicitFlag_RendersMembersSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "Serialize", "--members", "--platform", "System.Text.Json");
+            "find", "Serialize", "--members", "--platform", "System.Text.Json", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Members", output);

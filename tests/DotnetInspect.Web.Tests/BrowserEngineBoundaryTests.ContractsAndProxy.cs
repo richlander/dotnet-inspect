@@ -56,6 +56,81 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    [Fact]
+    public void TypeFacetProjectionCarriesProductOwnedIdentityAndMembership()
+    {
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "Concrete",
+                    Namespace = "Example",
+                    Kind = "class",
+                },
+                new ApiType
+                {
+                    Name = "Abstract",
+                    Namespace = "Example",
+                    Kind = "class",
+                    IsAbstract = true,
+                },
+                new ApiType
+                {
+                    Name = "Static",
+                    Namespace = "Example",
+                    Kind = "class",
+                    IsAbstract = true,
+                    IsSealed = true,
+                    IsStatic = true,
+                },
+                new ApiType
+                {
+                    Name = "Contract",
+                    Namespace = "Example",
+                    Kind = "interface",
+                    IsAbstract = true,
+                },
+            ],
+        };
+
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                surface,
+                [],
+                new AssemblyReferenceIdentity(
+                    "Example",
+                    new Version(1, 0, 0, 0),
+                    Culture: null,
+                    PublicKeyToken: null),
+                "Example",
+                "example",
+                "Example.dll",
+                []);
+
+        Assert.Equal(
+            [
+                ("api.type-kind.class", 3),
+                ("api.type-kind.interface", 1),
+            ],
+            projected.TypeKinds.Select(facet => (facet.Id, facet.Count)));
+        Assert.Equal(
+            [
+                ("api.type-trait.abstract", 1),
+                ("api.type-trait.static", 1),
+                ("api.type-trait.object", 1),
+            ],
+            projected.TypeTraits.Select(facet => (facet.Id, facet.Count)));
+        Assert.Equal(
+            ["api.type-trait.object"],
+            Assert.Single(projected.Types, type => type.Name == "Concrete")
+                .TraitFacetIds);
+        Assert.Empty(
+            Assert.Single(projected.Types, type => type.Name == "Contract")
+                .TraitFacetIds);
+    }
+
 
     [Fact]
     public void PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible()

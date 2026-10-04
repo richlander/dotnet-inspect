@@ -144,7 +144,8 @@ namespace DotnetInspect.Web.Interop.Catalog
                             definitions.View.MemberAnchor,
                             definitions.View.MemberSignature,
                             definitions.View.Section,
-                            [.. definitions.View.Libraries])),
+                            [.. definitions.View.Libraries],
+                            definitions.View.SourceView)),
                     Failure: null);
             }
             catch (WorkspaceSharePacketException ex)
@@ -478,7 +479,8 @@ namespace DotnetInspect.Web.Interop.Catalog
                 memberAnchor: state.View.MemberAnchor,
                 memberSignature: state.View.MemberSignature,
                 section: state.View.Section,
-                libraries: state.View.Libraries);
+                libraries: state.View.Libraries,
+                sourceView: state.View.SourceView);
             var scenario = new ScenarioDefinition(
                 InspectionDefinitionSchema.Version1,
                 WorkspaceSharePacketTransposer.ScenarioId,

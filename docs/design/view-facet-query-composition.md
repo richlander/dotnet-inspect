@@ -36,9 +36,10 @@ This composition plan does not wait for the entire contextual-explanation or
 section-substrate programs:
 
 - [#9060](https://github.com/richlander/dotnet-inspect/pull/9060) is the narrow
-  short-only, zero-arity `-T` parser and post-success output migration. It may
-  land independently. The later `-E` adoption replaces that public syntax while
-  reusing its stream-separation, laziness, and positional-ownership evidence.
+  `-E .tips` parser and post-success output migration. It lands the first
+  companion child while reserving bare `-E` and `-E .references`, reusing the
+  stream-separation, laziness, and positional-ownership evidence from its
+  superseded `-T` candidate.
 - [#8148](https://github.com/richlander/dotnet-inspect/issues/8148) owns the
   current reusable-reference proposal. The later `-E .references` adoption
   preserves its owner-issued row references, order, cardinality, and reusable

@@ -66,15 +66,34 @@ cardinalities without Rows, executes residual shaping only for sufficient row
 handoffs, and returns every source outcome without entering a residual cohort
 when any set is insufficient. Exact zero remains a first-class result.
 
+The immutable request-set reference planner now validates the complete set
+before acquisition, retains caller association and owner resource identities,
+and groups only exact owner-issued resource/source pairs. Method Query Source
+is the first source consumer: it issues compatible source bindings, preserves
+terminal-specialized lanes, and records one physical all-MethodDef traversal
+beside each request's independent result, outcome, source completion, and
+Producer Planning receipt. Incompatible or sparse requests remain separate;
+sharing is never required for acceptance.
+
+Method Classification is the first mixed-terminal production adopter. Its
+session-backed query lowers independent analyzer Rows, Count, Exists, and Head
+requests into the Method request set, while its PEReader overload remains the
+direct reference. CLI effective discovery uses exact Exists for Async Methods
+and P/Invoke Methods instead of projecting their rows. This metadata-only
+adoption does not shrink the temporary Library Body Analysis remainder; the
+unsafe-evidence-plus-live-body-producer adoption below remains required before
+claiming `LibraryBodyIndex` reduction.
+
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
 vocabulary supplies a default Top ranking. A future richer capability may
 represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
-operation-scope capabilities. Multiple row-intent associations, request-set
-collapse, source delegation planning, projection stages, continuation binding,
-the full structural-plan meaning record, and the remaining gates in
+operation-scope capabilities. Multiple row-intent associations, residual-over-
+covering-read request satisfaction, source delegation planning, projection
+stages, continuation binding, the full structural-plan meaning record, and the
+remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
 
@@ -1091,12 +1110,15 @@ Implementation proceeds as focused owner adoptions:
    per-request result contract in this owner.
 15. Implement the host-neutral reference request-set planner and let the Method
    source consume one request-set plan without changing Producer Planning.
-16. Move one mixed CLI library operation through the plan, shrinking the
-   temporary Library Body Analysis remainder and recording exact terminal
-   evidence.
-17. Move one Browser/Wasm Analysis operation through the same host-neutral
+16. Move Method Classification as the first mixed-terminal CLI library
+   operation, retaining its direct PEReader path as the reference and using
+   exact Exists for section applicability.
+17. Compose unsafe-evidence presence with one still-live body producer,
+   shrinking the temporary Library Body Analysis remainder and recording exact
+   terminal evidence.
+18. Move one Browser/Wasm Analysis operation through the same host-neutral
    result without adding a TypeScript planner.
-18. Adopt one non-Analysis row source to prove that request collapse remains a
+19. Adopt one non-Analysis row source to prove that request collapse remains a
    general Query Space capability.
 
 Each step names one adopting owner and retains every other owner's contract.

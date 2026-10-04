@@ -20,6 +20,15 @@ export interface BrowserAccessibilityDescriptor {
   readonly count: number;
 }
 
+export interface BrowserApiFacetDescriptor {
+  readonly id: string;
+  readonly singularLabel: string;
+  readonly pluralLabel: string;
+  readonly weight: number;
+  readonly count: number;
+  readonly isDefault: boolean;
+}
+
 export interface BrowserAssemblySurface {
   readonly id: string;
   readonly name: string;
@@ -253,6 +262,8 @@ export interface BrowserPackageSurface {
   readonly compileLibrary: BrowserCompileLibraryAvailability;
   readonly assemblies: ReadonlyArray<BrowserAssemblySurface>;
   readonly types: ReadonlyArray<BrowserTypeSurface>;
+  readonly typeKinds: ReadonlyArray<BrowserApiFacetDescriptor>;
+  readonly typeTraits: ReadonlyArray<BrowserApiFacetDescriptor>;
   readonly accessibility: ReadonlyArray<BrowserAccessibilityDescriptor>;
   readonly totalMembers: number;
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
@@ -673,6 +684,8 @@ export interface BrowserTypeSurface {
   readonly displayName: string;
   readonly namespace: string;
   readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
   readonly accessibility: string;
   readonly accessibilityId: string;
   readonly assembly: string;
@@ -821,6 +834,7 @@ export interface BrowserWorkspaceShareView {
   readonly memberSignature: string | null;
   readonly section: string | null;
   readonly libraries: ReadonlyArray<string>;
+  readonly sourceView: string | null;
 }
 
 export interface BrowserVocabularyAvailableShare {

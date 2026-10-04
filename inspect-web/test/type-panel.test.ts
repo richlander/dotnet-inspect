@@ -321,6 +321,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("explore-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
+    onTypeAccessibilitySelect: value =>
+      calls.push(`type-access:${value}`),
+    onTypeTraitSelect: value => calls.push(`type-trait:${value}`),
     onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
@@ -348,6 +351,12 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onMemberGroupOpen: value => calls.push(`member-open:${value}`),
     onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
+    onMethodLeverageActivate: () =>
+      calls.push("method-leverage-activate"),
+    onMethodLeverageFilterSelect: value =>
+      calls.push(`method-leverage-filter:${value}`),
+    onMethodLeverageRetry: () =>
+      calls.push("method-leverage-retry"),
     onMemberOverloadOpen: value => calls.push(`member-overload:${value}`),
     onMemberSelect: value => calls.push(`member:${value}`),
     onMemberTraitFilterSelect: value => calls.push(`member-trait:${value}`),
@@ -361,6 +370,25 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onTypeSelect: value => calls.push(`type:${value}`),
   };
 }
+
+const typeSelectorOptions = {
+  accessibilityFilter: "public",
+  traitFilter: "",
+  kindOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "api.type-kind.class", label: "class", count: 2 },
+  ],
+  accessibilityOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "public", label: "public", count: 2 },
+  ],
+  traitOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "api.type-trait.abstract", label: "abstract", count: 0 },
+    { value: "api.type-trait.static", label: "static", count: 0 },
+    { value: "api.type-trait.object", label: "object", count: 2 },
+  ],
+};
 
 test("type panel binds the qualified Type leverage retry", () => {
   const root = new FakeRoot();
@@ -390,6 +418,15 @@ test("type panel bindings dispatch member filters without eager work", () => {
   root.addAll("[data-member-access-filter]", accessibility);
   root.addAll("[data-member-spelling]", spelling);
   root.addAll("[data-member-trait-filter]", trait);
+  const leverage = new FakeElement();
+  leverage.value = "top-leverage";
+  root.addAll("[data-method-leverage-filter]", leverage);
+  const leverageActivate = root.add(
+    "[data-method-leverage-activate]",
+    new FakeElement());
+  const leverageRetry = root.add(
+    "[data-method-leverage-retry]",
+    new FakeElement());
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
   const disclosure = root.add(
@@ -421,6 +458,9 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-spelling:metadata",
     "member-trait:static",
   ]);
+  leverageActivate.dispatch("click");
+  leverage.dispatch("change");
+  leverageRetry.dispatch("click");
   filter.dispatch("input");
   disclosure.open = true;
   disclosure.dispatch("toggle");
@@ -432,6 +472,9 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-access:protected",
     "member-spelling:metadata",
     "member-trait:static",
+    "method-leverage-activate",
+    "method-leverage-filter:top-leverage",
+    "method-leverage-retry",
     "member-filter:parse",
     "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
@@ -445,11 +488,17 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   const secondType = new FakeElement({ type: "System.Int32" });
   const namespace = new FakeElement({ namespace: "System" });
   const secondNamespace = new FakeElement({ namespace: "System.Collections" });
-  const kind = new FakeElement({ kindFilter: "class" });
-  const secondKind = new FakeElement({ kindFilter: "interface" });
+  const kind = new FakeElement();
+  kind.value = "api.type-kind.class";
+  const accessibility = new FakeElement();
+  accessibility.value = "public";
+  const trait = new FakeElement();
+  trait.value = "api.type-trait.object";
   root.addAll("[data-type]", type, secondType);
   root.addAll("[data-namespace]", namespace, secondNamespace);
-  root.addAll("[data-kind-filter]", kind, secondKind);
+  root.addAll("[data-type-kind-filter]", kind);
+  root.addAll("[data-type-access-filter]", accessibility);
+  root.addAll("[data-type-trait-filter]", trait);
   const clear = root.add("#clear-filter", new FakeElement());
   const disclosure = root.add(
     "[data-type-filter-disclosure]",
@@ -477,8 +526,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   namespace.dispatch("click");
   secondNamespace.dispatch("click");
   namespaceJump.dispatch("change");
-  kind.dispatch("click");
-  secondKind.dispatch("click");
+  kind.dispatch("change");
+  accessibility.dispatch("change");
+  trait.dispatch("change");
   disclosure.open = true;
   disclosure.dispatch("toggle");
   clear.dispatch("click");
@@ -493,8 +543,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "namespace:System",
     "namespace:System.Collections",
     "namespace:System.Text",
-    "kind:class",
-    "kind:interface",
+    "kind:api.type-kind.class",
+    "type-access:public",
+    "type-trait:api.type-trait.object",
     "type-filter-disclosure:true",
     "clear",
     "filter:json",
@@ -726,10 +777,9 @@ test("the type nav lists namespace groups with the current type selected", () =>
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: '<option value="System.Text.Json">System.Text.Json · 2</option>',
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "library",
     filtersExpanded: false,
@@ -758,7 +808,16 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
   assert.match(html, /id="content-navigation-pane"/);
-  assert.match(html, /data-kind-filter="class"/);
+  assert.match(html, /data-type-access-filter/);
+  assert.match(html, /data-type-kind-filter/);
+  assert.match(html, /data-type-trait-filter/);
+  assert.match(html, />abstract · 0<\/option>/);
+  assert.match(html, />static · 0<\/option>/);
+  assert.match(html, />object · 2<\/option>/);
+  assert.ok(
+    html.indexOf("Namespace") < html.indexOf("Accessibility")
+      && html.indexOf("Accessibility") < html.indexOf("Kind")
+      && html.indexOf("Kind") < html.indexOf("Trait"));
   assert.match(html, /id="type-list" data-nav-scope="types"/);
   assert.match(html, /data-type-nav-back title="Back to library" aria-label="System\.Text\.Json: Back to library"/);
   assert.match(html, />System\.Text\.Json<\/span>/);
@@ -785,12 +844,11 @@ test("the type nav preserves the host selection value for the global namespace",
     typeFilter: "",
     namespaceFilter: "__global__",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: '<option value="__global__">global namespace · 1</option>',
     namespaceSelectionValue: namespace =>
       namespace === "" ? "__global__" : namespace,
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "GlobalFixture",
     parentSubject: "library",
     filtersExpanded: false,
@@ -813,10 +871,9 @@ test("the type nav reports no matches for an empty filtered group", () => {
     typeFilter: "nothing-matches",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 0,
     namespaceOptionsHtml: "",
-    kindFilters: [],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "library",
     filtersExpanded: true,
@@ -839,10 +896,9 @@ test("the type nav renders exclusive accessible pole cues", () => {
       typeFilter: "",
       namespaceFilter: "",
       kindFilter: "",
+      ...typeSelectorOptions,
       namespaceCount: 1,
       namespaceOptionsHtml: "",
-      kindFilters: ["class"],
-      accessibilityControlHtml: "",
       leverageControlHtml:
         '<button data-type-leverage-filter="sea-level">sea level</button>',
       library: "System.Text.Json",
@@ -914,10 +970,9 @@ test("the type nav omits a parent action when the Library has no visible parent"
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: "",
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: null,
     filtersExpanded: false,
@@ -939,10 +994,9 @@ test("the type nav handles a package with no projected types", () => {
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 0,
     namespaceOptionsHtml: "",
-    kindFilters: [],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "package",
     filtersExpanded: false,
@@ -1955,6 +2009,7 @@ test("member source retains Markout WriteHeading indentation for exact text and 
         }],
       },
     ],
+    diagnostics: [],
   };
 
   const member = memberSourceText(source, "Member");
@@ -2010,6 +2065,48 @@ test("member source visual alignment collapses only indentation shared by every 
   assert.match(html, /<code class="language-csharp"> {8}\/\/\/ &lt;inheritdoc/);
 });
 
+test("decompiled source is visually left-aligned without flattening nested indentation", () => {
+  const text =
+    "        public void M()\n"
+    + "        {\n"
+    + "            if (value)\n"
+    + "            {\n"
+    + "                return;\n"
+    + "            }\n"
+    + "        }";
+  let receivedRanges: readonly { start: number; length: number }[] | undefined;
+
+  renderSourceResult({
+    source: {
+      provider: "decompiled",
+      provenance: inertStringFixture("decompiled"),
+      url: null,
+      pdbSourceLimitation: null,
+      text,
+    },
+    escapeHtml,
+    highlightCSharp: (value, collapsedRanges) => {
+      assert.equal(value, text);
+      receivedRanges = collapsedRanges;
+      return escapeHtml(value);
+    },
+  });
+
+  assert.deepEqual(
+    receivedRanges,
+    [
+      { start: 0, length: 8 },
+      { start: 24, length: 8 },
+      { start: 34, length: 8 },
+      { start: 57, length: 8 },
+      { start: 71, length: 8 },
+      { start: 95, length: 8 },
+      { start: 109, length: 8 },
+    ]);
+  assert.equal(text.split("\n")[2]?.startsWith("            "), true);
+  assert.equal(text.split("\n")[4]?.startsWith("                "), true);
+});
+
 test("member source visual alignment retains less-indented multiline literal text", () => {
   const text =
     "    public string Text() => @\"first\n"
@@ -2059,6 +2156,7 @@ test("member source indentation preserves multiline literal characters", () => {
         end: body.length,
       }],
     }],
+    diagnostics: [],
   };
 
   assert.equal(memberSourceText(source, "Body"), `\t${body}`);
@@ -2084,16 +2182,63 @@ test("member source part selection resets across request signatures and absent p
   assert.equal(selector.select("second", authored, "Attributes"), true);
 });
 
-test("decompiled member source has no authored selector", () => {
+test("decompiled member source offers every available source part", () => {
+  const text = "[DebuggerStepThrough]\npublic void M() { }";
   const memberSource: BrowserMemberSource = {
     source: {
       provider: "decompiled",
       provenance: inertStringFixture("decompiled"),
       url: null,
       pdbSourceLimitation: "No PDB",
-      text: "public void M() { }",
+      text,
     },
-    parts: [],
+    parts: [
+      {
+        kind: "Member",
+        spans: [{
+          start: 0,
+          length: text.length,
+          startLine: 1,
+          endLine: 2,
+          leadingIndentation: "",
+          end: text.length,
+        }],
+      },
+      {
+        kind: "Attributes",
+        spans: [{
+          start: 0,
+          length: 21,
+          startLine: 1,
+          endLine: 1,
+          leadingIndentation: "",
+          end: 21,
+        }],
+      },
+      {
+        kind: "Signature",
+        spans: [{
+          start: 22,
+          length: 15,
+          startLine: 2,
+          endLine: 2,
+          leadingIndentation: "",
+          end: 37,
+        }],
+      },
+      {
+        kind: "Body",
+        spans: [{
+          start: 38,
+          length: 3,
+          startLine: 2,
+          endLine: 2,
+          leadingIndentation: "",
+          end: 41,
+        }],
+      },
+    ],
+    diagnostics: [],
   };
   const html = renderSourcePageActions({
     source: memberSource.source,
@@ -2102,7 +2247,12 @@ test("decompiled member source has no authored selector", () => {
     escapeHtml,
   });
 
-  assert.doesNotMatch(html, /member-source-part/);
+  assert.match(html, /member-source-part/);
+  assert.match(html, />Member<\/option>/);
+  assert.match(html, />Attributes<\/option>/);
+  assert.match(html, />Signature<\/option>/);
+  assert.match(html, />Body<\/option>/);
+  assert.doesNotMatch(html, />XML docs<\/option>/);
   assert.match(html, /id="copy-source"/);
   assert.equal(
     memberSourceText(memberSource, "Member"),
@@ -2260,6 +2410,7 @@ function memberSourceFixture(): BrowserMemberSource {
         spans: [span("{\r\n    return;\r\n}", 6)],
       },
     ],
+    diagnostics: [],
   };
 }
 
@@ -2324,6 +2475,7 @@ test("member rows say what a member is rather than which kind it is", () => {
     kind: "method",
     overloads: [{
       signature: "public void WriteTo(System.Text.Json.Utf8JsonWriter writer)",
+      stableSelector: "WriteTo~1111111111",
       parameters: [{ type: "System.Text.Json.Utf8JsonWriter" }],
     }],
   };
@@ -2344,10 +2496,12 @@ test("member rows say what a member is rather than which kind it is", () => {
     overloads: [
       {
         signature: "public static System.Text.Json.JsonDocument Parse(string json, System.Text.Json.JsonDocumentOptions options = default)",
+        stableSelector: "Parse~2222222222",
         parameters: [{ type: "string" }, { type: "System.Text.Json.JsonDocumentOptions" }],
       },
       {
         signature: "public static System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+        stableSelector: "Parse~3333333333",
         parameters: [{ type: "System.IO.Stream" }, { type: "System.Text.Json.JsonDocumentOptions" }],
       },
     ],
@@ -2377,6 +2531,11 @@ test("member rows say what a member is rather than which kind it is", () => {
         ? "33 instructions; hub called by 1 same-name method"
         : "8 instructions",
     }),
+    memberAchievements: (group, index) =>
+      (group.key === "method:WriteTo" && index === 0)
+      || (group.key === "method:Parse" && index === 1)
+        ? [{ kind: "top-leverage", description: "Top Leverage" }]
+        : [],
   });
 
   // A single method shows its compact parameter list; a property its type.
@@ -2389,13 +2548,20 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.doesNotMatch(html, /↳|overload-branch/);
   assert.equal(
     html.match(/class="item-achievement-rail"/g)?.length,
+    5,
+  );
+  assert.equal(
+    html.match(/item-achievement-glyph top-leverage/g)?.length,
     2,
   );
   assert.match(
     html,
     /item-achievement-glyph implementation-hub/,
   );
-  assert.match(html, /aria-label="implementation hub"/);
+  assert.match(
+    html,
+    /aria-label="Top Leverage; implementation hub"/,
+  );
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
   assert.match(html, /aria-description="8 instructions"/);
   assert.match(
@@ -2403,4 +2569,52 @@ test("member rows say what a member is rather than which kind it is", () => {
     /aria-description="33 instructions; hub called by 1 same-name method"/,
   );
   assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
+});
+
+test("filtered overload rows retain their exact source index", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    sourceOverloadCount: 3,
+    overloads: [{
+      signature: "public void Parse(System.IO.Stream value)",
+      stableSelector: "Parse~3333333333",
+      parameters: [{ type: "System.IO.Stream" }],
+    }],
+  };
+  const html = renderMemberNav({
+    type: jsonDocument,
+    entries: [
+      { kind: "member", group },
+      { kind: "overload", group, index: 0 },
+    ],
+    memberCount: 3,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: group.key,
+    selectedOverloadIndex: 2,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+    overloadSourceIndex: () => 2,
+    memberAchievements: (_group, index) => index === null
+      ? []
+      : [{
+          kind: "top-leverage",
+          description: "Top Leverage",
+        }],
+  });
+
+  assert.match(
+    html,
+    /data-nav-overload="2" role="option" aria-selected="true"/,
+  );
+  assert.equal(
+    html.match(/item-achievement-glyph top-leverage/g)?.length,
+    1,
+    "the family parent must not inherit its exact winner's achievement",
+  );
+  assert.match(html, /family-count">3×/);
 });

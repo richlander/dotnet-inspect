@@ -264,7 +264,7 @@ The multi-section probe used this command shape:
 
 ```sh
 dnx dotnet-inspect -y -- library --package Npgsql@8.0.4 \
-  -S '@Library,@Surface' --json --tips q
+  -S '@Library,@Surface' --json
 ```
 
 Sections not represented reliably in that JSON projection were measured
@@ -273,7 +273,7 @@ directly:
 ```sh
 dnx dotnet-inspect -y -- library \
   --package SQLitePCLRaw.provider.e_sqlite3@2.1.10 \
-  -S 'P/Invoke Methods' --count --jsonl --tips q
+  -S 'P/Invoke Methods' --count --jsonl
 ```
 
 The audit found four prior declarations outside their stated ranges:

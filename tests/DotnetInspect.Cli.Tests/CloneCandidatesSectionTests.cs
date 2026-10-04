@@ -82,9 +82,7 @@ public sealed class CloneCandidatesSectionTests
             $"Breadth={breadth}",
             "--where",
             $"Discovery={discovery}",
-            "--count",
-            "-T",
-            "q");
+            "--count");
 
         Assert.Equal(0, result.ExitCode);
         Assert.True(
@@ -106,9 +104,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "-n",
             "1",
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -155,9 +151,7 @@ public sealed class CloneCandidatesSectionTests
             member,
             "-S",
             SectionNames.CloneCandidates,
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -196,9 +190,7 @@ public sealed class CloneCandidatesSectionTests
             member,
             "-S",
             SectionNames.CloneCandidates,
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -255,9 +247,7 @@ public sealed class CloneCandidatesSectionTests
             "-m",
             "Item",
             "-S",
-            SectionNames.CloneCandidates,
-            "-T",
-            "q");
+            SectionNames.CloneCandidates);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -300,9 +290,7 @@ public sealed class CloneCandidatesSectionTests
             "Tag",
             "-S",
             SectionNames.CloneCandidates,
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -330,8 +318,6 @@ public sealed class CloneCandidatesSectionTests
                 section,
                 "--where",
                 "Breadth=Self",
-                "-T",
-                "q",
             ]);
 
         Assert.Equal(1, result.ExitCode);
@@ -354,9 +340,7 @@ public sealed class CloneCandidatesSectionTests
             "Breadth=Everything",
             "-n",
             "1",
-            "--table",
-            "-T",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Rank", result.Output, StringComparison.Ordinal);
@@ -380,9 +364,7 @@ public sealed class CloneCandidatesSectionTests
             "Rank;Score",
             "-n",
             "2",
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -414,9 +396,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--fields",
             "Breadth",
-            format,
-            "-T",
-            "q");
+            format);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -441,9 +421,7 @@ public sealed class CloneCandidatesSectionTests
             "-S",
             SectionNames.CloneCandidates,
             "--fields",
-            format,
-            "-T",
-            "q");
+            format);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -463,9 +441,7 @@ public sealed class CloneCandidatesSectionTests
             "-S",
             SectionNames.CloneCandidates,
             "--fields",
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -503,8 +479,6 @@ public sealed class CloneCandidatesSectionTests
                 SectionNames.CloneCandidates,
                 "--fields",
                 "--json",
-                "-T",
-                "q",
             ]);
 
         Assert.Equal(1, result.ExitCode);
@@ -531,9 +505,7 @@ public sealed class CloneCandidatesSectionTests
                 "-S",
                 SectionNames.CloneCandidates,
                 "--fields",
-                "--json",
-                "-T",
-                "q");
+                "--json");
 
             Assert.Equal(1, result.ExitCode);
             Assert.Empty(result.Output);
@@ -564,9 +536,7 @@ public sealed class CloneCandidatesSectionTests
                 "-n",
                 "1",
                 "--tail",
-                "--json",
-                "-T",
-                "q");
+                "--json");
             var delegated = await Run(
                 "package",
                 package,
@@ -577,9 +547,7 @@ public sealed class CloneCandidatesSectionTests
                 "-n",
                 "1",
                 "--tail",
-                "--json",
-                "-T",
-                "q");
+                "--json");
             var tailCount = await Run(
                 "package",
                 package,
@@ -591,9 +559,7 @@ public sealed class CloneCandidatesSectionTests
                 "1",
                 "--tail",
                 "--count",
-                "--json",
-                "-T",
-                "q");
+                "--json");
             var windowCount = await Run(
                 "package",
                 package,
@@ -603,9 +569,7 @@ public sealed class CloneCandidatesSectionTests
                 SectionNames.CloneCandidates,
                 "--rows",
                 "1..1",
-                "--count",
-                "-T",
-                "q");
+                "--count");
 
             Assert.Equal(0, direct.ExitCode);
             Assert.Equal(0, delegated.ExitCode);
@@ -672,9 +636,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--fields",
             field,
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -712,8 +674,6 @@ public sealed class CloneCandidatesSectionTests
                 SectionNames.CloneCandidates,
                 "--where",
                 "Member=NoSuchMember",
-                "-T",
-                "q",
             ]);
 
         Assert.Equal(1, result.ExitCode);
@@ -735,9 +695,7 @@ public sealed class CloneCandidatesSectionTests
             "-S",
             SectionNames.CloneCandidates,
             "--top",
-            "1",
-            "-T",
-            "q");
+            "1");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -765,8 +723,6 @@ public sealed class CloneCandidatesSectionTests
                 "--library",
                 FixturePath,
                 .. repeated,
-                "-T",
-                "q",
             ]);
 
         Assert.Equal(1, result.ExitCode);
@@ -795,9 +751,7 @@ public sealed class CloneCandidatesSectionTests
             "Rank;Score",
             "-n",
             "2",
-            format,
-            "-T",
-            "q");
+            format);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(
@@ -821,9 +775,7 @@ public sealed class CloneCandidatesSectionTests
             FixturePath,
             "-S",
             SectionNames.CloneCandidates,
-            "--json",
-            "-T",
-            "q");
+            "--json");
         using var completeJson = JsonDocument.Parse(complete.Output);
         JsonElement expectedRow = completeJson.RootElement
             .GetProperty("rows")
@@ -853,9 +805,7 @@ public sealed class CloneCandidatesSectionTests
                 "-n",
                 "1",
                 "--tail",
-                format,
-                "-T",
-                "q");
+                format);
 
             Assert.Equal(0, selected.ExitCode);
             Assert.Contains(
@@ -876,9 +826,7 @@ public sealed class CloneCandidatesSectionTests
             "-n",
             "1",
             "--tail",
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(0, projected.ExitCode);
         using var projectedJson = JsonDocument.Parse(projected.Output);
@@ -922,8 +870,6 @@ public sealed class CloneCandidatesSectionTests
                 "1",
                 "--count",
                 "--json",
-                "-T",
-                "q",
             ]);
 
         Assert.Equal(0, result.ExitCode);
@@ -943,9 +889,7 @@ public sealed class CloneCandidatesSectionTests
             "Breadth=Self",
             "-n",
             "1",
-            "--count",
-            "-T",
-            "q");
+            "--count");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("1", result.Output.Trim());
@@ -964,9 +908,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--rows",
             "999..1000",
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -993,9 +935,7 @@ public sealed class CloneCandidatesSectionTests
             "-n",
             "1",
             "--lines",
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -1021,9 +961,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--rows",
             "1",
-            "--json",
-            "-T",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);

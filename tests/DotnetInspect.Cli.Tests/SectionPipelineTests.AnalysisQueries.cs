@@ -1404,6 +1404,42 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void CanRender_PInvokeMethods_ExactApplicabilityOverridesBroadPresence()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasPInvokeImports = true,
+            PInvokeMethodPresence = false,
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Detailed);
+
+        Assert.DoesNotContain("P/Invoke Methods", effective);
+    }
+
+    [Fact]
+    public void CanRender_AsyncMethods_ExactApplicabilityOverridesBroadPresence()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasRuntimeAsync = true,
+            AsyncMethodPresence = false,
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Detailed);
+
+        Assert.DoesNotContain("Async Methods", effective);
+    }
+
+    [Fact]
     public void FailedClassifiedMethods_AreContainedAndReportedInsteadOfRendered()
     {
         var pipeline = LibrarySections.CreatePipeline();

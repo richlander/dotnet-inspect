@@ -519,13 +519,17 @@ public static class PackageCommandDefinitions
                     {
                         var exitCode = await PackageCommand.ExecuteAsync(success.Options);
 
-                        if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && success.Options.PackageLibrary == null && !success.Options.AllLibraries && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
+                        if (exitCode == 0
+                            && success.Options.CompanionOutput != CompanionOutput.None
+                            && success.Options.PackageArgs.Length > 0
+                            && success.Options.PackageLibrary == null
+                            && !success.Options.AllLibraries)
                         {
                             var target = PackageExtractor.ParsePackageTarget(success.Options.PackageArgs[0]);
                             var pkg = target.IsLocalFile
                                 ? target.OriginalArgument
                                 : PackageExtractor.ParsePackageReference(target.OriginalArgument).name;
-                            TipWriter.WritePackageTips(pkg, success.Options.TipLevel, success.Verbosity);
+                            TipWriter.WritePackageTips(pkg, success.Options.CompanionOutput, success.Verbosity);
                         }
 
                         return exitCode;

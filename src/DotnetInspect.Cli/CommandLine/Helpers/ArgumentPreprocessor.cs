@@ -134,11 +134,67 @@ public static class ArgumentPreprocessor
 
     internal static bool TryGetRemovedCommandError(
         string[] args,
+        ParseResult? parseResult,
         out string? error)
     {
-        int command = FindFirstPositionalArgument(
-            args,
-            optionalValueIsCommand: IsCommandTokenAfterBareTips);
+        int terminator = Array.IndexOf(args, "--");
+        int end = terminator >= 0 ? terminator : args.Length;
+        bool[] requiredOptionValues = new bool[end];
+        if (parseResult is not null)
+        {
+            for (int i = 0; i < end; i++)
+            {
+                requiredOptionValues[i] =
+                    IsClaimedByRequiredOption(parseResult, args, i);
+            }
+        }
+
+        for (var i = 0; i < end; i++)
+        {
+            if (requiredOptionValues[i])
+                continue;
+
+            if (IsRemovedTipsOption(args[i]))
+            {
+                error = $"'{args[i]}' is no longer valid. "
+                    + "Use '-E .tips' to request up to three contextual tips.";
+                return true;
+            }
+
+            if (args[i] == "-e")
+            {
+                error = "'-e' is not valid. Use uppercase '-E', "
+                    + "for example '-E .tips'.";
+                return true;
+            }
+
+            if (IsAttachedCompanionOption(args[i]))
+            {
+                error = $"'{args[i]}' is not valid. "
+                    + "Pass a dotted companion projection as a separate token, "
+                    + "for example '-E .tips'.";
+                return true;
+            }
+
+            if (args[i] == "-E"
+                && i + 1 < end
+                && args[i + 1] is "tips" or "references")
+            {
+                error = $"'-E {args[i + 1]}' is no longer valid. "
+                    + $"Use '-E .{args[i + 1]}'.";
+                return true;
+            }
+        }
+
+        if (Enumerable.Range(0, end).Count(index =>
+                !requiredOptionValues[index]
+                && args[index] == "-E") > 1)
+        {
+            error = "'-E' may be specified only once.";
+            return true;
+        }
+
+        int command = FindFirstPositionalArgument(args);
         if (command >= 0 && IsDependencyEvidenceToken(args[command]))
         {
             error = "'dependency-evidence' is no longer valid. Use 'depends' "
@@ -173,24 +229,51 @@ public static class ArgumentPreprocessor
         return false;
     }
 
-    private static bool IsCommandTokenAfterBareTips(
-        string optionName,
-        string candidate) =>
-        optionName is "--tips" or "-T"
-        && (IsDependencyEvidenceToken(candidate)
-            || IsRegisteredCommandToken(candidate));
+    internal static bool RequiresRemovedCommandOwnershipParse(string[] args)
+    {
+        int terminator = Array.IndexOf(args, "--");
+        int end = terminator >= 0 ? terminator : args.Length;
+        int companionCount = 0;
+        for (int i = 0; i < end; i++)
+        {
+            string argument = args[i];
+            if (IsRemovedTipsOption(argument)
+                || argument == "-e"
+                || IsAttachedCompanionOption(argument))
+            {
+                return true;
+            }
+
+            if (argument != "-E")
+                continue;
+
+            companionCount++;
+            if (i + 1 < end
+                && args[i + 1] is "tips" or "references")
+            {
+                return true;
+            }
+        }
+
+        return companionCount > 1;
+    }
+
+    private static bool IsRemovedTipsOption(string argument) =>
+        argument.Equals("--tips", StringComparison.Ordinal)
+        || argument.StartsWith("--tips=", StringComparison.Ordinal)
+        || argument.StartsWith("--tips:", StringComparison.Ordinal)
+        || argument.Equals("-T", StringComparison.Ordinal)
+        || argument.StartsWith("-T=", StringComparison.Ordinal)
+        || argument.StartsWith("-T:", StringComparison.Ordinal);
+
+    private static bool IsAttachedCompanionOption(string argument) =>
+        argument.Length > 2
+        && argument.StartsWith("-E", StringComparison.Ordinal);
 
     private static bool IsDependencyEvidenceToken(string token) =>
         token.Equals(
             "dependency-evidence",
             StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsRegisteredCommandToken(string token) =>
-        !token.StartsWith("-", StringComparison.Ordinal)
-        && KnownCommands.Contains(token)
-        && !IsDependencyEvidenceToken(token)
-        && !token.Equals("api", StringComparison.OrdinalIgnoreCase)
-        && !token.Equals("audit", StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsImplicitPackageCandidate(
         string[] args,
@@ -257,6 +340,7 @@ public static class ArgumentPreprocessor
         args = EscapeAtCategoryOptionValues(args, AtCategoryOptionAliases);
         args = EscapeAtCategoryPathValues(args);
         args = RewriteValuedPlatformForSearchCommands(args);
+        args = MoveCompanionAfterOperands(args);
 
         int firstPositional = FindFirstPositionalArgument(args, directionPresence);
         if (firstPositional >= 0 && !KnownCommands.Contains(args[firstPositional]))
@@ -278,6 +362,41 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    private static string[] MoveCompanionAfterOperands(string[] args)
+    {
+        // Keep each dotted operand attached while moving the complete
+        // selection behind command positionals. This binds a prefix -E to the
+        // selected command and prevents bare -E from claiming a positional.
+        int terminator = Array.IndexOf(args, "--");
+        int optionBoundary = terminator >= 0 ? terminator : args.Length;
+        List<string>? companion = null;
+        List<string> result = new(args.Length);
+        for (int i = 0; i < optionBoundary; i++)
+        {
+            if (args[i] != "-E")
+            {
+                result.Add(args[i]);
+                continue;
+            }
+
+            companion ??= [];
+            companion.Add("-E");
+            if (i + 1 < optionBoundary
+                && args[i + 1].StartsWith(".", StringComparison.Ordinal))
+            {
+                companion.Add(args[++i]);
+            }
+        }
+
+        if (companion is null)
+            return args;
+
+        result.AddRange(companion);
+        result.AddRange(args[optionBoundary..]);
+
+        return [.. result];
     }
 
     internal static string[] NormalizeRepeatedSelect(string[] args)
@@ -310,9 +429,9 @@ public static class ArgumentPreprocessor
                 continue;
             }
 
-            if (OptionsWithFollowingValue.Contains(optionName)
+            if (i + 1 < args.Length
+                && OptionTakesFollowingValue(optionName, args[i + 1])
                 && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal)
                 && optionalValueIsCommand?.Invoke(optionName, args[i + 1])
                     is not true)
@@ -574,7 +693,7 @@ public static class ArgumentPreprocessor
     private static readonly HashSet<string> OptionsWithOptionalFollowingValue =
         new(
             [
-                "-v", "-T", "--tips",
+                "-v",
                 "-S", "-s", "--select", "--section",
                 "-D", "--discover", "-Q", "--query-help", "--columns", "--fields",
             ],
@@ -598,10 +717,18 @@ public static class ArgumentPreprocessor
         "--out", "--output", "-o", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",
-        "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
-        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover", "-Q", "--query-help",
+        "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-E",
+        "-S", "-s", "--select", "--section", "-D", "--discover", "-Q", "--query-help",
         "--at", "--file", "--finding", "--analysis", "--relationship", "--repo"
     };
+
+    private static bool OptionTakesFollowingValue(
+        string optionName,
+        string followingToken) =>
+        !optionName.Equals("-E", StringComparison.OrdinalIgnoreCase)
+            ? OptionsWithFollowingValue.Contains(optionName)
+            : followingToken.StartsWith(".", StringComparison.Ordinal);
+
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 
     private static string[] RewriteValuedPlatformForSearchCommands(string[] args)
@@ -639,9 +766,9 @@ public static class ArgumentPreprocessor
                 continue;
 
             var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
+            if (i + 1 < args.Length
+                && OptionTakesFollowingValue(optionName, args[i + 1])
                 && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
                 i++;
@@ -675,9 +802,9 @@ public static class ArgumentPreprocessor
                 continue;
 
             var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
+            if (i + 1 < platformIndex
+                && OptionTakesFollowingValue(optionName, args[i + 1])
                 && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < platformIndex
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
                 i++;
@@ -699,9 +826,9 @@ public static class ArgumentPreprocessor
                 continue;
 
             var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
+            if (i + 1 < args.Length
+                && OptionTakesFollowingValue(optionName, args[i + 1])
                 && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
                 i++;

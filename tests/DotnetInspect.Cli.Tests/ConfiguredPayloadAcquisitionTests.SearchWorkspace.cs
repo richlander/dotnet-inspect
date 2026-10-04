@@ -46,7 +46,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--all",
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ],
             "member" =>
             [
@@ -58,7 +57,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--all",
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ],
             "implements" =>
             [
@@ -70,7 +68,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--all",
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ],
             "extensions" =>
             [
@@ -84,7 +81,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--depth", "1",
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ],
             _ => throw new InvalidOperationException(
                 $"Unknown search operation '{operation}'."),
@@ -161,7 +157,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--json",
                 "--rows", "1",
                 "--verbose",
-                "--tips", "q",
             ]);
 
         Assert.Equal(0, result.Exit);
@@ -216,7 +211,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source", FirstFeed,
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ]);
 
         Assert.Equal(1, result.Exit);
@@ -257,7 +251,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source", FirstFeed,
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ]);
 
         Assert.Equal(1, result.Exit);
@@ -307,7 +300,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source", FirstFeed,
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ]);
 
         Assert.Equal(0, result.Exit);
@@ -341,7 +333,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source", FirstFeed,
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ]);
 
         Assert.Equal(0, result.Exit);
@@ -381,7 +372,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -422,7 +412,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.Equal(0, result.Exit);
@@ -473,7 +462,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.Equal(0, result.Exit);
@@ -490,7 +478,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
-    public async Task Find_LocatorUsesCallerPackageOrder()
+    public async Task Find_LocatorPreservesCallerPackageOrderAcrossDistinctSources()
     {
         const string FirstVersion = "1.0.1";
         const string SecondVersion = "1.0.0";
@@ -522,15 +510,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 packages));
         CoreHttpClientFactory.ResetSharedForTesting();
 
-        await AssertUsesFirstVersion(
+        await AssertUsesCallerVersionOrder(
             typeof(ConfiguredPayloadAcquisitionTests).FullName!,
             limit: 1);
-        await AssertUsesFirstVersion("DotnetInspect.Cli.Tests");
-        await AssertUsesFirstVersion(
+        await AssertUsesCallerVersionOrder("DotnetInspect.Cli.Tests");
+        await AssertUsesCallerVersionOrder(
             "DotnetInspect.Cli.Tests."
             + "ConfiguredPayloadAcquisitionTestz");
 
-        async Task AssertUsesFirstVersion(
+        async Task AssertUsesCallerVersionOrder(
             string pattern,
             int? limit = null)
         {
@@ -542,7 +530,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             };
             if (limit is not null)
             {
@@ -558,10 +545,33 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             System.Text.Json.JsonElement[] rows =
                 [.. document.RootElement.EnumerateArray()];
             Assert.NotEmpty(rows);
+            if (limit is not null)
+            {
+                Assert.All(
+                    rows,
+                    row => Assert.Equal(
+                        FirstVersion,
+                        row.GetProperty("source_version").GetString()));
+                return;
+            }
+
+            int secondSourceIndex =
+                Array.FindIndex(
+                    rows,
+                    row => string.Equals(
+                        SecondVersion,
+                        row.GetProperty("source_version").GetString(),
+                        StringComparison.Ordinal));
+            Assert.True(secondSourceIndex > 0);
             Assert.All(
-                rows,
+                rows[..secondSourceIndex],
                 row => Assert.Equal(
                     FirstVersion,
+                    row.GetProperty("source_version").GetString()));
+            Assert.All(
+                rows[secondSourceIndex..],
+                row => Assert.Equal(
+                    SecondVersion,
                     row.GetProperty("source_version").GetString()));
         }
     }
@@ -589,7 +599,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.Equal(0, result.Exit);
@@ -641,7 +650,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--tfm", "net11.0",
             "--source", FirstFeed,
             "--json",
-            "--tips", "q",
         };
         if (limit)
         {
@@ -697,7 +705,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             ];
             if (forceCompatibility)
             {
@@ -754,7 +761,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.Equal(0, result.Exit);
@@ -789,7 +795,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--all",
                 "--json",
                 "--verbose",
-                "--tips", "q",
             ]);
         Assert.Equal(0, referenceResult.Exit);
         Assert.Contains(

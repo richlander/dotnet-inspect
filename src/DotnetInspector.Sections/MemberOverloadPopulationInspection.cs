@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using InertText;
 
 namespace DotnetInspector.Sections;
@@ -332,6 +333,7 @@ public abstract record MemberOverloadCountOutcome
 
 public sealed record MemberOverloadShape(
     int MetadataToken,
+    MemberAnchor Anchor,
     int BaselineOrdinal,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString DisplaySignature,

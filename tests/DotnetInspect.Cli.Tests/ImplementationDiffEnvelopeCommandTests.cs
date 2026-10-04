@@ -630,7 +630,7 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         => ConsoleCapture.RunAsync(() =>
         {
             string[] normalized = CommandLineBuilder.PreprocessArgs(
-                ["diff", .. arguments, "--tips", "q"]);
+                ["diff", .. arguments]);
             return CommandLineBuilder.InvokeWithLineWindowAsync(
                 CommandLineBuilder.CreateRootCommand().Parse(normalized),
                 normalized);

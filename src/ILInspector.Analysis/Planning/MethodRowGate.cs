@@ -25,7 +25,8 @@ public abstract class MethodRowClassifier
         MethodDefinitionLayers.Flags
         | MethodDefinitionLayers.NameComparison
         | MethodDefinitionLayers.SignatureShape
-        | MethodDefinitionLayers.AttributeTypeMatch;
+        | MethodDefinitionLayers.AttributeTypeMatch
+        | MethodDefinitionLayers.HiddenAttribute;
 
     private protected MethodRowClassifier(string identity, MethodDefinitionLayers fields)
     {
@@ -148,6 +149,28 @@ public readonly ref struct MethodRowTypeView
     {
         Require(MethodDefinitionLayers.NameComparison);
         return _gate.Reader.StringComparer.StartsWith(_type.Name, prefix);
+    }
+
+    /// <summary>
+    /// Whether a custom attribute on the type has the target type, matched in
+    /// place with the same per-constructor memo as the method accessor.
+    /// Requires <see cref="MethodDefinitionLayers.AttributeTypeMatch"/>.
+    /// </summary>
+    public bool HasAttributeOfType(MetadataTypeNameTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        Require(MethodDefinitionLayers.AttributeTypeMatch);
+        return _gate.TypeHasAttributeOfType(_type, target);
+    }
+
+    /// <summary>The legacy hidden test on the type's own attributes. Requires <see cref="MethodDefinitionLayers.HiddenAttribute"/>.</summary>
+    public bool IsHidden
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.HiddenAttribute);
+            return _gate.TypeIsHidden(_type);
+        }
     }
 
     void Require(MethodDefinitionLayers field)
@@ -385,22 +408,176 @@ internal sealed class MethodRowGate
     /// bound, or a TypeSpec blob over legacy's guard, aborts; an unreadable
     /// name is a recoverable failure.
     /// </summary>
-    internal bool HasAttributeOfType(MetadataTypeNameTarget target)
-    {
-        foreach (CustomAttributeHandle handle in _methodDefinition.GetCustomAttributes())
-        {
-            EntityHandle constructor = Reader.GetCustomAttribute(handle).Constructor;
-            if (!_attributeConstructors.TryGetValue((constructor, target), out bool matches))
-            {
-                matches = ConstructorTypeMatches(constructor, target);
-                _attributeConstructors[(constructor, target)] = matches;
-            }
+    internal bool HasAttributeOfType(MetadataTypeNameTarget target) =>
+        AnyAttributeOfType(_methodDefinition.GetCustomAttributes(), target);
 
-            if (matches)
+    /// <summary>The method accessor's test over a type's attributes, sharing its memo.</summary>
+    internal bool TypeHasAttributeOfType(TypeDefinition type, MetadataTypeNameTarget target) =>
+        AnyAttributeOfType(type.GetCustomAttributes(), target);
+
+    /// <summary>
+    /// The legacy hidden test (<c>AttributeReader.HasHiddenAttribute</c>):
+    /// <c>EditorBrowsable(Never)</c>, or an <c>Obsolete</c> that is not
+    /// Roslyn's compiler-compatibility marker. The attribute types are matched
+    /// in place through the same per-constructor memo as
+    /// <see cref="HasAttributeOfType"/>, and the values are read in place:
+    /// one <c>int32</c> for the browsable state, and a fixed-arg string
+    /// compared byte for byte against the two compiler-compatibility messages
+    /// and feature names. No name or value is materialized.
+    /// </summary>
+    internal bool IsHidden() => AnyHiddenAttribute(_methodDefinition.GetCustomAttributes());
+
+    internal bool TypeIsHidden(TypeDefinition type) => AnyHiddenAttribute(type.GetCustomAttributes());
+
+    static readonly MetadataTypeNameTarget EditorBrowsableAttribute = new("System.ComponentModel.EditorBrowsableAttribute");
+    static readonly MetadataTypeNameTarget ObsoleteAttribute = new("System.ObsoleteAttribute");
+    static readonly MetadataTypeNameTarget CompilerFeatureRequiredAttribute = new(KnownAttributeNames.CompilerFeatureRequiredAttribute);
+
+    // Roslyn stamps these [Obsolete] messages, paired with
+    // [CompilerFeatureRequired(<feature>)], purely to block older compilers;
+    // legacy does not treat them as hiding (AttributeReader.IsCompilerCompatibilityObsolete).
+    static ReadOnlySpan<byte> RequiredMembersObsoleteMessage =>
+        "Constructors of types with required members are not supported in this version of your compiler."u8;
+    static ReadOnlySpan<byte> RequiredMembersFeatureName => "RequiredMembers"u8;
+    static ReadOnlySpan<byte> RefStructsObsoleteMessage =>
+        "Types with embedded references are not supported in this version of your compiler."u8;
+    static ReadOnlySpan<byte> RefStructsFeatureName => "RefStructs"u8;
+
+    bool AnyHiddenAttribute(CustomAttributeHandleCollection attributes)
+    {
+        CompilerFeatures features = CompilerFeatures.Unread;
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = Reader.GetCustomAttribute(handle);
+            if (ConstructorMatches(attribute.Constructor, EditorBrowsableAttribute))
+            {
+                if (IsEditorBrowsableNever(attribute.Value))
+                    return true;
+            }
+            else if (ConstructorMatches(attribute.Constructor, ObsoleteAttribute))
+            {
+                if (!IsCompilerCompatibilityObsolete(attributes, attribute.Value, ref features))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Legacy's test: a value of at least six bytes whose fixed argument is <c>EditorBrowsableState.Never</c> (1).</summary>
+    bool IsEditorBrowsableNever(BlobHandle value)
+    {
+        BlobReader blob = Reader.GetBlobReader(value);
+        if (blob.Length < 6)
+            return false;
+        blob.ReadUInt16();
+        return blob.ReadInt32() == 1;
+    }
+
+    [Flags]
+    enum CompilerFeatures : byte
+    {
+        Unread = 0,
+        Read = 1,
+        RequiredMembers = 2,
+        RefStructs = 4,
+    }
+
+    /// <summary>
+    /// Legacy's <c>IsCompilerCompatibilityObsolete</c>: the message names a
+    /// feature and a <c>[CompilerFeatureRequired]</c> on the same row names
+    /// it too. Legacy rescans the row's attributes at every compatibility
+    /// <c>Obsolete</c>; the gate reads the row's features once, on first need.
+    /// </summary>
+    bool IsCompilerCompatibilityObsolete(
+        CustomAttributeHandleCollection attributes,
+        BlobHandle obsoleteValue,
+        ref CompilerFeatures features)
+    {
+        CompilerFeatures named = ObsoleteMessageEquals(obsoleteValue, RequiredMembersObsoleteMessage)
+            ? CompilerFeatures.RequiredMembers
+            : ObsoleteMessageEquals(obsoleteValue, RefStructsObsoleteMessage)
+                ? CompilerFeatures.RefStructs
+                : CompilerFeatures.Unread;
+        if (named == CompilerFeatures.Unread)
+            return false;
+        if ((features & CompilerFeatures.Read) == 0)
+            features = ReadCompilerFeatures(attributes);
+        return (features & named) != 0;
+    }
+
+    CompilerFeatures ReadCompilerFeatures(CustomAttributeHandleCollection attributes)
+    {
+        CompilerFeatures features = CompilerFeatures.Read;
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = Reader.GetCustomAttribute(handle);
+            if (!ConstructorMatches(attribute.Constructor, CompilerFeatureRequiredAttribute))
+                continue;
+            if (FixedStringArgumentEquals(attribute.Value, RequiredMembersFeatureName))
+                features |= CompilerFeatures.RequiredMembers;
+            else if (FixedStringArgumentEquals(attribute.Value, RefStructsFeatureName))
+                features |= CompilerFeatures.RefStructs;
+        }
+
+        return features;
+    }
+
+    /// <summary>
+    /// Legacy's <c>AttributeValueEquals</c>: it compares only a value within
+    /// sixteen bytes of the message's length, so a compatibility message
+    /// carrying named arguments beyond that slack is an ordinary deprecation.
+    /// </summary>
+    bool ObsoleteMessageEquals(BlobHandle value, ReadOnlySpan<byte> expected) =>
+        Reader.GetBlobReader(value).Length <= expected.Length + 16
+        && FixedStringArgumentEquals(value, expected);
+
+    /// <summary>
+    /// Whether the value's first fixed argument is exactly the expected UTF-8
+    /// string, read in place: prolog, compressed length, then at most
+    /// <c>expected.Length</c> bytes. Equals legacy's materialized comparison,
+    /// which also rejects a longer value and a null string.
+    /// </summary>
+    bool FixedStringArgumentEquals(BlobHandle value, ReadOnlySpan<byte> expected)
+    {
+        BlobReader blob = Reader.GetBlobReader(value);
+        if (blob.Length < 2)
+            return false;
+        blob.ReadUInt16();
+        if (!blob.TryReadCompressedInteger(out int length)
+            || length != expected.Length
+            || blob.RemainingBytes < length)
+            return false;
+        for (int i = 0; i < length; i++)
+        {
+            if (blob.ReadByte() != expected[i])
+                return false;
+        }
+
+        return true;
+    }
+
+    bool AnyAttributeOfType(CustomAttributeHandleCollection attributes, MetadataTypeNameTarget target)
+    {
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            if (ConstructorMatches(Reader.GetCustomAttribute(handle).Constructor, target))
                 return true;
         }
 
         return false;
+    }
+
+    /// <summary>Whether the constructor's declaring type is the target, memoized per constructor.</summary>
+    bool ConstructorMatches(EntityHandle constructor, MetadataTypeNameTarget target)
+    {
+        if (!_attributeConstructors.TryGetValue((constructor, target), out bool matches))
+        {
+            matches = ConstructorTypeMatches(constructor, target);
+            _attributeConstructors[(constructor, target)] = matches;
+        }
+
+        return matches;
     }
 
     bool ConstructorTypeMatches(EntityHandle constructor, MetadataTypeNameTarget target) =>

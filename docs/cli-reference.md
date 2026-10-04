@@ -309,6 +309,7 @@ stderr rather than mixed into structured output.
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Library vocabulary | `library -S "Name Families"` | Ranked one- and two-word Type-name suffix families, exact supporting Type evidence, and optional source-provenance populations. |
+| Library dependency structure | `library -S "Dependency Structure"` | Internal namespace dependency graph with relationship counts, topological levels, and cycle membership. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
@@ -491,8 +492,8 @@ workflow in more depth.
 dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S "Library Metrics"
 dotnet-inspect library System.Text.Json -S @Performance --count
-dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json -T q
-dotnet-inspect library System.Text.Json -S "Performance: Strings" --json -T q
+dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json
+dotnet-inspect library System.Text.Json -S "Performance: Strings" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
@@ -559,8 +560,17 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Tips are off by default. Use `-T` for contextual suggestions on `stderr` or
-`-T:d` for a larger set.
+Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
+dotted token, for up to three contextual suggestions on `stderr`. Bare `-E`
+and `-E .references` are reserved and currently fail before acquisition.
+Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
+`-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
+unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
+token after `-E` remains positional. Option-like filenames and other required
+option values retain that option's ownership; for example, `--out --tips`
+names an output path rather than invoking the retired option. `E`
+suggests *explain* and can also remind users that the companion is written to
+the error stream; the latter is a mnemonic, not an error classification.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, Package Query, online package range-version population, and exact
@@ -587,7 +597,7 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
-| Control tip verbosity | `-T q`, `-T m`, `-T d` |
+| Show contextual tips | `-E .tips` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
@@ -643,7 +653,7 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource \
   -S Integrations --where "integration=integration.opentelemetry"
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
-dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl
 ```
 
 Library `-D --details` is structural and does not acquire the target. It adds a
@@ -959,7 +969,23 @@ dotnet-inspect find System.Text.Json.JsonSerializer \
   --tfm net10.0
 ```
 
-Default Markdown, tips, table formats, and plain type-search JSON retain their
+Find defaults to TSV, with one stable header and unified Type and Member rows:
+`Coordinate`, `Kind`, `Source`, `Library`, `Pattern`, `Declaration`, `Signature`,
+`Match`, and `Ecosystem`. `Kind` is `type` or `member`; `Declaration` describes
+the class, method, property, or other declaration category. Coordinates are
+display addresses, not substitutes for the internally retained declaration
+identity. Implicit Member matches are included in TSV. `--columns` selects
+columns and `--no-header` suppresses the header.
+
+Settled Member and wildcard Type rows print progressively during source
+search. Ordinary Type patterns wait when implicit Member fallback could
+supersede a weak match. Ecosystem searches publish each settled layer before
+searching the next. Semantic row-selection requests (`-n`, `--rows`, `--tail`)
+retain the existing buffered selection behavior; Count emits its final scalar.
+Diagnostics stay on stderr, and already printed rows remain available if a
+later source fails.
+
+Explicit `--markdown`, table, JSONL, and plain type-search JSON retain their
 existing shapes; plain JSON remains a root result array. When a selected
 Package row feeds Type or Member inspection internally, the handoff preserves
 the selected package-relative implementation asset and compatible TFM rather
@@ -986,10 +1012,11 @@ This searches Aspire's core packages first and, when they fill the window,
 does not realize ASP.NET Core or Runtime. Only named populations are searched:
 registered package prefixes do not trigger package-prefix discovery. If the
 entire selection has no named populations, Find fails with a prefix hint.
-Current Markdown output retains Find's existing Members-before-Results
-sections; rows remain nearest-first within each kind. A follow-on design will
-unify Type and Member result rows and make layer-ordered TSV the progressive
-default for all Find invocations.
+Explicit Markdown output retains Find's existing Members-before-Results
+sections; rows remain nearest-first within each kind. Unbounded default TSV
+instead publishes each layer's settled unified rows before the next layer.
+Selection-bearing requests keep the existing selection order until the
+separately owned row-selection work adopts the unified stream.
 
 ### Package Query over selected implementation libraries
 
@@ -1259,16 +1286,19 @@ dotnet-inspect workspace \
   --active-package 1 \
   --library compile:lib/net10.0/System.Text.Json.dll \
   --type System.Text.Json.JsonSerializer \
-  --lens type.compare
+  --lens .compare
 ```
 
 Add `--member <stable-selector>` and use a `member.*` lens for a Type-to-Member
-destination. `--all-libraries` uses the aggregate Library as the source while
-`--library` still names the destination Type's exact defining Library. A
-source-only `--all-libraries` request omits `--library`; supplying both without
-a Type destination is rejected. Root-only and explicit-empty Packages have no
-All-libraries subject and return a typed non-success snapshot instead of
-throwing.
+destination. The contextual `.<name>` spelling above lowers through the View
+Facet Registry to the exact canonical ID for the destination kind; full IDs
+such as `type.compare` remain the durable spelling in output, packets, and
+cross-host handoffs. `--all-libraries` uses the aggregate Library as the source
+while `--library` still names the destination Type's exact defining Library.
+A source-only `--all-libraries` request omits `--library`; supplying both
+without a Type destination is rejected. Root-only and explicit-empty Packages
+have no All-libraries subject and return a typed non-success snapshot instead
+of throwing.
 
 Selector misses retain the evaluated snapshot and diagnostics. The command
 claims that a Type or Member is not present only when its scoped inventory is
@@ -1325,7 +1355,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --so
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
   --print --part body --markdown
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
@@ -1403,6 +1433,39 @@ summaries carry exact metadata keys separately from display labels, and every
 relationship endpoint names a retained summary, so a Copilot App can render an
 SVG without recovering identity from display text. Library Metrics Share is
 currently `nonProjectable`.
+
+Exact `library ... -S "Dependency Structure"` reports internal namespace
+dependencies derived from whole-library method evidence. Namespace edges are
+the section's QuerySpace rows. Nodes show Type count and topological level;
+cycle members are emphasized and carry their exact cycle index. Isolated
+namespaces remain visible in an unwindowed graph:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Dependency Structure"
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Dependency Structure" --mermaid
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Dependency Structure" -n 10 --head
+```
+
+`-n`, `--head`, `--tail`, and `--rows` select namespace edges before graph
+rendering; a selected graph retains only edge endpoints. `--count` executes the
+namespace-edge QuerySpace Count terminal. The section is explicit-only and is
+not added by verbosity or category selection. Markdown and tabular formats
+lower the Markout graph as an edge table; `--mermaid` lowers the same graph as
+a diagram.
+
+Exact `-S "Dependency Structure" --json` emits the complete Research document:
+Analysis and population receipts, Type and namespace nodes, internal and
+external edges, cycles, explanations, completeness, and diagnostics.
+`--envelope` emits the same Content plus a currently `nonProjectable` Share.
+Complete JSON requires one exact Library and one target framework, and rejects
+row, field, column, Count, discovery, print, shape, and competing presentation
+projections rather than truncating Content.
 
 Exact `library ... -S "Name Families"` reports the most prevalent one- and
 two-word Type-name suffix families in one Library. The default `all`
@@ -1964,7 +2027,7 @@ With `--envelope`, `--depth` remains a traversal input and `--rows`,
 accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
 explicit `-v`, Count, fields/columns, presentation projections or decoration,
 and rendered-line clipping are rejected before acquisition. `--verbose` and
-`--tips` remain on stderr. `--share` retains its existing policy
+`-E .tips` remain on stderr. `--share` retains its existing policy
 and emits its optional URL or packet as the final stderr line. There is no
 `--evidence-envelope` support yet.
 

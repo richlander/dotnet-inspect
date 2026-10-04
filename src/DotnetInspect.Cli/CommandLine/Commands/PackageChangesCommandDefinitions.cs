@@ -74,7 +74,7 @@ public static class PackageChangesCommandDefinitions
         command.Options.Add(opts.Tail);
         command.Options.Add(opts.Lines);
         command.Options.Add(opts.TailLines);
-        command.Options.Add(opts.Tips);
+        command.Options.Add(opts.Companion);
         command.Options.Add(opts.Verbosity);
         opts.AddEnvelopeOptionTo(
             command,
@@ -166,7 +166,7 @@ public static class PackageChangesCommandDefinitions
                 opts.Tree,
                 opts.Count,
                 opts.Rows,
-                opts.Tips,
+                opts.Companion,
                 opts.Verbosity,
             })
             {

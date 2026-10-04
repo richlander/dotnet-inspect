@@ -302,7 +302,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         Directory.CreateDirectory(obsolete);
         File.WriteAllText(Path.Combine(obsolete, "stale.txt"), "stale");
 
-        var (output, error) = RunCli(["cache", "--json", "-T:q"]);
+        var (output, error) = RunCli(["cache", "--json"]);
 
         Assert.Empty(error);
         Assert.False(Directory.Exists(obsolete));

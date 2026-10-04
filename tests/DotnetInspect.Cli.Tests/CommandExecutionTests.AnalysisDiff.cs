@@ -70,8 +70,7 @@ public partial class CommandExecutionTests
             "--where", "Member=*CreateAllocationFanout*",
             "--where", "OncePaths>=4",
             "--order-by", "OncePaths desc",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -88,8 +87,7 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath,
             "-S", "Performance Triage",
             "--where", "Member=*CreateAllocationFanout*",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -105,8 +103,7 @@ public partial class CommandExecutionTests
             "--triage-shape", "allocation-fanout",
             "--where", "Member=*BoxDirect*",
             "--where", "CallerLoop=direct",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -122,39 +119,29 @@ public partial class CommandExecutionTests
         var defaultResult = await RunAppAsync(
             "library",
             TestAssemblyPath,
-            "-v:m",
-            "--tips",
-            "q");
+            "-v:m");
         var markdown = await RunAppAsync(
             "library",
             TestAssemblyPath,
             "-S",
-            SectionNames.ArrayPoolEscapes,
-            "--tips",
-            "q");
+            SectionNames.ArrayPoolEscapes);
         var jsonl = await RunAppAsync(
             "library",
             TestAssemblyPath,
             "-S",
             SectionNames.ArrayPoolEscapes,
-            "--jsonl",
-            "--tips",
-            "q");
+            "--jsonl");
         var tsv = await RunAppAsync(
             "library",
             TestAssemblyPath,
             "-S",
             SectionNames.ArrayPoolEscapes,
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
         var empty = await RunAppAsync(
             "library",
             FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
             "-S",
-            SectionNames.ArrayPoolEscapes,
-            "--tips",
-            "q");
+            SectionNames.ArrayPoolEscapes);
 
         Assert.Equal(0, defaultResult.Exit);
         Assert.DoesNotContain(SectionNames.ArrayPoolEscapes, defaultResult.Output);
@@ -214,8 +201,7 @@ public partial class CommandExecutionTests
             "-S", "Performance Triage",
             "--where", "Allocation=boxed *",
             "--where", "Path=straight-line",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -234,8 +220,7 @@ public partial class CommandExecutionTests
             "--where", "Finding=analysis.allocation",
             "--where", "Operation=box",
             "--top", "1",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -273,7 +258,6 @@ public partial class CommandExecutionTests
                 "--where", "CallerLoopDepth>=1",
                 "--order-by", "CallerLoopDepth desc",
                 command == "library" ? "--json" : "--jsonl",
-                "--tips", "q",
             ]);
 
         // Library scope surfaces rich diagnostics in the nested `performance` JSON (pretty-printed);
@@ -335,8 +319,6 @@ public partial class CommandExecutionTests
             command == "library"
                 ? SectionNames.PerformanceAsync
                 : SectionNames.PerformanceTriage,
-            "--tips",
-            "q",
         ]);
 
         Assert.Contains(
@@ -383,8 +365,6 @@ public partial class CommandExecutionTests
             .. sourceArgs,
             "-S",
             SectionNames.PerformanceTriage,
-            "--tips",
-            "q",
         ]);
 
         Assert.Equal(0, result.Exit);
@@ -434,8 +414,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.PerformanceTriage,
             "--json",
-            "--tips",
-            "q",
         ]);
 
         Assert.Equal(1, result.Exit);
@@ -457,8 +435,7 @@ public partial class CommandExecutionTests
             "-S", "Performance Triage",
             "--order-by", $"CallerLoopDepth {direction}",
             "--top", "1",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -474,8 +451,7 @@ public partial class CommandExecutionTests
             "-S", "Performance Triage",
             "--where", "Finding=analysis.allocation",
             "--top", "1",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, baseline.Exit);
         AssertOnlyPerformanceAnalysisWarnings(baseline.Error);
@@ -486,8 +462,7 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath,
             "-S", "Performance Triage",
             "--where", $"Token={unpaddedToken}",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, filtered.Exit);
         AssertOnlyPerformanceAnalysisWarnings(filtered.Error);
@@ -502,8 +477,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "-S", "Performance Triage",
             "--where", "Member=BoxInt(int)",
-            "--tsv",
-            "--tips", "q");
+            "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -520,8 +494,7 @@ public partial class CommandExecutionTests
             "--where", "Shape=box-value-type",
             "--order-by", "RootReach desc",
             "--top", "1",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -540,8 +513,7 @@ public partial class CommandExecutionTests
             "--where", "Path Confidence=dominates-return",
             "--order-by", "Root Reach desc",
             "--top", "1",
-            "--tsv",
-            "--tips", "q");
+            "--tsv");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -556,8 +528,7 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath,
             "--where", "Priority>=low",
             "--top", "1",
-            "--tsv",
-            "--tips", "q");
+            "--tsv");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -573,8 +544,7 @@ public partial class CommandExecutionTests
             "-S", "Performance Triage",
             "--where", "Post Dominance=return-post-dominates",
             "--order-by", "PostDominance desc,RootReach desc",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -593,8 +563,7 @@ public partial class CommandExecutionTests
             "-S", "Performance: Boxing",
             "--where", "Shape=box-value-type",
             "--top", "1",
-            "--count",
-            "--tips", "q");
+            "--count");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -608,7 +577,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceSections_NotInDefaultView()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-v:m", "--tips", "q");
+            "library", "System.Text.Json", "-v:m");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("## Performance", output);
@@ -619,7 +588,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceSection_SingleKind_RendersOnlyThatKind()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance: Boxing", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance: Boxing");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -635,7 +604,7 @@ public partial class CommandExecutionTests
         // machine <GetAsyncEnumerator>d__1). It must render as a code span like the Member and
         // Allocation columns, showing the brackets literally — not HTML-escaped as &lt;/&gt;.
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance: Async", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance: Async");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -645,7 +614,7 @@ public partial class CommandExecutionTests
 
         // Machine output stays raw (no code-span markup, unescaped brackets).
         var (tsvExit, tsv, _) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance: Async", "--tsv", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance: Async", "--tsv");
         Assert.Equal(0, tsvExit);
         Assert.Contains("async state-machine allocation (<", tsv);
         Assert.DoesNotContain("&lt;", tsv);
@@ -660,9 +629,7 @@ public partial class CommandExecutionTests
             "-S",
             "Performance: Async",
             "--triage-shape",
-            "sync-call-in-async",
-            "--tips",
-            "q");
+            "sync-call-in-async");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
@@ -681,7 +648,7 @@ public partial class CommandExecutionTests
         // HTML-escaped &lt;T&gt;. The Allocation column already renders it literally.
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Text.Json.Serialization.Converters.MemoryConverter",
-            "--platform", "System.Text.Json", "--all", "-S", "Performance Triage", "--tips", "q");
+            "--platform", "System.Text.Json", "--all", "-S", "Performance Triage");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -693,7 +660,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceGroup_RendersMultipleKindSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--tips", "q");
+            "library", "System.Text.Json", "-S", "@Performance");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -706,7 +673,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceGroup_JsonEmitsNestedProjection_NotRetiredMonolithKey()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--json", "--tips", "q");
+            "library", "System.Text.Json", "-S", "@Performance", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -729,7 +696,7 @@ public partial class CommandExecutionTests
         // empty section (il-offset gating parity).
         var (exit, output, error) = await RunAppAsync(
             "library", FixtureCatalog.AnalysisLookalike.AssemblyPath(),
-            "-S", "Performance: Async", "--tips", "q");
+            "-S", "Performance: Async");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -742,7 +709,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceGroup_CountEmitsPerKindMap()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--count", "--tips", "q");
+            "library", "System.Text.Json", "-S", "@Performance", "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -767,9 +734,7 @@ public partial class CommandExecutionTests
             "-S",
             "@Performance",
             "--count",
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -781,11 +746,11 @@ public partial class CommandExecutionTests
     public async Task PerformanceGroup_CountMapRejectsMermaidWithoutRejectingScalarCount()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--count", "--mermaid",
-            "--tips", "q");
+            "library", "System.Text.Json", "-S", "@Performance", "--count", "--mermaid"
+            );
         var (scalarExit, scalarOutput, scalarError) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "References", "--count", "--mermaid",
-            "--tips", "q");
+            "library", "System.Text.Json", "-S", "References", "--count", "--mermaid"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -800,7 +765,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceLegacyName_RedirectsToGroup()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -812,7 +777,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceGroup_TabularRendersSingleKindLabeledTable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance:*", "--tsv", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -832,7 +797,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceDomain_TabularRequiresAConcreteHomogeneousSelection()
     {
         var (exit, _, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--tips", "q");
+            "library", "System.Text.Json", "-S", "@Performance", "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Contains("display one section at a time", error);
@@ -843,7 +808,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceGroup_JsonlEmitsOnlyValidRecords_NoBlankSeparators()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance:*", "--jsonl", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -869,9 +834,9 @@ public partial class CommandExecutionTests
         // identical rows must all survive. Row count must match the with-header data-row count, and
         // no blank section separators may leak into the stream.
         var withHeader = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance:*", "--tsv", "--order-by", "Allocation", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--tsv", "--order-by", "Allocation");
         var noHeader = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance:*", "--tsv", "--no-header", "--order-by", "Allocation", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--tsv", "--no-header", "--order-by", "Allocation");
 
         Assert.Equal(0, withHeader.Exit);
         Assert.Equal(0, noHeader.Exit);
@@ -891,9 +856,9 @@ public partial class CommandExecutionTests
         // A differently-cased --triage-shape is accepted by validation; it must resolve to the same
         // kind section its findings bucket into, not silently route to Performance: Other.
         var lower = await RunAppAsync(
-            "library", "System.Text.Json", "--triage-shape", "box-value-type", "--count", "--tips", "q");
+            "library", "System.Text.Json", "--triage-shape", "box-value-type", "--count");
         var upper = await RunAppAsync(
-            "library", "System.Text.Json", "--triage-shape", "BOX-VALUE-TYPE", "--count", "--tips", "q");
+            "library", "System.Text.Json", "--triage-shape", "BOX-VALUE-TYPE", "--count");
 
         Assert.Equal(0, lower.Exit);
         Assert.Equal(0, upper.Exit);
@@ -907,7 +872,7 @@ public partial class CommandExecutionTests
         // Bare -D (effective discovery) must not list the kind-scoped performance sections at the top
         // level — the @Performance category is their single discoverable entrypoint — yet they must
         // stay reachable by drilling into that category.
-        var bare = await RunAppAsync("library", "System.Text.Json", "-D", "--tips", "q");
+        var bare = await RunAppAsync("library", "System.Text.Json", "-D");
         Assert.Equal(0, bare.Exit);
         var bareSectionNames = bare.Output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -918,7 +883,7 @@ public partial class CommandExecutionTests
         Assert.Contains(bare.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries),
             l => ExtractSectionName(l) == "@Performance" && l.Contains("category", StringComparison.Ordinal));
 
-        var drill = await RunAppAsync("library", "System.Text.Json", "-D", "@Performance", "--tips", "q");
+        var drill = await RunAppAsync("library", "System.Text.Json", "-D", "@Performance");
         Assert.Equal(0, drill.Exit);
         Assert.Contains("Performance: Boxing", drill.Output);
         Assert.Contains("Performance: Other", drill.Output);
@@ -932,8 +897,8 @@ public partial class CommandExecutionTests
         // headers previously inflated the count and stole a row slot).
         const int cap = 5;
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance:*", "--table", "--rows", cap.ToString(),
-            "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--table", "--rows", cap.ToString()
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -950,8 +915,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
             "--where", "Allocaton=boxed *",
-            "--tsv",
-            "--tips", "q");
+            "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -967,8 +931,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
             "--where", predicate,
-            "--tsv",
-            "--tips", "q");
+            "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -981,8 +944,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
             "--order-by", "Triage desc,RootReach desc",
-            "--tsv",
-            "--tips", "q");
+            "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -995,8 +957,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
             "--order-by", ",",
-            "--tsv",
-            "--tips", "q");
+            "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1008,7 +969,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
-            "-t", "System.Text.Json.Serialization", "--additive", "--table", "--tips", "q");
+            "-t", "System.Text.Json.Serialization", "--additive", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1035,12 +996,12 @@ public partial class CommandExecutionTests
 
             var markdown = await RunAppAsync(
                 "diff", "--library", range,
-                "-S", DiffSections.Changes.Name,
-                "--tips", "q");
+                "-S", DiffSections.Changes.Name
+                );
             var json = await RunAppAsync(
                 "diff", "--library", range,
                 "-S", DiffSections.Changes.Name,
-                "--json", "--tips", "q");
+                "--json");
 
             Assert.Equal(0, markdown.Exit);
             Assert.Empty(markdown.Error);
@@ -1084,16 +1045,12 @@ public partial class CommandExecutionTests
             var markdown = await RunAppAsync(
                 "diff",
                 "--library",
-                range,
-                "--tips",
-                "q");
+                range);
             var json = await RunAppAsync(
                 "diff",
                 "--library",
                 range,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(1, markdown.Exit);
             Assert.Contains(
@@ -1117,9 +1074,7 @@ public partial class CommandExecutionTests
                 "-t",
                 "N.Healthy",
                 "-S",
-                DiffSections.Transitions.Name,
-                "--tips",
-                "q");
+                DiffSections.Transitions.Name);
             var findingJson = await RunAppAsync(
                 "diff",
                 "--library",
@@ -1128,9 +1083,7 @@ public partial class CommandExecutionTests
                 "N.Healthy",
                 "-S",
                 DiffSections.Transitions.Name,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
             var findingTable = await RunAppAsync(
                 "diff",
                 "--library",
@@ -1139,9 +1092,7 @@ public partial class CommandExecutionTests
                 "N.Healthy",
                 "-S",
                 DiffSections.Transitions.Name,
-                "--table",
-                "--tips",
-                "q");
+                "--table");
             var analysisTable = await RunAppAsync(
                 "diff",
                 "--library",
@@ -1150,9 +1101,7 @@ public partial class CommandExecutionTests
                 "N.Healthy",
                 "-S",
                 DiffSections.AnalysisDiff.Name,
-                "--table",
-                "--tips",
-                "q");
+                "--table");
 
             Assert.Equal(1, findingMarkdown.Exit);
             Assert.Contains(
@@ -1222,8 +1171,6 @@ public partial class CommandExecutionTests
                         "diff",
                         "--library",
                         range,
-                        "--tips",
-                        "q",
                         .. mode,
                     ]);
 
@@ -1245,7 +1192,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
-            "-t", "Serialization", "--additive", "--table", "--tips", "q");
+            "-t", "Serialization", "--additive", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1259,7 +1206,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Text.Json@9.0.0..10.0.0",
-            "-t", "DefinitelyMissingNamespace", "--additive", "--table", "--tips", "q");
+            "-t", "DefinitelyMissingNamespace", "--additive", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Summary", output);
@@ -1273,7 +1220,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Text.Json@8.0.6..9.0.0",
             "-t", "System.Text.Json.Schema.JsonSchemaExporter",
-            "-S", "Transitions", "--table", "--tips", "q");
+            "-S", "Transitions", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1298,7 +1245,7 @@ public partial class CommandExecutionTests
             "-S", "Complexity Context",
             "--columns",
             "Member,State,Delta,PopulationSize,PercentileRank,Kind",
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1351,7 +1298,7 @@ public partial class CommandExecutionTests
             "Member,State,InstructionDelta,ComplexityDelta,LoopDelta,"
                 + "AllocationDelta,InstructionDirection,CohortSize,"
                 + "PopulationSize,Kind",
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1390,7 +1337,7 @@ public partial class CommandExecutionTests
             "diff", "--library", $"{oldPath}..{newPath}",
             "-t", "DiffFixtureSample.DiffSample",
             "-S", "Structural Context",
-            "--json", "--tips", "q");
+            "--json");
 
         Assert.Equal(0, jsonExit);
         Assert.Empty(jsonError);
@@ -1429,7 +1376,7 @@ public partial class CommandExecutionTests
             "-t", "DiffFixtureSample.DiffSample",
             "-m", member,
             "--analysis", analysis,
-            "--table", "--tips", "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1458,7 +1405,7 @@ public partial class CommandExecutionTests
             "-t", "DiffFixtureSample.DiffSample",
             "-m", "ConstantValue",
             "--analysis", analysis,
-            "--table", "--tips", "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1488,8 +1435,8 @@ public partial class CommandExecutionTests
             "diff", "--library", $"{oldPath}..{newPath}",
             "-t", type,
             "-m", member,
-            "--analysis", analyses,
-            "--tips", "q");
+            "--analysis", analyses
+            );
 
         Assert.Equal(1, exit);
         Assert.Contains(member, error, StringComparison.Ordinal);
@@ -1509,8 +1456,8 @@ public partial class CommandExecutionTests
             "-t", "DiffFixtureSample.DiffSample",
             "-m", "RegressesAllocInLoop",
             "--analysis", "call-site,api",
-            "--analysis", "allocation",
-            "--tips", "q");
+            "--analysis", "allocation"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1542,15 +1489,15 @@ public partial class CommandExecutionTests
             "diff", "--library", range,
             "--type", "System.Text.Json.JsonSerializer",
             "--member", "Serialize:1",
-            "--analysis", "api,call-site,allocation",
-            "--tips", "q");
+            "--analysis", "api,call-site,allocation"
+            );
         var transitions = await RunAppAsync(
             "diff", "--library", range,
             "--type", "System.Text.Json.JsonSerializer",
             "--member", "Serialize:1",
             "--analysis", "api,call-site,allocation",
-            "-S", "Transitions",
-            "--tips", "q");
+            "-S", "Transitions"
+            );
 
         Assert.Equal(0, summary.Exit);
         Assert.Empty(summary.Error);
@@ -1584,7 +1531,7 @@ public partial class CommandExecutionTests
             "--type", "System.Text.Json.JsonSerializer",
             "--member", selector,
             "-S", "Implementation Diff",
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1626,7 +1573,7 @@ public partial class CommandExecutionTests
             "--type", "System.Text.Json.JsonSerializer",
             "--member", "Serialize:6",
             "-S", section,
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1660,7 +1607,7 @@ public partial class CommandExecutionTests
             "--type", "System.Text.Json.JsonSerializer",
             "--member", "Serialize:6",
             "--analysis", analysis,
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1698,8 +1645,7 @@ public partial class CommandExecutionTests
                 + FixtureCatalog.DiffPair.NewAssemblyPath(),
             "--type", "DiffFixtureSample.DiffSample",
             "--member", "DefinitelyMissing",
-            "-S", "Implementation Diff",
-            "--tips", "q");
+            "-S", "Implementation Diff");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1720,8 +1666,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", range,
             "--type", "System.Text.Json.JsonSerializer",
-            "-S", "Transitions",
-            "--tips", "q");
+            "-S", "Transitions"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1749,8 +1695,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
-            "--analysis", analysis,
-            "--tips", "q");
+            "--analysis", analysis
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1769,8 +1715,8 @@ public partial class CommandExecutionTests
             "-t", "Sample.Widget",
             "-m", "Run",
             "-m", "Stop",
-            "--analysis", analysis,
-            "--tips", "q");
+            "--analysis", analysis
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1783,8 +1729,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
-            "--analysis", "api,,nope,API,api",
-            "--tips", "q");
+            "--analysis", "api,,nope,API,api"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1800,8 +1746,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
-            "--analysis", "allocation",
-            "--tips", "q");
+            "--analysis", "allocation"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1825,8 +1771,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
-            "--finding", descriptor,
-            "--tips", "q");
+            "--finding", descriptor
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1840,8 +1786,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
-            "--finding", "analysis.unknown",
-            "--tips", "q");
+            "--finding", "analysis.unknown"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1857,8 +1803,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
-            "-S", "Finding Transitions",
-            "--tips", "q");
+            "-S", "Finding Transitions"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1871,8 +1817,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "--analysis", "api",
-            "--json", "--rows", "1",
-            "--tips", "q");
+            "--json", "--rows", "1"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1890,8 +1836,8 @@ public partial class CommandExecutionTests
             "diff", "--package", "System.Text.Json@8.0.0..9.0.0",
             "--history",
             "-t", "System.Text.Json.JsonSerializer",
-            "--analysis", "api",
-            "--tips", "q");
+            "--analysis", "api"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1903,7 +1849,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
-            "-S", "Transitions", "--tips", "q");
+            "-S", "Transitions");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1917,7 +1863,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget", "-m", "Run",
-            "--analysis", "allocation", "-S", "Changes", "--tips", "q");
+            "--analysis", "allocation", "-S", "Changes");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1936,7 +1882,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget", "-S", view,
-            filter, "--tips", "q");
+            filter);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1951,8 +1897,8 @@ public partial class CommandExecutionTests
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
             "-S", "Transitions",
-            "-S", "Implementation Diff",
-            "--tips", "q");
+            "-S", "Implementation Diff"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1967,8 +1913,8 @@ public partial class CommandExecutionTests
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
             "-S", "Complexity Context",
-            "-S", "Implementation Diff",
-            "--tips", "q");
+            "-S", "Implementation Diff"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1988,8 +1934,8 @@ public partial class CommandExecutionTests
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "-t", "Sample.Widget",
             "-S", "Structural Context",
-            "-S", "Implementation Diff",
-            "--tips", "q");
+            "-S", "Implementation Diff"
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2015,8 +1961,8 @@ public partial class CommandExecutionTests
             "-t", "Sample.Widget",
             "-m", "HotPath",
             "--analysis", "allocation",
-            "-S", route,
-            "--tips", "q");
+            "-S", route
+            );
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2032,11 +1978,11 @@ public partial class CommandExecutionTests
         var range = $"{oldPath}..{newPath}";
 
         var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
-            "diff", "--library", range, "-D", "--schema", "--tips", "q");
+            "diff", "--library", range, "-D", "--schema");
         var (selectExit, selectOutput, selectError) = await RunAppAsync(
             "diff", "--library", range,
             "-t", "DiffFixtureSample.DiffSample",
-            "-S", "Transitions", "--table", "--tips", "q");
+            "-S", "Transitions", "--table");
 
         Assert.Equal(0, discoverExit);
         Assert.Empty(discoverError);
@@ -2055,10 +2001,10 @@ public partial class CommandExecutionTests
     public async Task Diff_DiscoveryUsesAuthoredCategoryWithoutComputedPoles()
     {
         var bare = await RunAppAsync(
-            "diff", "-D", "--table", "--tips", "q");
+            "diff", "-D", "--table");
         var category = await RunAppAsync(
-            "diff", "-D", SectionCategoryNames.Diff, "--schema", "--table",
-            "--tips", "q");
+            "diff", "-D", SectionCategoryNames.Diff, "--schema", "--table"
+            );
 
         Assert.Equal(0, bare.Exit);
         Assert.Empty(bare.Error);
@@ -2094,7 +2040,7 @@ public partial class CommandExecutionTests
     public async Task Diff_SchemaRequiresDiscovery()
     {
         var (exit, output, error) = await RunAppAsync(
-            "diff", "--schema", "--tips", "q");
+            "diff", "--schema");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2109,7 +2055,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
         [
-            "diff", "-D", "*Transitions", .. schema, "--table", "--tips", "q",
+            "diff", "-D", "*Transitions", .. schema, "--table",
         ]);
 
         Assert.NotEqual(0, exit);
@@ -2122,7 +2068,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
-            "-S", "*Transitions", "--tips", "q");
+            "-S", "*Transitions");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2138,7 +2084,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
-            "-S", selector, "--tips", "q");
+            "-S", selector);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

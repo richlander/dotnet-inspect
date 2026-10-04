@@ -85,7 +85,6 @@ public sealed class LibraryBodyIndex
         FieldStores = analysis.Methods.FieldStores;
         FieldLoads = analysis.Methods.FieldLoads;
         ReturnFlows = analysis.Methods.ReturnFlows;
-        UnsafeEvidence = analysis.Safety.Evidence;
         Diagnostics = analysis.Diagnostics;
         bool hasFullScope =
             (features
@@ -94,10 +93,7 @@ public sealed class LibraryBodyIndex
         _callGraph = callGraph;
         _optimization = optimization;
         _implementationProfileAnalysis = implementationProfiles;
-        MemorySafetyRules = analysis.Safety.Rules;
-        UnsafeModes = analysis.Safety.Modes;
         _allocationOccurrences = analysis.Allocations.Occurrences;
-        _unsafetyOccurrences = analysis.Safety.Occurrences;
         Features = features;
         HasFullMethodEvidenceScope = hasFullScope;
     }
@@ -150,7 +146,6 @@ public sealed class LibraryBodyIndex
     /// anything else?" fails closed.
     /// </summary>
     public ImmutableArray<MethodReturnFlow> ReturnFlows { get; }
-    public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>
     public LibraryBodyAnalysisFeatures Features { get; }
@@ -163,8 +158,6 @@ public sealed class LibraryBodyIndex
 
     readonly LibraryOptimizationAnalysisResult _optimization;
     readonly LibraryCallGraphAnalysisResult _callGraph;
-    IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
-
     /// <summary>
     /// Source/IL optimization opportunities, each enriched with the containing method's
     /// <see cref="MethodLeverage.RootReach"/> so callers can prioritize the intersection
@@ -202,82 +195,9 @@ public sealed class LibraryBodyIndex
                 confidence,
                 rootReach);
 
-    // A membership/search LINQ terminal on System.Linq.Enumerable: one that walks the
-    // sequence to answer a lookup/membership question and whose canonical fix is an
-    // indexed lookup (HashSet/Dictionary). Lazy operators (Where/Select/OrderBy) are
-    // excluded — they do not enumerate at the call site — as are materializers
-    // (ToArray/ToList), which have a different fix shape.
-    //
-    // Only the predicate/value overloads do real O(n) work. The parameterless positional
-    // and aggregate overloads (First(), Single(), Count(), Any()) are O(1) — a positional
-    // read, or the ICollection.Count fast path — so they are NOT scans and must not be
-    // flagged. Every scanning overload takes the source plus a predicate/value, so it has
-    // at least two parameters in Enumerable's static signature; gate on that arity.
-    public static bool IsLinqMembershipScan(
-        MemberRef member,
-        out string operation)
-        => RepeatedScanAnalysis.IsLinqMembershipScan(
-            member,
-            out operation);
-
-    static bool IsLinqMaterializer(
-        MemberRef member,
-        out string operation)
-        => RepeatedScanAnalysis.IsLinqMaterializer(
-            member,
-            out operation);
-
-    // System.String.Concat — the lowering of the `+` / `+=` string operators (and of simple
-    // interpolations like `$"{a}-{b}"`). Each call allocates a fresh string. Inside a loop,
-    // when the result is stored back into one of its own inputs, it is the StringBuilder
-    // anti-pattern: `s += …` repeatedly copies the growing accumulator (O(n^2)).
-    public static bool IsStringConcat(MemberRef member)
-        => RepeatedScanAnalysis.IsStringConcat(member);
-
-    // A GetEnumerator call that returns a reference-type enumerator — i.e. iterating the
-    // sequence allocates an enumerator object on the heap. `foreach` over a concrete type with a
-    // struct enumerator (List<T>.Enumerator, …) returns it by value and allocates nothing; only
-    // a foreach over an interface (IEnumerable/IEnumerable<T>) binds to GetEnumerator returning
-    // the framework IEnumerator/IEnumerator<T> interface, whose implementation is a heap object.
-    // The return type is matched by trusted-framework identity (#1708), not namespace+name, so a
-    // user type that merely reuses the IEnumerator namespace and name is not mistaken for it.
-    public static bool IsInterfaceEnumeratorAllocation(MemberRef member)
-        => RepeatedScanAnalysis.IsInterfaceEnumeratorAllocation(member);
-
-    // A lazy/deferred Enumerable operator (Where/Select/…): it returns an iterator without
-    // enumerating at the call site. A helper that returns such a query is itself a deferred
-    // linear scan — the scan runs when the caller enumerates the result.
-    static bool IsLinqLazyProducer(
-        MemberRef member,
-        out string operation)
-        => RepeatedScanAnalysis.IsLinqLazyProducer(
-            member,
-            out operation);
-
-    /// <summary>
-    /// The defining module's normalized memory-safety rules result.
-    /// </summary>
-    public MemorySafetyRulesResult MemorySafetyRules { get; }
-
-    /// <summary>
-    /// Whether the normalized module result selects the recognized updated
-    /// rules. False covers every other state; callers that need the distinction
-    /// consume <see cref="MemorySafetyRules"/>.
-    /// </summary>
-    public bool MemorySafetyRulesEnabled =>
-        MemorySafetyRules is MemorySafetyRulesResult.Available
-        {
-            State: MemorySafetyRulesState.Updated,
-        };
-
-    /// <summary>Per-<see cref="CallerUnsafeMode"/> method counts across the whole assembly.</summary>
-    public UnsafeModeBreakdown UnsafeModes { get; }
-
     readonly LibraryImplementationProfileAnalysisResult
         _implementationProfileAnalysis;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
-    readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
-
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
@@ -325,42 +245,6 @@ public sealed class LibraryBodyIndex
 
     /// <summary>Offset-keyed allocation occurrences, grouped by containing method token.</summary>
     public IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> GetAllocationOccurrences() => _allocationOccurrences;
-
-    public IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> GetUnsafetyOccurrences() => _unsafetyOccurrences;
-
-    public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> GetUnsafeEvidenceByMember()
-        => _unsafeEvidenceByMember ??= UnsafeEvidence
-            .GroupBy(evidence => evidence.Member.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
-
-    /// <summary>
-    /// Exact <see cref="TypeRef"/> identities of types recognized as protobuf/gRPC
-    /// generated implementation detail, detected structurally (no attributes are
-    /// emitted on this code). Keys are definition identities, not qualified display
-    /// strings: namespace <c>N.A</c> plus root <c>B</c> is distinct from namespace
-    /// <c>N</c> plus nested <c>A+B</c>. A type qualifies when
-    /// any of its methods bootstraps protobuf generated infrastructure — calling
-    /// <c>Google.Protobuf.Reflection.FileDescriptor.FromGeneratedCode</c>, constructing
-    /// <c>Google.Protobuf.Reflection.GeneratedClrTypeInfo</c>, or constructing the
-    /// per-message <c>Google.Protobuf.MessageParser&lt;T&gt;</c> — where the bootstrap type
-    /// comes from the real <c>Google.Protobuf</c> assembly (a user assembly can declare
-    /// <c>Google.Protobuf.*</c> lookalikes, so namespace/name alone is not sufficient,
-    /// #1580) — or is a gRPC stub that both
-    /// declares infrastructure members whose names are codegen-only (<c>__ServiceName</c>,
-    /// <c>__Helper_*</c>, <c>__Marshaller_*</c>, <c>__Method_*</c>) <em>and</em> calls into
-    /// <c>Grpc.Core</c> (the binding/marshalling APIs a generated stub uses). A generated
-    /// member name alone is not sufficient — an ordinary user type can declare a
-    /// <c>__Helper_*</c> method — so the structural <c>Grpc.Core</c> tie is required to avoid
-    /// classifying user lookalikes as generated. gRPC binding calls
-    /// (<c>ServerServiceDefinition</c>/<c>Marshallers</c>) are still not a signal on their own,
-    /// since hand-written registration uses them without the generated members. These signals
-    /// appear in generated protobuf/gRPC code, so perf triage can mark them in Top Leverage and
-    /// suppress them from Performance Triage like other generated detail.
-    /// </summary>
-    public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
-        => _optimization.GeneratedFrameworkTypes;
 
     public static LibraryBodyIndex Open(string path)
         => LibraryBodyAnalysisService.AnalyzePath(
@@ -457,21 +341,5 @@ public sealed class LibraryBodyIndex
                 bodyTypeScope),
             resolver);
     }
-
-    /// <summary>
-    /// Requires-unsafe methods whose signature carries no pointer — the unsafe
-    /// obligation is visible only via the attribute / <c>unsafe</c> modifier,
-    /// hidden from a caller reading the parameter and return types.
-    /// </summary>
-    public ImmutableArray<OpaqueUnsafeMethod> OpaqueUnsafeMethods()
-        => OpaqueUnsafe.Collect(Methods);
-
-    /// <summary>
-    /// Requires-unsafe methods whose body shows no directly-visible unsafe
-    /// operation — an absence claim (never "safe"): a pointer local optimized
-    /// away in Release erases the trace of a real dereference.
-    /// </summary>
-    public ImmutableArray<HollowUnsafeMethod> HollowUnsafeMethods()
-        => HollowUnsafe.Collect(Methods, UnsafeEvidence);
 
 }

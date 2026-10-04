@@ -22,7 +22,7 @@ public class MemberCallGraphSectionTests
             Select = [SectionNames.Methods],
             IncludeSections = [SectionNames.Signature],
             Count = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(0, result.ExitCode);
@@ -39,7 +39,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             Select = ["No Such Section"],
             IncludeSections = [SectionNames.Methods],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(1, result.ExitCode);
@@ -56,7 +56,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-body-shapes.dll"),
             Select = [SectionNames.BodyShapes],
             IncludeSections = [SectionNames.BodyShapes],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(1, result.ExitCode);
@@ -76,7 +76,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-exact-body-shapes.dll"),
             Select = [SectionNames.Signature],
             IncludeSections = [SectionNames.BodyShapes, SectionNames.Signature],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(1, result.ExitCode);
@@ -97,7 +97,7 @@ public class MemberCallGraphSectionTests
             Select = [SelectResolver.AllSelector],
             IncludeSections = [SectionNames.BodyShapes, SectionNames.Signature],
             ExactIncludeSectionsOverride = [],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(1, result.ExitCode);
@@ -117,7 +117,7 @@ public class MemberCallGraphSectionTests
             Select = [SectionNames.Signature],
             IncludeSections = [SectionNames.Signature],
             BodyKindQuery = new BodyKindQueryOptions { Kind = "expression-bodied" },
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(1, result.ExitCode);
@@ -139,7 +139,7 @@ public class MemberCallGraphSectionTests
                 Select = [SectionNames.Methods, SectionNames.Properties],
                 IncludeSections = [SectionNames.Methods],
                 Count = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
         var control = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
             new MemberOptions
@@ -148,7 +148,7 @@ public class MemberCallGraphSectionTests
                 AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
                 IncludeSections = [SectionNames.Methods],
                 Count = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(0, stale.ExitCode);
@@ -169,7 +169,7 @@ public class MemberCallGraphSectionTests
                 Select = [SectionNames.Methods],
                 IncludeSections = [SectionNames.PerformanceTriage],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(1, result.ExitCode);
@@ -192,7 +192,7 @@ public class MemberCallGraphSectionTests
                 IncludeSections = [SectionNames.PerformanceTriage],
                 ExactIncludeSectionsOverride = ["performance triage"],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(1, result.ExitCode);
@@ -212,7 +212,7 @@ public class MemberCallGraphSectionTests
             Select = [SectionNames.Methods],
             IncludeSections = [],
             Count = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(1, result.ExitCode);
@@ -230,7 +230,7 @@ public class MemberCallGraphSectionTests
             Select = [SectionNames.Methods],
             IncludeSections = [],
             Count = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(1, result.ExitCode);
@@ -247,7 +247,7 @@ public class MemberCallGraphSectionTests
             TypeName = typeof(MemberCallGraphFixture).FullName!,
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             IncludeSections = [],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Detailed,
         };
 
@@ -297,7 +297,7 @@ public class MemberCallGraphSectionTests
                 Tabular = true,
                 Tsv = tsv,
                 Jsonl = jsonl,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Detailed
             }));
 
@@ -317,7 +317,7 @@ public class MemberCallGraphSectionTests
             Select = [SelectResolver.AllSelector],
             IncludeSections = [SectionNames.Signature],
             Count = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(0, result.ExitCode);
@@ -388,7 +388,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.CallGraph],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
             Tabular = true,
             Tsv = true,
@@ -415,7 +415,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.CallGraph],
             Count = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         };
 
@@ -470,7 +470,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.CallGraph],
             Count = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         };
 
@@ -513,7 +513,7 @@ public class MemberCallGraphSectionTests
                 JsonOutput = true,
                 Format = OutputFormat.Json,
                 FormatExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Normal,
             }));
 
@@ -540,7 +540,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.CallGraph],
             Rows = RowWindow.Range(2, 2),
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         };
 
@@ -585,7 +585,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.CallGraph],
             Tree = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -605,7 +605,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.CallGraph],
             MermaidOutput = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -626,7 +626,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.Signature, SectionNames.CallGraph],
             EmbeddedMermaid = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -651,7 +651,7 @@ public class MemberCallGraphSectionTests
             Tabular = true,
             TabularExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         };
 
@@ -690,7 +690,7 @@ public class MemberCallGraphSectionTests
             MemberSectionsPreResolved = true,
             OverloadIndex = 1,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         };
 
@@ -783,7 +783,7 @@ public class MemberCallGraphSectionTests
                         OverloadIndex = 1,
                         JsonOutput = true,
                         FormatExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Normal,
                     }));
 
@@ -849,7 +849,7 @@ public class MemberCallGraphSectionTests
                     OverloadIndex = 1,
                     JsonOutput = true,
                     FormatExplicitlySet = true,
-                    TipLevel = TipLevel.Quiet,
+                    CompanionOutput = CompanionOutput.None,
                     Verbosity = Verbosity.Normal,
                 }));
 
@@ -908,7 +908,7 @@ public class MemberCallGraphSectionTests
                     OverloadIndex = 1,
                     JsonOutput = true,
                     FormatExplicitlySet = true,
-                    TipLevel = TipLevel.Quiet,
+                    CompanionOutput = CompanionOutput.None,
                     Verbosity = Verbosity.Normal,
                 }));
 
@@ -953,7 +953,7 @@ public class MemberCallGraphSectionTests
                 JsonOutput = true,
                 Rows = RowWindow.Head(1),
                 FormatExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Normal,
             }));
 
@@ -975,7 +975,7 @@ public class MemberCallGraphSectionTests
             Tree = true,
             FormatExplicitlySet = true,
             FormatFlagExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -994,7 +994,7 @@ public class MemberCallGraphSectionTests
             IncludeSections = [SectionNames.Signature, SectionNames.CallGraph],
             MermaidOutput = true,
             FormatFlagExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1014,7 +1014,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             IncludeSections = [SectionNames.CallGraph],
             Rows = RowWindow.Range(100, 100),
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1038,7 +1038,7 @@ public class MemberCallGraphSectionTests
             IncludeSections = [SectionNames.CallGraph],
             Rows = RowWindow.Range(100, 100),
             Tree = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1071,7 +1071,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
             IncludeSections = [SectionNames.CallGraph, SectionNames.Facts],
             Fields = ["Category"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1098,7 +1098,7 @@ public class MemberCallGraphSectionTests
             IncludeSections =
                 [SectionNames.CallGraph, SectionNames.AllocationFacts],
             Columns = ["Allocation Kind"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1122,7 +1122,7 @@ public class MemberCallGraphSectionTests
             IncludeSections = [SectionNames.CallGraph, SectionNames.Calls],
             Fields = ["Depth"],
             Columns = ["Callee"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1146,7 +1146,7 @@ public class MemberCallGraphSectionTests
             Fields = ["Depth"],
             Columns = ["*l*"],
             Rows = RowWindow.Head(1),
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1179,7 +1179,7 @@ public class MemberCallGraphSectionTests
             Tsv = true,
             TabularExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1214,7 +1214,7 @@ public class MemberCallGraphSectionTests
             Columns = ["Callee"],
             PlainText = plainText,
             EmbeddedMermaid = embeddedMermaid,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1234,7 +1234,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.AllocCall)],
             IncludeSections = [SectionNames.CallGraph],
             Fields = ["Alloc", "Copy"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1257,7 +1257,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.RiskyCall)],
             IncludeSections = [SectionNames.CallGraph],
             Fields = ["Throw", "Catch", "Finally", "Exceptions", "EvidenceIL"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1287,7 +1287,7 @@ public class MemberCallGraphSectionTests
                     [nameof(MemberCallGraphFixture.AllocCall)],
                 IncludeSections = [SectionNames.CallGraph],
                 Fields = ["EvidenceIL"],
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Normal,
             }));
 
@@ -1308,7 +1308,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync)],
             IncludeSections = [SectionNames.CallGraph],
             Fields = ["AsyncAlternatives"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1345,7 +1345,7 @@ public class MemberCallGraphSectionTests
             Jsonl = true,
             TabularExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1366,7 +1366,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync)],
             IncludeSections = [SectionNames.CallGraph],
             Fields = ["AsyncA*"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1386,7 +1386,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.WildcardSignals)],
             IncludeSections = [SectionNames.CallGraph],
             Fields = ["A*"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1410,7 +1410,7 @@ public class MemberCallGraphSectionTests
                 [typeof(DiffCommand).Assembly.Location],
             IncludeSections = [SectionNames.CallGraph],
             Fields = ["AsyncAlternatives"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1431,7 +1431,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.CreateAsyncCallback)],
             IncludeSections = [SectionNames.CallGraph],
             Fields = ["AsyncAlternatives"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1452,7 +1452,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
             IncludeSections = [SectionNames.CallGraph],
             Fields = ["Depth", "Loop"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1479,7 +1479,7 @@ public class MemberCallGraphSectionTests
             Fields = ["Allocations"],
             Tree = tree,
             MermaidOutput = !tree,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1508,7 +1508,7 @@ public class MemberCallGraphSectionTests
             Jsonl = !tsv,
             TabularExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1532,7 +1532,7 @@ public class MemberCallGraphSectionTests
             Tsv = true,
             TabularExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1558,7 +1558,7 @@ public class MemberCallGraphSectionTests
             Tsv = true,
             TabularExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1608,7 +1608,7 @@ public class MemberCallGraphSectionTests
             TypeName = typeof(MemberCallGraphFixture).FullName!,
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Detailed,
         }));
 
@@ -1625,7 +1625,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
             OverloadIndex = 1,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Discover = [SectionCategoryNames.Calls],
             Verbosity = Verbosity.Normal,
             Tabular = true,
@@ -1665,7 +1665,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [nameof(MemberCallGraphFixture.Descriptor)],
             OverloadIndex = 2,
             IncludeSections = [SectionNames.CallGraph],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1706,7 +1706,7 @@ public class MemberCallGraphSectionTests
                 SectionNames.CostOverlay,
                 SectionNames.SemanticsOverlay,
             ],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1733,7 +1733,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [propertyName],
             OverloadIndex = overloadIndex,
             IncludeSections = [SectionNames.DecompiledSource],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1759,7 +1759,7 @@ public class MemberCallGraphSectionTests
                 SectionNames.CostOverlay,
                 SectionNames.SemanticsOverlay,
             ],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1784,7 +1784,7 @@ public class MemberCallGraphSectionTests
                 SectionNames.CostOverlay,
                 SectionNames.SemanticsOverlay,
             ],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1823,7 +1823,7 @@ public class MemberCallGraphSectionTests
                 SectionNames.SemanticsOverlay,
                 SectionNames.AnnotatedSourceDocument,
             ],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1850,7 +1850,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [propertyName],
             IncludeSections = [SectionNames.AnnotatedSourceDocument],
             JsonOutput = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(0, result.ExitCode);
@@ -1882,7 +1882,7 @@ public class MemberCallGraphSectionTests
                 SectionNames.CostOverlay,
                 SectionNames.SemanticsOverlay,
             ],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -1905,7 +1905,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
             MemberFilter = ["Items"],
             IncludeSections = [SectionNames.DecompiledSource, SectionNames.AnnotatedSourceDocument],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(0, result.ExitCode);
@@ -1924,7 +1924,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = ["Value"],
             IncludeSections = [SectionNames.AnnotatedSourceDocument],
             JsonOutput = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2025,7 +2025,7 @@ public class MemberCallGraphSectionTests
             MemberFilter = [memberName],
             OverloadIndex = overloadIndex,
             IncludeSections = [SectionNames.DecompiledSource],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -2037,7 +2037,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             MemberFilter = [memberName],
             IncludeSections = [SectionNames.CallGraph],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 }

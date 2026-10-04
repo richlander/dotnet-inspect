@@ -470,6 +470,55 @@ public sealed partial class WorkspaceContextLoaderTests
                     definition.DefinitionKind);
                 Assert.True(definition.IsDefinitionPublic);
             });
+
+        TypeFindQuestion semanticQuestion =
+            TypeFindQuestion.Create(
+                ["IList<T>", "JsonSerial"],
+                FindVisibility.Public);
+        TypeFindSemanticPopulation semanticPopulation =
+            TypeFindSourceEvaluator.EvaluateLocatorCensus(
+                semanticQuestion,
+                Locate(
+                    CaptureDeclarations(workspace, platform, package),
+                    new TypeDeclarationLocatorRequest.Pattern("*")));
+        TypeFindBlock semantic =
+            FindSemanticReducer.ReduceType(
+                semanticQuestion,
+                semanticPopulation);
+        TypeFindSemanticMatch list =
+            Assert.Single(
+                semantic.Matches.Where(
+                    static match =>
+                        match.Pattern.Ordinal == 0
+                        && match.FullName
+                            == "System.Collections.Generic.IList`1"));
+        Assert.IsType<ExactLibrarySourceCoordinate.Platform>(
+            list.Declaration.Source.Coordinate);
+        Assert.Equal(
+            LocatorName(
+                "System.Collections.Generic",
+                "IList`1"),
+            list.Declaration.Name);
+
+        TypeFindSemanticMatch[] json =
+        [
+            .. semantic.Matches.Where(
+                static match =>
+                    match.Pattern.Ordinal == 1
+                    && match.FullName
+                        == "System.Text.Json.JsonSerializer"),
+        ];
+        Assert.Equal(2, json.Length);
+        Assert.All(
+            json,
+            static match =>
+                Assert.Equal(
+                    TypeFindSemanticMatchKind.Prefix,
+                    match.Match));
+        Assert.IsType<ExactLibrarySourceCoordinate.Package>(
+            json[0].Declaration.Source.Coordinate);
+        Assert.IsType<ExactLibrarySourceCoordinate.Platform>(
+            json[1].Declaration.Source.Coordinate);
     }
 
     static async Task<WorkspaceDeclarationContext> LocatorContext(

@@ -3,8 +3,10 @@
   <!--
     The method classification enablement's performance scorecard (#8773):
     the QuerySpaceScorecard shape with Old (the dated legacy scanner) and
-    Planner (MethodClassificationQuery) columns beside LINQ and NLinq, over the
-    public async and P/Invoke method populations. Publish NativeAOT to time:
+    Direct PEReader and production request-set Planner columns beside LINQ and
+    NLinq, over the public async and P/Invoke method populations. It also emits
+    independent/collapsed request-set work and allocation evidence. Publish
+    NativeAOT to time:
       dotnet publish tools/MethodClassificationScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
     See docs/evidence-and-validation.md#performance-oracles-for-queryspace-enablement.
   -->

@@ -4,6 +4,8 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
+using InertText;
+using Inspector.Findings;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -335,8 +337,207 @@ public sealed class StringLiteralUsePatternTests
             occurrence => Assert.NotEqual(Guid.Empty, occurrence.Address.ModuleVersionId));
     }
 
+    [Fact]
+    public void Findings_preserve_repeated_physical_uses_with_equal_literal_keys()
+    {
+        var subject = new FindingSubject("fixture", "fixture");
+
+        FindingInspection<StringLiteralUseOccurrence> inspection =
+            StringLiteralUseFindings.Inspect(
+                Match("shared-literal-use-marker"),
+                subject);
+
+        var complete = Assert.IsType<
+            FindingInspection<StringLiteralUseOccurrence>.Complete>(
+                inspection.Value);
+        Assert.Equal(2, complete.Findings.Length);
+        Assert.Equal([0, 1], complete.Findings.Select(finding => finding.Ordinal));
+        Assert.Single(
+            complete.Findings.Select(finding => finding.Key).Distinct());
+        Assert.Equal(
+            2,
+            complete.Findings
+                .Select(finding => finding.Payload.Address)
+                .Distinct()
+                .Count());
+        Assert.All(complete.Findings, finding =>
+        {
+            Assert.Same(StringLiteralUseFindings.Descriptor, finding.Descriptor);
+            Assert.Same(subject, finding.Subject);
+            Assert.Equal(
+                "shared-literal-use-marker",
+                finding.Payload.LiteralText.ToString());
+        });
+    }
+
+    [Fact]
+    public void Findings_keep_one_complete_literal_for_prefix_and_interior_matches()
+    {
+        const string literal =
+            "https://first.example and https://second.example";
+        var subject = new FindingSubject("fixture", "fixture");
+
+        Finding<StringLiteralUseOccurrence> prefix = Assert.Single(
+            Assert.IsType<
+                FindingInspection<StringLiteralUseOccurrence>.Complete>(
+                    StringLiteralUseFindings.Inspect(
+                        Match("https://"),
+                        subject).Value)
+                .Findings);
+        Finding<StringLiteralUseOccurrence> interior = Assert.Single(
+            Assert.IsType<
+                FindingInspection<StringLiteralUseOccurrence>.Complete>(
+                    StringLiteralUseFindings.Inspect(
+                        Match("second.example"),
+                        subject).Value)
+                .Findings);
+
+        Assert.Equal(literal, prefix.Payload.LiteralText.ToString());
+        Assert.Equal(literal, interior.Payload.LiteralText.ToString());
+        Assert.Equal(prefix.Key, interior.Key);
+    }
+
+    [Fact]
+    public void Finding_identity_preserves_raw_utf16_code_units()
+    {
+        const string literal = "unpaired-\uD800-literal-marker";
+        StringLiteralUseOccurrence occurrence =
+            Assert.Single(Match("\uD800").Occurrences);
+
+        Assert.Equal(
+            StringLiteralUseFindings.CreateIdentityKey(literal),
+            occurrence.LiteralIdentity.CreateFindingKey());
+        Assert.NotEqual(
+            StringLiteralUseFindings.CreateIdentityKey(
+                "unpaired-\uFFFD-literal-marker"),
+            occurrence.LiteralIdentity.CreateFindingKey());
+        string identity = occurrence.LiteralIdentity.CreateFindingKey();
+        Assert.StartsWith("utf16-v1:", identity);
+        Assert.All(
+            identity["utf16-v1:".Length..],
+            value => Assert.True(char.IsAsciiHexDigit(value)));
+    }
+
+    [Fact]
+    public void Finding_projection_keeps_no_match_and_failures_distinct()
+    {
+        var subject = new FindingSubject("fixture", "fixture");
+
+        var noMatch = Assert.IsType<
+            FindingInspection<StringLiteralUseOccurrence>.Complete>(
+                StringLiteralUseFindings.Inspect(
+                    Inspect("not-present-in-fixture"),
+                    subject).Value);
+        Assert.Empty(noMatch.Findings);
+
+        var limited = Assert.IsType<
+            FindingInspection<StringLiteralUseOccurrence>.Failed>(
+                StringLiteralUseFindings.Inspect(
+                    Inspect(
+                        "shared-literal-use-marker",
+                        Budget(maximumOccurrences: 1)),
+                    subject).Value);
+        Assert.Contains("Occurrences work limit", limited.Error.Reason);
+        Assert.Contains("retained 1 occurrences", limited.Error.Reason);
+
+        var rejectedResult = new StringLiteralUsePatternResult.Rejected(
+            new StringLiteralUseRejection(
+                StringLiteralUseRejectionKind.BoundedDecode,
+                StringLiteralUseFailureStage.UserString,
+                new StringLiteralUseFailureSite(
+                    Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"),
+                    0x06000002,
+                    4)),
+            Receipt());
+        var rejected = Assert.IsType<
+            FindingInspection<StringLiteralUseOccurrence>.Failed>(
+                StringLiteralUseFindings.Inspect(
+                    rejectedResult,
+                    subject).Value);
+        Assert.Contains(
+            "BoundedDecode/UserString",
+            rejected.Error.Reason);
+        Assert.Contains("0x06000002/IL_0004", rejected.Error.Reason);
+    }
+
+    [Fact]
+    public void Finding_comparison_uses_literal_content_not_physical_coordinates()
+    {
+        var subject = new FindingSubject("fixture", "fixture");
+        StringLiteralUsePatternResult.Match before = Result(
+            Occurrence(
+                Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"),
+                0x06000001,
+                1,
+                "https://example"));
+        StringLiteralUsePatternResult.Match after = Result(
+            Occurrence(
+                Guid.Parse("ffeeddcc-bbaa-9988-7766-554433221100"),
+                0x06000004,
+                20,
+                "https://example"));
+
+        var complete = Assert.IsType<
+            FindingComparison<StringLiteralUseOccurrence>.Complete>(
+                StringLiteralUseFindings.Compare(
+                    before,
+                    after,
+                    subject).Value);
+        PairFinding<StringLiteralUseOccurrence> present =
+            Assert.Single(complete.Pairs);
+        Assert.IsType<PairFinding<StringLiteralUseOccurrence>.Present>(
+            present.Value);
+
+        var changed = Assert.IsType<
+            FindingComparison<StringLiteralUseOccurrence>.Complete>(
+                StringLiteralUseFindings.Compare(
+                    before,
+                    Result(Occurrence(
+                        Guid.NewGuid(),
+                        0x06000004,
+                        20,
+                        "https://changed")),
+                    subject).Value);
+        Assert.Contains(
+            changed.Pairs,
+            pair => pair is PairFinding<StringLiteralUseOccurrence>.Removed);
+        Assert.Contains(
+            changed.Pairs,
+            pair => pair is PairFinding<StringLiteralUseOccurrence>.Added);
+    }
+
     static StringLiteralUsePatternResult.Match Match(string operand) =>
         Assert.IsType<StringLiteralUsePatternResult.Match>(Inspect(operand));
+
+    static StringLiteralUsePatternResult.Match Result(
+        params StringLiteralUseOccurrence[] occurrences) =>
+        new([.. occurrences], Receipt(occurrences.Length));
+
+    static StringLiteralUseOccurrence Occurrence(
+        Guid mvid,
+        int methodToken,
+        int ilOffset,
+        string literal) =>
+        new(
+            new StringLiteralInstructionAddress(
+                mvid,
+                methodToken,
+                ilOffset),
+            0x70000001,
+            literal.Length,
+            new InertString(TextPolicy.Field, literal),
+            new StringLiteralUseIdentity(literal));
+
+    static StringLiteralUsePatternReceipt Receipt(
+        int occurrences = 0) =>
+        new(
+            methodsVisited: 1,
+            methodBodiesVisited: 1,
+            methodBodyBytesVisited: 1,
+            instructionsVisited: 1,
+            userStringsDecoded: 1,
+            userStringCharactersDecoded: 1,
+            occurrencesRetained: occurrences);
 
     static StringLiteralUsePatternResult.WorkLimitExceeded AssertLimit(
         StringLiteralUsePatternResult result,

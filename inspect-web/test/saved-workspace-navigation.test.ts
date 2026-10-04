@@ -155,7 +155,8 @@ const hostNames = new Set([
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
   "invalidateWorkspaceMembershipViews", "invalidateGraphMemberNavigation",
   "clearWorkspaceOccurrenceView", "clearWorkspacePackages",
-  "activatePackage", "defaultAccessibilityFilter", "resetMemberFilters",
+  "activatePackage", "defaultAccessibilityFilter",
+  "setTypeAccessibilityFilter", "resetMemberFilters",
 ]);
 const hostFunctions = app.program.body.filter(
   node => node.type === "FunctionDeclaration" && hostNames.has(node.id?.name ?? ""));
@@ -220,9 +221,25 @@ function packageSurface(
     types: [{
       id: "Added.Widget", definitionId: "Added.Widget", queryId: "Added.Widget",
       metadataId: "Added.Widget", name: "Widget", displayName: "Added.Widget",
-      namespace: "Added", kind: "class", accessibility: "public", accessibilityId: "public",
+      namespace: "Added", kind: "class", kindFacetId: "api.type-kind.class",
+      traitFacetIds: ["api.type-trait.object"],
+      accessibility: "public", accessibilityId: "public",
       assembly: "Added.Core", assemblyId: "added-core", assemblyName: "Added.Core",
       members: 0, signature: "public class Widget", api: [], platformPack: null,
+    }],
+    typeKinds: [{
+      id: "api.type-kind.class", singularLabel: "class", pluralLabel: "classes",
+      weight: 100, count: 1, isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract", singularLabel: "abstract", pluralLabel: "abstract",
+      weight: 100, count: 0, isDefault: false,
+    }, {
+      id: "api.type-trait.static", singularLabel: "static", pluralLabel: "static",
+      weight: 200, count: 0, isDefault: false,
+    }, {
+      id: "api.type-trait.object", singularLabel: "object", pluralLabel: "objects",
+      weight: 300, count: 1, isDefault: false,
     }],
     accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 1 }],
     totalMembers: 0, documents: [], icon: null, inspectionErrors: [], inspectionError: null,
@@ -303,7 +320,7 @@ function sharedState(): BrowserWorkspaceShareState {
     selectedContextId: "both",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
 }
@@ -1342,7 +1359,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     selectedContextId: "platform-context",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -2349,7 +2366,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [] },
+      section: null, libraries: [], sourceView: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

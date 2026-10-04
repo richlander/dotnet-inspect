@@ -469,6 +469,38 @@ public sealed record BrowserTypeImplementationHeat(
     BrowserAnalysisInspectionDiagnostic[] Diagnostics,
     BrowserCompileLibraryAvailability CompileLibrary);
 
+public sealed record BrowserTypeMethodLeverage(
+    int SchemaVersion,
+    string Outcome,
+    BrowserImplementationProfileSubject? Subject,
+    BrowserTypeMethodLeverageContent? Content,
+    BrowserImplementationProfileFailure? Failure,
+    BrowserAnalysisInspectionShare? Share,
+    BrowserAnalysisInspectionDiagnostic[] Diagnostics,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserTypeMethodLeverageContent(
+    string TypeDefinitionId,
+    int MethodCount,
+    int WinnerCount,
+    BrowserTypeMethodLeverageRank? WinningRank,
+    BrowserTypeMethodLeverageWinner[] AnchoredWinners,
+    BrowserImplementationProfileAnalysisDiagnostic[] AnalysisDiagnostics,
+    BrowserImplementationProfileApiSurfaceFailure[]
+        ApiSurfaceInspectionFailures);
+
+public sealed record BrowserTypeMethodLeverageRank(
+    int DirectCallerCount,
+    int RootReach,
+    int Fanout,
+    int LoopCallCount,
+    int MaxDepth);
+
+public sealed record BrowserTypeMethodLeverageWinner(
+    string TypeDefinitionId,
+    string StableSelector,
+    int[] MethodTokens);
+
 public sealed record BrowserTypeImplementationHeatContent(
     string TypeDefinitionId,
     BrowserImplementationHeatFamily[] Families,
@@ -508,6 +540,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserLibraryStructuralSalience))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserTypeImplementationHeat))]
+[JsonSerializable(typeof(BrowserTypeMethodLeverage))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserCloneCandidateRequest))]

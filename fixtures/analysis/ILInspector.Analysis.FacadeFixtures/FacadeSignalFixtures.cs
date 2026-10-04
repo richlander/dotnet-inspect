@@ -20,5 +20,20 @@ namespace ILInspector.Analysis.FacadeFixtures
         // System.Linq.Expressions.* -> reflection signal.
         public static Expression BuildsExpression()
             => Expression.Constant(42);
+
+        // Enumerable.Any(predicate) inside a loop -> repeated membership scan.
+        public static int LinqMembershipScanInLoop(
+            IEnumerable<int> values,
+            int[] keys)
+        {
+            int matches = 0;
+            foreach (int key in keys)
+            {
+                if (values.Any(value => value == key))
+                    matches++;
+            }
+
+            return matches;
+        }
     }
 }

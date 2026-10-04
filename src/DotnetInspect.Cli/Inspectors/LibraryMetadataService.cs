@@ -65,6 +65,9 @@ internal static class LibraryMetadataService
                 queryPlan is null
                     ? queries
                     : queryPlan.Queries;
+            bool applicabilityOnly =
+                options.Discover is not null
+                && options.Effective;
             if (requiredQueries?.Contains(
                     LibraryNameFamilyQuery.Definition) == true
                 && assemblyReference is
@@ -197,10 +200,13 @@ internal static class LibraryMetadataService
                         Trace = trace,
                         RequestedQueries = requiredQueries,
                         CountOnly = options.Count,
+                        ApplicabilityOnly = applicabilityOnly,
                         NameFamilyPopulation =
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
                             options.NameFamilyRowSelection,
+                        DependencyStructureRowSelection =
+                            options.DependencyStructureRowSelection,
                     };
                     await RunTypedQueriesAsync(
                         path,
@@ -283,11 +289,16 @@ internal static class LibraryMetadataService
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
-            var appContextSwitches =
-                AppContextSwitchProjectionProducer.ProduceInventory(
-                    pdbContext.MethodBodies);
-            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Length;
-            inspection.HasSwitches = inspection.SwitchCount > 0;
+            // The Switches row is an overview count, so it reads only the
+            // switches the metadata declares (docs/design/progressive-disclosure.md#overview-cost).
+            // AppContext call sites need every IL body; the Switches section's
+            // query reads them on request, and plain discovery reads them here
+            // only to decide whether that section has data.
+            inspection.SwitchCount = presenceFlags.SwitchCount;
+            inspection.HasSwitches = presenceFlags.SwitchCount > 0
+                || (discoveryOnly
+                    && AppContextSwitchProjectionProducer.ProduceInventory(
+                        pdbContext.MethodBodies).Length > 0);
 
             if (integrationsEntry is not null)
             {
@@ -343,10 +354,13 @@ internal static class LibraryMetadataService
                     Trace = trace,
                     RequestedQueries = requiredQueries,
                     CountOnly = options.Count,
+                    ApplicabilityOnly = applicabilityOnly,
                     NameFamilyPopulation =
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
                         options.NameFamilyRowSelection,
+                    DependencyStructureRowSelection =
+                        options.DependencyStructureRowSelection,
                 };
 
                 await RunTypedQueriesAsync(
@@ -396,8 +410,10 @@ internal static class LibraryMetadataService
                         logger,
                         new MethodClassificationBindingResult.Available(
                             MethodClassificationQuery.Execute(
-                                session,
-                                MethodClassificationDemand.AllQuestions)));
+                                MethodClassificationQuery.Prepare(
+                                    session,
+                                    MethodClassificationDemand
+                                        .AllQuestions))));
                 }
 
                 catch (Exception ex)
@@ -552,7 +568,9 @@ internal static class LibraryMetadataService
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true)
+            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true
+            || queries?.Contains(
+                LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
@@ -2382,6 +2400,18 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                LibraryDependencyStructureQuery.Definition,
+                out LibraryDependencyStructureQueryResult?
+                    dependencyStructure))
+        {
+            ApplyLibraryDependencyStructureResult(
+                path,
+                inspection,
+                logger,
+                dependencyStructure);
+        }
+
+        if (results.TryGet(
                 OptimizationOpportunitiesQuery.Definition,
                 out OptimizationOpportunitiesResult? optimizationOpportunities))
         {
@@ -2710,6 +2740,34 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ApplyLibraryDependencyStructureResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryDependencyStructureQueryResult result)
+    {
+        inspection.DependencyStructureQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryDependencyStructureQueryResult.Available:
+            case LibraryDependencyStructureQueryResult.Unavailable:
+            case LibraryDependencyStructureQueryResult.SelectionFailed:
+                break;
+
+            case LibraryDependencyStructureQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting dependency structure in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown dependency structure result "
+                    + $"'{result.GetType().Name}'.");
+        }
+    }
+
     internal static ImmutableArray<Analysis.OptimizationOpportunity>
         SelectPerformanceTriageOpportunities(
             OptimizationOpportunitiesResult.Available available,
@@ -2970,6 +3028,9 @@ internal static class LibraryMetadataService
                     case MethodClassificationAnalyzer.PointerSignature:
                         inspection.UnsafeMethodCount = count.Value;
                         break;
+                    case MethodClassificationAnalyzer.Extension:
+                        inspection.ExtensionMethodCount = count.Value;
+                        break;
                     default:
                         throw new InvalidOperationException(
                             $"No consumer asks for the {question.Analyzer} count.");
@@ -3015,6 +3076,25 @@ internal static class LibraryMetadataService
                     default:
                         throw new InvalidOperationException(
                             $"No consumer asks for {question.Analyzer} rows.");
+                }
+
+                break;
+
+            case ClassificationAnswer.Exists exists:
+                switch (question.Analyzer)
+                {
+                    case MethodClassificationAnalyzer.PInvoke:
+                        inspection.PInvokeMethodPresence =
+                            exists.Value;
+                        break;
+                    case MethodClassificationDemand.AsyncAnalyzer:
+                        inspection.AsyncMethodPresence =
+                            exists.Value;
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"No applicability consumer asks whether "
+                            + $"{question.Analyzer} exists.");
                 }
 
                 break;

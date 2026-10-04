@@ -45,6 +45,8 @@ internal static class BrowserMetadataWireProjection
             type.DisplayName,
             type.Namespace,
             type.Kind,
+            type.KindFacetId,
+            type.TraitFacetIds,
             type.Accessibility,
             type.AccessibilityId,
             type.Assembly,

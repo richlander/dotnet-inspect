@@ -6,7 +6,6 @@ export type PlatformLibraryLens =
   | "metadata";
 
 export interface LibraryControlBindingActions {
-  onAccessibilityChipSelect: (accessibility: string) => void;
   onLibraryApiRetry: () => void;
   onLibraryChipSelect: (library: string) => void;
   onLibraryJump: (library: string) => void;
@@ -32,11 +31,6 @@ export function bindLibraryControls(
     button.addEventListener(
       "click",
       () => actions.onLibraryChipSelect(button.dataset.libraryChip ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-access-chip]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onAccessibilityChipSelect(
-        button.dataset.accessChip ?? "")));
   root.querySelectorAll<HTMLElement>("[data-library-api-retry]")
     .forEach(button =>
       button.addEventListener("click", actions.onLibraryApiRetry));

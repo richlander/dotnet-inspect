@@ -186,8 +186,11 @@ public sealed partial class WorkspaceCommandTests
                     $"U+{(int)character:X4} '{character}'")));
     }
 
-    [Fact]
-    public async Task GenericTypeSelector_CopiesFromMarkdownAndRebinds()
+    [Theory]
+    [InlineData("type.compare")]
+    [InlineData(".compare")]
+    public async Task GenericTypeSelector_CopiesFromMarkdownAndRebinds(
+        string lens)
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(
@@ -228,7 +231,7 @@ public sealed partial class WorkspaceCommandTests
                         $"compile:lib/{Framework}/"
                             + "DotnetInspect.Cli.Tests.dll",
                     Type = portable,
-                    Lens = "type.compare",
+                    Lens = lens,
                     Format = OutputFormat.Json,
                 },
                 load,

@@ -1385,8 +1385,12 @@ public sealed partial class CSharpPrinter
     bool StrictlyNarrowsReference(TypeRef candidate, TypeRef load)
         => IsReferenceLike(candidate)
             && !candidate.Equals(load)
-            && CanAssignType(candidate, load)
-            && !CanAssignType(load, candidate);
+            && CanAssignForNarrowing(candidate, load)
+            && !CanAssignForNarrowing(load, candidate);
+
+    bool CanAssignForNarrowing(TypeRef source, TypeRef target)
+        => CanAssignType(source, target)
+            || IsCoreObject(target) && IsReferenceLike(source);
 
     bool CanLoadAsType(TypeRef source, LoadStackSlot load)
     {
@@ -1403,6 +1407,8 @@ public sealed partial class CSharpPrinter
         if (value is Conditional conditional)
             return CanRenderValueConditionalForTarget(conditional, target)
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
+        if (value is Coalesce)
+            return false;
         if (value is Constant { Value: int or long } constant
             && target.DeclaredValueTypeHint == ValueTypeHint.ValueType
             && CoercionRendering.CanSpellUnknownEnumConstant(constant.ResultType, target, _function.TypeShapes))
@@ -1415,8 +1421,6 @@ public sealed partial class CSharpPrinter
         if (source.Equals(target))
             return true;
         if (CSharpConversionRules.IsImplicitNumericAssignment(source, target))
-            return true;
-        if (IsCoreObject(target) && IsReferenceLike(source))
             return true;
         return false;
     }

@@ -153,6 +153,9 @@ public sealed class MethodRowGateTests
         Assert.Equal(0, loggedResult.Value);
         Assert.Same(critical, rowsResult.Critical);
         Assert.Same(critical, loggedResult.Critical);
+        Assert.Equal(
+            critical.UnitToken & 0x00FF_FFFF,
+            execution.Receipt.UnitsVisited);
         Assert.All(LoggingPredicate.Tokens, token => Assert.True(token <= critical.UnitToken));
     }
 

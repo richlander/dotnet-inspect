@@ -11,6 +11,7 @@ namespace DotnetInspector.Services.Tests;
 /// coordinate's authorized sources are consulted, and the producer that served
 /// the bytes stays with them.
 /// </summary>
+[Collection(PersistentCacheCollection.Name)]
 public sealed class PackagePayloadAcquisitionTests
 {
     static readonly PackageSource NuGetOrg = PackageSource.NuGetOrg;

@@ -271,9 +271,7 @@ public sealed class SlotMaterializationPass : IIrPass
             TypeRef target,
             IReadOnlyDictionary<TypeRef, TypeShape> shapes)
             => CoercionDomain.IsAtTarget(value, target)
-                || ReferenceAssignmentTargets.CanAssignNullLiteralTo(value, target, shapes)
-                || value is Conditional conditional
-                    && conditional.CanAssignReferenceArmsTo(target, shapes);
+                || ReferenceAssignmentTargets.CanAssignStorageTo(value, target, shapes);
 
         static TypeRef? UnanimousManagedReferenceStoreType(
             IReadOnlyList<StoreStackSlot> stores)

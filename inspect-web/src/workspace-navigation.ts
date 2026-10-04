@@ -18,6 +18,10 @@ import {
   encodeBodyTarget,
   type BodyTarget,
 } from "./member-filtering.ts";
+import {
+  memberSourceView,
+  type MemberSourceView,
+} from "./source-inspection.ts";
 import type {
   BrowserWorkspaceShareContext,
   BrowserWorkspaceShareDecodeResult,
@@ -43,10 +47,13 @@ export interface WorkspaceView {
   memberAccessibilityFilter: string;
   memberTraitFilter: string;
   memberTextFilter: string;
+  methodLeverageEnabled?: boolean;
+  memberLeverageFilter?: "" | "top-leverage";
   selectedOverloadIndex: number | null;
   memberDocumentFingerprint?: string;
   bodyTarget: BodyTarget | null;
   memberSection: MemberSection;
+  memberSourceView?: MemberSourceView;
   atPackageRoot: boolean;
   atLibraryRoot: boolean;
   packageLens: PackageLens;
@@ -71,11 +78,14 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     mk: view.memberKindFilter,
     ma: view.memberAccessibilityFilter,
     mr: view.memberTraitFilter,
+    mle: view.methodLeverageEnabled === true,
+    mlf: view.memberLeverageFilter ?? "",
     o: view.selectedOverloadIndex,
     mf: view.memberDocumentFingerprint ?? "",
     b: graphTarget ? null : encodeBodyTarget(view.bodyTarget),
     g: graphTarget,
     s: view.memberSection,
+    sv: view.memberSourceView ?? "source",
     pr: view.atPackageRoot,
     lr: view.atLibraryRoot,
     pl: view.packageLens,
@@ -299,12 +309,14 @@ export interface WorkspaceDeepLink {
   memberSignature?: string | null;
   overload?: string | null;
   section?: MemberSection | null;
+  memberSourceView?: MemberSourceView | null;
   bodyTarget?: BodyTarget | null;
   memberBrowse?: boolean;
   memberTextFilter?: string;
   memberKindFilter?: string;
   memberAccessibilityFilter?: string;
   memberTraitFilter?: string;
+  memberLeverageFilter?: "" | "top-leverage";
   graphTarget?: GraphMemberShareIdentity | null;
 }
 
@@ -316,6 +328,7 @@ export interface WorkspaceUrlState {
   activeTabId: string;
   selectedContextId: string;
   view: BrowserWorkspaceShareView;
+  memberLeverageFilter?: "" | "top-leverage";
 }
 
 export interface PackageRootUrlState {
@@ -627,6 +640,7 @@ export interface DecodedShareState {
   memberAnchor: string | null;
   memberSignature: string | null;
   section: MemberSection | null;
+  memberSourceView: MemberSourceView | null;
   library: string | null;
 }
 
@@ -765,6 +779,21 @@ function decodeWorkspaceShareResult(
   const memberSection = section && isMemberSection(section)
     ? section
     : null;
+  const sourceView = state.view.sourceView == null
+    ? null
+    : memberSourceView(state.view.sourceView);
+  if (state.view.sourceView != null && sourceView === null) {
+    return {
+      error: `The shared member source view '${state.view.sourceView}' is not supported by this browser.`,
+    };
+  }
+  if (sourceView !== null
+    && (memberSection !== "source"
+      || (!state.view.memberAnchor && !state.view.memberSignature))) {
+    return {
+      error: "The shared member source view requires a selected member Source section.",
+    };
+  }
   const packageLens = !(state.view.type && state.view.lens === "overview")
     && isPackageLens(state.view.lens)
     ? state.view.lens
@@ -807,6 +836,7 @@ function decodeWorkspaceShareResult(
     memberAnchor: state.view.memberAnchor,
     memberSignature: state.view.memberSignature,
     section: memberSection,
+    memberSourceView: sourceView,
     library: state.view.libraries[0] ?? null,
   };
 }
@@ -924,6 +954,7 @@ function resolveWorkspaceLocation(
   let section: MemberSection | null = isMemberSection(sectionToken)
     ? sectionToken
     : null;
+  let selectedMemberSourceView: MemberSourceView | null = null;
   let bodyTarget: BodyTarget | null = null;
   const presentationToken = location.hash.slice(1);
   let viewToken = presentationToken;
@@ -938,6 +969,10 @@ function resolveWorkspaceLocation(
   let memberKindFilter = "all";
   let memberAccessibilityFilter = "public";
   let memberTraitFilter = "";
+  const memberLeverageFilter: "" | "top-leverage" =
+    params.get("member-leverage") === "top"
+    ? "top-leverage"
+    : "";
   let graphTarget: GraphMemberShareIdentity | null = null;
   let shareState: BrowserWorkspaceShareState | null = null;
   const workspaceNotice = share && "error" in share ? share.error : "";
@@ -963,6 +998,7 @@ function resolveWorkspaceLocation(
     memberSignature = share.memberSignature;
     overload = null;
     section = share.section;
+    selectedMemberSourceView = share.memberSourceView;
     bodyTarget = null;
     library = share.library;
     libraryPack = null;
@@ -998,6 +1034,7 @@ function resolveWorkspaceLocation(
     memberSignature,
     overload,
     section,
+    memberSourceView: selectedMemberSourceView,
     bodyTarget,
     lens: view.lens,
     workspaceSubjectOpen: view.workspaceSubjectOpen,
@@ -1016,6 +1053,7 @@ function resolveWorkspaceLocation(
     memberKindFilter,
     memberAccessibilityFilter,
     memberTraitFilter,
+    memberLeverageFilter,
     graphTarget,
     shareState,
     hasWorkspaceState,
@@ -1097,6 +1135,8 @@ export function buildWorkspaceStateUrl(
   if (state.package) params.set("package", state.package);
   const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
+  if (state.memberLeverageFilter === "top-leverage")
+    params.set("member-leverage", "top");
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;
@@ -1112,6 +1152,8 @@ export async function buildWorkspaceStateUrlAsync(
   const params = new URLSearchParams();
   params.set("package", state.package);
   params.set("w", await encodeWorkspaceShareStateAsync(state, encode));
+  if (state.memberLeverageFilter === "top-leverage")
+    params.set("member-leverage", "top");
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;

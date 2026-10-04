@@ -402,6 +402,7 @@ public static class WorkspaceSharePacketCodec
             "m",
             "s",
             "c",
+            "o",
             "l");
 
         WorkspaceShareTab[] tabs = ReadTabs(
@@ -423,6 +424,7 @@ public static class WorkspaceSharePacketCodec
         string? memberAnchor = OptionalString(root, "m");
         string? memberSignature = OptionalString(root, "s");
         string? section = OptionalString(root, "c");
+        string? sourceView = OptionalString(root, "o");
         string[] libraries = ReadLibraries(root);
 
         if (memberAnchor is not null && memberSignature is not null)
@@ -440,7 +442,8 @@ public static class WorkspaceSharePacketCodec
             memberAnchor,
             memberSignature,
             section,
-            libraries);
+            libraries,
+            sourceView);
     }
 
     private static WorkspaceSharePacket BindFormat2(JsonElement root)
@@ -1854,6 +1857,7 @@ public static class WorkspaceSharePacketCodec
         writer.WriteOptionalProperty("m"u8, packet.MemberAnchor);
         writer.WriteOptionalProperty("s"u8, packet.MemberSignature);
         writer.WriteOptionalProperty("c"u8, packet.Section);
+        writer.WriteOptionalProperty("o"u8, packet.SourceView);
         if (packet.Libraries.Count > 0)
         {
             writer.WriteAscii(",\"l\":["u8);
