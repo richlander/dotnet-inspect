@@ -348,26 +348,31 @@ public class JoinTypeConflictTests : IDisposable
         // The merge-private chain walk must end on the revisit; before the
         // iteration bound it spun forever on `Merge(A, C)`, so the import of a
         // method joining those arms never returned (adversarial review of
-        // #9266, round 2).
+        // #9266, round 2). The generic pair `GA<T> : GB<Tuple<T,T>>` /
+        // `GB<T> : GA<Tuple<T,T>>` never revisits an equal instance and
+        // doubles the instance at every step, so a step bound alone still
+        // left a walk growing as 2^depth (round 3); the walk must end on the
+        // repeated definition, including under an interface arm whose
+        // implementation walk climbs the same chain.
         var deployment = CompileSkewCycleDeployment();
         _disposables.Push(deployment);
         var source = MetadataSource.Open(deployment.ConsumerPath);
         _disposables.Push(source);
 
-        foreach (var method in new[] { "L", "G", "K", "H" })
+        foreach (var method in new[] { "L", "G", "K", "H", "GD", "DG", "GI", "IG" })
         {
             IrFunction? function = null;
             var worker = new Thread(() => function = IrImporter.Import(source, "M.P", method)) { IsBackground = true };
             worker.Start();
             Assert.True(worker.Join(TimeSpan.FromSeconds(60)), $"IrImporter.Import of M.P::{method} did not return within 60 seconds");
             Assert.NotNull(function);
-            // The cycle shares no ancestor with C, the arms are class
-            // definitions outside the ECMA stack-family table, and nothing
-            // proves object: the import leaves the join an honest unknown and
-            // publishes no widening. The printed body's fidelity label for a
-            // declined sibling join is #9281's pre-existing concern, not this
-            // test's; it only has to render.
-            Assert.Contains(function!.Diagnostics, d => (d.Message ?? "").Contains("(join-type)") && ((d.Message ?? "").Contains("A and C") || (d.Message ?? "").Contains("C and A")));
+            // The cycle shares no ancestor with the other arm, the arms are
+            // class or interface definitions outside the ECMA stack-family
+            // table, and nothing proves object: the import leaves the join an
+            // honest unknown and publishes no widening. The printed body's
+            // fidelity label for a declined sibling join is #9281's
+            // pre-existing concern, not this test's; it only has to render.
+            Assert.Contains(function!.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
             Assert.Empty(function.ProvenReferenceWidenings);
             Assert.NotNull(CSharpPrinter.PrintRaised(function).Output);
         }
@@ -400,7 +405,10 @@ public class JoinTypeConflictTests : IDisposable
     /// <summary>
     /// Compiles the four skew assemblies with Roslyn and deploys the consumer
     /// beside SkewX v2 and SkewY, the shape a package directory takes when two
-    /// packages were each built against the other's earlier version. The
+    /// packages were each built against the other's earlier version: a plain
+    /// cycle `A : B : A` and a generic doubling cycle `GA<T> : GB<Tuple<T,T>>`
+    /// / `GB<T> : GA<Tuple<T,T>>`, plus an interface `I` for the
+    /// implementation walk. The
     /// construction is intrinsic to the case (a malformed deployment), so it is
     /// test-local rather than a cataloged fixture binary.
     /// </summary>
@@ -409,17 +417,21 @@ public class JoinTypeConflictTests : IDisposable
         string directory = Path.Combine(Path.GetTempPath(), $"skew-cycle-{Guid.NewGuid():N}");
         System.IO.Directory.CreateDirectory(directory);
 
-        var xReference = Compile("SkewX", "namespace S; public class A {} public class C {}");
-        var yStub = Compile("SkewY", "namespace S; public class B {}");
-        var yDeployed = Compile("SkewY", "namespace S; public class B : A {}", xReference);
-        var xDeployed = Compile("SkewX", "namespace S; public class A : B {} public class C {}", yStub);
+        var xReference = Compile("SkewX", "namespace S; public class A {} public class C {} public class GA<T> {} public interface I {}");
+        var yStub = Compile("SkewY", "namespace S; public class B {} public class GB<T> {}");
+        var yDeployed = Compile("SkewY", "namespace S; public class B : A {} public class GB<T> : GA<System.Tuple<T, T>> {}", xReference);
+        var xDeployed = Compile("SkewX", "namespace S; public class A : B {} public class C {} public class GA<T> : GB<System.Tuple<T, T>> {} public interface I {}", yStub);
         var consumer = Compile(
             "SkewM",
             "namespace M; public static class P {" +
                 " public static string K(bool c, S.A a, S.C cc) => (c ? (object)a : cc).ToString();" +
                 " public static string L(bool c, S.A a, S.C cc) => (c ? (object)cc : a).ToString();" +
                 " public static int H(bool c, S.A a, S.C cc) => (c ? (object)a : cc).GetHashCode();" +
-                " public static int G(bool c, S.A a, S.C cc) => (c ? (object)cc : a).GetHashCode(); }",
+                " public static int G(bool c, S.A a, S.C cc) => (c ? (object)cc : a).GetHashCode();" +
+                " public static string GD(bool c, S.GA<int> g, S.C cc) => (c ? (object)cc : g).ToString();" +
+                " public static string DG(bool c, S.GA<int> g, S.C cc) => (c ? (object)g : cc).ToString();" +
+                " public static string GI(bool c, S.I i, S.GA<int> g) => (c ? (object)i : g).ToString();" +
+                " public static string IG(bool c, S.I i, S.GA<int> g) => (c ? (object)g : i).ToString(); }",
             xReference);
 
         File.WriteAllBytes(Path.Combine(directory, "SkewX.dll"), xDeployed);

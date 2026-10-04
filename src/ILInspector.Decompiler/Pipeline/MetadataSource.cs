@@ -1618,8 +1618,10 @@ public sealed class MetadataSource : IDisposable
     {
         if (Implements(type, iface))
             return true;
-        int depth = 0;
-        for (var current = type; current is not null && depth < 64; current = ResolveBaseTypeForMerge(current), depth++)
+        // Bounded like MergeReferenceTypes' walks: a repeated definition (a
+        // version-skew cycle, generic or not) ends the walk.
+        var definitions = new HashSet<TypeRef>();
+        for (var current = type; current is not null && definitions.Count < 64 && definitions.Add(WalkDefinition(current)); current = ResolveBaseTypeForMerge(current))
         {
             if (!IsSameAssemblyDefinition(current)
                 && CrossAssembly.Implements(current, iface) == MetadataFactState.Yes)
@@ -1629,6 +1631,13 @@ public sealed class MetadataSource : IDisposable
         }
         return false;
     }
+
+    /// <summary>
+    /// The identity a base-chain walk counts as visited: the generic definition
+    /// for an instance, the type itself otherwise.
+    /// </summary>
+    static TypeRef WalkDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } definition ? definition : type;
 
     /// <summary>
     /// Whether <paramref name="type"/> can legally be the receiver of C#
@@ -1709,22 +1718,25 @@ public sealed class MetadataSource : IDisposable
         // (TryRebindToModuleReferences): this module must reference it, so no
         // TypeRef enters the IR under an identity the function's rows do not
         // share; otherwise the join stays honestly unknown.
-        // Both walks are bounded by iteration count, never by set size: two
-        // resolved assemblies in version skew can declare `A : B` and `B : A`
-        // (each compiled against the other's earlier shape), and a chain that
-        // revisits a type would otherwise stop growing the set but never stop
-        // the loop. A revisit ends the walk; the join then declines like any
-        // chain without a shared ancestor (an honest unknown unless the
-        // caller's stack-family fallback applies).
+        // Both walks end on a revisited definition (the generic definition for
+        // an instance) and never run more than 64 steps. Two resolved
+        // assemblies in version skew can declare `A : B` and `B : A` (each
+        // compiled against the other's earlier shape); a generic pair
+        // `GA<T> : GB<Tuple<T,T>>` / `GB<T> : GA<Tuple<T,T>>` never revisits an
+        // equal instance at all, its instances double at every step, and a
+        // step bound alone leaves a 2^64-sized walk. In a valid ECMA-335
+        // hierarchy a definition never appears twice in its own base chain,
+        // so ending on a repeated definition can only decline, never answer
+        // wrongly; the join then declines like any chain without a shared
+        // ancestor (an honest unknown unless the caller's stack-family
+        // fallback applies).
         var ancestorsA = new Dictionary<TypeRef, TypeRef>();
-        var ancestor = a;
-        for (int depth = 0; ancestor is not null && depth < 64; depth++, ancestor = ResolveBaseTypeForMerge(ancestor))
-        {
-            if (!ancestorsA.TryAdd(ancestor, ancestor))
-                break;
-        }
+        var definitionsA = new HashSet<TypeRef>();
+        for (var ancestor = a; ancestor is not null && definitionsA.Count < 64 && definitionsA.Add(WalkDefinition(ancestor)); ancestor = ResolveBaseTypeForMerge(ancestor))
+            ancestorsA.TryAdd(ancestor, ancestor);
+        var definitionsB = new HashSet<TypeRef>();
         var fromB = b;
-        for (int depth = 0; fromB is not null && depth < 64; depth++, fromB = ResolveBaseTypeForMerge(fromB))
+        for (int depth = 0; fromB is not null && depth < 64 && definitionsB.Add(WalkDefinition(fromB)); depth++, fromB = ResolveBaseTypeForMerge(fromB))
         {
             if (!ancestorsA.TryGetValue(fromB, out var fromA))
                 continue;

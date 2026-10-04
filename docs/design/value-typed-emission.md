@@ -1124,10 +1124,12 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `Implements`, `SameDefinition`), so a `UTF8Encoding`/`Encoding` diamond or
    an `IEqualityComparer<T>` ?? `EqualityComparer<T>` join types at import.
    The cross-assembly reach is merge-private (`ResolveBaseTypeForMerge`,
-   `IsInterfaceForMerge`, `ImplementsForMerge`), and both chain walks are
-   bounded by iteration count and end on a revisited type, because two
-   resolved assemblies in version skew can declare `A : B` and `B : A` (each
-   compiled against the other's earlier shape); `ResolveBaseType` and its other consumers —
+   `IsInterfaceForMerge`, `ImplementsForMerge`), and every chain walk ends on a revisited
+   definition (the generic definition for an instance) within 64 steps,
+   because two resolved assemblies in version skew can declare `A : B` and
+   `B : A`, or `GA<T> : GB<Tuple<T,T>>` and `GB<T> : GA<Tuple<T,T>>` whose
+   instances never repeat and double at every step (each compiled against the
+   other's earlier shape); `ResolveBaseType` and its other consumers —
    `AreProvablyDisjoint`, `InterfacesOf`, `SupportsCollectionInitializer`,
    the importer's declaring-type base, `ConstructorConfinementFacts` — keep
    their same-assembly contracts, because a facade-forwarded ancestor
