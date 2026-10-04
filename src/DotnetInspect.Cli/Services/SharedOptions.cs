@@ -783,6 +783,34 @@ public class SharedOptions
                         + "bare explanation and .references are reserved)",
             Arity = ArgumentArity.ZeroOrOne,
         };
+        AddExplanationProjectionValidator(
+            option,
+            "-E",
+            allowBareExplanation);
+        return option;
+    }
+
+    public static Option<string?> CreateExplanationOption()
+    {
+        var option = new Option<string?>("--explain")
+        {
+            Description =
+                "Explain the Member command or one exact resolved Member; "
+                    + "use '.tips' to select only contextual tips",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        AddExplanationProjectionValidator(
+            option,
+            "--explain",
+            allowBareExplanation: true);
+        return option;
+    }
+
+    private static void AddExplanationProjectionValidator(
+        Option<string?> option,
+        string optionName,
+        bool allowBareExplanation)
+    {
         option.Validators.Add(result =>
         {
             if (result.Tokens.Count == 0)
@@ -790,8 +818,10 @@ public class SharedOptions
                 if (!allowBareExplanation)
                 {
                     result.AddError(
-                        "Bare '-E' is reserved for complete contextual explanation, "
-                        + "which is not available yet. Use '-E .tips' for contextual tips.");
+                        $"Bare '{optionName}' is reserved for complete "
+                            + "contextual explanation, which is not available "
+                            + $"yet. Use '{optionName} .tips' for contextual "
+                            + "tips.");
                 }
                 return;
             }
@@ -802,12 +832,32 @@ public class SharedOptions
 
             result.AddError(
                 value == ".references"
-                    ? "'-E .references' is reserved for reusable references, "
-                        + "which are not available yet."
-                    : $"Unknown companion projection '{value}'. "
+                    ? $"'{optionName} .references' is reserved for reusable "
+                        + "references, which are not available yet."
+                    : $"Unknown "
+                        + (optionName == "-E"
+                            ? "companion"
+                            : "explanation")
+                        + $" projection '{value}'. "
                         + "Known projections are '.tips' and '.references'.");
         });
-        return option;
+    }
+
+    public static ExplanationProjection? ParseExplanationProjection(
+        ParseResult parseResult,
+        Option<string?> option)
+    {
+        OptionResult? result = parseResult.GetResult(option);
+        if (result is null)
+            return null;
+        if (result.Tokens.Count == 0)
+            return ExplanationProjection.Complete;
+        return parseResult.GetValue(option) switch
+        {
+            ".tips" => ExplanationProjection.Tips,
+            ".references" => ExplanationProjection.References,
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -818,14 +868,12 @@ public class SharedOptions
         Option<string?>? companion = null)
     {
         companion ??= Companion;
-        OptionResult? result = parseResult.GetResult(companion);
-        if (result is null)
-            return CompanionOutput.None;
-        if (result.Tokens.Count == 0)
-            return CompanionOutput.Explanation;
-        return parseResult.GetValue(companion) == ".tips"
-            ? CompanionOutput.Tips
-            : CompanionOutput.None;
+        return ParseExplanationProjection(parseResult, companion) switch
+        {
+            ExplanationProjection.Complete => CompanionOutput.Explanation,
+            ExplanationProjection.Tips => CompanionOutput.Tips,
+            _ => CompanionOutput.None,
+        };
     }
 
     /// <summary>

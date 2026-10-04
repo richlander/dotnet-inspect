@@ -1496,6 +1496,7 @@ type $ManagedExports = {
             readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
+            readonly "RunEcosystemPackageQuery.1079207954": (operationId: string, ecosystemId: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
             readonly "RunPackageQuery.1685943924": (operationId: string, prefix: string, termsJson: string, targetFramework: string | null, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "SearchCapabilities.146925470": (text: string, maximumResults: number) => string;
@@ -1916,6 +1917,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "RunEcosystemPackageQuery.1079207954");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunEcosystemPackageQuery.1079207954\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "RunPackageActivity.1791926993");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageActivity.1791926993\u0027 is not callable.");
@@ -2174,6 +2187,12 @@ export function requestPackageQueryMatches(operationId: string, additionalMatchC
 
 export async function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string> {
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
+}
+
+export async function runEcosystemPackageQuery(operationId: string, ecosystemId: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunEcosystemPackageQuery.1079207954"](operationId, ecosystemId, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageQueryResult;
 }
 
 export async function runPackageActivity(operationId: string, requestJson: BrowserPackageChangesRequest, eventSink: unknown): Promise<BrowserPackageChangesResult> {

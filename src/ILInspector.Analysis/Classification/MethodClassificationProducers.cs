@@ -157,11 +157,11 @@ public struct ExtensionMethodRowProjection : IMethodDefinitionProjection<Classif
         ClassifiedRows.Project(view, MethodClassification.Extension, withModule: false);
 }
 
-/// <summary>The extension-method analyzer: rows the extension scope admits.</summary>
-public sealed class ExtensionMethodAnalyzer
+/// <summary>The extension-method analyzer's Producer Planning declaration.</summary>
+public sealed class ExtensionMethodClassificationProducer
     : MethodDefinitionQueryProducer<ExtensionMethodScope.Classification, ExtensionMethodTest, ExtensionMethodRowProjection, ClassifiedMethodRow>
 {
-    ExtensionMethodAnalyzer()
+    ExtensionMethodClassificationProducer()
         : base(
             "MethodClassification.Extension",
             version: 1,
@@ -171,7 +171,7 @@ public sealed class ExtensionMethodAnalyzer
     {
     }
 
-    public static ExtensionMethodAnalyzer Instance { get; } = new();
+    public static ExtensionMethodClassificationProducer Instance { get; } = new();
 
     internal override MethodRowClassifier<ExtensionMethodScope.Classification> GateClassifier =>
         ExtensionMethodScope.Instance;
@@ -194,11 +194,11 @@ public struct PInvokeRowProjection : IMethodDefinitionProjection<ClassifiedMetho
         ClassifiedRows.Project(view, MethodClassification.PInvoke, withModule: true);
 }
 
-/// <summary>The P/Invoke analyzer: rows the gate classifies <c>PInvoke</c>.</summary>
-public sealed class PInvokeAnalyzer
+/// <summary>The P/Invoke analyzer's Producer Planning declaration.</summary>
+public sealed class PInvokeClassificationProducer
     : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, PInvokeTest, PInvokeRowProjection, ClassifiedMethodRow>
 {
-    PInvokeAnalyzer()
+    PInvokeClassificationProducer()
         : base(
             "MethodClassification.PInvoke",
             version: 1,
@@ -208,7 +208,7 @@ public sealed class PInvokeAnalyzer
     {
     }
 
-    public static PInvokeAnalyzer Instance { get; } = new();
+    public static PInvokeClassificationProducer Instance { get; } = new();
 
     internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
         MethodClassificationScope.Instance;
@@ -231,11 +231,11 @@ public struct PointerSignatureRowProjection : IMethodDefinitionProjection<Classi
         ClassifiedRows.Project(view, MethodClassification.Unsafe, withModule: false);
 }
 
-/// <summary>The pointer-signature analyzer: <c>Other</c> rows whose signature has a pointer.</summary>
-public sealed class PointerSignatureAnalyzer
+/// <summary>The pointer-signature analyzer's Producer Planning declaration.</summary>
+public sealed class PointerSignatureClassificationProducer
     : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, PointerSignatureTest, PointerSignatureRowProjection, ClassifiedMethodRow>
 {
-    PointerSignatureAnalyzer()
+    PointerSignatureClassificationProducer()
         : base(
             "MethodClassification.PointerSignature",
             version: 1,
@@ -245,7 +245,7 @@ public sealed class PointerSignatureAnalyzer
     {
     }
 
-    public static PointerSignatureAnalyzer Instance { get; } = new();
+    public static PointerSignatureClassificationProducer Instance { get; } = new();
 
     internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
         MethodClassificationScope.Instance;
@@ -283,11 +283,11 @@ public struct RuntimeAsyncRowProjection : IMethodDefinitionProjection<Classified
         ClassifiedRows.Project(view, MethodClassification.RuntimeAsync, withModule: false);
 }
 
-/// <summary>The runtime-async analyzer: <c>Other</c> rows carrying the runtime async flag.</summary>
-public sealed class RuntimeAsyncAnalyzer
+/// <summary>The runtime-async analyzer's Producer Planning declaration.</summary>
+public sealed class RuntimeAsyncClassificationProducer
     : MethodDefinitionQueryProducer<RuntimeAsyncTest, RuntimeAsyncRowProjection, ClassifiedMethodRow>
 {
-    RuntimeAsyncAnalyzer()
+    RuntimeAsyncClassificationProducer()
         : base(
             "MethodClassification.RuntimeAsync",
             version: 1,
@@ -297,7 +297,7 @@ public sealed class RuntimeAsyncAnalyzer
     {
     }
 
-    public static RuntimeAsyncAnalyzer Instance { get; } = new();
+    public static RuntimeAsyncClassificationProducer Instance { get; } = new();
 
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);
@@ -323,11 +323,11 @@ public struct CompilerAsyncRowProjection : IMethodDefinitionProjection<Classifie
         ClassifiedRows.Project(view, MethodClassification.StateMachineAsync, withModule: false);
 }
 
-/// <summary>The compiler-async analyzer: <c>Other</c> rows with a compiler async state-machine attribute.</summary>
-public sealed class CompilerAsyncAnalyzer
+/// <summary>The compiler-async analyzer's Producer Planning declaration.</summary>
+public sealed class CompilerAsyncClassificationProducer
     : MethodDefinitionQueryProducer<CompilerAsyncTest, CompilerAsyncRowProjection, ClassifiedMethodRow>
 {
-    CompilerAsyncAnalyzer()
+    CompilerAsyncClassificationProducer()
         : base(
             "MethodClassification.CompilerAsync",
             version: 1,
@@ -337,7 +337,7 @@ public sealed class CompilerAsyncAnalyzer
     {
     }
 
-    public static CompilerAsyncAnalyzer Instance { get; } = new();
+    public static CompilerAsyncClassificationProducer Instance { get; } = new();
 
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);
@@ -364,13 +364,14 @@ public struct AsyncRowProjection : IMethodDefinitionProjection<ClassifiedMethodR
 }
 
 /// <summary>
-/// The async analyzer: <c>Other</c> rows that are runtime or compiler async,
-/// in one pass. It declares the union of the two analyzers' fields.
+/// The async analyzer's Producer Planning declaration: <c>Other</c> rows that
+/// are runtime or compiler async, in one pass. It declares the union of the
+/// two analyzers' fields.
 /// </summary>
-public sealed class AsyncAnalyzer
+public sealed class AsyncClassificationProducer
     : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, AsyncTest, AsyncRowProjection, ClassifiedMethodRow>
 {
-    AsyncAnalyzer()
+    AsyncClassificationProducer()
         : base(
             "MethodClassification.Async",
             version: 2,
@@ -380,7 +381,7 @@ public sealed class AsyncAnalyzer
     {
     }
 
-    public static AsyncAnalyzer Instance { get; } = new();
+    public static AsyncClassificationProducer Instance { get; } = new();
 
     internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
         MethodClassificationScope.Instance;

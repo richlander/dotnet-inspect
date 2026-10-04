@@ -407,7 +407,7 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
-    public bool Explain { get; init; }
+    public ExplanationProjection? Explanation { get; init; }
     public bool EnvelopeOutput { get; init; }
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
     internal RowSelectionIntent<string>? CallRowSelection { get; init; }

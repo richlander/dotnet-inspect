@@ -160,6 +160,25 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void EcosystemPlan_UsesTheProductMembershipCatalogAndSharedBounds()
+    {
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.PlanEcosystem(
+                "ecosystem.aspire",
+                maximumCandidates: 200,
+                maximumMatches: 96,
+                includePrerelease: false));
+
+        Assert.Equal("ecosystem.aspire", accepted.Plan.Ecosystem?.Value);
+        Assert.Equal(200, accepted.Plan.MaximumCandidates);
+        Assert.Equal(96, accepted.Plan.MaximumMatches);
+        Assert.Contains(
+            accepted.Plan.Intent.Terms,
+            term => term.Key == PackageQuery.EcosystemTermKey
+                && term.Value == "ecosystem.aspire");
+    }
+
+    [Fact]
     public void Project_LibraryLiteralDocumentPreservesTypedAssessmentAndRootRequest()
     {
         using IPackageSourceClient source =
