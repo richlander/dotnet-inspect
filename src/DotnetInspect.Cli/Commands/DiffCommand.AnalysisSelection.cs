@@ -244,7 +244,7 @@ public partial class DiffCommand
             StringLiteralComparisonQuery.CreateIntent(
                 RowPredicateSyntaxParser.PortableOperator(
                     syntax.Operator),
-                syntax.Value);
+                syntax.ExactValue);
         if (syntax.Field != StringLiteralComparisonQuery.LiteralKey)
         {
             CommandError.Write(

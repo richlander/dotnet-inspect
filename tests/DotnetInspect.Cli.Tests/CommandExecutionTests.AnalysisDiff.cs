@@ -1483,8 +1483,15 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Diff_StringLiterals_JsonRetainsExactPredicateContext()
+    [Theory]
+    [InlineData("Literal contains https://", "https://", 3)]
+    [InlineData("Literal contains https:// ", "https:// ", 0)]
+    [InlineData("Literal contains  https://", " https://", 3)]
+    [InlineData("Literal contains  ", " ", 3)]
+    public async Task Diff_StringLiterals_JsonRetainsExactPredicateContext(
+        string expression,
+        string expectedValue,
+        int expectedTransitions)
     {
         string oldPath =
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
@@ -1498,7 +1505,7 @@ public partial class CommandExecutionTests
             "--analysis",
             "string-literals",
             "--where",
-            "Literal contains https://",
+            expression,
             "--json");
 
         Assert.Equal(0, exit);
@@ -1514,8 +1521,13 @@ public partial class CommandExecutionTests
             "contains",
             predicate.GetProperty("operator").GetString());
         Assert.Equal(
-            "https://",
+            expectedValue,
             predicate.GetProperty("value").GetString());
+        Assert.Equal(
+            expectedTransitions,
+            document.RootElement
+                .GetProperty("transitions")
+                .GetArrayLength());
     }
 
     [Theory]
