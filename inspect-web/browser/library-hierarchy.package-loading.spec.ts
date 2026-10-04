@@ -168,33 +168,7 @@ for (const width of [1280, 390]) {
       undefined,
       width === 390 ? longFrameworkSurface : frameworkSurface);
     await page.goto(width === 390 ? longFrameworkRoot : frameworkRoot);
-    await chooseSubject(page, "type", "Type");
-    if (width === 390) {
-      await chooseInspector(page, "data-lens", "source", "Source");
-      await expect(
-        page.getByRole("group", { name: "Source actions" }),
-      ).toBeVisible();
-      await expect(page.getByLabel("Select type code view")).toBeVisible();
-      await expect(page.locator("#copy-type-source")).toBeVisible();
-      await expect(page.getByRole("link", { name: "Open" })).toBeVisible();
-      await expect(page.locator("#explore-source")).toBeVisible();
-      const targetBounds = await page.locator(".inspected-target").boundingBox();
-      const actionBounds = await page.locator(
-        ".working-surface-actions",
-      ).boundingBox();
-      const targetbarBounds = await page.locator(".targetbar").boundingBox();
-      const workspaceBounds = await page.locator("#subject-panel").boundingBox();
-      expect(targetBounds).not.toBeNull();
-      expect(actionBounds).not.toBeNull();
-      expect(targetbarBounds).not.toBeNull();
-      expect(workspaceBounds).not.toBeNull();
-      expect(targetBounds!.y + targetBounds!.height)
-        .toBeLessThanOrEqual(actionBounds!.y + 1);
-      expect(actionBounds!.y + actionBounds!.height)
-        .toBeLessThanOrEqual(targetbarBounds!.y + targetbarBounds!.height + 1);
-      expect(targetbarBounds!.y + targetbarBounds!.height)
-        .toBeLessThanOrEqual(workspaceBounds!.y + 1);
-    }
+    await selectLibrary(page, other.id);
 
     const targetFramework = page.getByRole(
       "button",
@@ -240,9 +214,6 @@ test("Package Overview opens an owner-issued tool Library child", async ({
           assetPath: asset,
           assemblyName: "Tool.Payload",
           role: "ToolEntryPoint",
-          publicTypeDeclarations: 17,
-          countStatus: "Counted",
-          detail: null,
         }],
         runtimeIdentifierPackages: [],
         detail: null,
@@ -262,7 +233,8 @@ test("Package Overview opens an owner-issued tool Library child", async ({
 
   const row = page.locator(`[data-package-child-library="${asset}"]`);
   await expect(row).toContainText("Tool.Payload");
-  await expect(row).toContainText("17 Type declarations · entry point");
+  await expect(row).toContainText("entry point");
+  await expect(row).not.toContainText("Type declarations");
   await row.click();
 
   await expect(subjectTab(page, "library")).toHaveAttribute(
@@ -272,7 +244,7 @@ test("Package Overview opens an owner-issued tool Library child", async ({
 
   await selectLibrary(page, "all");
   await expect(page.locator(".library-overview-surface .api-surface-head p"))
-    .toHaveText("17 types · Member Count unavailable");
+    .toHaveText("Type Count unavailable · Member Count unavailable");
 });
 
 test("Package Overview opens an owner-issued RID Package child", async ({

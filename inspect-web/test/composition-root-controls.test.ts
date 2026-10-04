@@ -500,7 +500,7 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
 test("workspace data bar receives package acquisition provenance", () => {
   assert.match(
     appSource,
-    /createPackageAcquisition\(\{[\s\S]*queryPackage:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
+    /createPackageAcquisition\(\{[\s\S]*queryPackageSummary:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
   assert.match(appSource, /packageAcquisition\.loadPackage\(\{/);
   assert.match(appSource, /packageAcquisition\.loadRuntimePack\(/);
   assert.match(appSource, /packageAcquisition\.loadRuntimePackAssembly\(/);

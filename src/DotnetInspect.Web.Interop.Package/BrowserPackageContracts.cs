@@ -73,8 +73,7 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageSurface? Surface);
 
 public sealed record BrowserPackageRootLoadResult(
-    BrowserPackageChildrenInspection PackageChildren,
-    BrowserPackageSurface Surface);
+    BrowserPackageChildrenInspection PackageChildren);
 
 public sealed record BrowserPackageChildrenInspection(
     BrowserPackageChildren Content,
@@ -96,10 +95,7 @@ public sealed record BrowserPackageLibraryChild(
     string AssetId,
     string AssetPath,
     string AssemblyName,
-    string Role,
-    int? PublicTypeDeclarations,
-    string? CountStatus,
-    string? Detail);
+    string Role);
 
 public sealed record BrowserPackageRuntimeIdentifierChild(
     string RuntimeIdentifier,

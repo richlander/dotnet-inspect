@@ -7,7 +7,6 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
-using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using Markout;
@@ -30,8 +29,6 @@ public partial class PackageCommand
         "Role",
         "Asset",
         "Selector",
-        "Type Declarations",
-        "Count Status",
         "Status",
         "Detail",
     ];
@@ -46,8 +43,6 @@ public partial class PackageCommand
         "role",
         "asset",
         "selector",
-        "type_declarations",
-        "count_status",
         "status",
         "detail",
     ];
@@ -148,10 +143,7 @@ public partial class PackageCommand
                 keepEnd,
                 options.Count
                     ? QuerySpaceTerminalRequirement.Count
-                    : QuerySpaceTerminalRequirement.Rows,
-                enrichSelectedRows:
-                    !options.Count
-                    && plan.Document is null);
+                    : QuerySpaceTerminalRequirement.Rows);
         if (options.Count)
         {
             CountOutput.WriteCount(
@@ -163,13 +155,7 @@ public partial class PackageCommand
         PackageChildrenProjection projection =
             await InspectPackageChildrenAsync(
                     plan,
-                    resolution,
-                    extractPath,
-                    result,
-                    packageName,
-                    version,
-                    capabilityPlan,
-                    CancellationToken.None)
+                    capabilityPlan)
                 .ConfigureAwait(false);
         PackageChildSelectorContext? selectors = null;
         if ((!projection.Inspection.Content.Libraries.IsEmpty
@@ -382,16 +368,10 @@ public partial class PackageCommand
                     InertText.TextPolicy.Field,
                     targetFramework));
 
-    private static async ValueTask<PackageChildrenProjection>
+    private static ValueTask<PackageChildrenProjection>
         InspectPackageChildrenAsync(
             PackageChildrenPlan plan,
-            PackageExtractionResult resolution,
-            string extractPath,
-            InspectionResult result,
-            string packageName,
-            string version,
-            PackageChildrenCapabilityPlan capabilityPlan,
-            CancellationToken cancellationToken)
+            PackageChildrenCapabilityPlan capabilityPlan)
     {
         if (plan.Document is { } document)
         {
@@ -400,27 +380,17 @@ public partial class PackageCommand
                     document,
                     capabilityPlan.SelectedStart,
                     capabilityPlan.SelectedEnd);
-            return new(
-                PackageChildrenEnvelope(selected),
-                capabilityPlan.SourceCount,
-                capabilityPlan.SelectedStart);
+            return ValueTask.FromResult(
+                new PackageChildrenProjection(
+                    PackageChildrenEnvelope(selected),
+                    capabilityPlan.SourceCount,
+                    capabilityPlan.SelectedStart));
         }
 
-        PackageInspectionInput input =
-            resolution.AcquiredPayload is { } acquired
-                ? PackageInspectionInput.CreateFromPayload(acquired)
-                : PackageInspectionInput.CreateLocal(
-                    new FileSystemPackageContent(
-                        extractPath,
-                        resolution.NupkgPath,
-                        resolution.FromCache,
-                        resolution.ProducerKey ?? packageName),
-                    result.PackageName ?? packageName,
-                    result.Version ?? version);
-        PackageLibraryInspectionCandidate[] inspectionCandidates =
+        PackageLibraryChildCandidate[] candidates =
         [
             .. plan.Candidates.Select(candidate =>
-                new PackageLibraryInspectionCandidate(
+                new PackageLibraryChildCandidate(
                     candidate.AssetId,
                     candidate.AssetPath,
                     candidate.AssemblyName,
@@ -428,17 +398,15 @@ public partial class PackageCommand
                     candidate.Role)),
         ];
         InspectionEnvelope<PackageChildrenDocument> inspection =
-            await PackageChildrenInspection.ExecutePackageEntriesAsync(
-                    plan.Subject,
-                    input,
-                    inspectionCandidates,
-                    capabilityPlan,
-                    cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-        return new(
-            inspection,
-            capabilityPlan.SourceCount,
-            capabilityPlan.SelectedStart);
+            PackageChildrenInspection.Execute(
+                plan.Subject,
+                candidates,
+                capabilityPlan);
+        return ValueTask.FromResult(
+            new PackageChildrenProjection(
+                inspection,
+                capabilityPlan.SourceCount,
+                capabilityPlan.SelectedStart));
     }
 
     private static PackageChildrenDocument SelectPackageChildren(
@@ -870,10 +838,6 @@ public partial class PackageCommand
                 row.Role ?? "",
                 row.Asset ?? "",
                 row.Selector ?? "",
-                row.TypeDeclarations?.ToString(
-                    CultureInfo.InvariantCulture)
-                    ?? "",
-                row.CountStatus ?? "",
                 row.Status,
                 row.Detail ?? "",
             }),
@@ -914,21 +878,6 @@ public partial class PackageCommand
         string libraryCommand,
         int ordinal)
     {
-        (int? count, string countStatus, string? countDetail) =
-            library.PublicTypeDeclarations switch
-            {
-                LibraryTypePopulationCountOutcome.Counted counted =>
-                    (counted.Total, "counted", (string?)null),
-                LibraryTypePopulationCountOutcome.Incomplete incomplete =>
-                    ((int?)null, "incomplete",
-                        $"{incomplete.Bound}: "
-                            + $"{incomplete.Measured} > "
-                            + $"{incomplete.Limit}"),
-                LibraryTypePopulationCountOutcome.Unavailable unavailable =>
-                    ((int?)null, "unavailable",
-                        unavailable.Reason.ToString()),
-                _ => ((int?)null, "unavailable", (string?)null),
-            };
         string assetPath = library.AssetPath.ToString();
         string selector =
             libraryCommand
@@ -942,10 +891,8 @@ public partial class PackageCommand
             library.Role.ToString(),
             assetPath,
             selector,
-            count,
-            countStatus,
-            library.IsAvailable ? "available" : "unavailable",
-            library.Unavailable?.Detail.ToString() ?? countDetail);
+            "available",
+            null);
     }
 
     private static PackageChildOutputRow RuntimeIdentifierPackageRow(
@@ -967,8 +914,6 @@ public partial class PackageCommand
             "package "
                 + ShellCommandText.Quote($"{packageId}@{version}")
                 + sourceArguments,
-            null,
-            null,
             "available",
             null);
     }
@@ -982,8 +927,6 @@ public partial class PackageCommand
                 + $"@{document.Subject.PackageVersion}",
             document.Subject.PackageId.ToString(),
             document.Subject.TargetFramework?.ToString(),
-            null,
-            null,
             null,
             null,
             null,
@@ -1201,8 +1144,7 @@ public partial class PackageCommand
         if (allowMinimalCollapse
             && verbosity == Verbosity.Minimal
             && entryPoints.Length > 0
-            && dependencies.Length > 8
-            && dependencies.All(static library => library.IsAvailable))
+            && dependencies.Length > 8)
         {
             nodes.Add(
                 new(
@@ -1233,18 +1175,6 @@ public partial class PackageCommand
         {
             label += " (entry point)";
         }
-        label += library.PublicTypeDeclarations switch
-        {
-            LibraryTypePopulationCountOutcome.Counted counted =>
-                $" ({counted.Total} Type declarations)",
-            LibraryTypePopulationCountOutcome.Incomplete incomplete =>
-                $" (incomplete: {incomplete.Bound})",
-            LibraryTypePopulationCountOutcome.Unavailable unavailable =>
-                $" (Count unavailable: {unavailable.Reason})",
-            null when library.Unavailable is { } unavailable =>
-                $" (unavailable: {unavailable.Detail})",
-            _ => " (Count unavailable)",
-        };
         return new(label);
     }
 
@@ -1304,8 +1234,6 @@ internal sealed record PackageChildOutputRow(
     string? Role,
     string? Asset,
     string? Selector,
-    int? TypeDeclarations,
-    string? CountStatus,
     string Status,
     string? Detail);
 

@@ -1,10 +1,3 @@
-using System.Collections.Immutable;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
-using System.Runtime.InteropServices;
-
-using DotnetInspector.Queries;
-using ILInspector.Metadata;
 using QuerySpace.Composition;
 
 namespace DotnetInspector.Sections.Tests;
@@ -12,37 +5,27 @@ namespace DotnetInspector.Sections.Tests;
 public sealed class PackageChildrenInspectionTests
 {
     [Fact]
-    public async Task
-        RealSystemTextJson_PreservesAssetIdentityAndCountsForwarders()
+    public void PackageRowsPreserveAssetIdentityWithoutOpeningBinaries()
     {
-        byte[] content =
-            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
-        await using var workspace = new InspectionWorkspace();
-        using AssemblyContextGroup group = Group(workspace, content);
-        AssemblyContextParticipant participant =
-            Assert.Single(group.Participants);
-        var target = new PackageLibraryInspectionTarget(
+        var candidate = new PackageLibraryChildCandidate(
             "ref/net10.0/System.Text.Json.dll",
             "ref/net10.0/System.Text.Json.dll",
-            PackageLibraryChildRole.Compile,
-            group,
-            participant);
+            "System.Text.Json",
+            "net10.0",
+            PackageLibraryChildRole.Compile);
 
         InspectionEnvelope<PackageChildrenDocument> envelope =
-            await PackageChildrenInspection.ExecuteLibrariesAsync(
+            PackageChildrenInspection.Execute(
                 new(
                     "System.Text.Json",
                     "10.0.0",
                     "net10.0"),
-                [target],
+                [candidate],
                 PackageChildrenCapabilityPlanner.Plan(
                     sourceCount: 1,
                     selectedStart: 0,
                     selectedEnd: 1,
-                    QuerySpaceTerminalRequirement.Rows,
-                    enrichSelectedRows: true),
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
+                    QuerySpaceTerminalRequirement.Rows));
 
         Assert.Empty(envelope.Diagnostics);
         Assert.True(envelope.Content.IsComplete);
@@ -64,14 +47,6 @@ public sealed class PackageChildrenInspectionTests
             "System.Text.Json",
             library.AssemblyName.ToString());
         Assert.Equal(PackageLibraryChildRole.Compile, library.Role);
-        LibraryTypePopulationCountOutcome.Counted count =
-            Assert.IsType<
-                LibraryTypePopulationCountOutcome.Counted>(
-                    library.PublicTypeDeclarations);
-        Assert.True(count.Total > 0);
-        Assert.True(count.Forwarders > 0);
-        Assert.Null(library.Unavailable);
-        Assert.True(library.IsAvailable);
     }
 
     [Fact]
@@ -82,8 +57,7 @@ public sealed class PackageChildrenInspectionTests
                 sourceCount: 73,
                 selectedStart: 0,
                 selectedEnd: 73,
-                QuerySpaceTerminalRequirement.Count,
-                enrichSelectedRows: false);
+                QuerySpaceTerminalRequirement.Count);
 
         Assert.Equal(PackageChildrenRowProvision.None, plan.RowProvision);
         Assert.False(plan.PopulationCountDerivedFromRows);
@@ -100,22 +74,19 @@ public sealed class PackageChildrenInspectionTests
                 sourceCount: 73,
                 selectedStart: 0,
                 selectedEnd: 73,
-                QuerySpaceTerminalRequirement.Rows,
-                enrichSelectedRows: true);
+                QuerySpaceTerminalRequirement.Rows);
         PackageChildrenCapabilityPlan browserRows =
             PackageChildrenCapabilityPlanner.Plan(
                 sourceCount: 73,
                 selectedStart: 0,
                 selectedEnd: 73,
-                QuerySpaceTerminalRequirement.Rows,
-                enrichSelectedRows: true);
+                QuerySpaceTerminalRequirement.Rows);
         PackageChildrenCapabilityPlan boundedRows =
             PackageChildrenCapabilityPlanner.Plan(
                 sourceCount: 73,
                 selectedStart: 0,
                 selectedEnd: 1,
-                QuerySpaceTerminalRequirement.Rows,
-                enrichSelectedRows: true);
+                QuerySpaceTerminalRequirement.Rows);
 
         Assert.Equal(cliRows.RowProvision, browserRows.RowProvision);
         Assert.Equal(
@@ -133,12 +104,12 @@ public sealed class PackageChildrenInspectionTests
             browserRows.StructuralPlan.Satisfactions
                 .Select(static satisfaction => satisfaction.Kind));
         Assert.True(cliRows.PopulationCountDerivedFromRows);
-        Assert.Equal(2, cliRows.StructuralPlan.Provisions.Length);
+        Assert.Single(cliRows.StructuralPlan.Provisions);
         Assert.Equal(
             ProducerCapabilitySatisfactionKind.Covering,
             cliRows.StructuralPlan.Satisfactions[0].Kind);
         Assert.False(boundedRows.PopulationCountDerivedFromRows);
-        Assert.Equal(3, boundedRows.StructuralPlan.Provisions.Length);
+        Assert.Equal(2, boundedRows.StructuralPlan.Provisions.Length);
         Assert.All(
             boundedRows.StructuralPlan.Satisfactions,
             static satisfaction =>
@@ -148,46 +119,35 @@ public sealed class PackageChildrenInspectionTests
     }
 
     [Fact]
-    public async Task ProducerCapabilityPlanSelectsBeforeEnrichment()
+    public void ProducerCapabilityPlanSelectsIdentityRows()
     {
-        byte[] content =
-            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
-        await using var workspace = new InspectionWorkspace();
-        using AssemblyContextGroup group = Group(workspace, content);
-        AssemblyContextParticipant participant =
-            Assert.Single(group.Participants);
-        PackageLibraryInspectionTarget unavailable =
-            PackageLibraryInspectionTarget.CreateUnavailable(
-                "ref/net10.0/Unselected.dll",
-                "ref/net10.0/Unselected.dll",
-                "Unselected",
-                PackageLibraryChildRole.Compile,
-                PackageLibraryChildUnavailableReason.AssemblyUnavailable,
-                "This row must not be enriched.");
-        var selected = new PackageLibraryInspectionTarget(
+        var unselected = new PackageLibraryChildCandidate(
+            "ref/net10.0/Unselected.dll",
+            "ref/net10.0/Unselected.dll",
+            "Unselected",
+            "net10.0",
+            PackageLibraryChildRole.Compile);
+        var selected = new PackageLibraryChildCandidate(
             "ref/net10.0/System.Text.Json.dll",
             "ref/net10.0/System.Text.Json.dll",
-            PackageLibraryChildRole.Compile,
-            group,
-            participant);
+            "System.Text.Json",
+            "net10.0",
+            PackageLibraryChildRole.Compile);
         PackageChildrenCapabilityPlan plan =
             PackageChildrenCapabilityPlanner.Plan(
                 sourceCount: 2,
                 selectedStart: 1,
                 selectedEnd: 2,
-                QuerySpaceTerminalRequirement.Rows,
-                enrichSelectedRows: true);
+                QuerySpaceTerminalRequirement.Rows);
 
         InspectionEnvelope<PackageChildrenDocument> envelope =
-            await PackageChildrenInspection.ExecuteLibrariesAsync(
+            PackageChildrenInspection.Execute(
                 new(
                     "System.Text.Json",
                     "10.0.0",
                     "net10.0"),
-                [unavailable, selected],
-                plan,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
+                [unselected, selected],
+                plan);
 
         Assert.Empty(envelope.Diagnostics);
         Assert.True(envelope.Content.IsComplete);
@@ -197,7 +157,7 @@ public sealed class PackageChildrenInspectionTests
             "ref/net10.0/System.Text.Json.dll",
             library.AssetId.ToString());
         Assert.False(plan.PopulationCountDerivedFromRows);
-        Assert.Equal(3, plan.StructuralPlan.Provisions.Length);
+        Assert.Equal(2, plan.StructuralPlan.Provisions.Length);
         Assert.All(
             plan.StructuralPlan.Satisfactions,
             static satisfaction =>
@@ -249,41 +209,5 @@ public sealed class PackageChildrenInspectionTests
         Assert.Empty(document.Libraries);
         Assert.Empty(document.RuntimeIdentifierPackages);
         Assert.True(document.IsComplete);
-    }
-
-    private static AssemblyContextGroup Group(
-        InspectionWorkspace workspace,
-        byte[] content)
-    {
-        ImmutableArray<byte> image =
-            ImmutableCollectionsMarshal.AsImmutableArray(content);
-        using var reader = new PEReader(image);
-        AssemblyReferenceIdentity identity =
-            AssemblyReferenceIdentity.FromAssemblyDefinition(
-                reader.GetMetadataReader());
-        var participant = new AssemblyContextParticipant(
-            ResolvedAssemblyReference.Create(
-                identity,
-                path: null,
-                () => new MemoryStream(content, writable: false),
-                AssemblyResolutionProvenance.Local(
-                    "package-children-real-asset")),
-            new MissingBindingPolicy());
-        return workspace.CreateAssemblyContextGroup([participant]);
-    }
-
-    private sealed class MissingBindingPolicy : IAssemblyBindingPolicy
-    {
-        public AssemblyBindingPolicyVersion Version { get; } =
-            new();
-
-        public AssemblyBindingSelectionSnapshot Select(
-            AssemblyBindingRequest request) =>
-            new(
-                Version,
-                AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind
-                            .CandidateUnavailable)));
     }
 }

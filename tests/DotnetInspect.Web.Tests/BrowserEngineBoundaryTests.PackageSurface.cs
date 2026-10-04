@@ -1649,7 +1649,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.IsType<BrowserPackageLoadResult>(
                 JsonSerializer.Deserialize(
                     await DotnetInspect.Web.Interop.Package
-                        .PackageExports.QueryPackage(
+                        .PackageExports.QueryPackageSummary(
                             packageId,
                             "1.0.0",
                             "net11.0"),
@@ -1759,7 +1759,7 @@ public sealed partial class BrowserEngineBoundaryTests
     [Theory]
     [InlineData("1", "DotnetInspect.Web.Interop.Package.dll")]
     [InlineData("2", "DOTNETINSPECT.WEB.INTEROP.PACKAGE.DLL")]
-    public async Task QueryPackage_ToolPayloadPublishesExactManagedLibraries(
+    public async Task QueryPackageSummary_ToolPayloadPublishesExactManagedLibraries(
         string settingsVersion,
         string entryPoint)
     {
@@ -1804,7 +1804,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.IsType<BrowserPackageLoadResult>(
                 JsonSerializer.Deserialize(
                     await DotnetInspect.Web.Interop.Package
-                        .PackageExports.QueryPackage(
+                        .PackageExports.QueryPackageSummary(
                             packageId,
                             "1.0.0",
                             "net11.0"),
@@ -1824,9 +1824,8 @@ public sealed partial class BrowserEngineBoundaryTests
             "DotnetInspect.Web.Interop.Package",
             library.AssemblyName);
         Assert.Equal("ToolEntryPoint", library.Role);
-        Assert.Equal("Counted", library.CountStatus);
-        Assert.True(library.PublicTypeDeclarations > 0);
         Assert.Empty(children.RuntimeIdentifierPackages);
+        Assert.Null(load.Surface);
 
         BrowserExactLibraryApiInspection api =
             Assert.IsType<BrowserExactLibraryApiInspection>(
@@ -1845,6 +1844,50 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserExactLibraryApiAssetKind.Tool,
             api.Content.Asset?.Kind);
+    }
+
+    [Fact]
+    public async Task QueryPackage_SummaryDoesNotOpenCompileLibraries()
+    {
+        const string packageId = "Package.Invalid.Library";
+        const string asset = "lib/net11.0/Invalid.Library.dll";
+        byte[] package = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Package.Invalid.Library</id>
+                    <version>1.0.0</version>
+                  </metadata>
+                </package>
+                """)),
+            (asset, [0x00, 0x01, 0x02, 0x03]));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                package,
+                fromCache: false));
+
+        BrowserPackageLoadResult load =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryPackageSummary(
+                            packageId,
+                            "1.0.0",
+                            "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+
+        BrowserPackageLibraryChild library = Assert.Single(
+            Assert.IsType<BrowserPackageChildrenInspection>(
+                load.PackageChildren).Content.Libraries);
+        Assert.Equal($"compile:{asset}", library.AssetId);
+        Assert.Equal(asset, library.AssetPath);
+        Assert.Equal("Invalid.Library.dll", library.AssemblyName);
+        Assert.Null(load.Surface);
     }
 
     [Fact]

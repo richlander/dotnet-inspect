@@ -846,7 +846,10 @@ async function installFacades(
             },
             diagnostics: [],
           },
-          packageChildren: packageLoading.packageChildren ?? {
+          packageChildren:
+            packageLoading.packageChildren?.content.packageId === id
+              ? packageLoading.packageChildren
+              : {
             content: {
               kind: "Libraries",
               status: surface.compileLibrary.status === "NoCompileAssets"
@@ -862,9 +865,6 @@ async function installFacades(
                 assetPath: assembly.asset,
                 assemblyName: assembly.name,
                 role: "Compile",
-                publicTypeDeclarations: assembly.publicTypes,
-                countStatus: "Counted",
-                detail: null,
               })),
               runtimeIdentifierPackages: [],
               detail: null,
@@ -886,6 +886,9 @@ async function installFacades(
           activeFramework: framework || surface.activeFramework,
           },
         };
+      }
+      export async function queryPackageSummary(id, version, framework) {
+        return { ...(await queryPackage(id, version, framework)), surface: null };
       }
       export async function queryPackageVersions() {
         const versions = packageLoading.versions ?? ["1.0.0", "0.9.0"];

@@ -308,48 +308,11 @@ internal static class BrowserPackageWireProjection
                 [
                     .. content.Libraries.Select(
                         static library =>
-                        {
-                            (int? count, string? status, string? detail) =
-                                library.PublicTypeDeclarations switch
-                                {
-                                    LibraryTypePopulationCountOutcome.Counted
-                                        counted =>
-                                        (
-                                            (int?)counted.Total,
-                                            (string?)"Counted",
-                                            (string?)null),
-                                    LibraryTypePopulationCountOutcome.Incomplete
-                                        incomplete =>
-                                        (
-                                            (int?)null,
-                                            (string?)"Incomplete",
-                                            $"{incomplete.Bound}: "
-                                                + $"{incomplete.Measured} > "
-                                                + $"{incomplete.Limit}"),
-                                    LibraryTypePopulationCountOutcome.Unavailable
-                                        unavailable =>
-                                        (
-                                            (int?)null,
-                                            (string?)"Unavailable",
-                                            unavailable.Reason.ToString()),
-                                    null =>
-                                        (
-                                            (int?)null,
-                                            (string?)"Unavailable",
-                                            library.Unavailable?.Detail
-                                                .ToString()),
-                                    _ => throw new InvalidOperationException(
-                                        "Unknown Package Library declaration Count outcome."),
-                                };
-                            return new BrowserPackageLibraryChild(
+                            new BrowserPackageLibraryChild(
                                 library.AssetId.ToString(),
                                 library.AssetPath.ToString(),
                                 library.AssemblyName.ToString(),
-                                library.Role.ToString(),
-                                count,
-                                status,
-                                detail);
-                        }),
+                                library.Role.ToString())),
                 ],
                 [
                     .. content.RuntimeIdentifierPackages.Select(

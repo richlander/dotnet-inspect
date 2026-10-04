@@ -835,8 +835,9 @@ let inspectMemberDocumentation:
   EngineClient["package"]["queryMemberDocumentation"];
 let inspectPlatformMemberDocumentation:
   EngineClient["package"]["queryPlatformMemberDocumentation"];
-let inspectPackage: EngineClient["package"]["queryPackage"];
+let inspectPackageSurface: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
+let inspectPackageSummary: EngineClient["package"]["queryPackageSummary"];
 let inspectOpenUploadedLibrary:
   EngineClient["library"]["openUploadedLibrary"];
 let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
@@ -1051,8 +1052,9 @@ async function loadEngineModule() {
       queryMemberDocumentation: inspectMemberDocumentation,
       queryPlatformMemberDocumentation:
         inspectPlatformMemberDocumentation,
-      queryPackage: inspectPackage,
+      queryPackage: inspectPackageSurface,
       queryPackageRoot: inspectPackageRoot,
+      queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
       queryPackagePruning: inspectPackagePruning,
       queryPackageVersions: inspectPackageVersions,
@@ -3964,7 +3966,7 @@ function applyView(view: WorkspaceView) {
   if (view.platform) state.platformSelection = { ...view.platform };
   state.libraryScope = restoreLibraryScope(
     view.libraryScope,
-    pkg.assemblies.map(assembly => assembly.id));
+    packageLibrariesForModel(pkg).map(library => library.id));
   const type = pkg.types.find(item => item.id === view.selectedTypeId);
   state.lens = view.lens;
   const forwarder = currentPlatformForwarderView()?.forwarders.find(
@@ -9198,6 +9200,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   if (state.rootKind !== "library") {
     maybeAutoLoadVisibleSource();
     maybeAutoLoadTypeMetadata();
+    maybeAutoLoadPackageSurfaceForCompare();
     maybeAutoLoadLibraryApi();
     maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
@@ -11262,6 +11265,61 @@ function maybeAutoLoadLibraryApi() {
     `Loading ${library.name} public API`);
 }
 
+const packageSurfaceLoads = new Set<string>();
+const packageSurfaceSettlements = new Set<string>();
+
+async function loadPackageSurfaceForCompare(pkg: AppPackage) {
+  const key = packageIdentityKey(pkg);
+  if (packageSurfaceLoads.has(key) || packageSurfaceSettlements.has(key)) return;
+  packageSurfaceLoads.add(key);
+  try {
+    const load = await inspectPackageSurface(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+    );
+    if (!load.surface) {
+      throw new Error(
+        `The broad Package surface for ${pkg.id} is unavailable.`);
+    }
+    const expanded = createNuGetPackageModel(load.surface);
+    Object.assign(pkg, {
+      ...expanded,
+      versionSettlement: pkg.versionSettlement,
+      packageInfo: pkg.packageInfo,
+      packageChildren: pkg.packageChildren ?? expanded.packageChildren,
+    });
+    packageSurfaceSettlements.add(key);
+  } catch (error) {
+    appendQueryNotice(
+      `Type navigation for ${pkg.id} Compare results is unavailable: ${
+        errorMessage(error)
+      }`,
+      null,
+    );
+    packageSurfaceSettlements.add(key);
+  } finally {
+    packageSurfaceLoads.delete(key);
+    if (state.package === pkg
+      && currentCompareSubject()?.kind === "library") {
+      renderPreservingContentFrameFocus();
+    }
+  }
+}
+
+function maybeAutoLoadPackageSurfaceForCompare() {
+  const subject = currentCompareSubject();
+  if (!subject
+    || subject.kind !== "library"
+    || subject.pkg.source.kind !== "nuget.org"
+    || subject.pkg.assemblies.length > 0) {
+    return;
+  }
+  observeAsync(
+    loadPackageSurfaceForCompare(subject.pkg),
+    `Loading ${subject.pkg.id} Type navigation for Compare`);
+}
+
 function libraryEnablementsRequest(
   pkg: AppPackage,
   library: ReturnType<typeof packageLibraries>[number],
@@ -11417,15 +11475,12 @@ function renderPackageChildren(pkg: AppPackage) {
       <ol class="package-child-tree" role="tree" aria-label="Libraries">
         ${children.libraries.map(library => {
           const entryPoint = library.role === "ToolEntryPoint"
-            ? " · entry point"
+            ? "<small>entry point</small>"
             : "";
-          const count = library.publicTypeDeclarations === null
-            ? library.detail ?? "Type declaration Count unavailable"
-            : `${library.publicTypeDeclarations.toLocaleString()} Type declaration${library.publicTypeDeclarations === 1 ? "" : "s"}`;
           return `<li role="none"><button type="button" class="package-child-row" role="treeitem" data-package-child-library="${escapeHtml(library.assetId)}">
             <span class="kind-icon">L</span>
             <span class="package-child-name">${escapeHtml(library.assemblyName)}</span>
-            <small>${escapeHtml(`${count}${entryPoint}`)}</small>
+            ${entryPoint}
           </button></li>`;
         }).join("")}
       </ol>
@@ -23353,7 +23408,7 @@ async function loadPackage(
       if (options.librarySelection) {
         const { id, name, asset, lens, activate } = options.librarySelection;
         const library = resolveReplacementPackageLibrary(
-          packageModel.assemblies,
+          packageLibrariesForModel(packageModel),
           { id, name, asset });
         if (!id && !name && !packageModel.isRuntimePack) {
           state.libraryScope = null;
@@ -23543,8 +23598,8 @@ function isRuntimePackId(id: string | null | undefined) {
 }
 
 const packageAcquisition = createPackageAcquisition({
-  queryPackage: (packageId, version, framework) =>
-    inspectPackage(packageId, version, framework),
+  queryPackageSummary: (packageId, version, framework) =>
+    inspectPackageSummary(packageId, version, framework),
   queryPackageRoot: rootRequest => inspectPackageRoot(rootRequest),
   loadRuntimePack: (framework, platformVersion) =>
     inspectLoadRuntimePack(framework, platformVersion),
@@ -26376,7 +26431,9 @@ function applyLoadedPackageLibraryScope(
     state.libraryScope = null;
     return null;
   }
-  const matchingLibrary = resolvePackageLibrary(pkg.assemblies, requested);
+  const matchingLibrary = resolvePackageLibrary(
+    packageLibrariesForModel(pkg),
+    requested);
   if (!matchingLibrary) {
     return `The shared library '${requestedLibraryKey}' is not uniquely available in ${pkg.id}.`;
   }

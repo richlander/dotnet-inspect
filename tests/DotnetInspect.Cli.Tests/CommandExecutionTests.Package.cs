@@ -1783,13 +1783,49 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("Test.LibraryFiles 1.0.0", output);
             Assert.Contains(
-                "lib/net10.0/Latest.One.dll",
+                "Latest.One.dll",
                 output);
             Assert.Contains(
-                "lib/net10.0/Latest.Two.dll",
+                "Latest.Two.dll",
                 output);
-            Assert.Contains("Type declarations", output);
+            Assert.DoesNotContain("Type declarations", output);
             Assert.DoesNotContain("## Package Info", output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DefaultDoesNotOpenSelectedCompileLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                packagePath,
+                ZipArchiveMode.Update))
+            {
+                const string asset = "lib/net10.0/Latest.One.dll";
+                archive.GetEntry(asset)!.Delete();
+                using Stream stream = archive.CreateEntry(asset).Open();
+                stream.Write([0x00, 0x01, 0x02, 0x03]);
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath);
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "Latest.One.dll",
+                output);
+            Assert.Contains(
+                "Latest.Two.dll",
+                output);
+            Assert.DoesNotContain("Type declarations", output);
             Assert.Empty(error);
         }
         finally
@@ -1850,12 +1886,10 @@ public partial class CommandExecutionTests
 
             foreach (var result in new[]
             {
-                markdown,
                 json,
                 table,
                 tsv,
                 jsonl,
-                plainText,
             })
             {
                 Assert.Contains(
@@ -1864,6 +1898,15 @@ public partial class CommandExecutionTests
                 Assert.Contains(
                     "lib/net10.0/Latest.Two.dll",
                     result.Output);
+            }
+            foreach (var result in new[]
+            {
+                markdown,
+                plainText,
+            })
+            {
+                Assert.Contains("Latest.One.dll", result.Output);
+                Assert.Contains("Latest.Two.dll", result.Output);
             }
 
             using var jsonDocument = JsonDocument.Parse(json.Output);
@@ -1943,7 +1986,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ChildSelectorsNavigateExactDuplicateNamedLibraries()
+    public async Task Package_ChildSelectorsNavigateExactSharedIdentityLibraries()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -1963,11 +2006,13 @@ public partial class CommandExecutionTests
                     .EnumerateArray(),
             ];
             Assert.Equal(2, children.Length);
-            Assert.Single(
+            Assert.Equal(
+                2,
                 children.Select(
                     static child =>
                         child.GetProperty("name").GetString())
-                    .Distinct(StringComparer.Ordinal));
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
 
             foreach (JsonElement child in children)
             {
@@ -2339,14 +2384,14 @@ public partial class CommandExecutionTests
                     + "use -v:n for full inventory)",
                 implicitTree.Output);
             Assert.DoesNotContain(
-                "Dependency.9.dll",
+                "Dependency.9",
                 implicitTree.Output);
             Assert.DoesNotContain(
                 "Dependencies (9 Libraries; "
                     + "use -v:n for full inventory)",
                 explicitMarkdown.Output);
             Assert.Contains(
-                "Dependency.9.dll",
+                "Dependency.9",
                 explicitMarkdown.Output);
 
             using var document = JsonDocument.Parse(json.Output);
@@ -3362,18 +3407,16 @@ public partial class CommandExecutionTests
                 "-S",
                 "Package Info",
                 "-v:q");
-            Assert.Equal(1, implicitInfo.Exit);
+            Assert.Equal(0, implicitInfo.Exit);
             Assert.Equal(0, explicitInfo.Exit);
-            Assert.Contains(
-                "package-children.library-unavailable",
-                implicitInfo.Error);
+            Assert.Empty(implicitInfo.Error);
             Assert.Empty(explicitInfo.Error);
             Assert.DoesNotContain("| Signed |", implicitInfo.Output, StringComparison.Ordinal);
             Assert.DoesNotContain("| Signed |", explicitInfo.Output, StringComparison.Ordinal);
             Assert.Contains(
-                "unavailable",
+                "Test.Quiet.Package.Info.dll",
                 implicitInfo.Output,
-                StringComparison.OrdinalIgnoreCase);
+                StringComparison.Ordinal);
             Assert.Contains("| Version | 1.0.0 |", explicitInfo.Output, StringComparison.Ordinal);
         }
         finally

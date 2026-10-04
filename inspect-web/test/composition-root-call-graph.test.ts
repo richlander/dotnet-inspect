@@ -805,7 +805,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
   assert.match(capture, /libraryScope: captureLibraryScope\(state\.libraryScope\)/);
   assert.match(
     apply,
-    /state\.libraryScope = restoreLibraryScope\(\s*view\.libraryScope,\s*pkg\.assemblies\.map\(assembly => assembly\.id\)\)/);
+    /state\.libraryScope = restoreLibraryScope\(\s*view\.libraryScope,\s*packageLibrariesForModel\(pkg\)\.map\(library => library\.id\)\)/);
   assert.match(
     callGraphInspectionSource,
     /state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;\s*state\.platformDrillLoading = false;/);

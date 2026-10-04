@@ -7,11 +7,10 @@ This document is the normative owner for Package Library Scope, tracked by
 
 The contract is a target policy adopted independently by each operation.
 Package Query `library-literal` is the first gated adopter under
-[#8297](https://github.com/richlander/dotnet-inspect/issues/8297). The Package
-children document is the compile-role aggregate adopter for the native
-Package Tree under [#8494](https://github.com/richlander/dotnet-inspect/issues/8494).
-Each adoption proves only its own role and answer shape, not repository-wide
-conformance.
+[#8297](https://github.com/richlander/dotnet-inspect/issues/8297). Each
+adoption proves only its own role and answer shape, not repository-wide
+conformance. The native Package Tree is not an adopter: its identity rows
+consume Package asset-selection evidence and do not evaluate Library evidence.
 
 ## Authority and exact claim
 
@@ -259,15 +258,15 @@ That adoption belongs to the existing
 owners. It must replace their primary-library claims and add implementation
 gates; this policy document does not redefine those internals.
 
-The Package children document adopts aggregate scope over the exact ordered
-compile population issued by Package selection. It retains every compile asset
-ID and path, inspects each occurrence independently, and carries the exact
-public definition-and-forwarder Count or a typed unavailable outcome. The CLI
-uses that document for its native Tree, structured JSON and envelope, row
-formats, row windows, projections, and scalar Count. Every Library row carries
-the exact asset path used by `package P --library <path>`; every RID Package row
-carries its exact Package selector. Inspect Web carries the same document and
-uses its Counts and exact asset IDs for Library navigation. Tool-package
+The Package children document preserves the exact ordered compile population
+issued by Package selection without entering Package Library Scope. It retains
+every compile asset ID and path but does not inspect the occurrence or carry
+facts from its Type population. The CLI uses that document for its native Tree,
+structured JSON and envelope, row formats, row windows, projections, and
+scalar Count. Every Library row carries the exact asset path used by
+`package P --library <path>`; every RID Package row carries its exact Package
+selector. Inspect Web carries the same document and uses its exact asset IDs
+for Library navigation. Tool-package
 children consume the separate tool-Library population owned by Package Info
 tool measurements. A tool population requires an available
 `DotnetToolSettings.xml` projection; missing, invalid, or ambiguous settings
@@ -282,9 +281,9 @@ The Package child producer applies
 [QuerySpace producer capabilities](query-space-producer-capabilities.md) below
 terminal selection. Exact child Count selects no row provision. Complete rows
 may cover population Count, while a bounded row request retains a direct
-population Count and selects its admitted rows before per-Library declaration
-Count enrichment. CLI and Browser/Wasm consume the same Package-owned planning
-strategy; hosts do not infer one provision from another.
+population Count. CLI and Browser/Wasm consume the same Package-owned planning
+strategy and identity-row provision; hosts do not infer one provision from
+another.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
@@ -293,13 +292,13 @@ aggregate behavior is evidence, not an automatic conformance claim.
 
 Each adopter names its own Release gates. Package children are gated by
 `PackageChildrenInspectionTests` for exact occurrence identity,
-definition-and-forwarder Counts, RID rows, and native no-Library state;
+binary-free identity rows, RID rows, and native no-Library state;
 `CommandExecutionTests.Package` for the CLI default and explicit Tree, complete
 formats, row selection and projection, scalar Count, visible empty states,
 Minimal-only tool collapse, missing tool settings, and exact duplicate-name
 Library navigation; and
 `BrowserMemberDeclarationTests` plus `package-acquisition.test.ts` for Browser
-transport and Count consumption. `DotnetToolSettingsParserTests` owns typed
+transport and exact navigation. `DotnetToolSettingsParserTests` owns typed
 settings status and case-insensitive entry-point correspondence, while
 `QueryPackage_ToolPayloadPublishesExactManagedLibraries` and
 `QueryPackage_DeclaredToolWithoutSettingsRemainsUnavailable` gate Browser

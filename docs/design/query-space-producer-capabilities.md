@@ -143,8 +143,13 @@ replacement uses capability demand to let the Package producer distinguish:
 
 - exact child Count;
 - child identity and display rows;
-- nested measurements requested for returned child rows; and
 - exact-child work requested after navigation.
+
+The Package adoption deliberately stops at identity rows. The primary-subject
+summary contract rejects nested child-population measurements such as a
+Library's Type Count, so ordinary Package rows do not open Library binaries.
+This does not narrow the reusable capability model: Type Count, Name, and
+Signature remain the motivating deeper-capability adoption.
 
 The same request and producer plan serve the CLI and Browser/Wasm. Hosts choose
 gestures and presentation but do not assemble different capability sets for
@@ -503,8 +508,9 @@ The approved stack has three slices:
    semantics.
 3. **Package Tree replacement.** Branch from the capability slice, replace the
    eager Package-child work with Package-owned capabilities and strategies,
-   exercise the same host-neutral plan through CLI and Browser/Wasm, reproduce
-   the exact #9056 behavior and pathological cases, and publish exact
+   exercise the same host-neutral plan through CLI and Browser/Wasm, apply the
+   primary-subject summary-row boundary, reproduce the pathological cases, and
+   publish exact
    NativeAOT before/after evidence. Publish the replacement before closing
    #9056 as superseded.
 

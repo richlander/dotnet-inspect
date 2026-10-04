@@ -270,8 +270,6 @@ function packageInfo(): BrowserPackageInfoMeasurementInspection {
 
 function packageChildren(
   surface: BrowserPackageSurface,
-  counts: readonly (number | null)[] =
-    surface.assemblies.map(descriptor => descriptor.publicTypes),
 ): BrowserPackageChildrenInspection {
   return {
     content: {
@@ -280,14 +278,11 @@ function packageChildren(
       packageId: surface.package,
       packageVersion: surface.version,
       targetFramework: surface.activeFramework,
-      libraries: surface.assemblies.map((descriptor, index) => ({
+      libraries: surface.assemblies.map(descriptor => ({
         assetId: descriptor.id,
         assetPath: descriptor.asset,
         assemblyName: descriptor.name,
         role: "Compile",
-        publicTypeDeclarations: counts[index] ?? null,
-        countStatus: counts[index] === null ? "Unavailable" : "Counted",
-        detail: null,
       })),
       runtimeIdentifierPackages: [],
       detail: null,
@@ -306,11 +301,9 @@ function packageChildren(
 
 function packageRootLoad(
   surface: BrowserPackageSurface,
-  counts?: number[],
 ): BrowserPackageRootLoadResult {
   return {
-    packageChildren: packageChildren(surface, counts),
-    surface,
+    packageChildren: packageChildren(surface),
   };
 }
 
@@ -534,9 +527,9 @@ test("NuGet package models retain the shared Package Info envelope", () => {
   assert.equal(model.packageInfo, measurements);
 });
 
-test("Package children own Library declaration counts", () => {
+test("Package children do not override Library surface counts", () => {
   const surface = packageSurface();
-  const children = packageChildren(surface, [17]);
+  const children = packageChildren(surface);
   const model = createNuGetPackageModel(
     surface,
     {
@@ -565,14 +558,16 @@ test("Package children own Library declaration counts", () => {
     children);
 
   assert.equal(model.packageChildren, children);
-  assert.equal(model.assemblies[0]?.publicTypes, 17);
-  assert.equal(model.totalTypes, 17);
+  assert.equal(
+    model.assemblies[0]?.publicTypes,
+    surface.assemblies[0]?.publicTypes);
+  assert.equal(model.totalTypes, surface.assemblies[0]?.publicTypes);
   assert.equal(model.totalMembers, 6);
 });
 
 test("Package children retain navigable Libraries missing from the broad surface", () => {
   const complete = packageSurface();
-  const children = packageChildren(complete, [17]);
+  const children = packageChildren(complete);
   const model = createNuGetPackageModel(
     packageSurface({
       assemblies: [],
@@ -585,24 +580,24 @@ test("Package children retain navigable Libraries missing from the broad surface
   const libraries = packageLibrariesForModel(model);
   assert.equal(libraries.length, 1);
   assert.equal(libraries[0]?.id, "example-core");
-  assert.equal(libraries[0]?.types, 17);
+  assert.equal(libraries[0]?.types, null);
   assert.equal(libraries[0]?.members, null);
   assert.equal(libraries[0]?.surfaceAvailable, false);
   assert.equal(
     libraries[0]?.unavailableDetail,
     "Library surface details are unavailable.");
-  assert.equal(model.totalTypes, 17);
+  assert.equal(model.totalTypes, null);
   assert.equal(model.totalMembers, null);
 });
 
-test("Package totals become unknown when any owner-issued child Count is unknown", () => {
+test("Package totals become unknown when a child has no broad surface", () => {
   const complete = packageSurface({
     assemblies: [
       assembly("known", "Known", 3),
       assembly("unknown", "Unknown", 5),
     ],
   });
-  const children = packageChildren(complete, [17, null]);
+  const children = packageChildren(complete);
   const model = createNuGetPackageModel(
     packageSurface({
       defaultAssemblyId: "known",
@@ -613,7 +608,7 @@ test("Package totals become unknown when any owner-issued child Count is unknown
 
   assert.deepEqual(
     packageLibrariesForModel(model).map(library => library.types),
-    [17, null]);
+    [3, null]);
   assert.equal(model.totalTypes, null);
   assert.equal(model.totalMembers, null);
 });
@@ -682,7 +677,7 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     },
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
-  const children = packageChildren(packageSurface(), [17]);
+  const children = packageChildren(packageSurface());
   const retained = createNuGetPackageModel(
     packageSurface(),
     versionSettlement,
@@ -697,8 +692,10 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
   assert.equal(activated.versionSettlement, versionSettlement);
   assert.equal(activated.packageInfo, measurements);
   assert.equal(activated.packageChildren, children);
-  assert.equal(activated.assemblies[0]?.publicTypes, 17);
-  assert.equal(activated.totalTypes, 17);
+  assert.equal(
+    activated.assemblies[0]?.publicTypes,
+    retained.assemblies[0]?.publicTypes);
+  assert.equal(activated.totalTypes, retained.totalTypes);
 });
 
 test("Workspace occurrence activation does not copy envelopes across TFMs", () => {
@@ -850,7 +847,7 @@ function acquisitionDependencies(
   overrides: Partial<PackageAcquisitionDependencies> = {},
 ): PackageAcquisitionDependencies {
   return {
-    queryPackage: async () => ({
+    queryPackageSummary: async () => ({
       versionSettlement: {
         content: {
           kind: "Settled",
@@ -917,16 +914,15 @@ function deferred<T>() {
 test("query results open through the exact opaque Root request", async () => {
   const rootRequest = "owner-issued-root-request";
   const opened: string[] = [];
-  const declarationCount = 9;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    queryPackage: async () => {
+    queryPackageSummary: async () => {
       assert.fail("Exact Root opening must not use display coordinates.");
     },
     queryPackageRoot: async request => {
       opened.push(request);
       const surface =
         packageSurface({ activeFramework: "net9.0" });
-      return packageRootLoad(surface, [declarationCount]);
+      return packageRootLoad(surface);
     },
   }));
 
@@ -941,15 +937,16 @@ test("query results open through the exact opaque Root request", async () => {
   assert.equal(result?.id, "Example.Package");
   assert.equal(result?.version, "1.2.3");
   assert.equal(result?.activeFramework, "net9.0");
-  assert.equal(result?.assemblies[0]?.publicTypes, declarationCount);
+  assert.deepEqual(result?.assemblies, []);
+  assert.equal(packageLibrariesForModel(result)[0]?.types, null);
 });
 
 test("missing exact Root capability never falls back to coordinate opening", async () => {
   let coordinateCalls = 0;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    queryPackage: async () => {
+    queryPackageSummary: async () => {
       coordinateCalls++;
-      return acquisitionDependencies().queryPackage(
+      return acquisitionDependencies().queryPackageSummary(
         "Example.Package",
         "1.2.3",
         "net10.0");
@@ -996,7 +993,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    queryPackage: async () => ({
+    queryPackageSummary: async () => ({
       versionSettlement,
       packageInfo: null,
       packageChildren: null,
@@ -1020,7 +1017,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
 test("exact Root opening failure remains visible without coordinate retry", async () => {
   const failure = new Error("The recorded package producer is not authorized.");
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    queryPackage: async () => {
+    queryPackageSummary: async () => {
       assert.fail("A rejected Root must not be retried with display coordinates.");
     },
     queryPackageRoot: async () => {
@@ -1041,7 +1038,7 @@ test("stale exact Root responses do not publish after navigation changes", async
   const events: string[] = [];
   let current = true;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    queryPackage: async () => {
+    queryPackageSummary: async () => {
       assert.fail("Exact Root opening must not use display coordinates.");
     },
     queryPackageRoot: async () => response.promise,

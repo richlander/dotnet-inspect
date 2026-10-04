@@ -12,12 +12,6 @@ public enum PackageChildrenRowProvision
 
     /// <summary>The selected child identities are required.</summary>
     SelectedRows,
-
-    /// <summary>
-    /// The selected child identities and their per-row measurements are
-    /// required.
-    /// </summary>
-    EnrichedRows,
 }
 
 /// <summary>
@@ -90,8 +84,6 @@ public static class PackageChildrenCapabilityPlanner
         ProducerCapabilityIdentity.Create(CapabilityDomain);
     static readonly ProducerCapabilityIdentity SelectedRows =
         ProducerCapabilityIdentity.Create(CapabilityDomain);
-    static readonly ProducerCapabilityIdentity EnrichedRows =
-        ProducerCapabilityIdentity.Create(CapabilityDomain);
     static readonly ProducerCapabilityCompletionIdentity Complete =
         ProducerCapabilityCompletionIdentity.Create(CapabilityDomain);
     static readonly ProducerCapabilityOutcomeIdentity CountOutcome =
@@ -117,8 +109,7 @@ public static class PackageChildrenCapabilityPlanner
         int sourceCount,
         int selectedStart,
         int selectedEnd,
-        QuerySpaceTerminalRequirement terminal,
-        bool enrichSelectedRows)
+        QuerySpaceTerminalRequirement terminal)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(sourceCount);
         ArgumentOutOfRangeException.ThrowIfNegative(selectedStart);
@@ -137,14 +128,6 @@ public static class PackageChildrenCapabilityPlanner
                 terminal,
                 "Package children support Count and Rows terminals.");
         }
-        if (terminal is QuerySpaceTerminalRequirement.Count
-            && enrichSelectedRows)
-        {
-            throw new ArgumentException(
-                "A Package child Count must not request row enrichment.",
-                nameof(enrichSelectedRows));
-        }
-
         QuerySpaceResourceIdentity resource =
             QuerySpaceResourceIdentity.Create(ResourceDomain);
         ProducerCapabilityScopeIdentity sourceScope =
@@ -159,9 +142,6 @@ public static class PackageChildrenCapabilityPlanner
             ProducerCapabilityProvisionIdentity.Create(
                 CapabilityDomain);
         ProducerCapabilityProvisionIdentity selectedRowsProvision =
-            ProducerCapabilityProvisionIdentity.Create(
-                CapabilityDomain);
-        ProducerCapabilityProvisionIdentity enrichedRowsProvision =
             ProducerCapabilityProvisionIdentity.Create(
                 CapabilityDomain);
         ProducerCapabilityCoverageIdentity rowsCoverCount =
@@ -229,13 +209,11 @@ public static class PackageChildrenCapabilityPlanner
             && selectedEnd == sourceCount;
         QuerySpaceRequestAssociationIdentity rowsAssociation =
             QuerySpaceRequestAssociationIdentity.Create();
-        ProducerCapabilityIdentity requiredRows =
-            enrichSelectedRows ? EnrichedRows : SelectedRows;
         requirements.Add(new(
             rowsAssociation,
             resource,
             selectedScope,
-            requiredRows,
+            SelectedRows,
             Complete,
             RowsOutcome,
             ProducerCapabilityProperties.ExactCardinality));
@@ -249,20 +227,6 @@ public static class PackageChildrenCapabilityPlanner
                 BorrowedSource,
                 DetachedResult,
                 ProducerCapabilityProperties.ExactCardinality));
-        if (enrichSelectedRows)
-        {
-            declarations.Add(
-                ProducerCapabilityProvisionDeclaration.Create(
-                    enrichedRowsProvision,
-                    selectedScope,
-                    EnrichedRows,
-                    Complete,
-                    RowsOutcome,
-                    BorrowedSource,
-                    DetachedResult,
-                    ProducerCapabilityProperties.ExactCardinality,
-                    [selectedRowsProvision]));
-        }
         if (completeSelection)
         {
             coverages.Add(
@@ -295,26 +259,16 @@ public static class PackageChildrenCapabilityPlanner
         }
 
         selected.Add(selectedRowsProvision);
-        ProducerCapabilityProvisionIdentity rowsSatisfaction =
-            selectedRowsProvision;
-        PackageChildrenRowProvision rowProvision =
-            PackageChildrenRowProvision.SelectedRows;
-        if (enrichSelectedRows)
-        {
-            selected.Add(enrichedRowsProvision);
-            rowsSatisfaction = enrichedRowsProvision;
-            rowProvision = PackageChildrenRowProvision.EnrichedRows;
-        }
         satisfactions.Add(
             ProducerCapabilitySatisfactionCandidate.Create(
                 rowsAssociation,
-                rowsSatisfaction));
+                selectedRowsProvision));
         return CreatePlan(
             terminal,
             sourceCount,
             selectedStart,
             selectedEnd,
-            rowProvision,
+            PackageChildrenRowProvision.SelectedRows,
             completeSelection,
             requirements,
             declarations,

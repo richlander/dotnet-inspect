@@ -430,7 +430,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.StartsWith("System.CommandLine ", output);
         Assert.Contains("System.CommandLine", output);
-        Assert.Contains("Type declarations", output);
+        Assert.DoesNotContain("Type declarations", output);
         Assert.DoesNotContain("## Package Info", output);
         Assert.DoesNotContain("Library: System.CommandLine.dll | Types:", output);
     }

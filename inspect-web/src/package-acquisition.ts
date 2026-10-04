@@ -215,6 +215,57 @@ export function aggregateKnownPackageLibraryCount(
   return total;
 }
 
+export function createNuGetPackageSummaryModel(
+  packageChildren: BrowserPackageChildrenInspection,
+  versionSettlement?: BrowserPackageVersionSettlementInspection,
+  packageInfo?: BrowserPackageInfoMeasurementInspection,
+): AppPackage {
+  const content = packageChildren.content;
+  const firstLibrary = content.libraries[0];
+  const activeFramework = content.targetFramework
+    ?? packageInfo?.content.selectedTargetFramework
+    ?? "";
+  const frameworks = packageInfo?.content.availableTargetFrameworks
+    ? [...packageInfo.content.availableTargetFrameworks]
+    : activeFramework
+      ? [activeFramework]
+      : [];
+  const hasNoManagedLibraries =
+    content.isComplete && content.libraries.length === 0;
+  const inspectionError = content.status === "Available"
+    || content.status === "SelectedEmpty"
+    || content.status === "NoCompileAssets"
+    ? undefined
+    : content.detail ?? `Package children are ${content.status}.`;
+  return {
+    id: content.packageId,
+    version: content.packageVersion,
+    frameworks,
+    activeFramework,
+    assembly: firstLibrary?.assemblyName ?? "",
+    assemblyId: firstLibrary?.assetId ?? "",
+    assemblyAsset: firstLibrary?.assetPath ?? "",
+    source: { kind: "nuget.org" },
+    producerLabel: "NuGet.org",
+    assemblies: [],
+    types: [],
+    typeKinds: [],
+    typeTraits: [],
+    accessibility: [],
+    totalTypes: hasNoManagedLibraries ? 0 : null,
+    totalMembers: hasNoManagedLibraries ? 0 : null,
+    documents: [],
+    icon: null,
+    inspectionErrors: inspectionError ? [inspectionError] : [],
+    ...(inspectionError ? { inspectionError } : {}),
+    ...(versionSettlement ? { versionSettlement } : {}),
+    ...(packageInfo ? { packageInfo } : {}),
+    packageChildren,
+    isRuntimePack: false,
+    surfaceRevision: 0,
+  };
+}
+
 const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
 
 export function resolvePackageLibrary<
@@ -250,16 +301,13 @@ export function packageLibrariesForModel(
         version: descriptor?.version ?? "",
         culture: descriptor?.culture ?? null,
         publicKeyToken: descriptor?.publicKeyToken ?? null,
-        types: library.publicTypeDeclarations,
+        types: descriptor?.publicTypes ?? null,
         members: descriptor?.publicMembers ?? null,
         platformPack: descriptor?.platformPack ?? null,
         surfaceAvailable: descriptor !== undefined,
         unavailableDetail: descriptor
-          ? library.publicTypeDeclarations === null
-            ? library.detail ?? "Type declaration Count is unavailable."
-            : null
-          : library.detail
-            ?? "Library surface details are unavailable.",
+          ? null
+          : "Library surface details are unavailable.",
       };
     });
   }
@@ -299,10 +347,12 @@ function compileAssetCorrespondenceKey(asset: string): string | null {
     : null;
 }
 
-export function resolveReplacementPackageLibrary(
-  assemblies: readonly InspectedAssemblySurface[],
+export function resolveReplacementPackageLibrary<
+  TAssembly extends Pick<InspectedAssemblySurface, "id" | "name" | "asset">,
+>(
+  assemblies: readonly TAssembly[],
   selection: PackageLibrarySelectionIdentity,
-): InspectedAssemblySurface | null {
+): TAssembly | null {
   const exactId = selection.id
     ? assemblies.find(assembly => assembly.id === selection.id) ?? null
     : null;
@@ -406,22 +456,8 @@ function packageTypes(result: InspectedPackageSurface): AppTypeSurface[] {
 
 function packageAssemblies(
   result: InspectedPackageSurface,
-  packageChildren?: BrowserPackageChildrenInspection,
 ): InspectedAssemblySurface[] {
-  const counts = new Map(
-    (packageChildren?.content.libraries ?? [])
-      .filter(library => library.publicTypeDeclarations !== null)
-      .map(library => [
-        library.assetId,
-        library.publicTypeDeclarations!,
-      ] as const),
-  );
-  return (result.assemblies ?? []).map(assembly => {
-    const publicTypes = counts.get(assembly.id);
-    return publicTypes === undefined
-      ? assembly
-      : { ...assembly, publicTypes };
-  });
+  return [...(result.assemblies ?? [])];
 }
 
 function mergeTypeFacetDescriptors(
@@ -603,16 +639,11 @@ export function createNuGetPackageModel(
     inspectionErrors.push(result.compileLibrary.message
       || `No compile Library is available (${result.compileLibrary.status}).`);
   }
-  const assemblies = packageAssemblies(result, packageChildren);
-  const provisionalTotalTypes = packageChildren
-    ? packageChildren.content.libraries.reduce(
-        (count, library) =>
-          count + (library.publicTypeDeclarations ?? 0),
-        0)
-    : assemblies.reduce(
-        (count, candidate) =>
-          count + (candidate.publicTypes ?? 0),
-        0);
+  const assemblies = packageAssemblies(result);
+  const provisionalTotalTypes = assemblies.reduce(
+    (count, candidate) =>
+      count + (candidate.publicTypes ?? 0),
+    0);
   const model: AppPackage = {
     id: result.package,
     version: result.version,
@@ -967,7 +998,7 @@ function promoteRuntimePackagePrimary(
 
 export interface PackageAcquisitionDependencies {
   queryPackageRoot?(rootRequest: string): Promise<BrowserPackageRootLoadResult>;
-  queryPackage(
+  queryPackageSummary(
     packageId: string,
     version: string,
     framework: string,
@@ -1085,7 +1116,7 @@ export function createPackageAcquisition(
 
   return {
     async loadPackage(request) {
-      let result: InspectedPackageSurface;
+      let result: InspectedPackageSurface | undefined;
       let versionSettlement:
         BrowserPackageVersionSettlementInspection | undefined;
       let packageInfo:
@@ -1099,14 +1130,13 @@ export function createPackageAcquisition(
         const rootLoad =
           await dependencies.queryPackageRoot(request.rootRequest);
         packageChildren = rootLoad.packageChildren;
-        result = rootLoad.surface;
       } else {
-        const loadResult = await dependencies.queryPackage(
+        const loadResult = await dependencies.queryPackageSummary(
           request.packageId,
           request.version,
           request.framework);
         versionSettlement = loadResult.versionSettlement;
-        if (loadResult.surface === null) {
+        if (loadResult.versionSettlement.content.kind === "NotSettled") {
           throw new PackageVersionSettlementError(
             loadResult.versionSettlement);
         }
@@ -1125,7 +1155,7 @@ export function createPackageAcquisition(
             "A settled package surface must carry Package children.");
         }
         packageChildren = loadResult.packageChildren;
-        result = loadResult.surface;
+        result = loadResult.surface ?? undefined;
       }
       if (request.isCurrent && !request.isCurrent()) return null;
       dependencies.refreshPackageStats();
@@ -1133,16 +1163,26 @@ export function createPackageAcquisition(
         throw new Error(
           "A settled package model requires Package Info and children.");
       }
-      const packageModel =
-        versionSettlement && packageInfo && packageChildren
-          ? createNuGetPackageModel(
+      let packageModel: AppPackage;
+      if (result && versionSettlement && packageInfo && packageChildren) {
+        packageModel = createNuGetPackageModel(
             result,
             versionSettlement,
             packageInfo,
-            packageChildren)
-          : packageChildren
-            ? createNuGetPackageModel(result, packageChildren)
-          : createNuGetPackageModel(result);
+            packageChildren);
+      } else if (result && packageChildren) {
+        packageModel = createNuGetPackageModel(result, packageChildren);
+      } else if (result) {
+        packageModel = createNuGetPackageModel(result);
+      } else if (packageChildren) {
+        packageModel = createNuGetPackageSummaryModel(
+          packageChildren,
+          versionSettlement,
+          packageInfo);
+      } else {
+        throw new Error(
+          "A Package load requires either a surface or Package children.");
+      }
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(
         packageModel.id,

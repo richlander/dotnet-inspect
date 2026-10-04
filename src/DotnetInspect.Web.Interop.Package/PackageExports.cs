@@ -50,7 +50,31 @@ public static partial class PackageExports
         string targetFramework)
     {
         BrowserPackageLoadResult result =
-            await PackageSurfaceAsync(packageId, version, targetFramework);
+            await PackageLoadAsync(
+                packageId,
+                version,
+                targetFramework,
+                includeSurface: true);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
+    }
+
+    /// <summary>
+    /// The Package-owned child summary without opening selected Library binaries.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageSummary(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        BrowserPackageLoadResult result =
+            await PackageLoadAsync(
+                packageId,
+                version,
+                targetFramework,
+                includeSurface: false);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -76,26 +100,15 @@ public static partial class PackageExports
                         await BrowserPackageWorkspace.ReacquireAsync(
                             request,
                             deadline.Token).ConfigureAwait(false);
-                    await using BrowserScopeLease<BrowserInspectionScope>
-                        scopeLease =
-                            await BrowserPackageWorkspace.OpenScopeAsync(
-                                [coordinate],
-                                deadline.Token).ConfigureAwait(false);
-                    BrowserInspectionScope scope = scopeLease.Scope;
                     InspectionEnvelope<PackageChildrenDocument>
                         packageChildren =
                             await PackageChildrenAsync(
-                                    scope,
-                                    scope.Coordinates[0],
+                                    coordinate,
                                     deadline.Token)
                                 .ConfigureAwait(false);
                     return new BrowserPackageRootLoadResult(
                         BrowserPackageWireProjection.Project(
-                            packageChildren),
-                        BrowserPackageWireProjection.Project(
-                            BrowserPackageSurfaceProjection.ProjectSurface(
-                                scope,
-                                scope.Coordinates[0])));
+                            packageChildren));
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
@@ -104,10 +117,11 @@ public static partial class PackageExports
                 .BrowserPackageRootLoadResult);
     }
 
-    static async Task<BrowserPackageLoadResult> PackageSurfaceAsync(
+    static async Task<BrowserPackageLoadResult> PackageLoadAsync(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        bool includeSurface)
     {
         BrowserPackageRealizationResult result =
             await BrowserPackageWorkspace.RealizeWithSettlementAsync(
@@ -126,37 +140,40 @@ public static partial class PackageExports
 
         BrowserPackageRealization realization =
             ((BrowserPackageRealizationResult.Realized)result).Realization;
-        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
-                realization,
-                CancellationToken.None);
-        BrowserInspectionScope scope = scopeLease.Scope;
         InspectionEnvelope<PackageChildrenDocument> packageChildren =
             await PackageChildrenAsync(
-                    scope,
-                    scope.Coordinates[0],
+                    realization.Coordinate,
                     CancellationToken.None)
                 .ConfigureAwait(false);
+        BrowserPackageSurface? surface = null;
+        if (includeSurface)
+        {
+            await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    realization,
+                    CancellationToken.None);
+            BrowserInspectionScope scope = scopeLease.Scope;
+            surface = BrowserPackageWireProjection.Project(
+                BrowserPackageSurfaceProjection.ProjectSurface(
+                    scope,
+                    scope.Coordinates[0]));
+        }
+
         return new(
             BrowserPackageWireProjection.Project(
                 realization.VersionSettlement),
             BrowserPackageWireProjection.Project(
                 realization.PackageInfo),
             BrowserPackageWireProjection.Project(packageChildren),
-            BrowserPackageWireProjection.Project(
-                BrowserPackageSurfaceProjection.ProjectSurface(
-                    scope,
-                    scope.Coordinates[0])));
+            surface);
     }
 
     private static async ValueTask<
         InspectionEnvelope<PackageChildrenDocument>>
         PackageChildrenAsync(
-            BrowserInspectionScope scope,
             BrowserPackageCoordinate coordinate,
             CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(coordinate);
         BrowserToolPackageProjection? tool =
             await coordinate.Package.ProjectToolPackageAsync(
@@ -171,7 +188,6 @@ public static partial class PackageExports
                 coordinate.PackageId,
                 coordinate.Version);
             return await InspectToolPackageChildrenAsync(
-                    coordinate,
                     toolSubject,
                     tool,
                     cancellationToken)
@@ -228,60 +244,24 @@ public static partial class PackageExports
                     complete));
         }
 
-        Dictionary<string, BrowserWorkspaceParticipant> participants =
-            scope.SurfaceParticipants
-                .Where(participant =>
-                    ReferenceEquals(
-                        participant.Coordinate.Root.Identity,
-                        coordinate.Root.Identity))
-                .ToDictionary(
-                    static participant => participant.Asset.Id,
-                    StringComparer.Ordinal);
-        PackageLibraryInspectionTarget[] targets =
-            scope.UseSurface<PackageLibraryInspectionTarget[]>(group =>
-            [
-                .. selection.Assets.Select(asset =>
-                    participants.TryGetValue(
-                        asset.Id,
-                        out BrowserWorkspaceParticipant? participant)
-                            ? new PackageLibraryInspectionTarget(
-                                asset.Id,
-                                asset.Path,
-                                PackageLibraryChildRole.Compile,
-                                group,
-                                participant.Participant)
-                            : PackageLibraryInspectionTarget
-                                .CreateUnavailable(
-                                    asset.Id,
-                                    asset.Path,
-                                    asset.AssemblyName,
-                                    PackageLibraryChildRole.Compile,
-                                    PackageLibraryChildUnavailableReason
-                                        .AssemblyUnavailable,
-                                    "The selected compile Library was not "
-                                        + "realized in the browser Workspace.")),
-            ]);
-        return await PackageChildrenInspection.ExecuteLibrariesAsync(
-                subject,
-                targets,
-                PlanPackageChildren(targets.Length),
-                new()
-                {
-                    MaxLibraries =
-                        BrowserInspectionScope.MaxAssembliesPerRole,
-                    Materialization = new(
-                        BrowserInspectionScope.MaxRetainedImageBytes,
-                        BrowserInspectionScope.MaxRetainedImageBytes),
-                    Extraction =
-                        BrowserApiSurfacePolicy.ExtractionBounds,
-                },
-                cancellationToken)
-            .ConfigureAwait(false);
+        PackageLibraryChildCandidate[] candidates =
+        [
+            .. selection.Assets.Select(
+                asset => new PackageLibraryChildCandidate(
+                    asset.Id,
+                    asset.Path,
+                    asset.AssemblyName,
+                    selection.TargetFramework,
+                    PackageLibraryChildRole.Compile)),
+        ];
+        return PackageChildrenInspection.Execute(
+            subject,
+            candidates,
+            PlanPackageChildren(candidates.Length));
     }
 
     static async ValueTask<InspectionEnvelope<PackageChildrenDocument>>
         InspectToolPackageChildrenAsync(
-            BrowserPackageCoordinate coordinate,
             PackageChildrenSubject subject,
             BrowserToolPackageProjection projection,
             CancellationToken cancellationToken)
@@ -316,13 +296,10 @@ public static partial class PackageExports
         return projection.Measurement switch
         {
             PackageToolSliceMeasurementOutcome.Measured measured =>
-                await InspectToolLibrariesAsync(
-                        coordinate,
+                InspectToolLibraries(
                         subject,
                         measured.Measurements,
-                        settings,
-                        cancellationToken)
-                    .ConfigureAwait(false),
+                        settings),
             PackageToolSliceMeasurementOutcome.SelectedEmpty selectedEmpty =>
                 PackageChildrenEnvelope(
                     PackageChildrenDocument.NoManagedLibraries(
@@ -359,22 +336,20 @@ public static partial class PackageExports
         };
     }
 
-    static ValueTask<InspectionEnvelope<PackageChildrenDocument>>
-        InspectToolLibrariesAsync(
-            BrowserPackageCoordinate coordinate,
+    static InspectionEnvelope<PackageChildrenDocument>
+        InspectToolLibraries(
             PackageChildrenSubject subject,
             PackageToolSliceMeasurements measurements,
-            DotnetToolSettingsData settings,
-            CancellationToken cancellationToken)
+            DotnetToolSettingsData settings)
     {
         IReadOnlySet<string> entryPointFileNames =
             settings.CreateEntryPointFileNames();
-        PackageLibraryInspectionCandidate[] candidates =
+        PackageLibraryChildCandidate[] candidates =
         [
             .. measurements.SelectedEntries
                 .Select(path =>
                 {
-                    return new PackageLibraryInspectionCandidate(
+                    return new PackageLibraryChildCandidate(
                         path,
                         path,
                         Path.GetFileNameWithoutExtension(path),
@@ -393,32 +368,12 @@ public static partial class PackageExports
                     static candidate => candidate.AssetPath,
                     StringComparer.Ordinal),
         ];
-        return PackageChildrenInspection.ExecutePackageEntriesAsync(
+        return PackageChildrenInspection.Execute(
             SubjectWithTargetFramework(
                 subject,
                 measurements.SelectedTargetFramework),
-            coordinate.CreateInspectionInput(),
             candidates,
-            PlanPackageChildren(candidates.Length),
-            new()
-            {
-                MaxAssembliesPerRole =
-                    BrowserInspectionScope.MaxAssembliesPerRole,
-                MaxAggregateRetainedImageBytes =
-                    BrowserInspectionScope.MaxRetainedImageBytes,
-                MaxAssemblyEntryBytes =
-                    BrowserInspectionScope.MaxRetainedImageBytes,
-                RequireDeclaredEntryLengths = true,
-            },
-            new()
-            {
-                MaxLibraries = BrowserInspectionScope.MaxAssembliesPerRole,
-                Materialization = new(
-                    BrowserInspectionScope.MaxRetainedImageBytes,
-                    BrowserInspectionScope.MaxRetainedImageBytes),
-                Extraction = BrowserApiSurfacePolicy.ExtractionBounds,
-            },
-            cancellationToken);
+            PlanPackageChildren(candidates.Length));
     }
 
     static PackageChildrenCapabilityPlan PlanPackageChildren(
@@ -427,8 +382,7 @@ public static partial class PackageExports
             sourceCount,
             selectedStart: 0,
             selectedEnd: sourceCount,
-            QuerySpaceTerminalRequirement.Rows,
-            enrichSelectedRows: true);
+            QuerySpaceTerminalRequirement.Rows);
 
     static PackageChildrenSubject SubjectWithTargetFramework(
         PackageChildrenSubject subject,

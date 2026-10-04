@@ -315,9 +315,6 @@ function packageLoadResult(
           assetPath: assembly.asset,
           assemblyName: assembly.name,
           role: "Compile",
-          publicTypeDeclarations: assembly.publicTypes,
-          countStatus: "Counted",
-          detail: null,
         })),
         runtimeIdentifierPackages: [],
         detail: null,
@@ -669,7 +666,11 @@ function harness() {
         capacity);
     },
     createPackageAcquisition,
-    inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
+    inspectPackageSummary: (
+      ...coordinate: Parameters<
+        PackageAcquisitionDependencies["queryPackageSummary"]
+      >
+    ) => {
       queries.push(coordinate);
       return controls.queryPackage(...coordinate);
     },

@@ -309,11 +309,9 @@ public sealed class BrowserMemberDeclarationTests
             AssemblyFileName,
             packageLibrary.GetProperty("assetId").GetString(),
             StringComparison.Ordinal);
-        Assert.True(
-            packageLibrary
-                .GetProperty("publicTypeDeclarations")
-                .GetInt32()
-                > 0);
+        Assert.Equal(
+            AssemblyFileName,
+            packageLibrary.GetProperty("assemblyName").GetString());
         string surfaceJson = loadDocument.RootElement
             .GetProperty("surface")
             .GetRawText();
