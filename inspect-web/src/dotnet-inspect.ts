@@ -295,6 +295,7 @@ import {
 import {
   itemAchievementClassNames,
   renderItemAchievementRail,
+  type ItemAchievement,
 } from "./item-achievements.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
@@ -344,6 +345,7 @@ import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
+  type LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
 import {
   captureMemberFocus,
@@ -598,6 +600,7 @@ import {
 import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
+  libraryApiDiffPresence,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffMemberExploreContext,
@@ -913,10 +916,14 @@ let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
 let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPackageLibraryDependencyStructure:
+  EngineClient["analysis"]["queryPackageLibraryDependencyStructure"];
 let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
 let inspectPackageLibraryStructuralSalience:
   EngineClient["analysis"]["queryPackageLibraryStructuralSalience"];
+let inspectPlatformLibraryDependencyStructure:
+  EngineClient["analysis"]["queryPlatformLibraryDependencyStructure"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
 let inspectPlatformLibraryStructuralSalience:
@@ -1107,6 +1114,8 @@ async function loadEngineModule() {
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
+      queryPackageLibraryDependencyStructure:
+        inspectPackageLibraryDependencyStructure,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
       queryPackageLibraryStructuralSalience:
         inspectPackageLibraryStructuralSalience,
@@ -1118,6 +1127,8 @@ async function loadEngineModule() {
         inspectPlatformTypeImplementationHeat,
       queryPlatformTypeMethodLeverage:
         inspectPlatformTypeMethodLeverage,
+      queryPlatformLibraryDependencyStructure:
+        inspectPlatformLibraryDependencyStructure,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformLibraryStructuralSalience:
         inspectPlatformLibraryStructuralSalience,
@@ -1441,6 +1452,12 @@ const initialState = {
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
   packageLibraryMetricsKey: "",
+  packageLibraryMetricsRelationshipState:
+    null as LibraryMetricsRelationshipState | null,
+  packageLibraryDependencyStructure: null,
+  packageLibraryDependencyStructureLoading: false,
+  packageLibraryDependencyStructureError: "",
+  packageLibraryDependencyStructureKey: "",
   packageMetadata: null,
   packageMetadataLoading: false,
   packageMetadataError: "",
@@ -6748,6 +6765,31 @@ function methodLeverageAchievements(
     : [];
 }
 
+const apiDiffAchievement: ItemAchievement = {
+  kind: "api-diff",
+  description: "API differences",
+};
+
+function memberApiDiffAchievements(
+  memberFingerprints: ReadonlySet<string>,
+  group: {
+    readonly overloads: readonly {
+      readonly anchorDigest?: string | null;
+    }[];
+  },
+  index: number | null,
+): readonly ItemAchievement[] {
+  const overloads = index === null
+    ? group.overloads
+    : group.overloads.slice(index, index + 1);
+  return overloads.some(overload =>
+    overload.anchorDigest !== null
+    && overload.anchorDigest !== undefined
+    && memberFingerprints.has(overload.anchorDigest))
+    ? [apiDiffAchievement]
+    : [];
+}
+
 function selectedMemberGroups(type: AppTypeSurface) {
   return declaredMemberGroups(type);
 }
@@ -9682,6 +9724,7 @@ function renderTypeNavPane(
   visible: readonly TypeInventoryRow[],
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
+  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
   return renderTypeNav({
@@ -9735,12 +9778,16 @@ function renderTypeNavPane(
       const leverage = presentation?.byType.get(
         item.definitionId ?? item.id,
       );
-      return leverage
-        ? [{
-            kind: leverage.pole,
-            description: leverage.description,
-          }]
-        : [];
+      const achievements: ItemAchievement[] = [];
+      if (leverage) {
+        achievements.push({
+          kind: leverage.pole,
+          description: leverage.description,
+        });
+      }
+      if (diffPresence.typeIdentifiers.has(item.definitionId ?? item.id))
+        achievements.push(apiDiffAchievement);
+      return achievements;
     },
     statusHtml:
       `${typeLeverageStatus()}${platformForwarderInventoryStatus()}`,
@@ -9750,6 +9797,7 @@ function renderTypeNavPane(
 function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   const groups = selectedMemberGroups(type);
+  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
@@ -9770,7 +9818,13 @@ function renderMemberNavPane(type: AppTypeSurface) {
     highlight,
     overloadHeat: memberNavOverloadHeat,
     familyHeatCue: memberNavFamilyHeatCue,
-    memberAchievements: methodLeverageAchievements,
+    memberAchievements: (group, index) => [
+      ...methodLeverageAchievements(group, index),
+      ...memberApiDiffAchievements(
+        diffPresence.memberFingerprints,
+        group,
+        index),
+    ],
     overloadSourceIndex: memberNavOverloadSourceIndex,
     emptyMessage: "No members match these filters.",
   });
@@ -10460,6 +10514,12 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageLibraryDependencyStructure: (packageModel, library) =>
+    inspectPackageLibraryDependencyStructure(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework,
+      library),
   queryPackageLibraryMetrics: (packageModel, library) =>
     inspectPackageLibraryMetrics(
       packageModel.id,
@@ -10478,6 +10538,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack)),
+  queryPlatformLibraryDependencyStructure: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformLibraryDependencyStructure(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack),
   queryPlatformLibraryMetrics: (
     framework,
     platformVersion,
@@ -10703,6 +10774,16 @@ function renderPackageLibraryMetrics() {
     loading: state.packageLibraryMetricsLoading,
     error: state.packageLibraryMetricsError,
     data: state.packageLibraryMetrics,
+    dependencyFresh:
+      state.packageLibraryDependencyStructureKey === current,
+    dependencyLoading:
+      state.packageLibraryDependencyStructureLoading,
+    dependencyError:
+      state.packageLibraryDependencyStructureError,
+    dependencyData:
+      state.packageLibraryDependencyStructure,
+    relationshipState:
+      state.packageLibraryMetricsRelationshipState,
     escapeHtml,
   });
 }
@@ -10747,6 +10828,15 @@ function loadPackageLibraryMetrics() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
   return packageInspection.loadLibraryMetrics(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function loadPackageLibraryDependencyStructure() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadLibraryDependencyStructure(
     pkg,
     packageScopeSignature(),
     scopedLib);
@@ -13824,6 +13914,13 @@ function bindEvents() {
   bindLibraryControlsEvents();
   bindLibraryMetricsInteractions(document, {
     activateType: activateLibraryMetricsType,
+    loadDependencyStructure: () =>
+      observeAsync(
+        loadPackageLibraryDependencyStructure(),
+        "Loading library dependency structure"),
+    updateRelationshipState: relationshipState => {
+      state.packageLibraryMetricsRelationshipState = relationshipState;
+    },
   });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);

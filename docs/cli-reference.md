@@ -569,23 +569,30 @@ suggestions:
 
 ```bash
 dotnet-inspect member --explain
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
   --explain
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
   --explain .tips
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
   -E .tips
 ```
 
 Command-level `member --explain` is acquisition-free. Subject-bearing
-`--explain` resolves exactly one Member and writes the explanation as the
-terminal stdout document instead of ordinary inspection output. Exact-subject
+`--explain` resolves exactly one semantic subject and writes its explanation as
+the terminal stdout document instead of ordinary inspection output. A bare
+ordinary method name is one MemberGroup subject regardless of overload count;
+an ordinal or digest selector is one exact Member subject. Singleton groups
+remain MemberGroups, and an overloaded group is not rejected as several
+subjects or reduced to its first overload. Resolved-subject
 `--explain .tips` writes only the headless plain-text suggestions to stdout; it
-does not produce ordinary Member Content. Command-level `.tips` requires an
-exact Member because the command resource has no applicable gesture context.
-Exact-subject bare `-E` preserves ordinary stdout byte-for-byte, flushes it,
-then writes the same explanation Content to `stderr`. `--explain -E` and
+does not produce ordinary Member Content. Command-level `.tips` requires a
+MemberGroup or exact Member because the command resource has no applicable
+gesture context. Resolved-subject bare `-E` preserves ordinary stdout
+byte-for-byte, flushes it, then writes the same explanation Content to
+`stderr`. `--explain -E` and
 `--explain .tips -E .tips` are duplicate projections and are rejected;
 different primary and companion projections compose. Bare `-E` remains
 reserved on other commands. Both `.references` placements remain reserved
@@ -625,8 +632,8 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
-| Explain the Member command or one exact Member | `member --explain`, exact `member ... --explain`, or exact `member ... -E` |
-| Show contextual tips | Exact `member ... --explain .tips` on stdout or `-E .tips` on stderr |
+| Explain the Member command, one MemberGroup, or one exact Member | `member --explain`, subject-bearing `member ... --explain`, or `member ... -E` |
+| Show contextual tips | Subject-bearing `member ... --explain .tips` on stdout or `-E .tips` on stderr |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
@@ -1405,9 +1412,10 @@ dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize --explain
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain .tips
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize --explain .tips
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize -E
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
@@ -1425,8 +1433,8 @@ dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
-An exact method name selects its MemberGroup. Its default output is a native
-Tree rooted at one compact identity line and containing every public,
+A bare ordinary method name selects its MemberGroup. Its default output is a
+native Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.
 This remains a MemberGroup when the selected version has one overload.
 Use `--columns "Signature;Description"` to request compiled documentation for

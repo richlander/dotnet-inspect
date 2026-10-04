@@ -738,7 +738,7 @@ A command may publish owner-issued output-capability metadata for its selectable
 sections. Each section declares the presentation modes supported by its product
 shape, plus any mode that requires the section to be the complete selection.
 Under [Section shapes](section-shapes.md), an adopting command derives those
-modes from the section's declared shape (Table, Hierarchy, or Document) rather
+modes from the section's declared shape (Table, Hierarchy, or Text) rather
 than declaring them independently; this section continues to own how a complete
 selection is evaluated against them.
 The command also declares any section family that forms one homogeneous Table

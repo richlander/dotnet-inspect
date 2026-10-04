@@ -58,8 +58,14 @@ using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPack
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserLibraryMetrics = DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetrics;
+using BrowserLibraryDependencyStructure =
+    DotnetInspect.Web.Interop.Analysis.BrowserLibraryDependencyStructure;
+using BrowserLibraryDependencyTypeEdge =
+    DotnetInspect.Web.Interop.Analysis.BrowserLibraryDependencyTypeEdge;
 using BrowserLibraryStructuralSalience = DotnetInspect.Web.Interop.Analysis.BrowserLibraryStructuralSalience;
 using BrowserLibraryTypeLeverageShard = DotnetInspect.Web.Interop.Analysis.BrowserLibraryTypeLeverageShard;
+using LibraryDependencyStructure =
+    ILInspector.Research.LibraryDependencyStructure;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
 using BrowserCallGraph = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraph;
 using BrowserCallGraphTarget = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget;
@@ -2363,7 +2369,7 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             typeCount: 10_000,
             namespaceLength: 1_000);
-        _ = await Coordinate(
+        BrowserPackageCoordinate coordinate = await Coordinate(
             packageId,
             Package(image, $"lib/net11.0/{packageId}.dll"));
 
@@ -2744,6 +2750,23 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             metrics.CompileLibrary.Status);
+        BrowserLibraryDependencyStructure dependency =
+            Assert.IsType<BrowserLibraryDependencyStructure>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackageLibraryDependencyStructure(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            surface.Asset.Id),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibraryDependencyStructure));
+        Assert.Equal(
+            "unavailable",
+            dependency.Outcome);
+        Assert.Contains(
+            "no managed implementation assembly",
+            dependency.Failure);
 
         BrowserLibraryStructuralSalience salience =
             Assert.IsType<BrowserLibraryStructuralSalience>(
@@ -2794,6 +2817,60 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Empty(performance.Members);
         Assert.Null(performance.InspectionError);
+    }
+
+    [Fact]
+    public async Task LibraryDependencyStructure_ProjectsBoundedResult()
+    {
+        const string packageId =
+            "Browser.Library.DependencyStructure";
+        string assemblyPath =
+            FixtureCatalog.ResearchDependencyStructure.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        BrowserPackageCoordinate coordinate = await Coordinate(
+            packageId,
+            Package(
+                File.ReadAllBytes(assemblyPath),
+                $"lib/net11.0/{assemblyName}"));
+        string assemblyId = Assert.Single(
+            coordinate.Selection.Assets).Id;
+
+        BrowserLibraryDependencyStructure dependency =
+            Assert.IsType<BrowserLibraryDependencyStructure>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryPackageLibraryDependencyStructure(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            assemblyId),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibraryDependencyStructure));
+
+        Assert.Equal("available", dependency.Outcome);
+        Assert.Equal(
+            LibraryDependencyStructure.CurrentMethodologyVersion,
+            dependency.MethodologyVersion);
+        Assert.NotNull(dependency.Population);
+        Assert.NotEmpty(dependency.Namespaces);
+        Assert.NotEmpty(dependency.NamespaceEdges);
+        Assert.InRange(dependency.NamespaceEdges.Length, 1, 64);
+        Assert.True(
+            dependency.TotalNamespaceEdgeCount
+                >= dependency.NamespaceEdges.Length);
+        Assert.All(
+            dependency.NamespaceEdges,
+            edge => Assert.True(edge.Counts.Total > 0));
+        BrowserLibraryDependencyTypeEdge explanation =
+            Assert.Single(
+                dependency.NamespaceEdges
+                    .SelectMany(
+                        edge => edge.ExplainingTypeEdges)
+                    .Take(1));
+        Assert.NotEmpty(explanation.SourceTypeKey);
+        Assert.NotEmpty(explanation.TargetTypeKey);
+        Assert.NotEmpty(explanation.SourceTypeDisplay);
+        Assert.NotEmpty(explanation.TargetTypeDisplay);
     }
 
     [Fact]
