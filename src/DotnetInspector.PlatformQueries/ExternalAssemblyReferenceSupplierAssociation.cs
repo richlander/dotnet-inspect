@@ -208,8 +208,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
 {
     public static async ValueTask<
         ExternalAssemblyReferenceSupplierOutcome> ExecuteAsync(
-            PackageAssemblyReferenceSupplierAssociation packageAssociation,
-            AssemblyBindingRequest request,
+            PackageAssemblyReferenceExternalRoute packageRoute,
             AssemblyBindingSelection referencingContextSelection,
             PackageHouse packageHouse,
             PackageSourceOperationLease packageSourceOperation,
@@ -221,8 +220,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 resolvePlatform,
             CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(packageAssociation);
-        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(packageRoute);
         ArgumentNullException.ThrowIfNull(
             referencingContextSelection);
         ArgumentNullException.ThrowIfNull(packageHouse);
@@ -231,13 +229,15 @@ public static class ExternalAssemblyReferenceSupplierAssociation
         cancellationToken.ThrowIfCancellationRequested();
 
         PackageAssemblyReferenceSupplierOutcome package =
-            await packageAssociation.ResolveAsync(
-                    request,
+            await PackageAssemblyReferenceRouteAdapter.ExecuteAsync(
+                    packageRoute,
                     referencingContextSelection,
                     packageHouse,
-                    packageSourceOperation)
+                    packageSourceOperation,
+                    cancellationToken)
                 .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
+        AssemblyBindingRequest request = packageRoute.Request;
         switch (package)
         {
             case PackageAssemblyReferenceSupplierOutcome.Selected selected:
