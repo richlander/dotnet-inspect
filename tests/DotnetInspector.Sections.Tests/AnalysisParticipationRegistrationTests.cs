@@ -7,6 +7,7 @@ using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Inspector.Findings;
+using QuerySpace;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -14,6 +15,82 @@ public sealed class AnalysisParticipationRegistrationTests
 {
     static InspectionCapabilityCatalog ProductCatalog()
         => InspectionCapabilityCatalog.Create([DiffAnalysisCatalog.ProductModule]);
+
+    [Fact]
+    public void FailedRetainedComparisonDiagnostic_DoesNotDependOnTransitionsView()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Library,
+                targetCount: 1,
+                ["api", "string-literals"]));
+        StringLiteralComparisonQueryPlan query =
+            Assert.IsType<StringLiteralComparisonQueryPlanResult.Accepted>(
+                StringLiteralComparisonQuery.ResolveIntent(
+                    StringLiteralComparisonQuery.CreateIntent(
+                        PortableQueryOperator.Contains,
+                        "https://"),
+                    TestContext.Current.CancellationToken)).Plan;
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Library,
+            "library:sample",
+            "Sample");
+        var findingSubject =
+            new FindingSubject(subject.Id, subject.Display);
+        var comparisons = new RetainedFindingComparisonSet(
+        [
+            new RetainedFindingComparison<StringLiteralUseOccurrence>(
+                subject,
+                StringLiteralUseFindings.Descriptor,
+                FindingComparison.Compare<StringLiteralUseOccurrence>(
+                    new FindingInspection<StringLiteralUseOccurrence>.Failed(
+                        new InspectionError(
+                            findingSubject,
+                            StringLiteralUseFindings.Descriptor,
+                            "String literal scan exceeded its work limit.")),
+                    new FindingInspection<StringLiteralUseOccurrence>.Complete(
+                        []))),
+        ]);
+        var input = new DiffAnalysisInput(
+            new ApiSurface(),
+            new ApiSurface(),
+            [],
+            [],
+            new HashSet<string>(),
+            [],
+            apiMemberTargetIdentities: null,
+            prepareBodySignals: null,
+            stringLiteralQuery: query,
+            prepareStringLiterals: () => comparisons);
+
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    catalog,
+                    accepted,
+                    input,
+                    DiffAnalysisDocumentViews.Changes));
+
+        Assert.Null(inspection.Content.Transitions);
+        Assert.Single(comparisons.Failures);
+        InspectionDiagnostic diagnostic = Assert.Single(
+            inspection.Diagnostics,
+            diagnostic =>
+                diagnostic.Code
+                    == "diff-analysis.finding-comparison-failed");
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Error,
+            diagnostic.Severity);
+        Assert.Contains(
+            "String literal scan exceeded its work limit.",
+            diagnostic.Summary.ToString(),
+            StringComparison.Ordinal);
+    }
 
     [Fact]
     public void AnalysisIdentity_ConformsToGrammarAndIsUniquePerBuild()

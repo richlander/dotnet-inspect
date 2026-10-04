@@ -362,7 +362,7 @@ public static class DiffAnalysisInspection
             new InspectionShare.NonProjectable(
                 "comparison/endpoints",
                 "No portable projection is available for an ordered Diff analysis endpoint pair."),
-            [.. Diagnostics(result, apiDiff, projections)]);
+            [.. Diagnostics(result, apiDiff)]);
     }
 
     private static AnalysisReportSurfaceKind SurfaceOf(
@@ -623,8 +623,7 @@ public static class DiffAnalysisInspection
 
     private static IEnumerable<InspectionDiagnostic> Diagnostics(
         DiffAnalysisResult result,
-        ApiDiff? apiDiff,
-        IReadOnlyList<OutcomeProjection> projections)
+        ApiDiff? apiDiff)
     {
         foreach (DiffAnalysisOutcome outcome in result.Outcomes)
         {
@@ -646,19 +645,23 @@ public static class DiffAnalysisInspection
                             + failed.Diagnostic,
                         outcome.Identity);
                     break;
+                case DiffAnalysisOutcome.Compared
+                {
+                    Comparison: KeyedFindingComparison.Retained retained,
+                }:
+                    foreach (RetainedFindingComparison failure
+                             in retained.Comparisons.Failures)
+                    {
+                        yield return new InspectionDiagnostic(
+                            "diff-analysis.finding-comparison-failed",
+                            InspectionDiagnosticSeverity.Error,
+                            $"Finding comparison '{failure.Descriptor.Id}' "
+                                + $"failed for '{failure.Subject.Display}': "
+                                + failure.Failure,
+                            failure.Subject.Display);
+                    }
+                    break;
             }
-        }
-
-        foreach (DiffAnalysisTransitionRow failure in projections
-                     .SelectMany(projection => projection.Transitions)
-                     .Where(IsFailedComparison))
-        {
-            yield return new InspectionDiagnostic(
-                "diff-analysis.finding-comparison-failed",
-                InspectionDiagnosticSeverity.Error,
-                $"Finding comparison '{failure.Finding}' failed for "
-                    + $"'{failure.Target}': {failure.Detail}",
-                failure.Target);
         }
 
         if (apiDiff is null)

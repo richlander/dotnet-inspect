@@ -400,7 +400,21 @@ public sealed class RetainedFindingComparisonSet
                 nameof(comparisons));
         }
 
+        ImmutableArray<RetainedFindingComparison>.Builder? failures = null;
+        foreach (RetainedFindingComparison comparison in items)
+        {
+            if (comparison.Failure is null)
+                continue;
+
+            failures ??=
+                ImmutableArray.CreateBuilder<RetainedFindingComparison>();
+            failures.Add(comparison);
+        }
+
         Items = items;
+        Failures =
+            failures?.ToImmutable()
+            ?? ImmutableArray<RetainedFindingComparison>.Empty;
         _byDescriptor = items
             .GroupBy(comparison => comparison.Descriptor.Id, StringComparer.Ordinal)
             .ToImmutableDictionary(
@@ -413,6 +427,9 @@ public sealed class RetainedFindingComparisonSet
 
     public int Count => Items.Length;
     public bool IsEmpty => Items.IsEmpty;
+
+    /// <summary>Failed retained comparisons, in retention order.</summary>
+    public ImmutableArray<RetainedFindingComparison> Failures { get; }
 
     /// <summary>The retained Finding descriptor identities, in first-retained order.</summary>
     public ImmutableArray<string> DescriptorIds =>
