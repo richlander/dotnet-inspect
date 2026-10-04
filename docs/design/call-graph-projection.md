@@ -520,7 +520,8 @@ It measures graph construction, caller batches, callee batches, and complete
 census projection over pinned real assemblies. A replacement representation
 must preserve the exact scorecard fingerprint and show no credible NativeAOT
 regression in any measured operation before the next product graph adopts the
-same shape.
+same shape. Correctness checks and timed samples run in separate processes so
+fingerprint construction cannot contaminate elapsed-time or peak-RSS evidence.
 
 `DotnetInspector.ResearchQueries.AnnotatedMemberDocumentQuery` is the first
 non-rendering consumer of this progressive seam. It accepts an already-acquired

@@ -27,12 +27,17 @@ foreach (Asset asset in assets)
             + $" calls={asset.CallCount},"
             + $" caller-roots={asset.CallerRoots.Length},"
             + $" callee-roots={asset.CalleeRoots.Length}"));
-    Console.WriteLine(
-        $"CHECK\t{asset.Name}\t{asset.Fingerprint()}");
 }
 
 if (options.Command == Command.Check)
+{
+    foreach (Asset asset in assets)
+    {
+        Console.WriteLine(
+            $"CHECK\t{asset.Name}\t{asset.Fingerprint()}");
+    }
     return 0;
+}
 
 using TextWriter output = options.TsvPath is null
     ? Console.Out
