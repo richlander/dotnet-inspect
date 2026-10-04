@@ -4,6 +4,105 @@ namespace DotnetInspector.Sections.Tests;
 
 public sealed class SectionPipelineSubstrateTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("@dependencies")]
+    [InlineData("Dependencies")]
+    [InlineData("package.dependencies")]
+    [InlineData("two--words")]
+    [InlineData("trailing-")]
+    public void FacetSetIdentityRejectsNonCanonicalValues(string value)
+    {
+        Assert.Throws<ArgumentException>(() => new ViewFacetSetId(value));
+    }
+
+    [Fact]
+    public void FacetSetDescriptorRequiresExplicitUniqueMembership()
+    {
+        var facet = new ViewFacetId("package.dependencies");
+
+        Assert.Throws<ArgumentException>(() =>
+            new ViewFacetSetDescriptor(
+                new ViewFacetSetId("dependencies"),
+                "Dependencies",
+                InspectionViewFacetCatalog.Registry,
+                []));
+        Assert.Throws<ArgumentException>(() =>
+            new ViewFacetSetDescriptor(
+                new ViewFacetSetId("dependencies"),
+                "Dependencies",
+                InspectionViewFacetCatalog.Registry,
+                [facet, facet]));
+        Assert.Throws<ArgumentException>(() =>
+            new ViewFacetSetDescriptor(
+                new ViewFacetSetId("dependencies"),
+                "Dependencies",
+                InspectionViewFacetCatalog.Registry,
+                [new ViewFacetId("package.unregistered")]));
+    }
+
+    [Fact]
+    public void CompiledFacetSetsPreserveIdentityTitleMembershipAndOrder()
+    {
+        var dependencies = new ViewFacetSetDescriptor(
+            new ViewFacetSetId("dependencies"),
+            "Shared title",
+            InspectionViewFacetCatalog.Registry,
+            [
+                new ViewFacetId("package.dependencies"),
+                new ViewFacetId("package.dependency-hierarchy"),
+            ]);
+        var audit = new ViewFacetSetDescriptor(
+            new ViewFacetSetId("audit"),
+            "Shared title",
+            InspectionViewFacetCatalog.Registry,
+            [new ViewFacetId("package.overview")]);
+
+        SectionCatalog<TestModel> catalog = new SectionPipeline<TestModel>()
+            .WithoutComputedPoles()
+            .Add<PrimarySection>()
+            .Add<DetailedSection>()
+            .AddFacetSetCategory("@Dependencies", dependencies, PrimarySection.Name)
+            .AddFacetSetCategory("@Audit", audit, DetailedSection.Name)
+            .Compile();
+
+        Assert.Equal([dependencies, audit], catalog.AuthoredFacetSets);
+        Assert.Equal(
+            ["package.dependencies", "package.dependency-hierarchy"],
+            catalog.AuthoredFacetSets[0].Facets.Select(static facet => facet.Value));
+        Assert.Equal(
+            ["Shared title", "Shared title"],
+            catalog.AuthoredFacetSets.Select(static set => set.Title));
+        Assert.Equal(
+            ["dependencies", "audit"],
+            catalog.AuthoredFacetSets.Select(static set => set.Id.Value));
+        Assert.All(
+            catalog.AuthoredCategories,
+            static category => Assert.NotNull(category.FacetSet));
+    }
+
+    [Fact]
+    public void PipelineRejectsDuplicateFacetSetIdentity()
+    {
+        var first = new ViewFacetSetDescriptor(
+            new ViewFacetSetId("dependencies"),
+            "Dependencies",
+            InspectionViewFacetCatalog.Registry,
+            [new ViewFacetId("package.dependencies")]);
+        var duplicate = new ViewFacetSetDescriptor(
+            new ViewFacetSetId("dependencies"),
+            "Another title",
+            InspectionViewFacetCatalog.Registry,
+            [new ViewFacetId("package.dependency-hierarchy")]);
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add<PrimarySection>()
+            .Add<DetailedSection>()
+            .AddFacetSetCategory("@Dependencies", first, PrimarySection.Name);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            pipeline.AddFacetSetCategory("@Other", duplicate, DetailedSection.Name));
+    }
+
     [Fact]
     public void CompiledDomainPlansAndExecutesHostNeutralSectionLens()
     {
