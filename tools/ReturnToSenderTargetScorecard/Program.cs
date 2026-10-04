@@ -12,6 +12,82 @@ using ILInspector.Metadata;
 using NLinq;
 
 if (args.Length >= 4
+    && string.Equals(
+        args[0],
+        "select-repeat",
+        StringComparison.Ordinal))
+{
+    if (!int.TryParse(
+            args[1],
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out int rounds)
+        || rounds <= 0
+        || !int.TryParse(
+            args[2],
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out int cap)
+        || cap <= 0)
+    {
+        Console.Error.WriteLine(
+            "usage: select-repeat <positive-rounds> "
+            + "<positive-cap> <assembly>...");
+        return 2;
+    }
+
+    string[] paths = [.. args[3..].Select(Path.GetFullPath)];
+    CappedSelectionAnswer eagerAnswer =
+        SelectEagerMany(paths, cap);
+    CappedSelectionAnswer rankFirstAnswer =
+        SelectRankFirstMany(paths, cap);
+    EnsureSameTargets(eagerAnswer, rankFirstAnswer);
+
+    Console.WriteLine(
+        "round\tcolumn\tmilliseconds\tallocated-bytes\t"
+        + "targets\tranked-bodies\tevaluated-bodies\t"
+        + "declaration-candidates\texcluded-candidates\t"
+        + "fingerprint");
+    for (int round = 0; round < rounds; round++)
+    {
+        string[] order = (round & 1) == 0
+            ? ["Eager", "RankFirst"]
+            : ["RankFirst", "Eager"];
+        foreach (string column in order)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            long allocatedBefore =
+                GC.GetAllocatedBytesForCurrentThread();
+            long started =
+                System.Diagnostics.Stopwatch.GetTimestamp();
+            CappedSelectionAnswer answer =
+                column == "Eager"
+                    ? SelectEagerMany(paths, cap)
+                    : SelectRankFirstMany(paths, cap);
+            TimeSpan elapsed =
+                System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread()
+                - allocatedBefore;
+            EnsureSameTargets(eagerAnswer, answer);
+            Console.WriteLine(
+                $"{round + 1}\t{column}\t"
+                + $"{elapsed.TotalMilliseconds:F3}\t"
+                + $"{allocated}\t"
+                + $"{answer.Targets.Length}\t"
+                + $"{answer.RankedBodyCount}\t"
+                + $"{answer.EvaluatedBodyCount}\t"
+                + $"{answer.DeclarationCandidateCount}\t"
+                + $"{answer.ExcludedDeclarationCandidateCount}\t"
+                + $"{answer.Fingerprint}");
+        }
+    }
+    return 0;
+}
+
+if (args.Length >= 4
     && string.Equals(args[0], "repeat-one", StringComparison.Ordinal))
 {
     if (!int.TryParse(
@@ -209,6 +285,167 @@ return 0;
 
 static ScorecardAnswer<byte> CountAnswer(int count) =>
     ScorecardAnswer<byte>.OfCount(count);
+
+static CappedSelectionAnswer SelectEagerMany(
+    IReadOnlyList<string> paths,
+    int cap)
+{
+    var targets = new List<string>(Math.Min(cap, 4096));
+    int rankedBodyCount = 0;
+    int declarationCandidateCount = 0;
+    int excludedDeclarationCandidateCount = 0;
+    foreach (string path in paths)
+    {
+        int remaining = cap - targets.Count;
+        if (remaining <= 0)
+            break;
+
+        using var metadata = MetadataSource.Open(path);
+        using AssemblyInspectionSession assembly =
+            AssemblyInspectionSession.Open(path);
+        using var source =
+            new ReturnToSenderTargetSourceSession(path, assembly);
+        var decisions =
+            new Dictionary<int, ReturnToSenderTargetDecision>();
+        foreach (IrImporter.StableSampleCandidate candidate
+            in IrImporter.GetStableSampleCandidates(
+                metadata,
+                remaining,
+                candidate =>
+                {
+                    rankedBodyCount++;
+                    ReturnToSenderTargetDecision? decision =
+                        source.Decide(
+                            candidate,
+                            typeFilter: null,
+                            out bool declarationCandidate);
+                    if (declarationCandidate)
+                        declarationCandidateCount++;
+                    if (decision is null)
+                        return false;
+
+                    int token = System.Reflection.Metadata.Ecma335
+                        .MetadataTokens.GetToken(
+                            candidate.MethodHandle);
+                    decisions.Add(token, decision);
+                    if (decision.Exclusion is not null)
+                    {
+                        excludedDeclarationCandidateCount++;
+                        return false;
+                    }
+                    return true;
+                },
+                candidate =>
+                {
+                    int token = System.Reflection.Metadata.Ecma335
+                        .MetadataTokens.GetToken(
+                            candidate.MethodHandle);
+                    return decisions[token].StableIdentitySuffix;
+                }))
+        {
+            int token = System.Reflection.Metadata.Ecma335
+                .MetadataTokens.GetToken(candidate.MethodHandle);
+            targets.Add(
+                TargetIdentity(
+                    decisions[token].Target
+                    ?? throw new InvalidOperationException(
+                        "An eligible eager RTS candidate lost "
+                        + "its target.")));
+        }
+    }
+
+    string[] answer = [.. targets];
+    return new(
+        answer,
+        rankedBodyCount,
+        rankedBodyCount,
+        declarationCandidateCount,
+        excludedDeclarationCandidateCount,
+        SelectionFingerprint(answer));
+}
+
+static CappedSelectionAnswer SelectRankFirstMany(
+    IReadOnlyList<string> paths,
+    int cap)
+{
+    var targets = new List<string>(Math.Min(cap, 4096));
+    int rankedBodyCount = 0;
+    int evaluatedBodyCount = 0;
+    int declarationCandidateCount = 0;
+    int excludedDeclarationCandidateCount = 0;
+    foreach (string path in paths)
+    {
+        int remaining = cap - targets.Count;
+        if (remaining <= 0)
+            break;
+
+        using var metadata = MetadataSource.Open(path);
+        using AssemblyInspectionSession assembly =
+            AssemblyInspectionSession.Open(path);
+        using var source =
+            new ReturnToSenderTargetSourceSession(path, assembly);
+        ReturnToSenderCappedTargetSelection selection =
+            source.SelectCappedTargets(metadata, remaining);
+        targets.AddRange(
+            selection.Targets.Select(TargetIdentity));
+        rankedBodyCount = checked(
+            rankedBodyCount + selection.RankedBodyCount);
+        evaluatedBodyCount = checked(
+            evaluatedBodyCount + selection.EvaluatedBodyCount);
+        declarationCandidateCount = checked(
+            declarationCandidateCount
+            + selection.DeclarationCandidateCount);
+        excludedDeclarationCandidateCount = checked(
+            excludedDeclarationCandidateCount
+            + selection.ExcludedDeclarationCandidateCount);
+    }
+
+    string[] answer = [.. targets];
+    return new(
+        answer,
+        rankedBodyCount,
+        evaluatedBodyCount,
+        declarationCandidateCount,
+        excludedDeclarationCandidateCount,
+        SelectionFingerprint(answer));
+}
+
+static void EnsureSameTargets(
+    CappedSelectionAnswer expected,
+    CappedSelectionAnswer actual)
+{
+    if (!expected.Targets.SequenceEqual(
+            actual.Targets,
+            StringComparer.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "The capped RTS physical plans selected different targets.");
+    }
+}
+
+static string TargetIdentity(ReturnToSenderTarget target) =>
+    $"{Path.GetFileName(target.AssemblyPath)}|{target.Type}|"
+    + $"{target.Method}|{target.Overload}|{target.Signature}|"
+    + target.Declaration.GetType().Name;
+
+static string SelectionFingerprint(
+    IReadOnlyList<string> targets)
+{
+    ulong hash = 14695981039346656037UL;
+    foreach (string target in targets)
+    {
+        foreach (char ch in target)
+        {
+            hash ^= (byte)ch;
+            hash *= 1099511628211UL;
+            hash ^= (byte)(ch >> 8);
+            hash *= 1099511628211UL;
+        }
+    }
+    return hash.ToString(
+        "X16",
+        System.Globalization.CultureInfo.InvariantCulture);
+}
 
 static int CountOld(string path)
 {
@@ -469,6 +706,14 @@ readonly record struct CountEvidence(
     int DeclarationCandidateCount,
     int EagerRowCount,
     int PlannerMaterializedRowCount);
+
+readonly record struct CappedSelectionAnswer(
+    string[] Targets,
+    int RankedBodyCount,
+    int EvaluatedBodyCount,
+    int DeclarationCandidateCount,
+    int ExcludedDeclarationCandidateCount,
+    string Fingerprint);
 
 readonly struct IsEligible : IFunc<CandidateRow, bool>
 {

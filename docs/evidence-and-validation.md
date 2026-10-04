@@ -291,7 +291,10 @@ than an inspected artifact:
   candidates, eager rows, and Planner rows. Publish it for the target RID and
   run `return-to-sender-target-scorecard <check|time> <assembly>...`;
   `repeat-one` records exact base/head repeated terminal evidence, while
-  `once` supports process-start measurements.
+  `once` supports process-start measurements. `select-repeat <rounds> <cap>
+  <assembly>...` compares complete eligibility-before-ranking against the
+  operation-owned rank-first capped plan, requires identical selected-target
+  fingerprints, and reports ranked and deeply evaluated body counts.
 
 **The scorecard** scores QuerySpace (Base), LINQ, NLinq, and QuerySpace for
 Exists, Count,

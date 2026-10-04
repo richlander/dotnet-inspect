@@ -81,6 +81,13 @@ public sealed record ReturnToSenderTargetSourceCount(
     int DeclarationCandidateCount,
     int MaterializedRowCount);
 
+public sealed record ReturnToSenderCappedTargetSelection(
+    IReadOnlyList<ReturnToSenderTarget> Targets,
+    int RankedBodyCount,
+    int EvaluatedBodyCount,
+    int DeclarationCandidateCount,
+    int ExcludedDeclarationCandidateCount);
+
 public sealed class ReturnToSenderTargetSourceSession : IDisposable
 {
     private readonly string _assemblyIdentity;
@@ -121,7 +128,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
                     pe.GetMetadataReader(),
                     candidate,
                     typeFilter,
-                    materializeDecision: true));
+                    DecisionMaterialization.Complete));
         declarationCandidate = evaluation.DeclarationCandidate;
         return evaluation.Decision;
     }
@@ -132,6 +139,33 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
             pe => Count(
                 pe.GetMetadataReader(),
                 typeFilter));
+
+    public ReturnToSenderCappedTargetSelection SelectCappedTargets(
+        MetadataSource metadata,
+        int cap,
+        string? typeFilter = null)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cap);
+
+        IReadOnlyList<IrImporter.StableRankedSampleCandidate>
+            ranked =
+                IrImporter.GetStableRankedSampleCandidates(
+                    metadata,
+                    typeFilter is null
+                        ? null
+                        : candidate =>
+                            candidate.TypeName.Contains(
+                                typeFilter,
+                                StringComparison.Ordinal),
+                    includeGenericArity: true);
+        return _assembly.InspectImage(
+            pe => SelectCappedTargets(
+                pe.GetMetadataReader(),
+                ranked,
+                cap,
+                typeFilter));
+    }
 
     public void Dispose()
     {
@@ -176,7 +210,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
                             typeHandle,
                             methodHandle),
                         typeFilter,
-                        materializeDecision: false);
+                        DecisionMaterialization.None);
                 if (evaluation.DeclarationCandidate)
                     declarationCandidateCount++;
                 if (evaluation.Eligible)
@@ -191,11 +225,65 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
             MaterializedRowCount: 0);
     }
 
+    private ReturnToSenderCappedTargetSelection SelectCappedTargets(
+        MetadataReader reader,
+        IReadOnlyList<IrImporter.StableRankedSampleCandidate>
+            ranked,
+        int cap,
+        string? typeFilter)
+    {
+        var selected =
+            new List<(int Sequence, ReturnToSenderTarget Target)>(
+                Math.Min(cap, ranked.Count));
+        int evaluatedBodyCount = 0;
+        int declarationCandidateCount = 0;
+        int excludedDeclarationCandidateCount = 0;
+        foreach (IrImporter.StableRankedSampleCandidate rankedCandidate
+            in ranked)
+        {
+            evaluatedBodyCount++;
+            TargetEvaluation evaluation =
+                Evaluate(
+                    reader,
+                    rankedCandidate.Candidate,
+                    typeFilter,
+                    DecisionMaterialization.TargetOnly);
+            if (evaluation.DeclarationCandidate)
+                declarationCandidateCount++;
+            if (!evaluation.Eligible)
+            {
+                if (evaluation.DeclarationCandidate)
+                    excludedDeclarationCandidateCount++;
+                continue;
+            }
+
+            ReturnToSenderTarget target =
+                evaluation.Decision?.Target
+                ?? throw new InvalidOperationException(
+                    "An eligible ranked RTS candidate lost its target.");
+            selected.Add(
+                (rankedCandidate.MetadataSequence, target));
+            if (selected.Count == cap)
+                break;
+        }
+
+        return new(
+            [
+                .. selected
+                    .OrderBy(item => item.Sequence)
+                    .Select(item => item.Target),
+            ],
+            ranked.Count,
+            evaluatedBodyCount,
+            declarationCandidateCount,
+            excludedDeclarationCandidateCount);
+    }
+
     private TargetEvaluation Evaluate(
         MetadataReader reader,
         IrImporter.StableSampleCandidate candidate,
         string? typeFilter,
-        bool materializeDecision)
+        DecisionMaterialization materialization)
     {
         TypeDefinition typeDef =
             reader.GetTypeDefinition(candidate.TypeDefHandle);
@@ -275,7 +363,8 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
             new(
                 DeclarationCandidate: true,
                 Eligible: false,
-                materializeDecision
+                materialization
+                    == DecisionMaterialization.Complete
                     ? new(
                         null,
                         new(
@@ -453,7 +542,8 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         return new(
             DeclarationCandidate: true,
             Eligible: true,
-            materializeDecision
+            materialization
+                is not DecisionMaterialization.None
                 ? new(
                     new(
                         _assemblyIdentity,
@@ -483,6 +573,13 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         bool DeclarationCandidate,
         bool Eligible,
         ReturnToSenderTargetDecision? Decision);
+
+    private enum DecisionMaterialization
+    {
+        None,
+        TargetOnly,
+        Complete,
+    }
 
     private CSharpAccessorDeclarationPost CaptureAccessor(
         MetadataReader reader,

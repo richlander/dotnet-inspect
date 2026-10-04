@@ -308,6 +308,24 @@ enumerates metadata candidates independently, then queries exact eligible
 Count, complete eligible target Rows, and deterministically ordered typed
 exclusion Rows.
 
+Target-only capped selection is a distinct physical plan over the same
+operation-owned decision. It first inventories and stable-ranks the scoped
+body-bearing population using the existing canonical sampling identity,
+including generic arity. It then performs the complete metadata/CSharp target
+decision in rank order and stops when the requested number of eligible targets
+has settled. The selected set must equal the prefix produced by the complete
+pre-cap plan, and selected targets return in original metadata order. Assembly
+order and the global cross-assembly cap remain host-owned and unchanged.
+
+This capped plan does not claim a complete population receipt. Its receipt
+separately reports bodies ranked, bodies deeply evaluated, declaration
+candidates evaluated, and evaluated declaration candidates excluded. It does
+not publish all exclusions or an exact eligible Count unless it exhausts the
+population. The complete standalone plan remains the owner of all typed
+exclusions and exact candidate/eligibility counters; the QuerySpace Count path
+remains the complete-breadth, zero-row terminal. Sharing must not widen capped
+target selection back into either complete plan.
+
 The first production QuerySpace slice exposes exact eligible Count through one
 operation, one candidate row set, and the Count terminal. The operation-owned
 source performs the complete eligibility scan without constructing eligible
@@ -319,8 +337,8 @@ materialized target rows. DecompilerHarness consumes this path through
 `--return-to-sender-target-count`.
 
 This slice does not expose production Rows, realize targets through House,
-replace stable sampling or the cross-assembly cap, or cut raised standalone
-RTS execution over to QuerySpace. The NLinq population remains independent
+route capped target selection through QuerySpace, or cut raised standalone RTS
+execution over to QuerySpace. The NLinq population remains independent
 behavioral evidence for Count, Rows, and exclusions rather than a production
 source adapter or performance claim.
 

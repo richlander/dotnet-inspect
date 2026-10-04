@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
@@ -502,6 +503,15 @@ public static class IrImporter
     }
 
     /// <summary>
+    /// One body-bearing candidate in stable-hash order, carrying its original
+    /// metadata-order sequence for consumers that restore source order after
+    /// selecting a ranked prefix.
+    /// </summary>
+    public readonly record struct StableRankedSampleCandidate(
+        StableSampleCandidate Candidate,
+        int MetadataSequence);
+
+    /// <summary>
     /// Evaluates a deterministic hash-ranked sample of method bodies from the
     /// assembly. An optional predicate filters metadata candidates before
     /// ranking, and an optional identity suffix distinguishes candidates for a
@@ -514,19 +524,94 @@ public static class IrImporter
         Func<StableSampleCandidate, bool>? predicate = null,
         Func<StableSampleCandidate, string?>? stableIdentitySuffix = null)
     {
-        var reader = source.Reader;
+        List<MethodCandidate> candidates =
+            CollectStableSampleCandidates(
+                source,
+                predicate,
+                stableIdentitySuffix);
+
+        foreach (var candidate in candidates
+            .OrderBy(c => c.Hash)
+            .ThenBy(c => c.Key, StringComparer.Ordinal)
+            .Take(sampleSize)
+            .OrderBy(c => c.Sequence))
+        {
+            yield return new StableSampleCandidate(candidate.TypeName, candidate.MethodName, candidate.OverloadIndex, candidate.TypeDefHandle, candidate.MethodHandle);
+        }
+    }
+
+    /// <summary>
+    /// Ranks the complete scoped body-bearing population before any
+    /// consumer-specific eligibility decision. Consumers may deepen candidates
+    /// in this order and stop once a finite terminal settles.
+    /// </summary>
+    public static IReadOnlyList<StableRankedSampleCandidate>
+        GetStableRankedSampleCandidates(
+            MetadataSource source,
+            Func<StableSampleCandidate, bool>? scope = null,
+            bool includeGenericArity = false)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        Func<StableSampleCandidate, string?>? stableIdentitySuffix =
+            includeGenericArity
+                ? candidate =>
+                    "generic-arity:"
+                    + source.Reader
+                        .GetMethodDefinition(candidate.MethodHandle)
+                        .GetGenericParameters()
+                        .Count
+                        .ToString(CultureInfo.InvariantCulture)
+                : null;
+
+        return
+        [
+            .. CollectStableSampleCandidates(
+                    source,
+                    scope,
+                    stableIdentitySuffix)
+                .OrderBy(candidate => candidate.Hash)
+                .ThenBy(
+                    candidate => candidate.Key,
+                    StringComparer.Ordinal)
+                .Select(
+                    static candidate =>
+                        new StableRankedSampleCandidate(
+                            new(
+                                candidate.TypeName,
+                                candidate.MethodName,
+                                candidate.OverloadIndex,
+                                candidate.TypeDefHandle,
+                                candidate.MethodHandle),
+                            candidate.Sequence)),
+        ];
+    }
+
+    static List<MethodCandidate> CollectStableSampleCandidates(
+        MetadataSource source,
+        Func<StableSampleCandidate, bool>? predicate,
+        Func<StableSampleCandidate, string?>?
+            stableIdentitySuffix)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        MetadataReader reader = source.Reader;
         var candidates = new List<MethodCandidate>();
         int sequence = 0;
-        foreach (var typeDefHandle in reader.TypeDefinitions)
+        foreach (TypeDefinitionHandle typeDefHandle
+            in reader.TypeDefinitions)
         {
-            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            TypeDefinition typeDef =
+                reader.GetTypeDefinition(typeDefHandle);
             string typeName = reader.GetFullTypeName(typeDef);
             var seen = new Dictionary<string, int>();
-            foreach (var methodHandle in typeDef.GetMethods())
+            foreach (MethodDefinitionHandle methodHandle
+                in typeDef.GetMethods())
             {
-                var method = reader.GetMethodDefinition(methodHandle);
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
                 string memberName = reader.GetString(method.Name);
-                int overloadIndex = seen.GetValueOrDefault(memberName);
+                int overloadIndex =
+                    seen.GetValueOrDefault(memberName);
                 seen[memberName] = overloadIndex + 1;
 
                 if (method.RelativeVirtualAddress == 0)
@@ -537,9 +622,18 @@ public static class IrImporter
                     overloadIndex,
                     typeDefHandle,
                     methodHandle);
-                if (predicate is not null && !predicate(stableCandidate))
+                if (predicate is not null
+                    && !predicate(stableCandidate))
+                {
                     continue;
-                string key = StableSampleKey(reader, typeDef, method, typeName, memberName);
+                }
+
+                string key = StableSampleKey(
+                    reader,
+                    typeDef,
+                    method,
+                    typeName,
+                    memberName);
                 if (stableIdentitySuffix?.Invoke(stableCandidate)
                     is { Length: > 0 } suffix)
                 {
@@ -557,14 +651,7 @@ public static class IrImporter
             }
         }
 
-        foreach (var candidate in candidates
-            .OrderBy(c => c.Hash)
-            .ThenBy(c => c.Key, StringComparer.Ordinal)
-            .Take(sampleSize)
-            .OrderBy(c => c.Sequence))
-        {
-            yield return new StableSampleCandidate(candidate.TypeName, candidate.MethodName, candidate.OverloadIndex, candidate.TypeDefHandle, candidate.MethodHandle);
-        }
+        return candidates;
     }
 
     /// <summary>

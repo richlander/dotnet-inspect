@@ -214,7 +214,7 @@ static partial class FidelityCheck
         IReadOnlyList<string> assemblies,
         int cap,
         string? typeFilter = null)
-        => SelectReturnToSenderTargetPlan(
+        => SelectReturnToSenderTargetsCapped(
             assemblies,
             cap,
             typeFilter).Targets
@@ -228,6 +228,68 @@ static partial class FidelityCheck
                     target.Address,
                     target.Declaration))
             .ToArray();
+
+    internal static CappedReturnToSenderTargetSelection
+        SelectReturnToSenderTargetsCapped(
+            IReadOnlyList<string> assemblies,
+            int cap,
+            string? typeFilter = null)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        if (cap <= 0 || assemblies.Count == 0)
+            return new([], 0, 0, 0, 0);
+
+        var selected =
+            new List<ReturnToSenderTarget>(Math.Min(cap, 4096));
+        int rankedBodyCount = 0;
+        int evaluatedBodyCount = 0;
+        int declarationCandidateCount = 0;
+        int excludedDeclarationCandidateCount = 0;
+        using var metadata = CorpusMetadata.Create(assemblies);
+        foreach (string assemblyPath in assemblies)
+        {
+            int remaining = cap - selected.Count;
+            if (remaining <= 0)
+                break;
+
+            using MetadataSource source =
+                MetadataSource.Open(
+                    assemblyPath,
+                    context: metadata);
+            RegisterSourceContext(source, metadata);
+            using var assembly =
+                AssemblyInspectionSession.Open(assemblyPath);
+            using var targetSource =
+                new ReturnToSenderTargetSourceSession(
+                    assemblyPath,
+                    assembly);
+            ReturnToSenderCappedTargetSelection selection =
+                targetSource.SelectCappedTargets(
+                    source,
+                    remaining,
+                    typeFilter);
+            selected.AddRange(selection.Targets);
+            rankedBodyCount = checked(
+                rankedBodyCount
+                + selection.RankedBodyCount);
+            evaluatedBodyCount = checked(
+                evaluatedBodyCount
+                + selection.EvaluatedBodyCount);
+            declarationCandidateCount = checked(
+                declarationCandidateCount
+                + selection.DeclarationCandidateCount);
+            excludedDeclarationCandidateCount = checked(
+                excludedDeclarationCandidateCount
+                + selection.ExcludedDeclarationCandidateCount);
+        }
+
+        return new(
+            selected,
+            rankedBodyCount,
+            evaluatedBodyCount,
+            declarationCandidateCount,
+            excludedDeclarationCandidateCount);
+    }
 
     internal static ReturnToSenderTargetSelection SelectReturnToSenderTargetPlan(
         IReadOnlyList<string> assemblies,
@@ -527,6 +589,13 @@ static partial class FidelityCheck
         int ScannedBodyCount,
         int DeclarationCandidateCount,
         int EligibleCount);
+
+    internal sealed record CappedReturnToSenderTargetSelection(
+        IReadOnlyList<ReturnToSenderTarget> Targets,
+        int RankedBodyCount,
+        int EvaluatedBodyCount,
+        int DeclarationCandidateCount,
+        int ExcludedDeclarationCandidateCount);
 
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
