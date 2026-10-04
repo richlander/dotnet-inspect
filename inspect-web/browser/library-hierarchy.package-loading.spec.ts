@@ -4,6 +4,7 @@ import {
   chooseInspector,
   chooseSubject,
   selectLibrary,
+  core,
   other,
   installFacades,
   releaseFacade,
@@ -554,9 +555,7 @@ test("initial package loading retains the full acquisition interstitial", async 
   await expect(page.locator(".package-overview-surface")).toBeVisible();
 });
 
-test("newer Library navigation supersedes pending Type activation", async ({
-  page,
-}) => {
+async function beginPendingTypeActivation(page: Page) {
   await installPackageLoadingFacades(page, { deferInitial: true });
   await page.goto(frameworkRoot);
   await expect(page.locator("html")).toHaveAttribute(
@@ -571,6 +570,12 @@ test("newer Library navigation supersedes pending Type activation", async ({
   await subjectTab(page, "type").click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-package-query-pending");
+}
+
+test("newer Library navigation supersedes pending Type activation", async ({
+  page,
+}) => {
+  await beginPendingTypeActivation(page);
   await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute(
     "aria-selected", "true");
@@ -580,4 +585,19 @@ test("newer Library navigation supersedes pending Type activation", async ({
     "aria-selected", "true");
   await expect(page.locator(".library-overview-surface"))
     .not.toContainText("Library surface details are loading.");
+});
+
+test("newer Package child navigation supersedes pending Type activation", async ({
+  page,
+}) => {
+  await beginPendingTypeActivation(page);
+  await page.locator(`[data-package-child-library="${core.id}"]`).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+
+  await releaseFacade(page, "finish-package-query");
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText(core.name);
 });
