@@ -234,6 +234,12 @@ public sealed class MethodDefinitionRequestSetTests
             MethodDefinitionSourceCompletion.ProducerFailed,
             result.SourceReceipt.Completion);
         Assert.Null(result.SourceReceipt.SourceFailure);
+        Assert.Equal(
+            1,
+            result.SourceReceipt.Coverage.BodiesAttempted.Count);
+        Assert.True(
+            result.SourceReceipt.Coverage.BodiesAttempted.Contains(
+                MetadataTokens.MethodDefinitionHandle(1)));
         Assert.Equal(0, result.SourceReceipt.BodiesAcquired);
         Assert.Equal(
             0,
@@ -244,6 +250,10 @@ public sealed class MethodDefinitionRequestSetTests
                         layer.Layer
                             == nameof(MethodDefinitionLayers.Body))
                 .Acquired);
+        Assert.Equal(
+            1,
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.BodiesAttempted.Count);
         Assert.Equal(
             0,
             Assert.Single(execution.GroupReceipts)
@@ -497,6 +507,14 @@ public sealed class MethodDefinitionRequestSetTests
             independentResult.Value!.Rows.ToArray(),
             sharedResult.Value!.Rows.ToArray());
         Assert.Single(sharedResult.Value.Rows);
+        MethodDefinitionHandleCoverage lookupMethods =
+            shared.ResultOf(sharedUnsafe)
+                .SourceReceipt.Coverage.ModuleLookupMethods;
+        Assert.True(lookupMethods.Count > 0);
+        Assert.Equal(
+            lookupMethods.Count,
+            Assert.Single(shared.GroupReceipts)
+                .PhysicalCoverage.ModuleLookupMethods.Count);
     }
 
     [Fact]
