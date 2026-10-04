@@ -37,10 +37,12 @@ The **Ecosystem Dependency Recognition** owner in
   `EcosystemPackId` values;
 - distinct Package ID and assembly simple-name association domains;
 - exact and family association semantics in each domain;
+- exact immutable Package-asset AssemblyDef evidence for assembly recognition;
 - classification of one bounded direct-dependency observation batch;
 - one owner-issued Package or Library semantic subject for every batch;
 - typed availability for every required Package or Library input component;
-- many-to-many recognition evidence, including every matching association;
+- many-to-many recognized and candidate evidence, including every matching
+  association and every corroborating Package AssemblyDef;
 - one resource-free classification value reusable as a named part of an
   owner-issued inspection Document;
 - explicit complete, incomplete, and unavailable outcomes;
@@ -54,12 +56,15 @@ Its exact claim is:
 
 > Given one validated resource-free product recognition profile and one
 > ordered owner-issued direct-dependency observation population, recognize
-> every shipped ecosystem whose authored association matches each observation
-> and preserve observation, declaring source, matching basis, overlap, and
-> non-match in one reusable classification. For one Package or Library
-> subject-bound batch, also preserve the semantic subject, applicable target
-> selection, and input completion in one detached product-relative Document,
-> without traversing dependencies or inferring Package-to-assembly provenance.
+> every shipped ecosystem whose authored Package association matches a Package
+> declaration or whose authored assembly association and shipped immutable
+> Package AssemblyDef evidence both match an assembly reference. Preserve
+> uncorroborated assembly-association candidates, observations, declaring
+> sources, matching and evidence bases, overlap, and non-match in one reusable
+> classification. For one Package or Library subject-bound batch, also
+> preserve the semantic subject, applicable target selection, and input
+> completion in one detached product-relative Document, without traversing or
+> resolving dependencies.
 
 The answer is deliberately product-relative. An unrecognized dependency means
 that no association in the supplied product profile matched it. It does not
@@ -186,7 +191,8 @@ The profile is a separately authored application-catalog manifest keyed by
 and does not change the Ecosystem Pack owner's contribution shape.
 
 Each pack profile entry copies the pack's owner-issued identity, title, and
-order and supplies zero or more associations in two independent domains:
+order and supplies zero or more associations in two independent domains plus
+zero or more exact AssemblyDef evidence entries:
 
 ```text
 Package association
@@ -196,6 +202,11 @@ Package association
 Assembly association
   = ExactAssemblyName
   | AssemblyNameFamily
+
+AssemblyDef evidence
+  - exact immutable Package coordinate with a normalized literal version
+  - normalized relative Package asset path
+  - exact AssemblyDef metadata identity
 ```
 
 Package associations match only Package dependency observations. Assembly
@@ -215,6 +226,26 @@ Similar authored strings may therefore appear in the Ecosystem Pack discovery
 catalog and the recognition profile. That duplication is intentional: package
 discovery, namespace retrieval, Package-set membership, and dependency
 recognition are separate product claims and may evolve independently.
+
+Package associations are sufficient recognition bases for Package declaration
+observations. Assembly associations are candidate bases: an assembly reference
+is recognized for that ecosystem only when at least one AssemblyDef evidence
+entry for the same ecosystem also matches it. Otherwise the
+observation/ecosystem pair remains a candidate and is not reported as
+recognized or unrecognized.
+
+AssemblyDef evidence is product-authored from an exact immutable nuget.org
+Package asset or an equivalently immutable platform pack. It does not reuse
+`CorePackages`, package-set membership, or package-prefix discovery as
+evidence. Those catalogs answer different product questions.
+
+Evidence matching requires an equal assembly simple name and compatible
+culture. When the observed AssemblyRef carries a public-key token, the
+AssemblyDef evidence must carry the same token. Assembly version remains
+visible evidence but does not gate recognition, because legitimate reference
+binding can cross versions. This correspondence says that the shipped catalog
+contains a credible same-identity AssemblyDef; it does not prove which file a
+runtime will bind.
 
 ### Exact associations
 
@@ -273,6 +304,26 @@ entries are exact associations.
 | AI | `Microsoft.Extensions.AI`, exact: `OpenAI`, exact: `Anthropic`, exact: `Google.GenAI`, exact: `ModelContextProtocol`, exact: `Microsoft.Agents.AI` | `Microsoft.Extensions.AI`, exact: `OpenAI`, exact: `Anthropic`, exact: `Google.GenAI`, exact: `ModelContextProtocol`, exact: `Microsoft.Agents.AI` |
 | Blazor | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` |
 | .NET MAUI | `Microsoft.Maui`, `CommunityToolkit.Maui`, `Microsoft.AspNetCore.Components.WebView.Maui` | `Microsoft.Maui`, `CommunityToolkit.Maui`, `Microsoft.AspNetCore.Components.WebView.Maui` |
+
+The initial AssemblyDef evidence catalog intentionally starts with real assets
+that exercise the motivating Library scenario and the established overlap
+case:
+
+- `Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/*.dll` supplies exact Runtime
+  evidence for `System.Net.Http` and the Runtime references emitted by
+  `Microsoft.Extensions.Options@10.0.0`;
+- exact `10.0.0` same-name Packages supply
+  `Microsoft.Extensions.Options`,
+  `Microsoft.Extensions.DependencyInjection.Abstractions`,
+  `Microsoft.Extensions.Primitives`, and
+  `Microsoft.Extensions.Logging.Abstractions`; and
+- `Microsoft.AspNetCore.Components.WebView.Maui@10.0.0` supplies the same-name
+  AssemblyDef evidence shared by ASP.NET Core, Blazor, and .NET MAUI.
+
+An authored assembly association outside this initial evidence catalog still
+has product value as a visible candidate. It does not become recognition merely
+because its name has the right prefix. Adding evidence is additive profile
+curation grounded in another exact immutable asset.
 
 The repeated values across columns are two authored associations, not one
 cross-domain rule. Overlap across rows is intentional. For example,
@@ -429,9 +480,10 @@ The observation identity is unique within one batch. It preserves occurrence
 identity when dependency names repeat.
 
 Package version ranges and assembly version, culture, and public-key-token
-facts remain evidence even though recognition matches only Package ID or
-assembly simple name. Matching must not discard or normalize those owner-issued
-facts.
+facts remain evidence. Package declarations match Package associations.
+Assembly references first match assembly associations, then require compatible
+same-name AssemblyDef evidence before becoming recognized. Matching must not
+discard or normalize the owner-issued observation facts.
 
 The caller supplies direct observations only. The recognition owner does not
 walk Package dependencies, resolve assembly references, acquire candidate
@@ -527,11 +579,15 @@ refers to one of its contained input issues.
 One `EcosystemDependencyClassification` contains:
 
 - a summary with the ordered product ecosystem candidate count, Package and
-  assembly association counts, total, recognized, and unrecognized observation
-  counts, distinct recognized ecosystem count, and
-  observation-to-ecosystem recognition count;
+  assembly association and AssemblyDef-evidence counts, total, recognized,
+  candidate-only, and unrecognized observation counts, distinct recognized
+  ecosystem count, and observation-to-ecosystem recognition and candidate
+  counts;
 - distinct recognized ecosystem descriptors in product order;
+- distinct candidate ecosystem descriptors in product order;
+- the ordered union of recognized and candidate pairs;
 - recognized observation entries;
+- candidate assembly-observation entries; and
 - unrecognized observations in source order.
 
 One `EcosystemDependencyRecognitionDocument` contains:
@@ -552,9 +608,9 @@ recognition rows, non-match disclosure, and coverage/failure disclosure are
 section projections over that Document, not independently constructed host
 models.
 
-The classification validates that every recognition refers to one contained
-observation and one contained ecosystem descriptor, no observation appears in
-both the recognized and unrecognized populations, and every summary count
+The classification validates that every recognition or candidate refers to one
+contained observation and one contained ecosystem descriptor, no matched
+observation appears in the unrecognized population, and every summary count
 equals its source populations. The Document additionally validates that the
 classification's observations belong to its semantic subject and available
 input components and that every unavailable or not-attempted component refers
@@ -567,7 +623,13 @@ One recognized observation entry retains:
 - the complete source observation;
 - one recognized ecosystem descriptor; and
 - every matching association basis from that ecosystem's profile entry in
-  authored association order.
+  authored association order; and
+- for assembly observations, every compatible exact Package AssemblyDef
+  evidence entry.
+
+One candidate entry retains the complete assembly observation, one candidate
+ecosystem descriptor, and every matching assembly association. It carries no
+AssemblyDef evidence by definition.
 
 The pair of observation identity and ecosystem identity is unique in a
 Document. If two associations from the same ecosystem match one observation,
@@ -576,13 +638,14 @@ match one observation, the Document contains two entries.
 
 ### Ordering
 
-Document populations use:
+Recognized and candidate Document populations use:
 
 1. ecosystem product order;
 2. observation source order; and
 3. authored association order.
 
-Unrecognized observations retain source order. Hosts must not recover
+Unrecognized observations retain source order. A host may interleave recognized
+and candidate rows only by the same ecosystem and source order. Hosts must not recover
 ecosystem order from titles or sort dependency identities to manufacture a
 different semantic order.
 
@@ -594,6 +657,11 @@ with zero observations and zero recognized ecosystems.
 A nonempty batch in which no association matches produces a complete Document
 whose unrecognized count equals its observation count. It does not produce an
 unavailable or failed outcome.
+
+A nonempty assembly batch in which associations match but no Package
+AssemblyDef evidence matches produces a complete Document with candidate rows,
+not recognized rows or a success-shaped empty result. Complete describes input
+coverage, not confidence or runtime binding.
 
 Consumers may omit a compact Info field when the distinct recognized ecosystem
 list is empty. That omission must not be described as proof that the subject
@@ -786,6 +854,14 @@ The motivating assets are:
   `Microsoft.Extensions.*` assemblies. It motivates a compact
   `.NET Runtime, Microsoft.Extensions` answer assembled from both observation
   domains.
+- [`Microsoft.Extensions.Options@10.0.0`](https://www.nuget.org/packages/Microsoft.Extensions.Options/10.0.0)
+  carries the exact `Microsoft.Extensions.Options` AssemblyDef and directly
+  references Runtime and Microsoft.Extensions assemblies. The exact
+  same-name Packages and `Microsoft.NETCore.App.Ref@10.0.0` ground the initial
+  catalog-backed Library recognition case.
+- [`Microsoft.AspNetCore.Components.WebView.Maui@10.0.0`](https://www.nuget.org/packages/Microsoft.AspNetCore.Components.WebView.Maui/10.0.0)
+  carries one same-name AssemblyDef that intentionally supports the existing
+  ASP.NET Core, Blazor, and .NET MAUI overlap.
 - [`Microsoft.Extensions.AI@10.10.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI/10.10.0)
   directly declares `Microsoft.Extensions.AI.Abstractions`,
   `Microsoft.Extensions.*`, and `System.*` dependencies. It proves that
@@ -865,11 +941,20 @@ Library query orchestration, section registration, or Browser interaction.
 The implementation must name Release gates for:
 
 - profile validation and snapshot immutability;
+- AssemblyDef evidence requiring a normalized literal exact Package version,
+  normalized asset path, exact AssemblyDef identity, and a matching assembly
+  association;
+- checked-in AssemblyDef evidence corresponding to its exact immutable
+  nuget.org Package asset;
 - equal profile and observation inputs producing equal classification parts
   across Package, Library, and dependency-inspection adopters;
 - exact versus dot-segment family matching in both identity domains;
 - case behavior inherited from each identity domain;
 - one observation matching zero, one, and several ecosystems;
+- an assembly prefix/family match without compatible AssemblyDef evidence
+  remaining a candidate rather than recognition or non-match;
+- observed public-key-token disagreement refusing catalog-backed recognition
+  while version disagreement remains visible and admitted;
 - several associations from one ecosystem collapsing to one recognition entry
   while retaining every basis;
 - repeated dependency names from different declaring sources remaining
@@ -884,19 +969,22 @@ The implementation must name Release gates for:
   Document and envelope transport;
 - mismatched dependency-group and compile-slice context refusing a complete
   outcome;
-- Document-local joins, disjoint recognized/unrecognized populations, and
+- Document-local joins, recognized/candidate/unrecognized partitioning, and
   summary-count validation;
 - product, source, and association ordering;
 - recognized, unrecognized, candidate, and association counts;
 - complete-empty, complete-unrecognized, incomplete, and unavailable outcomes;
 - envelope content, Share, and diagnostic preservation;
-- complete envelope transport retaining all recognition pairs, non-matches,
-  context, coverage, counts, and failures independently from presentation
-  shaping;
+- complete envelope transport retaining all recognition pairs, candidates,
+  non-matches, context, coverage, counts, and failures independently from
+  presentation shaping;
 - Package and Library Info rollups deduplicating ecosystems in product order
   while refusing success-shaped incomplete disclosure;
 - pair-grain rows preserving overlap without duplicating several bases from the
   same ecosystem;
+- CLI detail rows distinguishing profile Package matches, catalog-backed
+  assembly recognition, and uncorroborated assembly candidates while retaining
+  exact Package/asset evidence;
 - dependency inspection preserving multi-root occurrence and declaration or
   assembly-reference joins inside the application composition Document;
 - dependency composition preserving the exact lower
@@ -927,6 +1015,15 @@ The real-package tests prove product motivation and end-to-end composition.
 Focused synthetic fixtures prove boundary semantics without manufacturing the
 dependency evidence checked by the product path.
 
+Profile construction, classifier semantics, and CLI projection are gated by
+their focused Release test suites. Automated correspondence between each
+checked-in evidence entry and its remote immutable nuget.org Package asset is
+currently **unverified**: the initial catalog is manually checked against the
+exact Package versions and asset paths above, and the implementing PR records
+the commands and observed AssemblyDefs. A future live-package sensor may close
+that gap, but ordinary recognition and PR-fast tests must not acquire Packages
+or use the network.
+
 ## Non-claims
 
 This owner does not claim:
@@ -934,7 +1031,7 @@ This owner does not claim:
 - transitive ecosystem closure;
 - exhaustive knowledge of external ecosystems;
 - ecosystem membership of the inspected subject;
-- Package-to-assembly or assembly-to-Package provenance;
+- resolution or Package provenance of the observed AssemblyRef;
 - Package acquisition, version resolution, or dependency traversal;
 - ecosystem classification of transitive dependency-inspection nodes or edges
   without owner-issued direct-dependency evidence;

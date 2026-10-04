@@ -1925,13 +1925,13 @@ public partial class PackageCommand
         if (intent is null)
             return true;
 
-        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+        IReadOnlyList<EcosystemDependencyMatchEntry> rows =
             result.EcosystemDependencyRecognitionInspection?.Content switch
             {
                 EcosystemDependencyRecognitionOutcome.Complete complete =>
-                    complete.Document.Classification.Recognized,
+                    complete.Document.Classification.Matches,
                 EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                    incomplete.Document.Classification.Recognized,
+                    incomplete.Document.Classification.Matches,
                 _ => [],
             };
         if (!SemanticRowSelection.TrySelect(
@@ -1943,8 +1943,7 @@ public partial class PackageCommand
                     + $"{failure.Failure.StageNumber} requires row "
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} rows are available.",
-                out IReadOnlyList<
-                    EcosystemDependencyRecognitionEntry> selected))
+                out IReadOnlyList<EcosystemDependencyMatchEntry> selected))
         {
             return false;
         }

@@ -1145,11 +1145,11 @@ public static class LibrarySections
             model.EcosystemDependencyRecognitionInspection?.Content
                 is EcosystemDependencyRecognitionOutcome.Complete
                 {
-                    Document.Classification.Recognized.Length: > 0,
+                    Document.Classification.Matches.Length: > 0,
                 }
                 or EcosystemDependencyRecognitionOutcome.Incomplete
                 {
-                    Document.Classification.Recognized.Length: > 0,
+                    Document.Classification.Matches.Length: > 0,
                 };
     }
 

@@ -407,9 +407,20 @@ dotnet-inspect library --platform System.Text.Json \
 ```
 
 Library recognition classifies the selected Library's declared assembly
-references. It does not resolve or traverse those references. Unrecognized
-references do not become ecosystem rows, while JSON still reports the
-recognition status as complete.
+references. Package declarations use product-profile associations directly.
+Assembly references first match an authored exact or family association and
+then require a compatible same-name AssemblyDef from one exact shipped
+Package-asset evidence entry. Detail rows distinguish `Profile match`,
+`Catalog-backed`, and `Candidate`; catalog-backed rows name the exact Package
+asset. Candidates matched an ecosystem association without corroborating
+AssemblyDef evidence and therefore do not enter the compact Package or Library
+Info ecosystem rollup.
+
+Recognition does not resolve or traverse assembly references. Unrecognized
+references do not become ecosystem rows, while JSON still reports recognition
+status as complete. Complete means every available direct observation was
+classified against the shipped profile; it does not claim runtime binding or
+high-confidence provenance.
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
 no source work; a later bounded operation that selects the ecosystem may resolve
