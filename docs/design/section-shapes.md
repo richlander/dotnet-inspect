@@ -29,8 +29,9 @@ Section Shapes owns one claim:
 > format preserves when it lowers the section.
 
 This owner defines the three shapes, the native and permitted lowerings of
-each, the invariants every lowering keeps, and the boundary between content and
-host presentation. It does not own section identity, categories, selection,
+each, the owner-issued properties that give a result its context, the
+invariants every lowering keeps, and the boundary between content and host
+presentation. It does not own section identity, categories, selection,
 verbosity, cardinality, discovery surfaces, format spellings, or any
 command's data.
 
@@ -49,6 +50,8 @@ for `package System.Text.Json` at version 10.0.12.
   its title line lists every content directory in the package. The
   parenthetical names the coordinates of what is displayed, so `analyzers` and
   `buildTransitive` do not belong there when only `lib` children are shown.
+  The list is assembled by command-specific printer code, so every command
+  that wants a context line writes its own.
 - The same Tree's JSON rows carry a shell-quoted `selector` that tells a
   person how to run the tool. That is host navigation, not package data. It
   belongs to the host's presentation, or, as a portable packet, to the
@@ -71,9 +74,9 @@ is the native shape of a single selected section.
 The spellings below are **target** behavior over the motivating package.
 
 Selecting nothing opens the command's default section. For `package` that is
-the Package Tree, a Hierarchy, so the native rendering is a tree whose title
-names the coordinates of the displayed children: source, target, and asset
-root.
+the Package Tree, a Hierarchy, so the native rendering is a tree. Its title
+prints the properties the owner issued for the displayed children: source,
+target, and asset root.
 
 ```console
 $ dotnet-inspect package System.Text.Json
@@ -232,6 +235,39 @@ own completeness behavior: type and member Source continue through the ordered
 [Source document cardinality](source-document-cardinality.md); other owners
 mark the page incomplete and keep a complete transfer gesture available.
 
+## Properties
+
+Every section result may carry an ordered set of owner-issued **properties**:
+short named values that give the result its context. Source, target framework,
+asset root, provenance, and version are properties. They are neither content
+rows nor the fields of a scalar record. They describe the circumstances under
+which the rows, hierarchy, or document was produced, and they are the only
+material a renderer may place in a title or heading beside the subject's
+identity.
+
+Properties are issued, not inferred. The owner decides which properties a
+result carries and in what order, and the renderer prints what it was given.
+A renderer never computes a property from the subject, the command, or the
+content; a command that wants a context line issues properties instead of
+writing a printer. One renderer therefore serves every command, and a new
+section gains a context line by issuing properties rather than by changing
+presentation code.
+
+Where properties appear follows from the format:
+
+- a tree or a native Document prints them once, after the subject identity
+  on the title line, in issued order;
+- a Markdown composition prints them on the section heading line or the
+  document title in the same way;
+- a structured format carries them as a sibling of the content, named and
+  ordered as issued; and
+- a row stream has no place for them and omits them, because a header row
+  describes columns, not context.
+
+The subject's identity itself — the package, library, type, or member being
+inspected — is not a property. Identity is owned by the subject's resolution;
+properties qualify what was displayed about it.
+
 ## Invariants every lowering keeps
 
 **Lowerings present; they do not author.** A lowering may elide, group, nest,
@@ -242,10 +278,11 @@ Share slot, which carries a packet or URL, not shell text. Neither belongs in a
 content row or field. A consumer reading the content must not be able to tell
 which host produced it.
 
-**The title names the displayed coordinates.** A section or command title
-carries the coordinates that identify what is shown — source, target, asset
-root, version — and nothing else. Facts about the subject that the user did
-not select belong in their own sections.
+**The title prints issued properties and nothing else.** A section or command
+title carries the subject identity and the owner-issued properties for what is
+shown. Facts about the subject that the user did not select belong in their
+own sections, not in the title, and no renderer adds a value the owner did not
+issue.
 
 **Count is shape-invariant.** For an inventory section, Count, `-n`, and
 `--rows` observe the same rows in every permitted lowering of that section.
@@ -274,7 +311,7 @@ evaluates a complete selection against those capabilities.
 
 | Concern | Owner | Boundary |
 | --- | --- | --- |
-| Shape classification, native and permitted lowerings, lowering invariants | This document | Defines the three shapes and what every lowering preserves |
+| Shape classification, native and permitted lowerings, properties, lowering invariants | This document | Defines the three shapes, the properties contract, and what every lowering preserves |
 | Section identity, categories, selection, verbosity, heterogeneity | [Section Model](section-model.md) and [Section Pipeline](section-pipeline.md) | Apply authored shape without deriving it from spelling or renderer |
 | Scalar versus inventory, Rows and Count | [Section Cardinality](section-cardinality.md) | Decides whether a section has rows at all |
 | Shape ladder, projection, complete-selection capability evaluation | [Output Shapes](output-shapes.md) | Narrows a selected shape and evaluates a selection; supported modes derive from the declared shape |
@@ -320,6 +357,9 @@ Conforming adoptions preserve these outcomes:
    complete transfer for a package README. It never ends as though complete.
 9. **Host text in content.** A JSON content row containing a replay command or
    a shell-quoted selector is a defect, whichever host produced it.
+10. **Renderer-computed context.** A title value that no owner issued — a
+    directory list assembled by the printer, a count derived while rendering —
+    is a defect even when it happens to be true.
 
 ## Analogous implementations
 
@@ -351,10 +391,11 @@ unchanged.
    Tables, `Package Info` as a scalar record, the root manifest and the best
    README as Documents, and the license and skill sections as Tables of
    Document fact rows. Other `.nuspec` paths remain rows of the file inventory.
-   Its target spellings are `Files`,
+   The Tree issues source, target, and asset root as properties and retires
+   its command-specific title printer. Its target spellings are `Files`,
    `Nuspec`, `README`, `Licenses`, and `Skills`, with the whole-package
-   listing outside the `@Files` door as today. The Tree title names source,
-   target, and asset root. Replay selectors leave the JSON content.
+   listing outside the `@Files` door as today. Replay selectors leave the
+   JSON content.
 2. **Library owner.** Classifies the `library` sections, including the Type
    inventory and `Library Info`, under the same three shapes.
 3. **Type owner.** Classifies the `type` sections, including the member tree
@@ -385,7 +426,9 @@ gates covering, for its command:
   lowerings of each Hierarchy;
 - the fact-row lowering of each Document in tabular and composition formats,
   and its body in the native and structured ones;
-- the absence of host replay text from structured content; and
+- the absence of host replay text from structured content;
+- title and heading text composed only from the subject identity and issued
+  properties, with the same properties carried in structured output; and
 - the one-row hierarchy, absent document, heterogeneous request, and
   homogeneous family cases above.
 
@@ -403,5 +446,6 @@ This document does not:
 - define JSON schemas for any command;
 - define Browser/Wasm widgets or interaction;
 - change section identity, categories, verbosity presets, or cost classes;
-- define discovery output columns; or
+- define discovery output columns;
+- fix the vocabulary of property names, which each owner issues; or
 - authorize one implementation sweep across commands.
