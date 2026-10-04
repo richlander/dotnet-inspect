@@ -1,0 +1,444 @@
+using System.Reflection;
+using System.Text.Json;
+
+using DotnetInspector.Libraries;
+using ILInspector.Metadata;
+
+namespace DotnetInspector.Sections.Tests;
+
+public sealed class TypeDocumentInspectionOperationTests
+{
+    private static readonly ApiSurfaceExtractionBounds s_bounds =
+        new(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+
+    [Fact]
+    public async Task SubjectOnly_AvoidsPopulationAndRichSurfaceWork()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var zeroPopulation = new ApiSurfaceExtractionBounds(
+            maxTypes: 0,
+            maxMembers: 0,
+            maxInspectionFailures: 0,
+            maxTypeForwarders: 0,
+            s_bounds.MaxMetadataRows,
+            maxRetainedTextCharacters: 0);
+
+        TypeDocument document =
+            Available(Execute(library, bounds: zeroPopulation));
+
+        Assert.IsType<TypeDocumentDeclarations.NotRequested>(
+            document.Declarations);
+        Assert.Equal(
+            "System.Text.Json",
+            document.Subject.DefiningAssembly.Name.ToString());
+        Assert.Equal(
+            Name("System.Text.Json", "JsonSerializer"),
+            document.Subject.Type);
+        Assert.True(document.Subject.TypeDefinitionToken > 0);
+        Assert.NotEqual(Guid.Empty, document.Subject.ModuleVersionId);
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Class,
+            document.Subject.Category);
+        Assert.True(
+            document.Subject.Attributes.HasFlag(
+                TypeAttributes.Public));
+        Assert.Null(document.Subject.DeclaringTypeDefinitionToken);
+
+        string json =
+            JsonSerializer.Serialize<TypeDocumentInspectionOutcome>(
+                new TypeDocumentInspectionOutcome.Available(document));
+        Assert.Contains("\"kind\":\"available\"", json);
+        Assert.Contains("\"kind\":\"not-requested\"", json);
+        Assert.Contains("\"namespace\":\"System.Text.Json\"", json);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task CountOnly_BindsSubjectAndPopulation()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        TypeDocument document =
+            Available(Execute(library, count: new()));
+        TypeMemberGroupPopulationResult population =
+            Assert.IsType<TypeDocumentDeclarations.Available>(
+                    document.Declarations)
+                .Population;
+
+        Assert.Equal(
+            10,
+            Assert.IsType<TypeMemberGroupCountOutcome.Counted>(
+                    population.Count)
+                .Value);
+        Assert.Null(population.Rows);
+        Assert.Equal(
+            document.Subject.DefiningAssembly,
+            population.Binding.Assembly);
+        Assert.Equal(
+            document.Subject.ModuleVersionId,
+            population.Binding.ModuleVersionId);
+        Assert.Equal(
+            document.Subject.TypeDefinitionToken,
+            population.Binding.TypeDefinitionToken);
+        Assert.Equal(
+            document.Subject.Type,
+            population.Binding.Type);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task BoundedRows_PreserveOneExactTypeBinding()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        TypeDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(maximumRows: 2)));
+        TypeMemberGroupPopulationResult population =
+            Assert.IsType<TypeDocumentDeclarations.Available>(
+                    document.Declarations)
+                .Population;
+        TypeMemberGroupRowsOutcome.Read rows =
+            Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
+                population.Rows);
+
+        Assert.Equal(2, rows.Items.Length);
+        Assert.NotNull(rows.Continuation);
+        Assert.All(
+            rows.Items,
+            row =>
+            {
+                Assert.Equal(
+                    population.Binding,
+                    row.Binding.Population);
+                Assert.Equal(
+                    document.Subject.TypeDefinitionToken,
+                    row.Binding.Population.TypeDefinitionToken);
+            });
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task MemberBound_PreservesAvailableSubject()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var memberBound = new ApiSurfaceExtractionBounds(
+            s_bounds.MaxTypes,
+            maxMembers: 1,
+            s_bounds.MaxInspectionFailures,
+            s_bounds.MaxTypeForwarders,
+            s_bounds.MaxMetadataRows,
+            s_bounds.MaxRetainedTextCharacters);
+
+        TypeDocument document =
+            Available(
+                Execute(
+                    library,
+                    count: new(),
+                    bounds: memberBound));
+        TypeDocumentDeclarations.Incomplete declarations =
+            Assert.IsType<TypeDocumentDeclarations.Incomplete>(
+                document.Declarations);
+
+        Assert.Equal(
+            Name("System.Text.Json", "JsonSerializer"),
+            document.Subject.Type);
+        Assert.Equal(
+            TypeMemberGroupPopulationBound.Members,
+            declarations.Bound);
+        Assert.Equal(1, declarations.Limit);
+        Assert.Equal(2, declarations.Measured);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task StaleContinuation_PreservesSubjectAndSkipsPopulation()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeMemberGroupContinuation continuation =
+            Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
+                    Assert.IsType<TypeDocumentDeclarations.Available>(
+                            Available(
+                                    Execute(
+                                        library,
+                                        rows: new(maximumRows: 1)))
+                                .Declarations)
+                        .Population.Rows)
+                .Continuation!;
+        var stale = new TypeMemberGroupContinuation(
+            new(
+                continuation.Binding.Assembly,
+                continuation.Binding.ModuleVersionId,
+                continuation.Binding.Type,
+                checked(
+                    continuation.Binding.TypeDefinitionToken
+                    + 1),
+                continuation.Binding.Spelling,
+                continuation.Binding.IncludeHidden,
+                continuation.Binding.Accessibility,
+                continuation.Binding.Receiver,
+                continuation.Binding.Ordering),
+            continuation.NextOrdinal,
+            continuation.IncludeExactMemberCount);
+        var zeroMembers = new ApiSurfaceExtractionBounds(
+            s_bounds.MaxTypes,
+            maxMembers: 0,
+            s_bounds.MaxInspectionFailures,
+            s_bounds.MaxTypeForwarders,
+            s_bounds.MaxMetadataRows,
+            s_bounds.MaxRetainedTextCharacters);
+
+        TypeDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(
+                        maximumRows: 1,
+                        continuation: stale),
+                    bounds: zeroMembers));
+        Assert.Equal(
+            TypeMemberGroupPopulationInspectionRejection
+                .StaleContinuation,
+            Assert.IsType<TypeDocumentDeclarations.Rejected>(
+                    document.Declarations)
+                .Reason);
+        Assert.Equal(
+            continuation.Binding.TypeDefinitionToken,
+            document.Subject.TypeDefinitionToken);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        IncompatibleContinuation_PreservesSubjectAndSkipsPopulation()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeMemberGroupContinuation continuation =
+            Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
+                    Assert.IsType<TypeDocumentDeclarations.Available>(
+                            Available(
+                                    Execute(
+                                        library,
+                                        rows: new(maximumRows: 1)))
+                                .Declarations)
+                        .Population.Rows)
+                .Continuation!;
+        var zeroMembers = new ApiSurfaceExtractionBounds(
+            s_bounds.MaxTypes,
+            maxMembers: 0,
+            s_bounds.MaxInspectionFailures,
+            s_bounds.MaxTypeForwarders,
+            s_bounds.MaxMetadataRows,
+            s_bounds.MaxRetainedTextCharacters);
+
+        TypeDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(
+                        maximumRows: 1,
+                        continuation: continuation),
+                    spelling: TypeMemberGroupSpelling.Metadata,
+                    bounds: zeroMembers));
+
+        Assert.Equal(
+            TypeMemberGroupPopulationInspectionRejection
+                .IncompatibleContinuation,
+            Assert.IsType<TypeDocumentDeclarations.Rejected>(
+                    document.Declarations)
+                .Reason);
+        Assert.Equal(
+            continuation.Binding.TypeDefinitionToken,
+            document.Subject.TypeDefinitionToken);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task MissingType_IsTypedNonSuccess()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        TypeDocumentInspectionOutcome.Rejected rejected =
+            Assert.IsType<TypeDocumentInspectionOutcome.Rejected>(
+                Execute(
+                    library,
+                    type:
+                        Name(
+                            "System.Text.Json",
+                            "Missing")).Content);
+
+        Assert.Equal(
+            TypeDocumentInspectionRejection.TypeNotFound,
+            rejected.Reason);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task AmbiguousType_IsTypedNonSuccess()
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                duplicatePublicType: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        TypeDocumentInspectionOutcome.Rejected rejected =
+            Assert.IsType<TypeDocumentInspectionOutcome.Rejected>(
+                Execute(
+                    library,
+                    type: Name("N", "C")).Content);
+
+        Assert.Equal(
+            TypeDocumentInspectionRejection.TypeAmbiguous,
+            rejected.Reason);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task MetadataBound_IsTypedNonSuccess()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var metadataBound = new ApiSurfaceExtractionBounds(
+            s_bounds.MaxTypes,
+            s_bounds.MaxMembers,
+            s_bounds.MaxInspectionFailures,
+            s_bounds.MaxTypeForwarders,
+            maxMetadataRows: 0,
+            s_bounds.MaxRetainedTextCharacters);
+
+        TypeDocumentInspectionOutcome.Incomplete incomplete =
+            Assert.IsType<TypeDocumentInspectionOutcome.Incomplete>(
+                Execute(
+                    library,
+                    bounds: metadataBound).Content);
+
+        Assert.Equal(
+            TypeDocumentInspectionBound.MetadataRows,
+            incomplete.Bound);
+        Assert.Equal(0, incomplete.Limit);
+        Assert.True(incomplete.Measured > 0);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task MalformedContent_IsTypedNonSuccess()
+    {
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                [1, 2, 3],
+                LibraryInspectionTestLibrary.ProbeIdentity());
+
+        TypeDocumentInspectionOutcome.Failed failed =
+            Assert.IsType<TypeDocumentInspectionOutcome.Failed>(
+                Execute(
+                    library,
+                    type: Name("Probe", "Type")).Content);
+
+        Assert.Equal(
+            TypeDocumentInspectionFailure.MalformedMetadata,
+            failed.Reason);
+        await library.RetireAsync();
+    }
+
+    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
+        Execute(
+            LibraryInspectionTestLibrary library,
+            MetadataTypeDefinitionName? type = null,
+            TypeMemberGroupCountRequest? count = null,
+            TypeMemberGroupRowsRequest? rows = null,
+            TypeMemberGroupSpelling spelling =
+                TypeMemberGroupSpelling.CSharp,
+            ApiSurfaceExtractionBounds? bounds = null)
+    {
+        TypeMemberGroupPopulationRequest? declarations =
+            count is null && rows is null
+                ? null
+                : new(
+                    count,
+                    rows,
+                    spelling: spelling);
+        return TypeDocumentInspectionOperation.Execute(
+            new(
+                library.Reference,
+                new(
+                    type
+                        ?? Name(
+                            "System.Text.Json",
+                            "JsonSerializer"),
+                    bounds ?? s_bounds,
+                    declarations)),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+    }
+
+    private static TypeDocument Available(
+        InspectionEnvelope<TypeDocumentInspectionOutcome> envelope) =>
+        Assert.IsType<TypeDocumentInspectionOutcome.Available>(
+                envelope.Content)
+            .Document;
+
+    private static MetadataTypeDefinitionName Name(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [.. segments]))
+            .Name;
+}

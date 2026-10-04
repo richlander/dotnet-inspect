@@ -1370,8 +1370,15 @@ Sections QuerySpace route now carries producer-directed spelling,
 accessibility, receiver, and hidden-admission terms through a Library lease
 adapter, with portable parent and row bindings, bounded Rows continuation,
 nested exact-member Counts, Composition Count, selector Counts, and typed
-incomplete or failed outcomes. `TypeDocument` and CLI or Browser adoption
-remain steps 8 and 9; no production host uses this route yet.
+incomplete or failed outcomes.
+
+Step 8's host-neutral `TypeDocument` is implemented over that route. It
+establishes one detached exact-Type declaration subject and optionally executes
+the declared Member-group population in the same Library lease and Metadata
+session. Subject-only requests issue no population demand, and requested
+declaration-population rejection, incompleteness, or failure remains
+independently typed without discarding the available Type subject. CLI and
+Browser adoption remains step 9; no production host uses this route yet.
 
 ## Required evidence
 
