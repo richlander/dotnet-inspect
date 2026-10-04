@@ -3886,7 +3886,7 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(winner).toBeVisible({ timeout: 180_000 });
     await expect(
       winner.locator(".item-achievement-glyph.top-leverage"),
-    ).toHaveCount(1);
+    ).toHaveCount(1, { timeout: 180_000 });
     await expect(
       winner.locator(".item-achievement-rail"),
     ).toHaveAttribute("aria-label", /Top Leverage; 31 direct callers/);
