@@ -344,6 +344,7 @@ import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
+  type LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
 import {
   captureMemberFocus,
@@ -915,10 +916,14 @@ let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
 let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPackageLibraryDependencyStructure:
+  EngineClient["analysis"]["queryPackageLibraryDependencyStructure"];
 let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
 let inspectPackageLibraryStructuralSalience:
   EngineClient["analysis"]["queryPackageLibraryStructuralSalience"];
+let inspectPlatformLibraryDependencyStructure:
+  EngineClient["analysis"]["queryPlatformLibraryDependencyStructure"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
 let inspectPlatformLibraryStructuralSalience:
@@ -1109,6 +1114,8 @@ async function loadEngineModule() {
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
+      queryPackageLibraryDependencyStructure:
+        inspectPackageLibraryDependencyStructure,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
       queryPackageLibraryStructuralSalience:
         inspectPackageLibraryStructuralSalience,
@@ -1120,6 +1127,8 @@ async function loadEngineModule() {
         inspectPlatformTypeImplementationHeat,
       queryPlatformTypeMethodLeverage:
         inspectPlatformTypeMethodLeverage,
+      queryPlatformLibraryDependencyStructure:
+        inspectPlatformLibraryDependencyStructure,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformLibraryStructuralSalience:
         inspectPlatformLibraryStructuralSalience,
@@ -1443,6 +1452,12 @@ const initialState = {
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
   packageLibraryMetricsKey: "",
+  packageLibraryMetricsRelationshipState:
+    null as LibraryMetricsRelationshipState | null,
+  packageLibraryDependencyStructure: null,
+  packageLibraryDependencyStructureLoading: false,
+  packageLibraryDependencyStructureError: "",
+  packageLibraryDependencyStructureKey: "",
   packageMetadata: null,
   packageMetadataLoading: false,
   packageMetadataError: "",
@@ -10663,6 +10678,12 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageLibraryDependencyStructure: (packageModel, library) =>
+    inspectPackageLibraryDependencyStructure(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework,
+      library),
   queryPackageLibraryMetrics: (packageModel, library) =>
     inspectPackageLibraryMetrics(
       packageModel.id,
@@ -10681,6 +10702,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack)),
+  queryPlatformLibraryDependencyStructure: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformLibraryDependencyStructure(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack),
   queryPlatformLibraryMetrics: (
     framework,
     platformVersion,
@@ -10906,6 +10938,16 @@ function renderPackageLibraryMetrics() {
     loading: state.packageLibraryMetricsLoading,
     error: state.packageLibraryMetricsError,
     data: state.packageLibraryMetrics,
+    dependencyFresh:
+      state.packageLibraryDependencyStructureKey === current,
+    dependencyLoading:
+      state.packageLibraryDependencyStructureLoading,
+    dependencyError:
+      state.packageLibraryDependencyStructureError,
+    dependencyData:
+      state.packageLibraryDependencyStructure,
+    relationshipState:
+      state.packageLibraryMetricsRelationshipState,
     escapeHtml,
   });
 }
@@ -10950,6 +10992,15 @@ function loadPackageLibraryMetrics() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
   return packageInspection.loadLibraryMetrics(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function loadPackageLibraryDependencyStructure() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadLibraryDependencyStructure(
     pkg,
     packageScopeSignature(),
     scopedLib);
@@ -14027,6 +14078,13 @@ function bindEvents() {
   bindLibraryControlsEvents();
   bindLibraryMetricsInteractions(document, {
     activateType: activateLibraryMetricsType,
+    loadDependencyStructure: () =>
+      observeAsync(
+        loadPackageLibraryDependencyStructure(),
+        "Loading library dependency structure"),
+    updateRelationshipState: relationshipState => {
+      state.packageLibraryMetricsRelationshipState = relationshipState;
+    },
   });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);

@@ -1,19 +1,22 @@
 using ILInspector.Analysis;
+using ILInspector.Research;
 
 namespace DotnetInspector.Queries;
 
 /// <summary>
-/// Composes the Research-owned whole-library metrics document from one
+/// Composes the Research-owned whole-library dependency document from one
 /// implementation participant while the query layer owns the image snapshot.
 /// </summary>
-public static class AssemblyContextLibraryMetricsQuery
+public static class AssemblyContextLibraryDependencyStructureQuery
 {
-    public static AssemblyContextEntry<LibraryMetricsResult> ExecuteParticipant(
-        AssemblyContextGroup group,
-        AssemblyContextParticipant participant) =>
+    public static AssemblyContextEntry<LibraryDependencyStructureResult>
+        ExecuteParticipant(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant) =>
         ExecuteParticipant(group, participant, CancellationToken.None);
 
-    public static AssemblyContextEntry<LibraryMetricsResult> ExecuteParticipant(
+    public static AssemblyContextEntry<LibraryDependencyStructureResult>
+        ExecuteParticipant(
             AssemblyContextGroup group,
             AssemblyContextParticipant participant,
             CancellationToken cancellationToken)
@@ -34,10 +37,10 @@ public static class AssemblyContextLibraryMetricsQuery
                     LibraryBodyAnalysisService.ExecuteImage(
                         AssemblyContextAnalysisSource.Name(subject),
                         snapshot.Content,
-                        LibraryBodyAnalysisRequest
-                            .CreateCompleteImplementationProfile(),
+                        LibraryBodyAnalysisRequest.Create(
+                            LibraryBodyAnalysisFeatures.MethodEvidence),
                         resolver);
-                return LibraryMetricsQuery.Execute(execution);
+                return LibraryDependencyStructure.Execute(execution);
             });
     }
 }

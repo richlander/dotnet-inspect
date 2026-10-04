@@ -579,8 +579,29 @@ cache.
    and diagnostics.
 4. **Browser/Wasm:** the Library Analysis inspector's Metrics tab adds a
    levelized namespace view with cycles marked and drill-down from edge to
-   explaining type edges to Type. It uses the same managed query and does no
-   topology work in TypeScript.
+   explaining type edges to Type. Initial Metrics activation requests only
+   Library Metrics; the tab presents an explicit **Load dependency structure**
+   gesture before spending the additional whole-library call-graph budget.
+   That gesture invokes a separate focused managed operation whose Analysis
+   request selects only Method Evidence and whose Research query remains the
+   singular owner of topology. Its QuerySpace request retains every namespace
+   node and cycle and selects at most 64 owner-ranked namespace edges; the
+   response carries the total edge count so the host discloses any omitted
+   edges. TypeScript positions nodes by their issued levels, marks their issued
+   cycle indices, preserves distinct directional arrows for reciprocal selected
+   relationships, and activates explaining types by exact type key. Dependency
+   loading rerenders preserve the Metrics relationship selection and visible
+   arc control. Cycle badges describe the complete analyzed topology even when
+   edge selection
+   omits a cycle-forming relationship. It does not derive SCCs, levels,
+   completeness, or relationships. This interactive SVG and native-details
+   lowering deliberately bypasses Markout because
+   visual-edge selection and exact-Type activation are Browser interaction
+   concerns. A later Metrics request and dependency request may repeat
+   Analysis work; cross-request prepared sharing remains owned by
+   [#8574](https://github.com/richlander/dotnet-inspect/issues/8574) and
+   [#8965](https://github.com/richlander/dotnet-inspect/issues/8965), rather
+   than widening the initial Metrics operation.
 5. **Skill:** the `project-analysis` workflow catalog
    ([#8518](https://github.com/richlander/dotnet-inspect/pull/8518)) gains an
    architecture-narrative workflow that consumes this document and labels

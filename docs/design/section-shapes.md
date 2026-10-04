@@ -23,7 +23,7 @@ be shown.
 Section Shapes owns one claim:
 
 > After a section's semantic result is known, the section declares exactly one
-> shape — Table, Hierarchy, or Document — and that shape decides which output
+> shape — Table, Hierarchy, or Text — and that shape decides which output
 > formats can present the section, which format is native when the user
 > selects that one section and names no format, and what each supported
 > format preserves when it lowers the section.
@@ -31,7 +31,12 @@ Section Shapes owns one claim:
 This owner defines the three shapes, the native and permitted lowerings of
 each, the owner-issued properties that give a result its context, the
 invariants every lowering keeps, and the boundary between content and host
-presentation. It does not own section identity, categories, selection,
+presentation. The third shape is named Text rather than Document because
+Document already names a content kind in
+[Host-observable content kinds](host-observable-content-kinds.md) and a
+multi-section rendered shape in [Output shapes](output-shapes.md); a
+Text-shaped section may well carry a content-kind Document, and the three
+classifications are independent axes of one section. It does not own section identity, categories, selection,
 verbosity, cardinality, discovery surfaces, format spellings, or any
 command's data.
 
@@ -64,7 +69,7 @@ for `package System.Text.Json` at version 10.0.12.
   that `type T -S Source` already proves unnecessary for a text payload.
 
 Each of these is a presentation decision that should follow from what the
-section is. A Hierarchy is shown as a tree. A Document is shown as its text. A
+section is. A Hierarchy is shown as a tree. A Text is shown as its payload. A
 Table is shown as rows. Markdown remains the composition format for a
 multi-section answer, and JSON remains the complete structured one, but neither
 is the native shape of a single selected section.
@@ -116,7 +121,7 @@ netstandard2.0
 net462
 ```
 
-Selecting one Document renders its text.
+Selecting one Text renders its payload.
 
 ```console
 $ dotnet-inspect package System.Text.Json -S README
@@ -127,10 +132,10 @@ JavaScript Object Notation (JSON) text ...
 ```
 
 Selecting several sections composes a Markdown document. Inside it, a
-Hierarchy appears as its tree, a Table as a Markdown table, and a Document as
-its fact row; rendered text shows a Document's body only when the Document is
+Hierarchy appears as its tree, a Table as a Markdown table, and a Text as
+its fact row; rendered text shows a Text's body only when the Text is
 the whole selection. JSON composes the same selection as structured content,
-with every Document's content included.
+with every Text's content included.
 
 ```console
 $ dotnet-inspect package System.Text.Json -S "Target Frameworks" -S README
@@ -207,51 +212,51 @@ nodes and typed edges is a Graph, not a Hierarchy;
 distinction, and the Graph shape, with its diagram formats, remains with its
 Graph owners.
 
-### Document
+### Text
 
-A Document is one text payload with the scalar facts that identify it: path,
+A Text is one text payload with the scalar facts that identify it: path,
 size, provenance, and whatever else the owner issues. A README, a nuspec, a
-skill, a decompiled or authored source body, and a diff are Documents.
+skill, a decompiled or authored source body, and a diff are Texts.
 
-A section is a Document only when its owner guarantees at most one payload for
+A section is a Text only when its owner guarantees at most one payload for
 the selected subject: the best README, the root manifest, the selected
 member's source. The guarantee comes from the owner's selection rule, not from
-the hope that a file matcher yields one hit. A package's nuspec Document is the
+the hope that a file matcher yields one hit. A package's nuspec Text is the
 root manifest, which the package format places exactly once; other files with
 the same extension are ordinary rows of the file inventory. When a selection
 rule can yield several files, as license files and skill documents can, the
-section is a Table whose row unit is a Document fact row. Each row names a
+section is a Table whose row unit is a Text fact row. Each row names a
 payload the command can open through its existing path selection, and the
-opened payload is a Document.
+opened payload is a Text.
 
 The native format is the text itself, undecorated. Permitted lowerings are a
 JSON value that is an object carrying the facts and the content, complete
-whether the Document is selected alone or composed; Markdown, which frames the
-body under the section heading when the Document is the whole selection and
+whether the Text is selected alone or composed; Markdown, which frames the
+body under the section heading when the Text is the whole selection and
 shows the fact row when it is composed with other sections; and the row
 formats, whose row unit depends on whether the owner declares an inventory, as
 the next paragraph states. Rendered text therefore shows the body only for a
 whole selection, while structured output always carries it.
 
-A Document's **fact row** is a summary presentation, not an inventory. It is
-how a Document participates in a composed Markdown document without flooding
-it, and how Documents and Document-row Tables selected together remain one
-homogeneous family listing: a package's nuspec and README Documents and its
+A Text's **fact row** is a summary presentation, not an inventory. It is
+how a Text participates in a composed Markdown document without flooding
+it, and how Texts and Text-row Tables selected together remain one
+homogeneous family listing: a package's nuspec and README Texts and its
 license and skill Tables all lower to Path/Size rows. Row selection never
 applies to a fact row.
 
-A Document whose owner declares no inventory is scalar under
+A Text whose owner declares no inventory is scalar under
 [Section cardinality](section-cardinality.md): it has no Count, `-n` and
-`--rows` do not apply to it, and its row formats show its fact row. A Document
+`--rows` do not apply to it, and its row formats show its fact row. A Text
 whose owner declares a line inventory, as
 [Source document cardinality](source-document-cardinality.md) does for type and
 member Source, exposes that inventory as its rows in every row format: TSV,
 pretty table, and JSONL emit lines, and Count, `-n`, and `--rows` observe those
-lines as that owner specifies. Such a Document still contributes its fact row
+lines as that owner specifies. Such a Text still contributes its fact row
 to a composed Markdown document and to a family listing, where no row
 selection is in effect.
 
-A large Document is never clipped silently. Each Document owner supplies its
+A large Text is never clipped silently. Each Text owner supplies its
 own completeness behavior: type and member Source continue through the ordered
 `Lines` inventory owned by
 [Source document cardinality](source-document-cardinality.md); other owners
@@ -282,9 +287,9 @@ Where properties appear follows from the format:
 - a Markdown composition prints subject-level properties after the subject
   identity on the document title, and a section's properties after the
   section name on that section's heading;
-- a native Document prints its payload only, because the payload is the whole
+- a native Text prints its payload only, because the payload is the whole
   output and a title would decorate it; its properties appear when the same
-  Document is rendered inside a composition; and
+  Text is rendered inside a composition; and
 - a row stream has no place for them and omits them, because a header row
   describes columns, not context.
 
@@ -317,7 +322,7 @@ adds a value the owner did not issue.
 
 **Count is shape-invariant.** For an inventory section, Count, `-n`, and
 `--rows` observe the same rows in every permitted lowering that carries rows.
-Tree context nodes, Markdown headings, fences, and a Document's fact row are
+Tree context nodes, Markdown headings, fences, and a Text's fact row are
 presentation, not rows, and a summary presentation carries no row selection.
 
 **Explicit intent wins.** When the user names a format, the shape's permitted
@@ -329,7 +334,7 @@ host never substitutes a different lowering or a different section.
 selection of sections. Row-stream formats require either one section or a
 family whose members lower to one homogeneous row schema; the
 [section model](section-model.md#output-shapes) owns that heterogeneity rule
-and this document adds only that a Document's fact row counts as its row
+and this document adds only that a Text's fact row counts as its row
 schema for the purpose.
 
 **Shape is discoverable.** The shape is an owner-issued property of the
@@ -350,7 +355,7 @@ evaluates a complete selection against those capabilities.
 | Format spellings, admission, defaults, destination | [CLI Output Format and Destination](cli-output-format-and-destination.md) | Spells formats; admits or rejects a command-format pair using the shape's lowerings |
 | Relationship section names, Hierarchy versus Graph | [Relationship Section Naming](relationship-section-naming.md) | Names the result; this document presents it |
 | Typed JSON representability | [Projected JSON](projected-json.md) | Decides when a lowered JSON shape is representable |
-| Document completeness | [Source Document Cardinality](source-document-cardinality.md) for type and member Source; each other Document owner for its own payloads | Owns `Lines`, exact Count, and continuation for Source; other owners supply their own incomplete-page and complete-transfer behavior |
+| Text completeness | [Source Document Cardinality](source-document-cardinality.md) for type and member Source; each other Text owner for its own payloads | Owns `Lines`, exact Count, and continuation for Source; other owners supply their own incomplete-page and complete-transfer behavior |
 | Discovery surface | [Schema Query](schema-query.md) | Exposes shape beside name and kind |
 | Each command's sections | The command owner | Classifies its sections and chooses its names and defaults |
 | Rendering | Markout and host writers | Produce the lowering without changing the content |
@@ -367,7 +372,7 @@ Conforming adoptions preserve these outcomes:
 1. **One-row hierarchy.** A package with one compile Library still renders a
    tree with a root and one leaf. Shape does not collapse on cardinality.
 2. **Absent document.** A package without a README makes the README section
-   ineffective. It does not render an empty Document or an empty fact row, and
+   ineffective. It does not render an empty Text or an empty fact row, and
    a multi-section composition omits it under the ordinary section model.
 3. **Flattened hierarchy.** `-S Files --tsv` and `-S Files --count` observe
    exactly the file rows the tree shows; directory nodes contribute no rows.
@@ -375,14 +380,14 @@ Conforming adoptions preserve these outcomes:
    rejected with the two shapes named; the same selection without a format
    composes Markdown.
 5. **Homogeneous document family.** `-S @Files --tsv` streams Path/Size rows
-   because the nuspec and README Documents lower to their fact rows and the
+   because the nuspec and README Texts lower to their fact rows and the
    license and skill Tables already have that row schema.
 6. **Explicit tabular on a hierarchy.** `-S Files --table` is admissible and
    flat; the parent column makes the flattening lossless.
 7. **Inadmissible explicit format.** `-S "Target Frameworks" --tree` fails
    before acquisition, naming Table and its permitted lowerings. It does not
    quietly render a table.
-8. **Large document.** A Document whose body exceeds the presentation budget
+8. **Large text.** A Text whose body exceeds the presentation budget
    is marked incomplete on its first page and names how to obtain the rest
    under its owner's contract: `Lines` continuation for type and member
    Source, which may not know the exact remainder before exhaustion, or a
@@ -421,8 +426,8 @@ unchanged.
 1. **Package owner.** The first adoption classifies the Package Tree and the
    file inventory as Hierarchies, `Target Frameworks` and `Dependencies` as
    Tables, `Package Info` as a scalar record, the root manifest and the best
-   README as Documents, and the license and skill sections as Tables of
-   Document fact rows. Other `.nuspec` paths remain rows of the file inventory.
+   README as Texts, and the license and skill sections as Tables of
+   Text fact rows. Other `.nuspec` paths remain rows of the file inventory.
    The Tree issues source, target, and asset root as properties and retires
    its command-specific title printer. Its target spellings are `Files`,
    `Nuspec`, `README`, `Licenses`, and `Skills`, with the whole-package
@@ -433,7 +438,7 @@ unchanged.
 3. **Type owner.** Classifies the `type` sections, including the member tree
    and the `Source` family.
 4. **Member owner.** Classifies the `member` sections, including overload
-   inventories, call relationships, and source and decompiler Documents.
+   inventories, call relationships, and source and decompiler Texts.
 
 Each adoption changes only its owning command and is tracked by its own
 focused issue. This document authorizes no cross-command sweep, and it does
@@ -456,13 +461,13 @@ gates covering, for its command:
   shape-format pair, naming the shape;
 - Count, `-n`, and `--rows` invariance across the tree, flat, and structured
   lowerings of each Hierarchy;
-- for each Document, its fact row in composed Markdown and family listings,
+- for each Text, its fact row in composed Markdown and family listings,
   its framed body in lone Markdown output, its complete JSON value alone or
   composed, its bare body natively, and in row formats either its fact row
   (no declared inventory) or its owner-declared inventory rows;
 - the absence of host replay text from structured content;
 - title and heading text composed only from the subject identity and issued
-  properties, a bare payload for a native Document, and no properties in row
+  properties, a bare payload for a native Text, and no properties in row
   streams or structured output; and
 - the one-row hierarchy, absent document, heterogeneous request, and
   homogeneous family cases above.
