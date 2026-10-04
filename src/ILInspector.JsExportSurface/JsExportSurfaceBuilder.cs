@@ -724,6 +724,21 @@ public static class JsExportSurfaceBuilder
             }
         }
 
+        IReadOnlyDictionary<ApiType, JsonWireDirection>
+            declaredJsonSchemaRoots =
+                ResolveDeclaredJsonSchemaRoots(
+                    surface.Types
+                        .Concat(
+                            referencedTypeDefinitions?.Values
+                                ?? [])
+                        .Distinct()
+                        .ToArray(),
+                    surface.AssemblyIdentity,
+                    typesByScopedIdentity,
+                    registeredJsonTypeInfoGetterModes,
+                    registeredJsonTypeInfoShapes,
+                    jsonContractIdentity);
+
         IReadOnlyList<JsExportPolymorphicUnion> polymorphicUnions =
             DescribePolymorphicUnions(
                 polymorphicTypes,
@@ -748,6 +763,7 @@ public static class JsExportSurfaceBuilder
                 typesByScopedIdentity,
                 discovered,
                 polymorphicUnions,
+                declaredJsonSchemaRoots,
                 bodyEvidenceAvailable: bodyAnalysis is not null);
         RejectReachedContextRelativeValueTypeAccessibility(
             functions,
@@ -770,6 +786,7 @@ public static class JsExportSurfaceBuilder
             ReferencedTypeDefinitions = referencedTypeDefinitions
                 ?? new Dictionary<ApiTypeReferenceIdentity, ApiType>(),
             WireDirections = wireDirections,
+            JsonSchemaRoots = declaredJsonSchemaRoots,
             ContextDefaultIgnoreConditions =
                 contextDefaultIgnoreConditions,
         };
@@ -784,6 +801,105 @@ public static class JsExportSurfaceBuilder
                 "assembly body analysis",
                 "JSON wire-contract flow was not requested");
         }
+    }
+
+    static IReadOnlyDictionary<ApiType, JsonWireDirection>
+        ResolveDeclaredJsonSchemaRoots(
+            IReadOnlyList<ApiType> types,
+            ApiAssemblyIdentity? assemblyIdentity,
+            IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+                typesByScopedIdentity,
+            IReadOnlyDictionary<
+                JsonContextGetterIdentity,
+                JsonSourceGenerationMode>
+                registeredJsonTypeInfoGetterModes,
+            IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
+                registeredJsonTypeInfoShapes,
+            ApiAssemblyIdentity? jsonContractIdentity)
+    {
+        var roots = new Dictionary<ApiType, JsonWireDirection>();
+        foreach (ApiType type in types)
+        {
+            if (type.JsExportJsonSchemaDeclaration is not
+                { } declaration)
+            {
+                continue;
+            }
+
+            string location = FormatTypeLocation(type);
+            if (jsonContractIdentity is null)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    "JsExportJsonSchemaAttribute cannot be authenticated because "
+                        + "the trusted contract assembly identity was not supplied");
+            }
+            if (declaration.AttributeAssembly is not
+                    { } attributeAssembly
+                || !attributeAssembly.Equals(jsonContractIdentity))
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    "JsExportJsonSchemaAttribute comes from an incompatible contract assembly");
+            }
+            if (declaration.UnsupportedReason is { } unsupportedReason)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    "JsExportJsonSchema declaration is malformed or unsupported: "
+                        + unsupportedReason);
+            }
+
+            JsonWireDirection direction = declaration.Direction switch
+            {
+                "serialize" => JsonWireDirection.Serialize,
+                "deserialize" => JsonWireDirection.Deserialize,
+                _ => throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    "JsExportJsonSchema direction must be 'serialize' or "
+                        + "'deserialize'"),
+            };
+
+            JsonContextGetterIdentity[] contexts =
+            [
+                .. registeredJsonTypeInfoShapes
+                    .Where(candidate =>
+                        candidate.Value.Kind == ApiTypeShapeKind.Named
+                        && candidate.Value.Definition is
+                            { } definition
+                        && typesByScopedIdentity.GetValueOrDefault(
+                            definition) == type
+                        && registeredJsonTypeInfoGetterModes.TryGetValue(
+                            candidate.Key,
+                            out JsonSourceGenerationMode mode)
+                        && JsonWireContractResolver.SupportsDirection(
+                            mode,
+                            direction))
+                    .Select(candidate => candidate.Key),
+            ];
+            bool isOwnedType = assemblyIdentity is not null
+                && type.DefinitionName is { } definitionName
+                && typesByScopedIdentity.GetValueOrDefault(
+                    new(
+                        assemblyIdentity,
+                        type.FullName,
+                        definitionName)) == type;
+            if (contexts.Length == 0 && !isOwnedType)
+                continue;
+            if (contexts.Length != 1)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    "declared JSON Schema root has "
+                        + (contexts.Length == 0
+                            ? "no authenticated direction-capable serializer contract"
+                            : "ambiguous serializer contracts"));
+            }
+
+            roots.Add(type, direction);
+        }
+        return roots;
+        return roots;
     }
 
     static IReadOnlyDictionary<
@@ -1317,6 +1433,8 @@ public static class JsExportSurfaceBuilder
             typesByScopedIdentity,
         HashSet<ApiType> discovered,
         IReadOnlyList<JsExportPolymorphicUnion> polymorphicUnions,
+        IReadOnlyDictionary<ApiType, JsonWireDirection>
+            declaredJsonSchemaRoots,
         bool bodyEvidenceAvailable)
     {
         var directions = new Dictionary<ApiType, JsonWireDirection>();
@@ -1349,6 +1467,18 @@ public static class JsExportSurfaceBuilder
             Seed(
                 function.ParameterWireTypeReferences,
                 JsonWireDirection.Deserialize);
+        }
+        foreach ((ApiType type, JsonWireDirection direction)
+            in declaredJsonSchemaRoots)
+        {
+            if (!discovered.Contains(type))
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    FormatTypeLocation(type),
+                    "declared JSON Schema root is not in the serializer "
+                        + "contract graph");
+            }
+            queue.Enqueue((type, direction));
         }
 
         while (queue.Count > 0)

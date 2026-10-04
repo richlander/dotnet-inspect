@@ -171,6 +171,10 @@ public static class VocabularyCatalog
     /// <summary>The exact rendered C# body-kind vocabulary section.</summary>
     public const string BodyKindsSection = "C# Body Kinds";
 
+    /// <summary>The Package Query durable-row field vocabulary section.</summary>
+    public const string PackageQueryDurableRowSection =
+        "Package Query Durable Row";
+
     /// <summary>The exact immutable product vocabulary snapshot.</summary>
     public static VocabularySnapshot Snapshot { get; } =
         ProductVocabularySnapshot.Create();

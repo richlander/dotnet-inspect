@@ -1,6 +1,9 @@
 import type {
   BrowserSourceComparisonResult,
 } from "./source-diff-transport.ts";
+import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "./package-query-durable-row.ts";
 
 type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
 type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
@@ -152,6 +155,8 @@ type CatalogOperations =
 export interface EngineClient {
   readonly host: AsyncFacade<HostFacade, "buildIdentity">;
   readonly package: AsyncFacade<PackageFacade, PackageOperations> & {
+    packageQueryDurableRowLayout():
+      Promise<PackageQueryDurableRowPresentationLayout>;
     cancelPackageActivity(
       ...args: Parameters<PackageFacade["cancelPackageActivity"]>
     ): void;

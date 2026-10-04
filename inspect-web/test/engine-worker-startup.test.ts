@@ -27,6 +27,9 @@ import type {
   BrowserPackageChangesEcosystemCatalog,
   BrowserPackageQueryCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "../src/package-query-durable-row.ts";
 import {
   FakeWorkerRuntime,
   ManualWorkerRuntimeEnvironment,
@@ -102,6 +105,13 @@ const ecosystems: BrowserPackageChangesEcosystemCatalog = {
     prefixes: ["Example."],
   }],
 };
+const durableRowLayout: PackageQueryDurableRowPresentationLayout = {
+  contract: "package-query.durable-row",
+  schemaIdentity: "sha256:schema",
+  descriptorIdentity: "sha256:descriptor",
+  vocabularySnapshotIdentity: "sha256:vocabulary",
+  fields: [],
+};
 const cases = [
   { operation: engineStartupOperations.buildIdentity, expected: identity, field: "version",
     read: (client: EngineStartupClient) => client.host.buildIdentity() },
@@ -117,6 +127,13 @@ const cases = [
   },
   { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "presets",
     read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
+  {
+    operation: engineStartupOperations.packageQueryDurableRowLayout,
+    expected: durableRowLayout,
+    field: "contract",
+    read: (client: EngineStartupClient) =>
+      client.package.packageQueryDurableRowLayout(),
+  },
   {
     operation: engineStartupOperations.listPackageActivityEcosystems,
     expected: ecosystems,
@@ -151,6 +168,10 @@ function fixture(options: {
       return productEcosystems;
     },
     async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
+    async packageQueryDurableRowLayout() {
+      calls.push("durable-row-layout");
+      return durableRowLayout;
+    },
     async listPackageActivityEcosystems() {
       calls.push("ecosystems");
       return ecosystems;
@@ -188,11 +209,11 @@ function fixture(options: {
   return { host, client, environment, calls, failures, diagnostics, workers, starts: () => starts };
 }
 
-test("all six cold reads share readiness and preserve full generated-shaped results", async () => {
+test("all cold reads share readiness and preserve full generated-shaped results", async () => {
   const ready = deferred<void>();
   const state = fixture({ bootstrap: () => ready.promise });
   const results = Promise.all(cases.map(item => item.read(state.client)));
-  assert.equal(state.host.snapshot().heldOperations, 6);
+  assert.equal(state.host.snapshot().heldOperations, cases.length);
   await state.environment.flushAsync();
   assert.equal(state.starts(), 1);
   assert.deepEqual(state.calls, []);
@@ -203,7 +224,7 @@ test("all six cold reads share readiness and preserve full generated-shaped resu
     state.calls,
     [
       "identity", "vocabulary", "demos", "product-ecosystems",
-      "catalog", "ecosystems",
+      "catalog", "durable-row-layout", "ecosystems",
     ]);
   assert.deepEqual(
     await Promise.all(cases.map(item => item.read(state.client))),
@@ -212,8 +233,9 @@ test("all six cold reads share readiness and preserve full generated-shaped resu
     state.calls,
     [
       "identity", "vocabulary", "demos", "product-ecosystems",
-      "catalog", "ecosystems",
-      "identity", "demos", "product-ecosystems", "catalog", "ecosystems",
+      "catalog", "durable-row-layout", "ecosystems",
+      "identity", "demos", "product-ecosystems",
+      "catalog", "durable-row-layout", "ecosystems",
     ]);
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);

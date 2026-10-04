@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 using ILInspector.TypeScriptGeneration;
 
@@ -728,10 +729,18 @@ internal static class JsExportContextGenerator
             string source;
             try
             {
+                IReadOnlyList<TypeScriptStaticJsonExport>
+                    staticJsonExports =
+                        DeclaredJsonSchemaExports.Create(
+                            surface,
+                            out JsonWireDeclarationPlan
+                                declarationPlan);
                 source = TypeScriptFacadeEmitter.Emit(
                     surface,
                     runtimeModule,
-                    diagnostics);
+                    diagnostics,
+                    staticJsonExports,
+                    declarationPlan);
             }
             catch (UnsupportedWireContractException ex)
             {

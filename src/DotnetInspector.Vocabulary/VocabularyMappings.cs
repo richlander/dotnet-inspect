@@ -168,6 +168,60 @@ public readonly record struct VocabularySnapshotIdentity
     public override string ToString() => Value;
 }
 
+/// <summary>
+/// The authenticated catalog, exact snapshot, and term identities needed by
+/// a consumer that does not require vocabulary labels, summaries, or maps.
+/// </summary>
+public sealed class VocabularySnapshotReference
+{
+    private readonly IReadOnlySet<VocabularyTermIdentity> _terms;
+
+    public VocabularySnapshotReference(
+        VocabularyCatalogIdentity catalog,
+        VocabularySnapshotIdentity identity,
+        IEnumerable<VocabularyTermIdentity> terms)
+    {
+        ArgumentNullException.ThrowIfNull(terms);
+        Catalog = catalog;
+        Identity = identity;
+        VocabularyTermIdentity[] declarations = [.. terms];
+        foreach (VocabularyTermIdentity term in declarations)
+        {
+            if (term.Vocabulary.Catalog != catalog)
+            {
+                throw new ArgumentException(
+                    $"Term '{term}' does not belong to catalog '{catalog}'.",
+                    nameof(terms));
+            }
+        }
+        _terms = declarations.ToHashSet();
+        if (_terms.Count != declarations.Length)
+        {
+            throw new ArgumentException(
+                "Vocabulary term identities must be unique.",
+                nameof(terms));
+        }
+    }
+
+    public VocabularyCatalogIdentity Catalog { get; }
+
+    public VocabularySnapshotIdentity Identity { get; }
+
+    public bool Contains(VocabularyTermIdentity term) =>
+        _terms.Contains(term);
+
+    public static VocabularySnapshotReference FromSnapshot(
+        VocabularySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return new(
+            snapshot.Catalog,
+            snapshot.Identity,
+            snapshot.Vocabularies.SelectMany(vocabulary =>
+                vocabulary.Terms.Select(term => term.Identity)));
+    }
+}
+
 /// <summary>One typed primitive value in a scalar vocabulary map.</summary>
 public readonly record struct VocabularyScalarValue
 {

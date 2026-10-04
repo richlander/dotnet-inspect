@@ -1420,6 +1420,11 @@ public static partial class ApiSurfaceExtractor
                     jsonTypeAttributes,
                     currentAssemblyIdentity,
                     observeDecodeWork);
+            apiType.JsExportJsonSchemaDeclaration =
+                AttributeReader.ReadJsExportJsonSchemaDeclaration(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
             if (jsonSerializableAttributeCount > 0)
             {
                 apiType.HasSystemTextJsonSourceGenerationMarker =
@@ -2044,6 +2049,12 @@ public static partial class ApiSurfaceExtractor
                                 reader,
                                 prop.GetCustomAttributes(),
                                 observeDecodeWork),
+                    JsExportJsonSchemaSlotDeclaration =
+                        AttributeReader
+                            .ReadJsExportJsonSchemaSlotDeclaration(
+                                reader,
+                                prop.GetCustomAttributes(),
+                                observeDecodeWork),
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),
@@ -2292,6 +2303,12 @@ public static partial class ApiSurfaceExtractor
                     HasUnsupportedJsonWireAttributes =
                         AttributeReader
                             .HasUnsupportedJsonMemberWireAttributes(
+                                reader,
+                                field.GetCustomAttributes(),
+                                observeDecodeWork),
+                    JsExportJsonSchemaSlotDeclaration =
+                        AttributeReader
+                            .ReadJsExportJsonSchemaSlotDeclaration(
                                 reader,
                                 field.GetCustomAttributes(),
                                 observeDecodeWork),

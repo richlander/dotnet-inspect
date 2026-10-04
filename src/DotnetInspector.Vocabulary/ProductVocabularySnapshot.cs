@@ -14,6 +14,8 @@ internal static class ProductVocabularySnapshot
     internal const string StyleTiersId = "csharp.style-tiers";
     internal const string StyleChoicesId = "csharp.style-choices";
     internal const string BodyKindsId = "csharp.body-kinds";
+    internal const string PackageQueryDurableRowId =
+        PackageQueryDurableRowContract.Vocabulary;
 
     internal static VocabularySnapshot Create()
     {
@@ -22,6 +24,8 @@ internal static class ProductVocabularySnapshot
         var styleTiers = new VocabularyIdentity(catalog, StyleTiersId);
         var styleChoices = new VocabularyIdentity(catalog, StyleChoicesId);
         var bodyKinds = new VocabularyIdentity(catalog, BodyKindsId);
+        var packageQueryDurableRow =
+            new VocabularyIdentity(catalog, PackageQueryDurableRowId);
         var sections = new VocabularyIdentity(catalog, SectionsId);
 
         VocabularyDefinition accessibilityVocabulary =
@@ -32,6 +36,8 @@ internal static class ProductVocabularySnapshot
             CreateStyleChoices(styleChoices, styleTiers);
         VocabularyDefinition bodyKindsVocabulary =
             CreateBodyKinds(bodyKinds);
+        VocabularyDefinition packageQueryDurableRowVocabulary =
+            CreatePackageQueryDurableRow(packageQueryDurableRow);
 
         VocabularyDefinition sectionIndex = CreateSectionIndex(
             sections,
@@ -48,6 +54,9 @@ internal static class ProductVocabularySnapshot
                 (
                     bodyKindsVocabulary,
                     ["decompiler.body-kind"]),
+                (
+                    packageQueryDurableRowVocabulary,
+                    [PackageQueryDurableRowContract.ContractIdentity]),
             ]);
 
         return VocabularySnapshot.Create(
@@ -59,8 +68,89 @@ internal static class ProductVocabularySnapshot
                 styleTiersVocabulary,
                 styleChoicesVocabulary,
                 bodyKindsVocabulary,
+                packageQueryDurableRowVocabulary,
             ]);
     }
+
+    private static VocabularyDefinition CreatePackageQueryDurableRow(
+        VocabularyIdentity identity) =>
+        new(
+            identity,
+            VocabularyCatalog.PackageQueryDurableRowSection,
+            "Stable semantic fields in the compact Package Query durable row.",
+            maps: null,
+            [
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.PackageId,
+                    "Package",
+                    "Exact NuGet package identity."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Version,
+                    "Version",
+                    "Exact package version."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Tier,
+                    "Acquisition Tier",
+                    "Highest acquisition tier used to establish the match."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Answers,
+                    "Answers",
+                    "Semantic values that satisfied selected query terms."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Evidence,
+                    "Evidence",
+                    "Structured package- and query-scoped supporting facts."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.TotalDownloads,
+                    "Lifetime Downloads",
+                    "Reported lifetime package downloads when available."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Verified,
+                    "Verified",
+                    "Reported package-owner verification when available."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Producer,
+                    "Source",
+                    "Package source that produced the result."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Description,
+                    "Description",
+                    "Package description when available."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.RootRequest,
+                    "Root Request",
+                    "Reacquisition request for a semantic package result."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Owners,
+                    "Owners",
+                    "Reported package owners."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.Manifest,
+                    "Manifest",
+                    "Acquired package-manifest facts when available."),
+            ]);
+
+    private static VocabularyTerm Term(
+        VocabularyIdentity vocabulary,
+        string identity,
+        string displayLabel,
+        string summary) =>
+        new(
+            new(vocabulary, identity),
+            displayLabel,
+            summary);
 
     private static VocabularyDefinition CreateSectionIndex(
         VocabularyIdentity identity,

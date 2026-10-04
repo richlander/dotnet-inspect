@@ -308,7 +308,7 @@ function compile(
         resolve(compilerOutput, `${module}.d.ts`),
         "utf8",
       );
-      if (/RuntimeAPI|dotnet(?:\.js)?/u.test(declaration)) {
+      if (/\bRuntimeAPI\b|dotnet\.js/u.test(declaration)) {
         throw new Error(
           `Generated public declaration ${module}.d.ts leaked an SDK runtime type.`,
         );

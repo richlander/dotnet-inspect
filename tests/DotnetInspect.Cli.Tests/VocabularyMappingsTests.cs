@@ -15,7 +15,7 @@ public sealed class VocabularyMappingsTests
 
         Assert.Equal(1, snapshot.FormatVersion);
         Assert.Equal(
-            "sha256:79f5a1cddcbabc41e23e85a96ecefbe582416382ec00fb79794f444e794c308e",
+            "sha256:738fb458557d93aa6681947f43cc9ba9315260177f7bbe8af83c02d49b437f36",
             snapshot.Identity.Value);
         Assert.Equal(
             VocabularyMapCardinality.ExactlyOne,
@@ -36,6 +36,7 @@ public sealed class VocabularyMappingsTests
                 snapshot.GetVocabulary(local.Vocabulary)
                     .GetTerm(value.Identity.Value));
         }
+
     }
 
     [Fact]

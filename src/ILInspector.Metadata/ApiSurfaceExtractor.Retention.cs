@@ -77,6 +77,15 @@ public static partial class ApiSurfaceExtractor
             AddText(ref count, declaration.WireType);
             AddText(ref count, declaration.UnsupportedReason);
         }
+        if (type.JsExportJsonSchemaDeclaration is { } schemaDeclaration)
+        {
+            AddText(ref count, schemaDeclaration.AttributeAssembly);
+            AddText(ref count, schemaDeclaration.ContractIdentity);
+            AddText(ref count, schemaDeclaration.Direction);
+            AddText(ref count, schemaDeclaration.VocabularyCatalog);
+            AddText(ref count, schemaDeclaration.VocabularySnapshotIdentity);
+            AddText(ref count, schemaDeclaration.UnsupportedReason);
+        }
         AddText(ref count, type.Interfaces);
         foreach (ApiTypeReferenceIdentity reference
             in type.InterfaceReferences)
@@ -112,6 +121,14 @@ public static partial class ApiSurfaceExtractor
         AddText(ref count, member.Signature);
         AddText(ref count, member.CanonicalSignature);
         AddText(ref count, member.SignatureModel);
+        if (member.JsExportJsonSchemaSlotDeclaration is { } slot)
+        {
+            AddText(ref count, slot.AttributeAssembly);
+            AddText(ref count, slot.NodeIdentity);
+            AddText(ref count, slot.Vocabulary);
+            AddText(ref count, slot.Term);
+            AddText(ref count, slot.UnsupportedReason);
+        }
         AddText(ref count, member.Accessibility);
         AddText(ref count, member.DeclaredAccessibility);
         AddText(ref count, member.ObsoleteMessage);
