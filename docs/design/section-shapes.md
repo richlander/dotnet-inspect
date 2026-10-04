@@ -50,8 +50,9 @@ for `package System.Text.Json` at version 10.0.12.
   parenthetical names the coordinates of what is displayed, so `analyzers` and
   `buildTransitive` do not belong there when only `lib` children are shown.
 - The same Tree's JSON rows carry a shell-quoted `selector` that tells a
-  person how to run the tool. That is host navigation, not package data. The
-  envelope already has a Share slot for it.
+  person how to run the tool. That is host navigation, not package data. It
+  belongs to the host's presentation, or, as a portable packet, to the
+  envelope's Share slot.
 - `-S "Package files"` is a flat Path/Size table, while `--layout` renders the
   same file inventory as a directory tree. One inventory, two unrelated
   presentations, chosen by which flag the user knew.
@@ -147,14 +148,21 @@ $ dotnet-inspect package System.Text.Json -S "Target Frameworks" -S README
 
 An explicit format always wins over the native one, within the shape's
 permitted lowerings: `-S Files --tsv` streams the file rows flat, and
-`-S "Target Frameworks" --json` returns the rows as an array. An explicit
-format a shape cannot carry fails before acquisition and names the shape.
+`-S "Target Frameworks" --json` carries the rows as an array value inside the
+JSON root that [Projected JSON](projected-json.md) owns. An explicit format a
+shape cannot carry fails before acquisition and names the shape.
 
 ## The three shapes
 
 A shape is a statement about the result, not about a renderer. The owner
 classifies the section once, from the semantic result it issues, and every
 host and format follows that classification.
+
+Each shape's JSON lowering below describes the section's JSON value. Whether
+that value is the root, how it sits inside a document or envelope, and whether
+a request routes to typed or lowered JSON are owned by
+[Projected JSON](projected-json.md); this document does not change that
+routing.
 
 ### Table
 
@@ -163,8 +171,8 @@ whatever the owner declares — a target framework, a dependency, a type, a
 finding — and nothing in the presentation adds or removes rows.
 
 The native format is the row stream: TSV in the CLI. Permitted lowerings are
-the Markdown table, the pretty table, JSONL, a JSON array of row objects, and
-the Count and projection steps of the
+the Markdown table, the pretty table, JSONL, a JSON value that is an array of
+row objects, and the Count and projection steps of the
 [output-shape ladder](output-shapes.md#the-shape-ladder).
 
 A scalar record such as `Package Info` or single-Library `Library Info` is a
@@ -182,14 +190,16 @@ root occurrence is context for the dependency occurrences it reaches.
 
 The native format is the tree. Permitted lowerings are the flat row stream and
 Markdown table, each carrying the parent as a column, JSONL rows with the same
-column, nested JSON in which each row's children are an array, and, where the
-owner names it, Mermaid. A tree node that is only context is never a row:
-Count, `-n`, `--rows`, and every flat lowering see the same rows the tree
-shows as leaves or as rows of their own.
+column, and a nested JSON value in which each row's children are an array. A
+tree node that is only context is never a row: Count, `-n`, `--rows`, and
+every flat lowering see the same rows the tree shows as leaves or as rows of
+their own.
 
-A result whose identity is the union of nodes and typed edges is a Graph, not
-a Hierarchy; [Relationship Section Naming](relationship-section-naming.md)
-owns that distinction and the Graph shape remains with its Graph owners.
+Mermaid is not a Hierarchy lowering. A result whose identity is the union of
+nodes and typed edges is a Graph, not a Hierarchy;
+[Relationship Section Naming](relationship-section-naming.md) owns that
+distinction, and the Graph shape, with its diagram formats, remains with its
+Graph owners.
 
 ### Document
 
@@ -197,13 +207,20 @@ A Document is one text payload with the scalar facts that identify it: path,
 size, provenance, and whatever else the owner issues. A README, a nuspec, a
 skill, a decompiled or authored source body, and a diff are Documents.
 
+A section is a Document only when its owner guarantees at most one payload for
+the selected subject: the best README, the single root nuspec, the selected
+member's source. When a matcher can yield several files, as license files and
+skill documents can, the section is a Table whose row unit is a Document fact
+row. Each row names a payload the command can open through its existing path
+selection, and the opened payload is a Document.
+
 The native format is the text itself, undecorated. Permitted lowerings are the
-fenced or embedded body inside a Markdown composition, a JSON object carrying
-the facts and the content, and the fact row in tabular formats. A Document's
-fact row is how it participates in a composition without flooding it, and how
-a family of Documents selected together remains one homogeneous table: a
-package's nuspec, README, licenses, and skills all lower to the same Path/Size
-row.
+fenced or embedded body inside a Markdown composition, a JSON value that is an
+object carrying the facts and the content, and the fact row in tabular
+formats. A Document's fact row is how it participates in a composition without
+flooding it, and how Documents and Document-row Tables selected together
+remain one homogeneous table: a package's nuspec and README Documents and its
+license and skill Tables all lower to Path/Size rows.
 
 A large Document continues through the ordered `Lines` inventory owned by
 [Source document cardinality](source-document-cardinality.md); it is never
@@ -213,8 +230,9 @@ clipped silently.
 
 **Lowerings present; they do not author.** A lowering may elide, group, nest,
 indent, or fence what the section issued. It may not add content. Replay
-commands, selectors, URLs, and other host navigation belong in the
-`InspectionEnvelope` Share slot or in the host's own presentation, never in a
+commands, selectors, and other host navigation belong to the host's own
+presentation; a portable replay currency belongs to the `InspectionEnvelope`
+Share slot, which carries a packet or URL, not shell text. Neither belongs in a
 content row or field. A consumer reading the content must not be able to tell
 which host produced it.
 
@@ -281,17 +299,18 @@ Conforming adoptions preserve these outcomes:
 4. **Heterogeneous row request.** `-S README -S "Target Frameworks" --tsv` is
    rejected with the two shapes named; the same selection without a format
    composes Markdown.
-5. **Homogeneous document family.** `-S @Files --tsv` streams one Path/Size
-   row per effective Document because every member lowers to the same fact
-   row.
+5. **Homogeneous document family.** `-S @Files --tsv` streams Path/Size rows
+   because the nuspec and README Documents lower to their fact rows and the
+   license and skill Tables already have that row schema.
 6. **Explicit tabular on a hierarchy.** `-S Files --table` is admissible and
    flat; the parent column makes the flattening lossless.
 7. **Inadmissible explicit format.** `-S "Target Frameworks" --tree` fails
    before acquisition, naming Table and its permitted lowerings. It does not
    quietly render a table.
 8. **Large document.** A Document whose body exceeds the presentation budget
-   continues through `Lines`; its first page states the remaining Count rather
-   than ending as though complete.
+   continues through `Lines`. Its first page is marked incomplete and names the
+   continuation under Source document cardinality, which may not know the
+   exact remainder before exhaustion; it never ends as though complete.
 9. **Host text in content.** A JSON content row containing a replay command or
    a shell-quoted selector is a defect, whichever host produced it.
 
@@ -322,8 +341,9 @@ unchanged.
 
 1. **Package owner.** The first adoption classifies the Package Tree and the
    file inventory as Hierarchies, `Target Frameworks` and `Dependencies` as
-   Tables, `Package Info` as a scalar record, and the nuspec, README, license,
-   and skill sections as Documents. Its target spellings are `Files`,
+   Tables, `Package Info` as a scalar record, the nuspec and README sections
+   as Documents, and the license and skill sections as Tables of Document fact
+   rows. Its target spellings are `Files`,
    `Nuspec`, `README`, `Licenses`, and `Skills`, with the whole-package
    listing outside the `@Files` door as today. The Tree title names source,
    target, and asset root. Replay selectors leave the JSON content.
