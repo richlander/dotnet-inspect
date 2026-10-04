@@ -795,7 +795,6 @@ test("metadata accessors retain their established overload detail route", async 
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-spelling]").selectOption("metadata");
   await chooseSubject(page, "member", "Member");
-  await page.locator(".member-surface-list .overload-row").click();
 
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
@@ -895,29 +894,27 @@ test("aggregate Library remains active through Spotlight Type and Member results
     .toHaveValue("public");
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
   expect(await page.locator("html").getAttribute(
     "data-member-group-document-request",
   )).toBeNull();
 
   await page.keyboard.press("1");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
 
   await page.keyboard.press("ArrowRight");
-  await expect(subjectTab(page, "type"))
+  await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("ArrowLeft");
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
 
-  await page.locator(".member-surface-list .overload-row").click();
   await page.keyboard.press("Backspace");
-  await expect(page.locator("#member-surface-title")).toHaveText("Run");
-  await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
 
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(".subject-path-segment").nth(1))
@@ -1288,9 +1285,13 @@ test("Member filters use dropdowns and request all accessibility buckets", async
 
   await filteredRun.click();
   await expect(page.locator(".member-surface-head"))
-    .toContainText("Exact declaration 2");
-  await expect(page.locator(".signature-code"))
-    .toContainText("public void Run(int value)");
+    .toContainText("method · 1 of 2");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(0);
+  await expect(page.getByText(
+    "M:Example.Widget.Run(System.Int32)",
+    { exact: true },
+  )).toBeVisible();
 });
 
 for (const width of [900, 390]) {
