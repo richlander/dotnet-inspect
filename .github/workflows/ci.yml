@@ -1932,7 +1932,8 @@ jobs:
 
       - name: Smoke test - package normal
         run: |
-          dotnet-inspect package System.Text.Json@10.0.0 -v:n > smoke-package-normal.md
+          dotnet-inspect package System.Text.Json@10.0.0 -v:n \
+            -S "Package Info,Signature" > smoke-package-normal.md
           cat smoke-package-normal.md
           grep -q "## Package Info" smoke-package-normal.md
           grep -q "## Signature" smoke-package-normal.md
