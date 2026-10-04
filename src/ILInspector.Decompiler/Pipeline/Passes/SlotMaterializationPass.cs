@@ -39,13 +39,14 @@ public readonly record struct SlotMaterializationDecision(
 /// retain their slot provenance because their legacy declaration order and
 /// scope remain part of the output contract. Its <see cref="StoreStackSlot"/>/
 /// <see cref="LoadStackSlot"/> nodes stop reaching the printer. What remains
-/// on slots is the counted residual the printer's unifier still owns:
+/// on slots is the counted residual that <see cref="ResidualSlotBindingPass"/>
+/// binds with the printer's frozen legacy policy at the end of the pipeline:
 /// ambiguous testimony, cross-family (true disjoint ranges), and nested-body
 /// scopes (this increment materializes function-scope slots only). Direct
 /// slot-copy webs retire as one connected component only when every member is
 /// independently decided; an undecided member keeps the whole component on
-/// slots. The terminus is C2: when the residual census reaches zero, the
-/// print-time unifier deletes cleanly. The component boundary is gated by
+/// slots. The burn-down target is the residual-binding census: each class it
+/// reports is a candidate for this pass to admit. The component boundary is gated by
 /// <c>MaterializesCompleteDirectCopyComponent</c> and
 /// <c>DefersWholeDirectCopyComponentWhenOneSlotIsUndecided</c>.
 /// </summary>

@@ -738,9 +738,10 @@ rules to the pass.
 local function — immediately after `CoercionInsertionPass` and before
 `ScalarSelfUpdatePass`, in every pipeline that includes
 `SlotMaterializationPass` (`Default`, `Lowered`, and the capturing-lambda
-completion split) and in none that excludes it: the `ForReconstruction` pipelines leave
-their slot nodes for the host's tail, which binds the transplanted body. It is
-the last pass that may observe a stack-slot node. The position is chosen so
+completion split) and in none that excludes it: the `ForReconstruction`
+pipelines and the intermediate re-runs of a reconstructed body
+(`ForIntermediateBody`) leave their slot nodes for the host's tail, which binds
+the transplanted body. It is the last pass that may observe a stack-slot node. The position is chosen so
 the pass sees exactly the tree the printer sees today in that pipeline: the
 slot-consuming raises present in it (`SwapIdiomPass`,
 `PointerCompoundAssignmentPass`, `UnsafeAwaitBoundaryPass`) have run;
@@ -809,7 +810,7 @@ residual policy `CSharpPrinter.CollectStackSlotNames` and
    No producer at this head sets `Fixed.LocalIsStackSlot`, so the printer's
    slot-keyed `FixedLocalName` branch is dead; the flag and every reader branch
    (`UnsafeAwaitBoundaryPass`, `ArrayLiteralFromStoresPass`,
-   `LocalDeclarationPlan`, `IrNode.NodeBindsLocalSlot`, both printer sites)
+   `LocalDeclarationPlan`, `IrFunction.NodeBindsLocalSlot`, both printer sites)
    are deleted as unreachable in the same
    slice, with that evidence stated, rather than rebound by this pass.
 3. **Untyped.** Any local that steps 1 and 2 would issue without a type — a
@@ -901,7 +902,7 @@ visible-failure tests), and a compiler-produced boundary where a surviving
 slot must fail visibly.
 
 **Measurement replaces the printer census.** The harness's
-`--slot-unifier-census` retires with the unifier. A residual-binding census
+`--slot-unifier-census` retires with the unifier. `--residual-binding-census`
 over the fixed 14-assembly, 89,065-method corpus reports bound webs grouped by
 binding kind and veto flags, with one example per group, and
 `--slot-residual-census` continues to report materialization's own
@@ -935,8 +936,9 @@ compound-assignment operands, merge-node arms, event and `using` values), so
 an implicit IL narrowing such as an `int` carrier stored to a `short` field
 gains its explicit cast, and a sibling operand whose checked-operand or
 element-store target the bound occurrence completed gains the same wrapper;
-multi-dimensional index text for two split pieces of one slot, which the
-printer's slot-keyed `HasRepeatedStackSlot` rule spells today; and untyped
+multi-dimensional index text where one slot occurred more than once,
+top-level or nested or as split pieces, which the printer's slot-keyed
+`HasRepeatedStackSlot` rule spelled as a pseudo-member; and untyped
 webs and managed-reference
 webs moving from invalid or renderer-fallback output to visible failure. The
 pass moves no expression; the only nodes it adds are the discharge's `Coerce`

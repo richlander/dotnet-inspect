@@ -84,6 +84,7 @@ public class JoinTypeConflictTests : IDisposable
         Assert.Contains(stores, s => s is { Slot: 1, Value.ResultType.Name: "Int64" });
         Assert.DoesNotContain(stores, s => s is { Slot: 0, Value.ResultType.Name: "Int64" });
 
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("int S_0 = 1;", output);
         Assert.Contains("long S_1;", output);

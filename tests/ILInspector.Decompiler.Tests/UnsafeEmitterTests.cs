@@ -89,6 +89,17 @@ public class UnsafeEmitterTests
         return (function!, ResearchViews.CollectFacts(source, function!));
     }
 
+    /// <summary>
+    /// Prints a hand-built function the way the product pipeline's tail would
+    /// see it: residual stack-slot webs are bound to locals first, since the
+    /// printer no longer owns slot declaration or unsafe-run placement.
+    /// </summary>
+    static DecompilerResult PrintBound(IrFunction function)
+    {
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
+        return CSharpPrinter.Print(function);
+    }
+
     /// <summary>The body of the first <c>unsafe { }</c> block, by brace matching.</summary>
     static string FirstUnsafeBlockBody(string output)
     {
@@ -159,7 +170,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        DecompilerResult result = CSharpPrinter.Print(function);
+        DecompilerResult result = PrintBound(function);
 
         Assert.DoesNotContain("unsafe", result.Output);
         Assert.False(result.RequiresUnsafeBodyModifier);
@@ -215,7 +226,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var result = CSharpPrinter.Print(function);
+        var result = PrintBound(function);
 
         Assert.NotNull(result.Output);
         Assert.Contains("catch (Exception) when (unsafe((*p) != 0))", result.Output);
@@ -361,7 +372,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var body = CSharpPrinter.Print(function).Output!;
+        var body = PrintBound(function).Output!;
 
         if (expectsBlock)
         {
@@ -662,7 +673,7 @@ public class UnsafeEmitterTests
             [],
             body);
 
-        var result = CSharpPrinter.Print(function);
+        var result = PrintBound(function);
 
         Assert.True(result.RequiresUnsafeBodyModifier);
         Assert.DoesNotContain("unsafe\n{", result.Output);
@@ -695,7 +706,7 @@ public class UnsafeEmitterTests
             [],
             body);
 
-        var result = CSharpPrinter.Print(function);
+        var result = PrintBound(function);
 
         Assert.NotNull(result.Output);
         Assert.False(result.RequiresUnsafeBodyModifier);
@@ -740,7 +751,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.True(
             output.IndexOf("* S_", StringComparison.Ordinal)
@@ -776,7 +787,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
         var unsafeBody = FirstUnsafeBlockBody(output);
 
         Assert.True(
@@ -814,7 +825,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.True(
             output.IndexOf("int V_0;", StringComparison.Ordinal)
@@ -847,7 +858,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.Contains("int V_0 = 1;", output);
         Assert.DoesNotContain("unsafe", output);
@@ -878,7 +889,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
         var unsafeBody = FirstUnsafeBlockBody(output);
 
         Assert.DoesNotContain("int V_0 = 1;", unsafeBody);
@@ -910,7 +921,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.Contains("int V_0 = 42;", output);
         Assert.DoesNotContain("\nV_0 = 42;", output);
@@ -964,7 +975,7 @@ public class UnsafeEmitterTests
         };
 
         var plan = LocalDeclarationPlan.Create(function, 1);
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.Contains(store, plan.DeclaringNodes);
         Assert.Contains("int* V_0 = stackalloc int[1];", output);
@@ -996,7 +1007,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.True(
             output.IndexOf("byte* V_0;", StringComparison.Ordinal)
@@ -1041,7 +1052,7 @@ public class UnsafeEmitterTests
         };
 
         new UnsafeAwaitBoundaryPass().Run(function, PassContext.None);
-        var result = CSharpPrinter.Print(function);
+        var result = PrintBound(function);
         string output = Assert.IsType<string>(result.Output);
 
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
@@ -1050,7 +1061,7 @@ public class UnsafeEmitterTests
         Assert.Contains("legacy pointer lifetime cannot be scoped outside await", output);
         Assert.DoesNotContain("unsafe\n{", output);
         Assert.DoesNotContain("await task", output);
-        Assert.Equal(output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(output, PrintBound(function).Output);
     }
 
     [Fact]
@@ -1088,7 +1099,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.True(
             output.IndexOf("Guid V_0;", StringComparison.Ordinal)
@@ -1130,7 +1141,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+        var unsafeBody = FirstUnsafeBlockBody(PrintBound(function).Output!);
 
         Assert.Contains("V_0 = default;", unsafeBody);
         Assert.DoesNotContain("=>", unsafeBody);
@@ -1170,7 +1181,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+        var unsafeBody = FirstUnsafeBlockBody(PrintBound(function).Output!);
 
         Assert.DoesNotContain("=>", unsafeBody);
     }
@@ -1217,7 +1228,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var unsafeBody = FirstUnsafeBlockBody(CSharpPrinter.Print(function).Output!);
+        var unsafeBody = FirstUnsafeBlockBody(PrintBound(function).Output!);
 
         Assert.DoesNotContain("Local()", unsafeBody);
     }
@@ -1448,7 +1459,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var body = CSharpPrinter.Print(function).Output!;
+        var body = PrintBound(function).Output!;
         Assert.Equal("return ref unsafe(*pointer);\n", body);
 
         var diagnostics = Recompile("static ref int M(int* pointer)", body);
@@ -1505,7 +1516,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var body = CSharpPrinter.Print(function).Output!;
+        var body = PrintBound(function).Output!;
 
         Assert.Contains("() =>\n{\n    unsafe", body);
         Assert.DoesNotContain("=> unsafe(Holder.Risky)", body);
@@ -1551,7 +1562,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var body = CSharpPrinter.Print(function).Output!;
+        var body = PrintBound(function).Output!;
 
         Assert.Equal("return unsafe(Holder.Risky + 1);\n", body);
         AssertNoWarningsOrErrors(
@@ -1607,7 +1618,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.Contains("_ = unsafe(checked(value++));", output);
         Assert.DoesNotContain("unsafe\n{", output);
@@ -1680,7 +1691,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.Contains("return unsafe(Probe.Risky());", output);
         Assert.DoesNotContain("return Probe.Risky();", output);
@@ -1740,7 +1751,7 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var body = CSharpPrinter.Print(function).Output!;
+        var body = PrintBound(function).Output!;
 
         Assert.Contains("static int Read()\n{\n    unsafe", body);
         Assert.DoesNotContain("Read() => unsafe(Holder.Risky)", body);

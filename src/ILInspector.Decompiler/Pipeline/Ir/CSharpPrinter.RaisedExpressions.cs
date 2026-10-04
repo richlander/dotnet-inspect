@@ -337,8 +337,6 @@ public sealed partial class CSharpPrinter
                 function,
                 _options,
                 CurrentScopeNames(),
-                _stackSlotTelemetry,
-                stackSlotTelemetryScope: lambda,
                 decisions: _decisions,
                 decisionKeys: _decisionKeys,
                 fullyQualifyTypeNames: _fullyQualifyTypeNames)

@@ -44,10 +44,13 @@ public class NestedSlotMaterializationTests
             return index >= 0 && CoercionSinks.ScopeNodes(scope).OfType<StoreLocal>()
                 .Any(store => store.Index == index);
         }).ToArray();
+        // A nested body binds its own residual webs inside its own pipeline
+        // tail (residual storage binding), so the nested web is either still a
+        // nested-scope decision or already an S_256 local in the nested body.
         if (csharp)
             Assert.NotEmpty(materializedNested);
         else
-            Assert.NotEmpty(nested);
+            Assert.True(nested.Length > 0 || materializedNested.Length > 0, "nested web neither deferred nor bound");
         Assert.All(nested, decision => Assert.Equal(SlotMaterializationVeto.NestedScope, decision.Vetoes));
         var retainedNodes = nested.Select(decision => decision.Scope)
             .Concat(materializedNested)

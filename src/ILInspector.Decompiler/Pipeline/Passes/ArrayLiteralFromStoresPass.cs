@@ -232,7 +232,7 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
             (false, UsingStatement usingStatement) => usingStatement.LocalIndex == place.Index,
             (false, CatchClause catchClause) => catchClause.VariableIndex == place.Index,
             (false, UnionSwitchExpressionArm arm) => arm.LocalIndex == place.Index,
-            (_, Fixed fixedStatement) => fixedStatement.LocalIsStackSlot == place.IsSlot && fixedStatement.LocalIndex == place.Index,
+            (false, Fixed fixedStatement) => fixedStatement.LocalIndex == place.Index,
             _ => false,
         };
 

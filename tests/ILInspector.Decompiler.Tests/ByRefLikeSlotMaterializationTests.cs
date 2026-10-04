@@ -168,7 +168,7 @@ public class ByRefLikeSlotMaterializationTests
             new StoreStackSlot(0, second),
             new Return(new LoadStackSlot(0, SpanInt32)));
         KnowByRefLikeValue(function, Span);
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = ResidualRender(function);
         var invariant = SlotMaterializationInvariant.Capture(function);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
@@ -210,7 +210,7 @@ public class ByRefLikeSlotMaterializationTests
             [],
             body);
         KnowByRefLikeValue(function, Span);
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = ResidualRender(function);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
@@ -264,7 +264,7 @@ public class ByRefLikeSlotMaterializationTests
                 Kind: TypeRefKind.GenericInstance,
                 ElementType.Name: "ReadOnlySpan`1",
             });
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = ResidualRender(function);
 
         Assert.True(decision.WillMaterialize, decision.Vetoes.ToString());
         new SlotMaterializationPass().Run(function, PassContext.None);
@@ -291,6 +291,17 @@ public class ByRefLikeSlotMaterializationTests
         Assert.All(results, result => Assert.True(
             result.Status == FidelityCheck.CompileBackStatus.Exact,
             $"{result.Method}: {result.Status}: {result.Detail}"));
+    }
+
+    /// <summary>
+    /// The legacy residual rendering of a slot web: the printer's frozen policy
+    /// now runs as <see cref="ResidualSlotBindingPass"/>, so render a bound clone.
+    /// </summary>
+    static string ResidualRender(IrFunction function)
+    {
+        var clone = (IrFunction)function.Clone();
+        new ResidualSlotBindingPass().Run(clone, PassContext.None);
+        return CSharpPrinter.Print(clone).Output!;
     }
 
     static void KnowByRefLikeValue(IrFunction function, TypeRef definition)
