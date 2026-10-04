@@ -444,8 +444,19 @@ execution that retains it across repeated terminals. QuerySpace capability
 planning may select such a prepared provision, but does not own its lease or
 release mechanics.
 
-The first production adoption migrates the prepared declared-Method source
-from [#9143](https://github.com/richlander/dotnet-inspect/pull/9143). Its live
+The
+[participant prepared-resource handle](design/participant-prepared-resource-handles.md)
+is the producer-facing construction boundary for this protocol. It binds one
+group-owned producer state to exact participant/resource admission, performs
+preparation through lease-bound snapshot access, issues reusable execution
+borrows, and dispatches participant cleanup. Raw participant-resource
+registration, borrowing, and retirement remain InspectionSpace implementation
+details rather than producer-facing composition points.
+
+The underlying lease contract's first production adoption migrates the
+prepared declared-Method source from
+[#9143](https://github.com/richlander/dotnet-inspect/pull/9143) through
+[#9321](https://github.com/richlander/dotnet-inspect/issues/9321). Its live
 execution, stale-ready rejection, retained-image accounting, cleanup order,
 and sibling-independence outcomes remain unchanged while producer-local lease
 coordination is retired.
@@ -457,7 +468,8 @@ each reusable execution retains the group-issued borrow, and the resource
 retires its session and indexes before the participant snapshot. Metadata
 continues to own hierarchy facts, diagnostics, budgets, and terminal
 materialization. QuerySpace provision selection remains separate. Tracks
-[#9300](https://github.com/richlander/dotnet-inspect/issues/9300).
+[#9300](https://github.com/richlander/dotnet-inspect/issues/9300) and
+[#9322](https://github.com/richlander/dotnet-inspect/issues/9322).
 
 The
 [participant-resource lifecycle model](models/assembly-context-participant-resource-lifecycle/README.md)

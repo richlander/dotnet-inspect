@@ -1747,12 +1747,12 @@ public sealed class InspectionPlanningTests
             Assert.IsType<SectionCardinalityDeclaration>(
                 aggregate.SectionCardinalities?[SectionNames.LibraryInfo]);
         Assert.Equal(
-            SectionSemanticShape.Scalar,
-            exactDeclaration.Shape);
+            SectionCardinalityKind.Scalar,
+            exactDeclaration.Kind);
         Assert.Empty(exactDeclaration.Terminals);
         Assert.Equal(
-            SectionSemanticShape.Inventory,
-            aggregateDeclaration.Shape);
+            SectionCardinalityKind.Inventory,
+            aggregateDeclaration.Kind);
         Assert.Equal(
             [
                 SectionTerminalCapability.Rows,
@@ -1789,8 +1789,8 @@ public sealed class InspectionPlanningTests
                 Assert.IsType<SectionCardinalityDeclaration>(
                     projection.SectionCardinalities?[section]);
             Assert.Equal(
-                SectionSemanticShape.Inventory,
-                inventory.Shape);
+                SectionCardinalityKind.Inventory,
+                inventory.Kind);
             Assert.Equal(
                 [
                     SectionTerminalCapability.Rows,

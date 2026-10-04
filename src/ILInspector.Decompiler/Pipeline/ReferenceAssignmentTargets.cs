@@ -22,16 +22,22 @@ internal readonly record struct ReferenceAssignmentTargets(
     internal static bool CanAssignStorageTo(
         IrExpression value,
         TypeRef target,
-        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        IReadOnlySet<ReferenceWidening>? provenWidenings = null)
     {
         if (CanAssignNullLiteralTo(value, target, shapes))
             return true;
         if (value is Conditional conditional)
             return conditional.CanAssignReferenceArmsTo(target, shapes);
         if (value is Coalesce)
-            return ForType(value.AssignmentType, shapes).Contains(target, shapes);
-        return target.Equals(ObjectType)
-            && CoercionRendering.IsProvenReference(value.AssignmentType, shapes);
+            return ForType(value.AssignmentType, shapes, provenWidenings).Contains(target, shapes);
+        if (target.Equals(ObjectType) && CoercionRendering.IsProvenReference(value.AssignmentType, shapes))
+            return true;
+        // The one addition for plain values: a supertype the importer's join
+        // merge proved for this exact type while metadata was live.
+        return value.AssignmentType is { } valueType
+            && provenWidenings is { Count: > 0 }
+            && provenWidenings.Contains(new ReferenceWidening(valueType, target));
     }
 
     internal static ReferenceAssignmentTargets ForArms(
@@ -62,8 +68,23 @@ internal readonly record struct ReferenceAssignmentTargets(
     }
 
     static ReferenceAssignmentTargets ForType(
-        TypeRef? type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
-        => type is not null && CoercionRendering.IsReferenceLike(type, shapes)
-            ? new(false, ImmutableHashSet.Create(type, ObjectType))
-            : new(false, []);
+        TypeRef? type,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        IReadOnlySet<ReferenceWidening>? provenWidenings = null)
+    {
+        if (type is null || !CoercionRendering.IsReferenceLike(type, shapes))
+            return new(false, []);
+        var targets = ImmutableHashSet.Create(type, ObjectType);
+        if (provenWidenings is { Count: > 0 })
+        {
+            // Importer-proven supertypes of this exact type: the join merge
+            // established the conversion while metadata was live.
+            foreach (var widening in provenWidenings)
+            {
+                if (widening.From.Equals(type))
+                    targets = targets.Add(widening.To);
+            }
+        }
+        return new(false, targets);
+    }
 }

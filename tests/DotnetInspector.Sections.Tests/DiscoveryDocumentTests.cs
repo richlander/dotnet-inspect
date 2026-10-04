@@ -14,9 +14,9 @@ public class DiscoveryDocumentTests
         SectionCardinalityDeclaration inventory =
             SectionCardinalityDeclaration.Inventory;
 
-        Assert.Equal(SectionSemanticShape.Scalar, scalar.Shape);
+        Assert.Equal(SectionCardinalityKind.Scalar, scalar.Kind);
         Assert.Empty(scalar.Terminals);
-        Assert.Equal(SectionSemanticShape.Inventory, inventory.Shape);
+        Assert.Equal(SectionCardinalityKind.Inventory, inventory.Kind);
         Assert.Equal(
             [
                 SectionTerminalCapability.Rows,
@@ -26,22 +26,22 @@ public class DiscoveryDocumentTests
 
         Assert.Throws<ArgumentException>(() =>
             new SectionCardinalityDeclaration(
-                SectionSemanticShape.Inventory,
+                SectionCardinalityKind.Inventory,
                 [SectionTerminalCapability.Rows]));
         Assert.Throws<ArgumentException>(() =>
             new SectionCardinalityDeclaration(
-                SectionSemanticShape.Inventory,
+                SectionCardinalityKind.Inventory,
                 [SectionTerminalCapability.Count]));
         Assert.Throws<ArgumentException>(() =>
             new SectionCardinalityDeclaration(
-                SectionSemanticShape.Scalar,
+                SectionCardinalityKind.Scalar,
                 [
                     SectionTerminalCapability.Rows,
                     SectionTerminalCapability.Count,
                 ]));
         Assert.Throws<ArgumentException>(() =>
             new SectionCardinalityDeclaration(
-                SectionSemanticShape.Inventory,
+                SectionCardinalityKind.Inventory,
                 []));
     }
 
@@ -81,8 +81,8 @@ public class DiscoveryDocumentTests
         DiscoveryResource scalarResource =
             roundTrip.GetResource(scalar);
         Assert.Equal(
-            SectionSemanticShape.Scalar,
-            scalarResource.Cardinality?.Shape);
+            SectionCardinalityKind.Scalar,
+            scalarResource.Cardinality?.Kind);
         Assert.Empty(scalarResource.Cardinality!.Terminals);
         Assert.Equal(
             [DiscoveryOutputMode.Markdown],
@@ -91,8 +91,8 @@ public class DiscoveryDocumentTests
         DiscoveryResource inventoryResource =
             roundTrip.GetResource(inventory);
         Assert.Equal(
-            SectionSemanticShape.Inventory,
-            inventoryResource.Cardinality?.Shape);
+            SectionCardinalityKind.Inventory,
+            inventoryResource.Cardinality?.Kind);
         Assert.Equal(
             [
                 SectionTerminalCapability.Rows,

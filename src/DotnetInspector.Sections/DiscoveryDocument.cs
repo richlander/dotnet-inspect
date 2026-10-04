@@ -65,12 +65,14 @@ public sealed record DiscoveryResource
         DiscoveryResourceIdentity identity,
         IEnumerable<DiscoveryResourceIdentity>? members = null,
         IEnumerable<DiscoveryOutputMode>? outputModes = null,
-        SectionCardinalityDeclaration? cardinality = null)
+        SectionCardinalityDeclaration? cardinality = null,
+        SectionShape? shape = null)
         : this(
             identity,
             (members ?? []).ToImmutableArray(),
             (outputModes ?? []).ToImmutableArray(),
-            cardinality)
+            cardinality,
+            shape)
     {
     }
 
@@ -79,7 +81,8 @@ public sealed record DiscoveryResource
         DiscoveryResourceIdentity identity,
         ImmutableArray<DiscoveryResourceIdentity> members,
         ImmutableArray<DiscoveryOutputMode> outputModes,
-        SectionCardinalityDeclaration? cardinality = null)
+        SectionCardinalityDeclaration? cardinality = null,
+        SectionShape? shape = null)
     {
         Identity =
             identity ?? throw new ArgumentNullException(nameof(identity));
@@ -97,10 +100,20 @@ public sealed record DiscoveryResource
                 "Only section resources can declare semantic cardinality.",
                 nameof(cardinality));
         }
+        if (identity.Kind != DiscoveryResourceKind.Section
+            && shape is not null)
+        {
+            throw new ArgumentException(
+                "Only section resources can declare a shape.",
+                nameof(shape));
+        }
+        if (shape is { } declaredShape && !Enum.IsDefined(declaredShape))
+            throw new ArgumentOutOfRangeException(nameof(shape));
 
         Members = members.IsDefault ? [] : members;
         OutputModes = outputModes.IsDefault ? [] : outputModes;
         Cardinality = cardinality;
+        Shape = shape;
         if (Members.Distinct().Count() != Members.Length)
         {
             throw new ArgumentException(
@@ -124,6 +137,10 @@ public sealed record DiscoveryResource
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SectionCardinalityDeclaration? Cardinality { get; }
+
+    /// <summary>The section's declared shape, when its owner has adopted shapes.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SectionShape? Shape { get; }
 }
 
 public sealed record DiscoverySelection

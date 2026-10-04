@@ -155,6 +155,7 @@ public static class PackageSectionDescriptors
     public sealed class Summary : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Summary;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(InspectionResult model) => true;
@@ -163,6 +164,7 @@ public static class PackageSectionDescriptors
     public sealed class PackageInfo : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.PackageInfo;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -177,6 +179,7 @@ public static class PackageSectionDescriptors
     public sealed class PackageReadme : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.FilesReadme;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(InspectionResult model)
@@ -187,6 +190,7 @@ public static class PackageSectionDescriptors
     public sealed class Signals : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Signals;
+        public static SectionShape? Shape => SectionShape.Table;
         // Cost, not IsExpensive, carries the network truth in a curated catalog. Measured at
         // ~1s warm for Markout and System.Text.Json: bounded registry work, so Moderated —
         // auto-runs at -v:d only, and stays in the visible catalog like library's Signals.
@@ -204,6 +208,7 @@ public static class PackageSectionDescriptors
     public sealed class AuditArtifactText : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.AuditArtifactText;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -220,6 +225,7 @@ public static class PackageSectionDescriptors
     public sealed class AuditFindings : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.AuditFindings;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -231,6 +237,7 @@ public static class PackageSectionDescriptors
     public sealed class AuditIdentifierConfusion : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.AuditIdentifierConfusion;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -245,6 +252,7 @@ public static class PackageSectionDescriptors
     public sealed class Statistics : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Statistics;
+        public static SectionShape? Shape => SectionShape.Table;
         // One bounded registry lookup (~0.25s measured): auto-runs at -v:d, never at bare -S
         // or -v:n. Cost carries the network truth, so IsExpensive stays false.
         public static bool IsExpensive => false;
@@ -257,6 +265,7 @@ public static class PackageSectionDescriptors
     public sealed class TargetFrameworks : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.TargetFrameworks;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
@@ -266,6 +275,7 @@ public static class PackageSectionDescriptors
     public sealed class SkillFiles : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.FilesSkills;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
@@ -275,6 +285,7 @@ public static class PackageSectionDescriptors
     public sealed class LicenseFiles : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.FilesLicenses;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -286,6 +297,7 @@ public static class PackageSectionDescriptors
     public sealed class NuspecFiles : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.FilesNuspec;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
@@ -295,6 +307,7 @@ public static class PackageSectionDescriptors
     public sealed class SourceFiles : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.SourceLinkFiles;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -310,6 +323,7 @@ public static class PackageSectionDescriptors
     public sealed class SourceLinkAvailability : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.SourceLinkAvailability;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -320,6 +334,7 @@ public static class PackageSectionDescriptors
     public sealed class SourceLinkIntegrity : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.SourceLinkIntegrity;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -330,6 +345,7 @@ public static class PackageSectionDescriptors
     public sealed class SourceLinkMissingFiles : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.SourceLinkMissingFiles;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -343,6 +359,7 @@ public static class PackageSectionDescriptors
     public sealed class Signature : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Signature;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(InspectionResult model)
@@ -352,6 +369,7 @@ public static class PackageSectionDescriptors
     public sealed class Vulnerabilities : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Vulnerabilities;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Moderated;
@@ -365,6 +383,7 @@ public static class PackageSectionDescriptors
         ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.DependencyHierarchy;
+        public static SectionShape? Shape => SectionShape.Hierarchy;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -376,6 +395,7 @@ public static class PackageSectionDescriptors
     public sealed class Dependencies : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Dependencies;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
@@ -387,6 +407,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name =>
             PackageSections.EcosystemDependencies;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass =>
             SectionSizeClass.Verbose;
@@ -405,6 +426,7 @@ public static class PackageSectionDescriptors
     public sealed class Manifest : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Manifest;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
@@ -418,6 +440,7 @@ public static class PackageSectionDescriptors
     public sealed class RuntimeDependencies : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.RuntimeDependencies;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
@@ -436,6 +459,7 @@ public static class PackageSectionDescriptors
     public sealed class Files : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Files;
+        public static SectionShape? Shape => SectionShape.Hierarchy;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool Noisy => true;
