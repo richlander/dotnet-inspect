@@ -1269,16 +1269,19 @@ dotnet-inspect workspace \
   --active-package 1 \
   --library compile:lib/net10.0/System.Text.Json.dll \
   --type System.Text.Json.JsonSerializer \
-  --lens type.compare
+  --lens .compare
 ```
 
 Add `--member <stable-selector>` and use a `member.*` lens for a Type-to-Member
-destination. `--all-libraries` uses the aggregate Library as the source while
-`--library` still names the destination Type's exact defining Library. A
-source-only `--all-libraries` request omits `--library`; supplying both without
-a Type destination is rejected. Root-only and explicit-empty Packages have no
-All-libraries subject and return a typed non-success snapshot instead of
-throwing.
+destination. The contextual `.<name>` spelling above lowers through the View
+Facet Registry to the exact canonical ID for the destination kind; full IDs
+such as `type.compare` remain the durable spelling in output, packets, and
+cross-host handoffs. `--all-libraries` uses the aggregate Library as the source
+while `--library` still names the destination Type's exact defining Library.
+A source-only `--all-libraries` request omits `--library`; supplying both
+without a Type destination is rejected. Root-only and explicit-empty Packages
+have no All-libraries subject and return a typed non-success snapshot instead
+of throwing.
 
 Selector misses retain the evaluated snapshot and diagnostics. The command
 claims that a Type or Member is not present only when its scoped inventory is

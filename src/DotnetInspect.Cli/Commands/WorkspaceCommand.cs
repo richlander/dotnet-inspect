@@ -1428,7 +1428,11 @@ public static partial class WorkspaceCommand
         ViewFacetId facetId;
         try
         {
-            facetId = new ViewFacetId(facet);
+            facetId = facet.StartsWith(".", StringComparison.Ordinal)
+                ? registry.ResolveRelativeName(
+                    destination.Kind,
+                    facet[1..])
+                : new ViewFacetId(facet);
         }
         catch (ArgumentException ex)
         {
