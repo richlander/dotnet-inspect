@@ -107,7 +107,7 @@ test("data bar shows versioned linked build provenance", () => {
   assert.match(
     appSource,
     /async function loadBuildIdentity\(\) \{[\s\S]*state\.buildIdentity = await engineClient\.host\.buildIdentity\(\);[\s\S]*state\.buildIdentityStatus = "ready";[\s\S]*state\.buildIdentityStatus = "failed"/);
-  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 6);
+  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 7);
   assert.match(
     appSource,
     /<\/main>[\s\S]{0,700}\$\{dataBarHtml\(\{/);
@@ -745,7 +745,7 @@ test("malformed package routes use the contained restore failure path", () => {
     1);
   assert.equal(
     appSource.match(/\${renderQueryNotice\(\)}/g)?.length,
-    6);
+    7);
   assert.match(
     appSource,
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
