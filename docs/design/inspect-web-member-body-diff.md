@@ -36,11 +36,11 @@ It consumes and does not redefine:
 | Owner | Contract consumed |
 | --- | --- |
 | [Compare experience](inspect-web-compare-experience.md) | The retained Package model, effective Diff target, sticky Compare state, subject drill-down, Member detail boundary, and return behavior |
-| [Implementation Diff](implementation-diff.md) | Exact-Library-pair endpoints, changed body-backed Members, `ResearchSubjectKey` identity, producer evidence, and per-mechanism coverage |
+| [Implementation Diff](implementation-diff.md) and its [explicit request adoption](https://github.com/richlander/dotnet-inspect/issues/9339) | Exact-Library-pair endpoints, selected population and mechanisms, changed body-backed Members, `ResearchSubjectKey` identity, producer evidence, and per-mechanism coverage |
 | [Annotated Source diff document](annotated-source-diff-document.md) | Exact-Member side outcomes, C# and optional IL text comparisons, line maps, and fact comparison |
 | [Diff viewer interaction](inspect-web-diff-viewer-interaction.md) | Embedded and full-bleed rendering of one mapped diff |
 | [Source-diff transport](inspect-web-source-diff-transport.md) | Bounded mapped rows and typed admission outcomes |
-| [Operation Authority](inspect-web-operation-authority.md) | Request identity, authorization, cancellation, supersession, and publication |
+| [Operation Authority](inspect-web-operation-authority.md) | Per-execution identity, authorization, cancellation, supersession, and publication |
 | Browser Navigation | Canonical Type and Member locations and atomic subject transitions |
 
 ## Why
@@ -105,29 +105,37 @@ an ordinal independently on each endpoint.
 ## Inventory operation
 
 Member Body starts no work until the user selects it or returns to a retained
-Member Body result. The request identity contains:
+Member Body result. Its stable inventory cache key contains:
 
 - the retained Package model generation;
 - current and target package versions in their Compare order;
 - framework and exact compile asset for each endpoint;
 - exact Library assembly identity for each endpoint;
 - the selected Implementation Diff mechanisms;
-- the public body-backed Member selections issued from both endpoint surfaces;
-  and
-- the Operation Authority generation.
+- and the public body-backed Member selections issued from both endpoint
+  surfaces.
 
-The first production slice requests C# and IL/body mechanisms. Complexity may
-be added later as a separately visible summary; it is not silently computed or
-used to decide whether a row is changed.
+Operation Authority separately issues a fresh, never-reused identity for each
+execution under that key. The identity authorizes pending work and publication;
+it is not part of the cache key and is never reused to authorize a later
+operation.
+
+The first production slice consumes the explicit mechanism request from
+[#9339](https://github.com/richlander/dotnet-inspect/issues/9339) and requests
+C# and IL/body. Complexity may be added later as a separately visible summary;
+it is not computed, reported, or used to decide whether a row is changed.
 
 Managed code resolves exactly one Library assembly at each endpoint through the
 retained Gallery scopes. It obtains the union of public body-backed Member
-selections from the endpoint surface and correspondence owners and passes
-those typed selections to the existing `ImplementationDiffDocumentQuery`.
-The query therefore compares the requested public population; the host does
-not compare every implementation and filter private rows afterward. A
-rejected or failed endpoint does not manufacture an empty document. The result
-keeps its
+selections from the endpoint surface and correspondence owners and passes an
+explicit selected-population request to `ImplementationDiffDocumentQuery`.
+That request remains selected when the union contains zero Members, producing
+a complete empty C#/IL result rather than whole-assembly work. The query
+therefore compares only the requested public population; the host does not
+compare every implementation and filter private rows afterward. The selected
+population and mechanism semantics are owned and gated by #9339, not by this
+Browser composition. A rejected or failed endpoint does not manufacture an
+empty document. The result keeps its
 `InspectionEnvelope<ImplementationDiffDocument>` baseline and ordered
 diagnostics.
 
@@ -202,18 +210,23 @@ An active Member row supplies:
 - its complete `ResearchSubjectKey`;
 - the declaring Type identity and stable Member selector issued from that key;
 - nullable canonical Before and After Member locations;
-- the inventory request identity; and
-- one Annotated Source diff request identity derived in managed code.
+- the inventory cache key; and
+- one stable Annotated Source diff cache key derived in managed code.
 
 The exact-Member request executes the existing Annotated Source diff query. Its
 correspondence owner decides `Paired`, `BeforeOnly`, `AfterOnly`, unavailable,
 or absent; the Browser does not resolve the stable selector twice or infer that
 same-named methods correspond.
 
+Each execution for that cache key receives its own fresh Operation Authority
+identity. Publication requires both the current semantic cache key and the
+current operation identity; a retained settled result is read by cache key
+without reusing its execution identity.
+
 The handoff is authorized only while the retained Package model, target,
-Library pair, content choice, subject, and operation generation still match.
-A late inventory or Member result changes no visible state after any of those
-values changes.
+Library pair, content choice, subject, cache key, and fresh operation identity
+still match. A late inventory or Member result changes no visible state after
+any of those values changes.
 
 ## Member presentation
 
@@ -260,9 +273,9 @@ selection from a Property row.
 
 ## Retention and Explore
 
-One settled inventory is retained by inventory request identity for the
+One settled inventory is retained by stable inventory cache key for the
 retained Package model. One settled Annotated Source diff document is retained
-per exact-Member request identity. Available, identical, one-sided, unavailable,
+per exact-Member cache key. Available, identical, one-sided, unavailable,
 not-applicable, and too-complex outcomes may be retained; failed and canceled
 operations are not.
 
@@ -329,6 +342,7 @@ text reader.
 
 This design does not claim:
 
+- selected-population or mechanism request semantics, which #9339 owns;
 - new implementation correspondence, C#, IL, complexity, or fact semantics;
 - semantic equivalence when body text is identical;
 - authored Source acquisition or presentation;
@@ -343,17 +357,19 @@ This design does not claim:
 
 | Step | Delivers | Production host |
 | --- | --- | --- |
+| Prerequisite | #9339 distinguishes whole from explicitly selected population, including zero selections, and executes exactly the requested Implementation Diff mechanisms | Shared Implementation Diff query; existing CLI defaults remain unchanged |
 | MB1 | `member-body` choice, exact-pair operation, bounded managed inventory projection, Library and Type presentation, sticky drill-down | Inspect Web Compare |
 | MB2 | Exact Member destination and Annotated Source diff Browser export, automatic inline C#/IL reader, retained result, optional Explore expansion | Inspect Web Member Compare |
 
+MB1 follows the prerequisite and consumes its request without redefining it.
 MB1 and MB2 may land as a stack, but MB2 is the production adoption target and
 the stack is not complete until the viewer is visible on the Member page. Any
 temporary MB1-only deployment must keep Member rows inert rather than route
 them to a placeholder or the API Member detail.
 
 The implementation retires any Explore-only Decompiler route it supersedes. It
-reuses the shared diff viewer and one Annotated Source document per request
-identity; it does not keep a parallel Member-body dialog or comparison path.
+reuses the shared diff viewer and one Annotated Source document per stable
+cache key; it does not keep a parallel Member-body dialog or comparison path.
 
 ## Demo and gates
 
@@ -367,7 +383,8 @@ switching to IL changes the retained medium without another comparison.
 
 | Gate | Evidence |
 | --- | --- |
-| Release managed Browser operation tests | Pinned System.Text.Json pair, exact endpoint order and assets, complete envelope, stable Member destinations, one-sided and identity-failure rows, mechanism coverage, transport bounds, cancellation, and stale publication rejection |
+| Release Implementation Diff request tests from #9339 | Whole population remains distinct from an explicitly selected empty population; C#+IL does not execute or report Complexity; document mechanisms, coverage, and completeness describe only requested work |
+| Release managed Browser operation tests | Pinned System.Text.Json pair, exact endpoint order and assets, complete envelope, public selections including zero Members, stable Member destinations, one-sided and identity-failure rows, mechanism coverage, transport bounds, cancellation, and stale publication rejection |
 | Release Annotated Source Browser projection tests | Exact Member handoff, Present/Absent/Unavailable/NotApplicable/Failed sides, changed and identical C#/IL media, Too complex admission, and no host-side correspondence |
 | Node Compare composition tests | Closed content choices, explicit activation, sticky Library/Type/Member and Up/Down navigation, inert failure rows, restoration, and stale completion suppression |
 | Node diff viewer tests | Embedded changed, identical, one-sided, failure, narrow, keyboard, whitespace, move, and medium-switch behavior |
@@ -402,7 +419,7 @@ harness does not manufacture or repair C# or IL.
    the inline medium, scroll position, and focus.
 10. Change the target while inventory and Member requests are pending and
     confirm neither stale completion can publish.
-11. Return to the same Member and request identity and confirm the settled
+11. Return to the same Member and semantic cache key and confirm the settled
     reader appears without another comparison.
 12. At a narrow viewport, confirm the inventory and embedded reader use one
     vertical scroll owner each and create no page-level horizontal overflow.
