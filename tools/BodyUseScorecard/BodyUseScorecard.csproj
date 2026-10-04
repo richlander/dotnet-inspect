@@ -24,6 +24,8 @@
   <ItemGroup>
     <Compile Include="../AnalysisHarness/BodyUseScorecard.cs"
              Link="BodyUseScorecard.cs" />
+    <Compile Include="../AnalysisHarness/BodyUseScorecardRendering.cs"
+             Link="BodyUseScorecardRendering.cs" />
   </ItemGroup>
 
   <ItemGroup>
