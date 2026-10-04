@@ -106,6 +106,11 @@ public class LoweredFidelityGateTests
         "ManualDuplicateNameFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
+        // The cross-assembly analog of MergedReferenceSlot: the Encoding/UTF8Encoding
+        // ternary now types at import, and the lowered rail spells the merged
+        // slot as a declared local stored under if/else, which recompiles with
+        // the opposite branch polarity and operand order (same diff as its sibling).
+        "MergedCrossAssemblyBaseSlot",
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
         "set_SlotMergedDateTimeFormat",
