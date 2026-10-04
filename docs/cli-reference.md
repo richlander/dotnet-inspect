@@ -755,15 +755,16 @@ full-inventory gesture. Normal, Detailed, and explicit output formats list
 every Library.
 
 Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
-all consume that same Package children document. JSON carries subject,
-completion, total and selected Counts, and typed child rows. Row formats expose
-the exact asset ID, asset path, child role, and a copyable, shell-quoted
-`selector` for the same Library occurrence or RID Package. Library selectors
-retain the selected target and replayable
-source/configuration options; a local tool pointer's RID selectors retain its
-adjacent Package directory as a local source. Output fails visibly when replay
-context cannot be disclosed safely. Package children output does not run the
-unrelated all-binary Signals scan or inspect selected Libraries. `--count`
+all consume that same Package children document. The tree title prints the
+subject identity followed by the owner-issued properties of the displayed
+children — source, selected target, and asset root, as in
+`System.Text.Json 10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
+carries subject, completion, total and selected Counts, and typed child rows.
+Row formats expose the exact asset ID, asset path, target, and child role;
+they carry no replay command, because host navigation is not package content
+(see [Section shapes](design/section-shapes.md#properties)). Package children
+output does not run the unrelated all-binary Signals scan or inspect selected
+Libraries. `--count`
 counts the owner-issued child population without producing rows; `--rows`
 windows the same ordered identities, and `--fields` or `--columns` projects
 child-row columns. Windows retain the
