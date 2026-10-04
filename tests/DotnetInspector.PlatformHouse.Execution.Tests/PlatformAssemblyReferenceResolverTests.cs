@@ -293,7 +293,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     input.Request,
                     input.Item,
                     input.Consumed));
-        AssemblyBindingRequest request = BindingRequest(input.Request);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(sourceIdentity),
+            AssemblyBindingOrigin.FromAssembly(Descriptor(image)),
+            AssemblyResolutionScope.Any);
         PackageAssemblyReferenceSupplierOutcome.Missing package =
             await CompletePackageMissAsync(
                 request,
@@ -401,7 +404,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     input.Request,
                     input.Item,
                     input.Consumed));
-        AssemblyBindingRequest request = BindingRequest(input.Request);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(sourceIdentity),
+            AssemblyBindingOrigin.FromAssembly(Descriptor(image)),
+            AssemblyResolutionScope.Any);
         PackageAssemblyReferenceSupplierAssociation package =
             await EmptyPackageAssociationAsync(
                 PackageDependencyTraversalRootCompletion.Complete,
@@ -420,14 +426,25 @@ public sealed class PlatformAssemblyReferenceResolverTests
             await CompletePlatformRouteAsync(
                 input.Request,
                 platform,
+                request,
                 packageRoutes: packageRoutes.Receipt);
+        var packageRoute =
+            new PackageAssemblyReferenceExternalRoute(
+                request,
+                package,
+                packageRoutes.Receipt);
+        Assert.Same(request, packageRoute.Request);
+        Assert.Same(packageRoutes.Receipt.Generation, packageRoute.Generation);
+        Assert.Same(
+            packageRoutes.Receipt.FocalScope,
+            packageRoute.FocalScope);
+        Assert.Same(packageRoutes.Receipt, packageRoute.PackageRoutes);
 
         var completed = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.PlatformOwned>(
                 await ExternalAssemblyReferenceSupplierAssociation
                     .ExecuteAsync(
-                        package,
-                        request,
+                        packageRoute,
                         AssemblyBindingSelection.NameNotOwned(),
                         new PackageHouse(
                             new UnusedPackageAuthorization()),
@@ -451,20 +468,14 @@ public sealed class PlatformAssemblyReferenceResolverTests
 
     [Fact]
     public async Task
-        ExternalSupplierCompositionDoesNotInvokePlatformAfterIncompletePackage()
+        PackageRouteDoesNotFormFromIncompleteProjection()
     {
-        CancellationToken cancellationToken =
-            TestContext.Current.CancellationToken;
         byte[] image = File.ReadAllBytes(
             typeof(Enumerable).Assembly.Location);
-        var input = Input(
-            Descriptor(image).Identity,
-            image,
-            static () => true,
-            static () => { },
-            cancellationToken,
-            bindingDemand: true);
-        AssemblyBindingRequest request = BindingRequest(input.Request);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Descriptor(image).Identity),
+            AssemblyBindingOrigin.FromAssembly(Descriptor(image)),
+            AssemblyResolutionScope.Any);
         PackageAssemblyReferenceSupplierAssociation package =
             await EmptyPackageAssociationAsync(
                 PackageDependencyTraversalRootCompletion.DepthBounded);
@@ -475,34 +486,72 @@ public sealed class PlatformAssemblyReferenceResolverTests
             PackageAssemblyReferenceRouteProjectionIncompleteReason
                 .TraversalIncomplete,
             routeProjection.Reason);
-        await using PackageSourceSettlementLease root =
-            PackageSourceSettlementService.IssueLease(
-                static _ => throw new InvalidOperationException(
-                    "Incomplete traversal must stop before source work."));
-        using PackageSourceOperationLease operation =
-            root.IssueOperationLease(cancellationToken);
-        int platformCalls = 0;
+        PackageAssemblyReferenceSupplierAssociation complete =
+            await EmptyPackageAssociationAsync(
+                PackageDependencyTraversalRootCompletion.Complete);
+        var completeRoutes = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                complete.RouteProjection);
 
-        var incomplete = Assert.IsType<
-            ExternalAssemblyReferenceSupplierOutcome.Incomplete>(
-                await ExternalAssemblyReferenceSupplierAssociation
-                    .ExecuteAsync(
-                        package,
-                        request,
-                        AssemblyBindingSelection.NameNotOwned(),
-                        new PackageHouse(
-                            new UnusedPackageAuthorization()),
-                        operation,
-                        (_, _) =>
-                        {
-                            platformCalls++;
-                            throw new InvalidOperationException(
-                                "Platform must not run after incomplete Package evidence.");
-                        },
-                        cancellationToken));
+        Assert.Throws<ArgumentException>(
+            () => new PackageAssemblyReferenceExternalRoute(
+                request,
+                package,
+                completeRoutes.Receipt));
+    }
 
-        Assert.Equal(0, platformCalls);
-        Assert.Null(incomplete.Platform);
+    [Fact]
+    public async Task
+        PackageRouteRejectsForeignEligibilityReceipt()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Descriptor(image).Identity),
+            AssemblyBindingOrigin.FromAssembly(Descriptor(image)),
+            AssemblyResolutionScope.Any);
+        PackageAssemblyReferenceSupplierAssociation package =
+            await EmptyPackageAssociationAsync(
+                PackageDependencyTraversalRootCompletion.Complete);
+        PackageAssemblyReferenceSupplierAssociation foreign =
+            await EmptyPackageAssociationAsync(
+                PackageDependencyTraversalRootCompletion.Complete);
+        var foreignRoutes = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                foreign.RouteProjection);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageAssemblyReferenceExternalRoute(
+                request,
+                package,
+                foreignRoutes.Receipt));
+    }
+
+    [Fact]
+    public async Task
+        PackageRouteRejectsNormalizedPlatformBindingRequest()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        var input = Input(
+            Descriptor(image).Identity,
+            image,
+            static () => true,
+            static () => { },
+            TestContext.Current.CancellationToken,
+            bindingDemand: true);
+        PackageAssemblyReferenceSupplierAssociation package =
+            await EmptyPackageAssociationAsync(
+                PackageDependencyTraversalRootCompletion.Complete);
+        var packageRoutes = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                package.RouteProjection);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageAssemblyReferenceExternalRoute(
+                BindingRequest(input.Request),
+                package,
+                packageRoutes.Receipt));
     }
 
     [Fact]
