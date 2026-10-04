@@ -23,33 +23,47 @@ public sealed class StringLiteralUsePatternTests
     }
 
     [Fact]
-    public void Operand_preserves_exact_utf16_and_contains_display_text()
+    public void Predicate_preserves_kind_exact_utf16_and_display_text()
     {
         const string value = "A\0e\u0301\U0001F680";
 
-        StringLiteralUseOperand operand = StringLiteralUseOperand.Create(value);
+        StringLiteralUsePredicate predicate = StringLiteralUsePredicate.Create(
+            StringLiteralUsePredicateKind.StartsWith,
+            value);
 
-        Assert.Equal(value, operand.RawValue);
-        Assert.Equal(value.Length, operand.CharacterCount);
-        Assert.DoesNotContain('\0', operand.DisplayText.ToString());
+        Assert.Equal(StringLiteralUsePredicateKind.StartsWith, predicate.Kind);
+        Assert.Equal(value, predicate.RawValue);
+        Assert.Equal(value.Length, predicate.CharacterCount);
+        Assert.DoesNotContain('\0', predicate.DisplayText.ToString());
     }
 
     [Fact]
-    public void Operand_rejects_null_empty_and_over_limit_values()
+    public void Predicate_rejects_invalid_kind_null_empty_and_over_limit_values()
     {
         string maximum =
-            new('x', StringLiteralUseOperand.MaximumLength);
+            new('x', StringLiteralUsePredicate.MaximumLength);
 
         Assert.Equal(
             maximum.Length,
-            StringLiteralUseOperand.Create(maximum).CharacterCount);
-        Assert.Throws<ArgumentNullException>(() =>
-            StringLiteralUseOperand.Create(null!));
-        Assert.Throws<ArgumentException>(() =>
-            StringLiteralUseOperand.Create(""));
+            StringLiteralUsePredicate.Create(
+                StringLiteralUsePredicateKind.Contains,
+                maximum).CharacterCount);
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            StringLiteralUseOperand.Create(
-                new string('x', StringLiteralUseOperand.MaximumLength + 1)));
+            StringLiteralUsePredicate.Create(
+                (StringLiteralUsePredicateKind)42,
+                "value"));
+        Assert.Throws<ArgumentNullException>(() =>
+            StringLiteralUsePredicate.Create(
+                StringLiteralUsePredicateKind.Contains,
+                null!));
+        Assert.Throws<ArgumentException>(() =>
+            StringLiteralUsePredicate.Create(
+                StringLiteralUsePredicateKind.Contains,
+                ""));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StringLiteralUsePredicate.Create(
+                StringLiteralUsePredicateKind.Contains,
+                new string('x', StringLiteralUsePredicate.MaximumLength + 1)));
     }
 
     [Fact]
@@ -178,6 +192,29 @@ public sealed class StringLiteralUsePatternTests
     }
 
     [Fact]
+    public void Inspect_applies_contains_and_starts_with_to_the_complete_literal()
+    {
+        const string literal =
+            "https://first.example and https://second.example";
+
+        StringLiteralUseOccurrence contains = Assert.Single(
+            Match(
+                StringLiteralUsePredicateKind.Contains,
+                "second.example").Occurrences);
+        StringLiteralUseOccurrence startsWith = Assert.Single(
+            Match(
+                StringLiteralUsePredicateKind.StartsWith,
+                "https://").Occurrences);
+
+        Assert.Equal(literal, contains.LiteralText.ToString());
+        Assert.Equal(literal, startsWith.LiteralText.ToString());
+        Assert.IsType<StringLiteralUsePatternResult.NoMatch>(
+            Inspect(
+                StringLiteralUsePredicateKind.StartsWith,
+                "second.example"));
+    }
+
+    [Fact]
     public void Inspect_completes_at_exact_global_limits_and_reports_exhaustion_below_them()
     {
         const string absent = "literal-pattern-that-is-not-in-the-fixture";
@@ -303,7 +340,9 @@ public sealed class StringLiteralUsePatternTests
             using var session = AssemblyInspectionSession.Open(FixturePath);
             StringLiteralUsePatternAnalysis.Inspect(
                 session,
-                StringLiteralUseOperand.Create("shared-literal-use-marker"),
+                StringLiteralUsePredicate.Create(
+                    StringLiteralUsePredicateKind.Contains,
+                    "shared-literal-use-marker"),
                 StringLiteralUsePatternBudget.Default,
                 cancellation.Token);
         });
@@ -318,7 +357,9 @@ public sealed class StringLiteralUsePatternTests
         {
             result = StringLiteralUsePatternAnalysis.Inspect(
                 session,
-                StringLiteralUseOperand.Create("shared-literal-use-marker"),
+                StringLiteralUsePredicate.Create(
+                    StringLiteralUsePredicateKind.Contains,
+                    "shared-literal-use-marker"),
                 StringLiteralUsePatternBudget.Default,
                 TestContext.Current.CancellationToken);
         }
@@ -381,7 +422,9 @@ public sealed class StringLiteralUsePatternTests
             Assert.IsType<
                 FindingInspection<StringLiteralUseOccurrence>.Complete>(
                     StringLiteralUseFindings.Inspect(
-                        Match("https://"),
+                        Match(
+                            StringLiteralUsePredicateKind.StartsWith,
+                            "https://"),
                         subject).Value)
                 .Findings);
         Finding<StringLiteralUseOccurrence> interior = Assert.Single(
@@ -509,6 +552,12 @@ public sealed class StringLiteralUsePatternTests
     static StringLiteralUsePatternResult.Match Match(string operand) =>
         Assert.IsType<StringLiteralUsePatternResult.Match>(Inspect(operand));
 
+    static StringLiteralUsePatternResult.Match Match(
+        StringLiteralUsePredicateKind kind,
+        string value) =>
+        Assert.IsType<StringLiteralUsePatternResult.Match>(
+            Inspect(kind, value));
+
     static StringLiteralUsePatternResult.Match Result(
         params StringLiteralUseOccurrence[] occurrences) =>
         new([.. occurrences], Receipt(occurrences.Length));
@@ -552,11 +601,20 @@ public sealed class StringLiteralUsePatternTests
     static StringLiteralUsePatternResult Inspect(
         string operand,
         StringLiteralUsePatternBudget? budget = null)
+        => Inspect(
+            StringLiteralUsePredicateKind.Contains,
+            operand,
+            budget);
+
+    static StringLiteralUsePatternResult Inspect(
+        StringLiteralUsePredicateKind kind,
+        string value,
+        StringLiteralUsePatternBudget? budget = null)
     {
         using var session = AssemblyInspectionSession.Open(FixturePath);
         return StringLiteralUsePatternAnalysis.Inspect(
             session,
-            StringLiteralUseOperand.Create(operand),
+            StringLiteralUsePredicate.Create(kind, value),
             budget ?? StringLiteralUsePatternBudget.Default,
             TestContext.Current.CancellationToken);
     }

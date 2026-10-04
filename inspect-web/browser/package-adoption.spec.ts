@@ -1021,9 +1021,9 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     packet: null,
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     request: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: input.packageId,
       currentVersion: input.currentVersion,
       targetVersion: input.targetVersion,
@@ -1034,6 +1034,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
     kind: "Succeeded",
     value: {
@@ -1067,6 +1068,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
           surface: "Library",
           views: "Changes",
           analyses: ["api"],
+          predicates: [],
         },
         outcomes: [{
           analysis: "api",

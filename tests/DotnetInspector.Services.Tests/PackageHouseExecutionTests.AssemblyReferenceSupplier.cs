@@ -828,13 +828,21 @@ public sealed partial class PackageHouseExecutionTests
                 executions[0].Request,
                 TestContext.Current.CancellationToken);
         int platformCalls = 0;
+        AssemblyBindingRequest request = BindingRequest(identity);
+        var packageRoutes = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                association.RouteProjection);
+        var packageRoute =
+            new PackageAssemblyReferenceExternalRoute(
+                request,
+                association,
+                packageRoutes.Receipt);
 
         var packageOwned = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.PackageOwned>(
                 await ExternalAssemblyReferenceSupplierAssociation
                     .ExecuteAsync(
-                        association,
-                        BindingRequest(identity),
+                        packageRoute,
                         AssemblyBindingSelection.NameNotOwned(),
                         house,
                         operation,
@@ -847,6 +855,10 @@ public sealed partial class PackageHouseExecutionTests
                         TestContext.Current.CancellationToken));
 
         Assert.Equal(identity, packageOwned.Package.Selection.Assembly.Identity);
+        Assert.Same(request, packageOwned.Request);
+        Assert.Same(
+            packageRoutes.Receipt,
+            packageRoute.PackageRoutes);
         Assert.Equal(0, platformCalls);
         operation.Dispose();
         await environment.AssertRootSettledAsync();

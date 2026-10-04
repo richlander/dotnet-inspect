@@ -41,6 +41,13 @@ internal static class DiffHistoryCommand
                 + "producer with --finding until it adopts analysis selection.");
             return 1;
         }
+        if (options.Where.Length > 0)
+        {
+            CommandError.Write(
+                "--history does not accept --where; predicates require "
+                + "pairwise Diff analysis selection.");
+            return 1;
+        }
         if (!TryValidateMode(options, out string? error))
         {
             CommandError.Write(error!);

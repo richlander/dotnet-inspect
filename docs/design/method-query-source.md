@@ -278,9 +278,13 @@ producer can only preserve or increase the joined demand, and producer order
 cannot change the selected source.
 
 The Method-body demand scorecard carries the reference implementation and real
-classifier gates for this rule. Production request-set collapse through the
-Method source remains unverified; this focused contract does not define the
-general capability model shared with Type or Member declaration planning.
+classifier gates for this rule.
+[Query Space Producer Capabilities](query-space-producer-capabilities.md) owns
+the reusable requirement, provision, result-coverage, and producer-plan
+contract shared with Type and Member declaration planning. This Method owner
+retains the Access and Detail meanings, their pointwise join, and physical
+source choices. Production request-set collapse through the Method source
+remains unverified.
 
 Shared lookup support, such as same-image token resolution or authenticated
 state-machine relationships, is execution-scoped work rather than a fictitious

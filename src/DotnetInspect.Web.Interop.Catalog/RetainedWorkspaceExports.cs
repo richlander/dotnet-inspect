@@ -495,6 +495,13 @@ internal static class BrowserRetainedWorkspaceActivationService
         "Workspace credential bindings must be one JSON object of "
         + "source endpoints to username/PAT objects.";
 
+    static readonly ViewFacetId EcosystemDefaultFacet =
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Ecosystem,
+                ViewFacetRole.EcosystemOverview)
+            .Id;
+
     static readonly object Gate = new();
     static readonly Dictionary<
         string,
@@ -655,7 +662,7 @@ internal static class BrowserRetainedWorkspaceActivationService
                     .RegistrationOnlyEcosystemInput(
                         plan,
                         registration.Declaration.Id,
-                        new ViewFacetId("ecosystem.overview")));
+                        EcosystemDefaultFacet));
         }
         catch (ArgumentException ex)
         {
