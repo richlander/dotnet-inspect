@@ -300,6 +300,34 @@ public class CommandLineTests
             tokens);
     }
 
+    [Theory]
+    [InlineData("--explain")]
+    [InlineData("-E")]
+    public void BareExplanationAfterInlineRequiredValue_DoesNotClaimFollowingPositional(
+        string option)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            [
+                "member",
+                "JsonSerializer",
+                "--library=System.Text.Json.dll",
+                option,
+                "Serialize:1",
+            ],
+            root);
+
+        Assert.Equal(
+            [
+                "member",
+                "JsonSerializer",
+                "--library=System.Text.Json.dll",
+                "Serialize:1",
+                option,
+            ],
+            tokens);
+    }
+
     [Fact]
     public void PrimaryExplanationSpellingAsRequiredValueIsPreserved()
     {

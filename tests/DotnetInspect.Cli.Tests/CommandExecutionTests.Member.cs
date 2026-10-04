@@ -281,6 +281,49 @@ public partial class CommandExecutionTests
         Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
     }
 
+    [Theory]
+    [InlineData("--explain")]
+    [InlineData("-E")]
+    public async Task Member_BareExplanationAfterInlineLibraryRetainsExactMember(
+        string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            $"--library={TestAssemblyPath}",
+            option,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Unknown", error);
+        Assert.Contains("Exact Member", option == "--explain" ? output : error);
+    }
+
+    [Fact]
+    public async Task Member_NativeGroupTipsPreserveStdoutAndUseStderr()
+    {
+        string[] arguments =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+        ];
+
+        var withoutTips = await RunAppAsync(arguments);
+        var withTips = await RunAppAsync([.. arguments, "-E", ".tips"]);
+
+        Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, withTips.Exit);
+        Assert.Empty(withoutTips.Error);
+        Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.DoesNotContain("Tips:", withTips.Error);
+        Assert.Contains("view member detail (source, IL)", withTips.Error);
+        Assert.Contains("view type tree", withTips.Error);
+        Assert.Contains("dotted member syntax", withTips.Error);
+    }
+
     [Fact]
     public async Task Member_PlatformTipsUseBoundOwnerAffordances()
     {

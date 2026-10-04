@@ -1011,10 +1011,14 @@ public static class MemberCommand
                             effectiveOptions.ProjectAssetsPath,
                             effectiveOptions.Tfm,
                             effectiveOptions.SourceOptions));
-                return WriteExplanationCompanion(
+                return WriteContextualCompanion(
                     cloneCandidatesExitCode,
                     effectiveOptions,
-                    companionExplanationBasis);
+                    companionExplanationBasis,
+                    apiType,
+                    contextualExplanationMember,
+                    packageName,
+                    packageVersion);
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -1084,10 +1088,14 @@ public static class MemberCommand
                         effectiveOptions,
                         memberGroupAssemblyPath,
                         CancellationToken.None);
-                return WriteExplanationCompanion(
+                return WriteContextualCompanion(
                     memberGroupExitCode,
                     effectiveOptions,
-                    companionExplanationBasis);
+                    companionExplanationBasis,
+                    apiType,
+                    contextualExplanationMember,
+                    packageName,
+                    packageVersion);
             }
             if (effectiveOptions.Tree
                 && !(effectiveOptions.Count
@@ -1628,42 +1636,14 @@ public static class MemberCommand
             if (selectedSurfaceExitCode != 0)
                 return selectedSurfaceExitCode;
 
-            if (effectiveOptions.CompanionOutput
-                == CompanionOutput.Explanation)
-            {
-                MemberExplanationOutput.WriteCompanion(
-                    MemberExplanationBindings.ExplainExactSubject(
-                        companionExplanationBasis
-                        ?? throw new InvalidOperationException(
-                            "Exact Member explanation completed without "
-                                + "a resolved subject.")));
-            }
-            else if (effectiveOptions.CompanionOutput
-                    == CompanionOutput.Tips
-                && (effectiveOptions.OverloadIndex == null
-                    || contextualExplanationMember is not null))
-            {
-                Hints.WriteTips(
-                    effectiveOptions.CompanionOutput,
-                    () => contextualExplanationMember is null
-                        ? MemberTipBindings.Resolve(
-                            apiType,
-                            options.PlatformAssembly,
-                            options.PackagePath,
-                            options.AssemblyPath,
-                            packageName,
-                            packageVersion)
-                        : MemberTipBindings.ResolveExact(
-                            apiType,
-                            contextualExplanationMember,
-                            options.PlatformAssembly,
-                            options.PackagePath,
-                            options.AssemblyPath,
-                            packageName,
-                            packageVersion));
-            }
-
-            return 0;
+            return WriteContextualCompanion(
+                0,
+                effectiveOptions,
+                companionExplanationBasis,
+                apiType,
+                contextualExplanationMember,
+                packageName,
+                packageVersion);
         }
         catch (Exception ex)
         {
@@ -1681,10 +1661,14 @@ public static class MemberCommand
         }
     }
 
-    private static int WriteExplanationCompanion(
+    private static int WriteContextualCompanion(
         int exitCode,
         MemberOptions options,
-        ResolvedMemberInspectionBasis? basis)
+        ResolvedMemberInspectionBasis? basis,
+        ApiType type,
+        ApiMember? exactMember,
+        string? packageName,
+        string? packageVersion)
     {
         if (exitCode == 0
             && options.CompanionOutput
@@ -1696,6 +1680,29 @@ public static class MemberCommand
                     ?? throw new InvalidOperationException(
                         "Exact Member explanation completed without "
                             + "a resolved subject.")));
+        }
+        else if (exitCode == 0
+            && options.CompanionOutput == CompanionOutput.Tips
+            && (options.OverloadIndex == null || exactMember is not null))
+        {
+            Hints.WriteTips(
+                options.CompanionOutput,
+                () => exactMember is null
+                    ? MemberTipBindings.Resolve(
+                        type,
+                        options.PlatformAssembly,
+                        options.PackagePath,
+                        options.AssemblyPath,
+                        packageName,
+                        packageVersion)
+                    : MemberTipBindings.ResolveExact(
+                        type,
+                        exactMember,
+                        options.PlatformAssembly,
+                        options.PackagePath,
+                        options.AssemblyPath,
+                        packageName,
+                        packageVersion));
         }
 
         return exitCode;

@@ -450,7 +450,7 @@ public static class ArgumentPreprocessor
         if (index == 0)
             return false;
 
-        string previous = args[index - 1].Split('=', 2)[0];
+        string previous = args[index - 1];
         return OptionsWithFollowingValue.Contains(previous)
             && previous is not (
                 "--platform"
