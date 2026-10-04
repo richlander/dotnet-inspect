@@ -1556,10 +1556,28 @@ kbd {
   min-height: 18px; margin: 10px 0 0; color: var(--muted);
   font: 11px/1.5 var(--mono);
 }
+.metrics-relationship-heading {
+  min-width: 0; display: flex; align-items: start;
+  justify-content: space-between; gap: 24px;
+}
+.metrics-relationship-limit {
+  flex: 0 0 210px; display: grid; gap: 8px; padding-top: 2px;
+}
+.metrics-relationship-limit span {
+  display: flex; justify-content: space-between; gap: 12px;
+  color: var(--dim); font: 9px var(--mono);
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.metrics-relationship-limit output { color: var(--text); letter-spacing: 0; }
+.metrics-relationship-limit input {
+  width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer;
+}
 .metrics-relationship-crossing { min-height: 300px; }
 .metrics-relationship-edge {
   fill: none; cursor: pointer; pointer-events: stroke;
 }
+.metrics-relationship-edge[hidden],
+.metrics-relationship-line[hidden] { display: none; }
 .metrics-relationship-line {
   fill: none; opacity: .78; pointer-events: none;
   transition: filter .15s ease, opacity .15s ease;
@@ -1667,22 +1685,30 @@ kbd {
   color: var(--accent); text-decoration: underline;
 }
 .metrics-relationship-arrow { color: var(--dim); font: 12px var(--mono); }
-.metrics-relationship-depth {
-  flex: 0 0 auto; display: grid; gap: 4px; min-width: 132px;
+.metrics-relationship-measures {
+  flex: 0 0 auto; display: flex; align-items: stretch; gap: 8px;
+}
+.metrics-relationship-measure {
+  display: grid; gap: 4px; min-width: 132px;
   padding: 9px 11px; border: 1px solid var(--line);
   border-radius: 5px; background: var(--panel);
 }
-.metrics-relationship-depth span {
+.metrics-relationship-measure span {
   color: var(--dim); font: 9px var(--mono);
   letter-spacing: .08em; text-transform: uppercase;
 }
-.metrics-relationship-depth strong {
+.metrics-relationship-measure strong {
   color: var(--text); font: 12px var(--mono); font-weight: 500;
 }
 .metrics-visual-caption { margin: 10px 0 0; color: var(--dim); font: 10px/1.5 var(--mono); }
 @container metrics-visual (width < 520px) {
+  .metrics-relationship-heading { flex-direction: column; gap: 0; }
+  .metrics-relationship-limit {
+    width: min(100%, 280px); flex-basis: auto; margin-bottom: 14px;
+  }
   .metrics-relationship-detail-selection { align-items: stretch; flex-direction: column; }
-  .metrics-relationship-depth { min-width: 0; }
+  .metrics-relationship-measures { flex-wrap: wrap; }
+  .metrics-relationship-measure { min-width: 0; flex: 1 1 132px; }
 }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }

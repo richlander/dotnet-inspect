@@ -16,6 +16,7 @@ const DEPENDENCY_COLUMN_WIDTH = 210;
 const DEPENDENCY_NODE_WIDTH = 168;
 const DEPENDENCY_NODE_HEIGHT = 42;
 const DEPENDENCY_ROW_HEIGHT = 66;
+const RELATIONSHIP_INITIAL_LIMIT = 24;
 const RELATIONSHIP_COLORS = [
   "#b9aaee", "#7ed8dc", "#9cc8f1", "#e5b567", "#d98a70",
   "#8ebb76", "#c795e9", "#87aeca",
@@ -210,6 +211,21 @@ function relationshipDirectionKey(source: string, target: string): string {
   return JSON.stringify([source, target]);
 }
 
+function initialRelationshipCount(total: number): number {
+  return Math.min(RELATIONSHIP_INITIAL_LIMIT, Math.ceil(total / 2));
+}
+
+function relationshipLimitLevels(total: number): number[] {
+  const initial = initialRelationshipCount(total);
+  return [...new Set([
+    Math.ceil(total / 4),
+    Math.ceil(total / 2),
+    Math.ceil(total * 3 / 4),
+    total,
+    initial,
+  ])].sort((left, right) => left - right);
+}
+
 function renderRelationshipCrossing(
   data: BrowserLibraryMetrics,
   escapeHtml: (value: unknown) => string,
@@ -245,6 +261,9 @@ function renderRelationshipCrossing(
     && selected.has(relationship.targetTypeKey));
   const directions = new Set(edges.map(edge =>
     relationshipDirectionKey(edge.sourceTypeKey, edge.targetTypeKey)));
+  const initialCount = initialRelationshipCount(edges.length);
+  const limitLevels = relationshipLimitLevels(edges.length);
+  const initialLevel = limitLevels.indexOf(initialCount);
   const positions = new Map(
     types.map((type, index) => [
       type.typeKey,
@@ -253,6 +272,8 @@ function renderRelationshipCrossing(
   );
   const baseline = RELATIONSHIP_HEIGHT - RELATIONSHIP_LABEL_SPACE;
   const arcs = edges.map((edge, index) => {
+    const rank = index + 1;
+    const hidden = rank > initialCount ? " hidden" : "";
     const source = positions.get(edge.sourceTypeKey) ?? 0;
     const target = positions.get(edge.targetTypeKey) ?? 0;
     const reciprocal = directions.has(relationshipDirectionKey(
@@ -272,7 +293,7 @@ function renderRelationshipCrossing(
       8,
       1.5 + Math.log2(edge.callSiteCount + 1),
     );
-    return `<path class="metrics-relationship-edge" d="${path}" data-metrics-relationship data-source-type-key="${escapeHtml(edge.sourceTypeKey)}" data-source-type-display="${escapeHtml(edge.sourceTypeDisplay)}" data-target-type-key="${escapeHtml(edge.targetTypeKey)}" data-target-type-display="${escapeHtml(edge.targetTypeDisplay)}" data-call-site-count="${edge.callSiteCount}" stroke="transparent" stroke-width="${Math.max(14, strokeWidth + 8)}" tabindex="0" role="button" aria-pressed="false" aria-label="${escapeHtml(`Inspect relationship. ${tooltip}`)}"><title>${escapeHtml(tooltip)}</title></path><path class="metrics-relationship-line" d="${path}" stroke="${color}" stroke-width="${strokeWidth}" aria-hidden="true"></path>`;
+    return `<path class="metrics-relationship-edge" d="${path}" data-metrics-relationship data-relationship-rank="${rank}" data-source-type-key="${escapeHtml(edge.sourceTypeKey)}" data-source-type-display="${escapeHtml(edge.sourceTypeDisplay)}" data-target-type-key="${escapeHtml(edge.targetTypeKey)}" data-target-type-display="${escapeHtml(edge.targetTypeDisplay)}" data-call-site-count="${edge.callSiteCount}" stroke="transparent" stroke-width="${Math.max(14, strokeWidth + 8)}" tabindex="0" role="button" aria-pressed="false" aria-label="${escapeHtml(`Inspect relationship ${rank} of ${edges.length}. ${tooltip}`)}"${hidden}><title>${escapeHtml(tooltip)}</title></path><path class="metrics-relationship-line" d="${path}" stroke="${color}" stroke-width="${strokeWidth}" aria-hidden="true"${hidden}></path>`;
   }).join("");
   const nodes = types.map(type => {
     const x = positions.get(type.typeKey) ?? 0;
@@ -281,8 +302,17 @@ function renderRelationshipCrossing(
     const anchor = onRight ? "end" : "start";
     return `<g class="metrics-relationship-node"><circle cx="${x.toFixed(1)}" cy="${baseline}" r="4"></circle><text x="${x.toFixed(1)}" y="${baseline + 17}" text-anchor="${anchor}" transform="rotate(${angle} ${x.toFixed(1)} ${baseline + 17})">${escapeHtml(shortTypeName(type.typeDisplay))}</text><title>${escapeHtml(type.typeDisplay)} · ${formatNumber(type.typeDegree)} connected types</title></g>`;
   }).join("");
+  const limitControl = limitLevels.length > 1
+    ? `<label class="metrics-relationship-limit">
+        <span>Visible arcs <output data-metrics-relationship-limit-output>${formatNumber(initialCount)} / ${formatNumber(edges.length)}</output></span>
+        <input type="range" min="0" max="${limitLevels.length - 1}" value="${initialLevel}" step="1" data-metrics-relationship-limit data-limit-levels="${limitLevels.join(",")}" aria-label="Visible relationship arcs" aria-valuetext="${formatNumber(initialCount)} of ${formatNumber(edges.length)} arcs">
+      </label>`
+    : "";
   return `<section class="document-section metrics-visual-section">
-    <div class="metrics-visual-copy"><h2>Relationship Crossing</h2><p>The most entangled types are placed on one line; arcs reveal how often their implementations cross. Each color follows one retained relationship so dense crossings remain separable.</p></div>
+    <div class="metrics-relationship-heading">
+      <div class="metrics-visual-copy"><h2>Relationship Crossing</h2><p>The most entangled types are placed on one line; arcs reveal how often their implementations cross. Each color follows one retained relationship so dense crossings remain separable.</p></div>
+      ${limitControl}
+    </div>
     <svg class="metrics-relationship-crossing" viewBox="0 0 ${RELATIONSHIP_WIDTH} ${RELATIONSHIP_HEIGHT}" role="group" aria-label="Relationship Crossing diagram">${arcs}${nodes}</svg>
     <div class="metrics-relationship-detail" data-metrics-relationship-detail aria-live="polite">
       <p class="metrics-relationship-detail-empty" data-metrics-relationship-detail-empty>Select an arc to inspect its endpoint types and retained depth.</p>
@@ -295,13 +325,19 @@ function renderRelationshipCrossing(
             <button type="button" class="metrics-relationship-type-link" data-metrics-relationship-target></button>
           </div>
         </div>
-        <div class="metrics-relationship-depth">
-          <span>Relationship depth</span>
-          <strong data-metrics-relationship-depth></strong>
+        <div class="metrics-relationship-measures">
+          <div class="metrics-relationship-measure">
+            <span>Rank</span>
+            <strong data-metrics-relationship-rank></strong>
+          </div>
+          <div class="metrics-relationship-measure">
+            <span>Relationship depth</span>
+            <strong data-metrics-relationship-depth></strong>
+          </div>
         </div>
       </div>
     </div>
-    <p class="metrics-visual-caption">${formatNumber(types.length)} most connected types · ${formatNumber(edges.length)} retained relationships · Select an arc for details.</p>
+    <p class="metrics-visual-caption">${formatNumber(types.length)} most connected types · Showing top <span data-metrics-relationship-visible-count>${formatNumber(initialCount)}</span> of ${formatNumber(edges.length)} retained relationships · Select an arc for details.</p>
   </section>`;
 }
 
@@ -520,9 +556,29 @@ export function bindLibraryMetricsInteractions(
     ?.querySelector<HTMLButtonElement>("[data-metrics-relationship-target]");
   const relationshipDepth = relationshipDetail
     ?.querySelector<HTMLElement>("[data-metrics-relationship-depth]");
+  const relationshipRank = relationshipDetail
+    ?.querySelector<HTMLElement>("[data-metrics-relationship-rank]");
   const relationshipEdges = root.querySelectorAll<SVGPathElement>(
     "[data-metrics-relationship]",
   );
+  const relationshipLimit = root.querySelector<HTMLInputElement>(
+    "[data-metrics-relationship-limit]",
+  );
+  const relationshipLimitOutput = root.querySelector<HTMLOutputElement>(
+    "[data-metrics-relationship-limit-output]",
+  );
+  const relationshipVisibleCount = root.querySelector<HTMLElement>(
+    "[data-metrics-relationship-visible-count]",
+  );
+  const clearRelationship = () => {
+    for (const candidate of relationshipEdges) {
+      candidate.setAttribute("aria-pressed", "false");
+    }
+    if (relationshipDetailEmpty) relationshipDetailEmpty.hidden = false;
+    if (relationshipDetailSelection) {
+      relationshipDetailSelection.hidden = true;
+    }
+  };
   const selectRelationship = (edge: SVGPathElement) => {
     for (const candidate of relationshipEdges) {
       candidate.setAttribute(
@@ -535,6 +591,7 @@ export function bindLibraryMetricsInteractions(
     const targetKey = edge.dataset.targetTypeKey ?? "";
     const targetDisplay = edge.dataset.targetTypeDisplay ?? targetKey;
     const callSiteCount = Number(edge.dataset.callSiteCount ?? 0);
+    const rank = Number(edge.dataset.relationshipRank ?? 0);
     if (relationshipSource) {
       relationshipSource.textContent = sourceDisplay;
       relationshipSource.dataset.metricsTypeKey = sourceKey;
@@ -551,6 +608,10 @@ export function bindLibraryMetricsInteractions(
         "retained call site",
       );
     }
+    if (relationshipRank) {
+      relationshipRank.textContent =
+        `${formatNumber(rank)}/${formatNumber(relationshipEdges.length)} most connected`;
+    }
     if (relationshipDetailEmpty) relationshipDetailEmpty.hidden = true;
     if (relationshipDetailSelection) {
       relationshipDetailSelection.hidden = false;
@@ -564,6 +625,38 @@ export function bindLibraryMetricsInteractions(
       selectRelationship(edge);
     });
   }
+  relationshipLimit?.addEventListener("input", () => {
+    const levels = relationshipLimit.dataset.limitLevels
+      ?.split(",").map(Number) ?? [];
+    const visible = levels[Number(relationshipLimit.value)];
+    if (visible === undefined) return;
+    let selectedWasHidden = false;
+    for (const edge of relationshipEdges) {
+      const hidden = Number(edge.dataset.relationshipRank) > visible;
+      edge.toggleAttribute("hidden", hidden);
+      if (edge.getAttribute("aria-pressed") === "true" && hidden) {
+        selectedWasHidden = true;
+      }
+      const line = edge.nextElementSibling;
+      if (line instanceof SVGPathElement
+          && line.classList.contains("metrics-relationship-line")) {
+        line.toggleAttribute("hidden", hidden);
+      }
+    }
+    if (selectedWasHidden) clearRelationship();
+    const visibleText = formatNumber(visible);
+    const totalText = formatNumber(relationshipEdges.length);
+    if (relationshipLimitOutput) {
+      relationshipLimitOutput.textContent = `${visibleText} / ${totalText}`;
+    }
+    if (relationshipVisibleCount) {
+      relationshipVisibleCount.textContent = visibleText;
+    }
+    relationshipLimit.setAttribute(
+      "aria-valuetext",
+      `${visibleText} of ${totalText} arcs`,
+    );
+  });
   for (const endpoint of [relationshipSource, relationshipTarget]) {
     endpoint?.addEventListener("click", () => {
       const typeKey = endpoint.dataset.metricsTypeKey;
