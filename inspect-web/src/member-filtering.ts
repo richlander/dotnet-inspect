@@ -168,7 +168,7 @@ export function selectMemberFamilyParent(
     readonly sourceOverloadCount?: number;
   },
 ): boolean {
-  if ((group.sourceOverloadCount ?? group.overloads.length) <= 1) return false;
+  if (!memberGroupUsesFamilySurface(group)) return false;
   state.selectedOverloadIndex = null;
   return true;
 }
@@ -231,7 +231,7 @@ export function memberGroupUsesFamilySurface(
   return (group?.overloads.length ?? 0) > 1;
 }
 
-export function selectedSourceOverload<T>(
+export function selectedSourceOverload<T extends StableMemberOverload>(
   sourceGroups: readonly {
     readonly key: string;
     readonly overloads: readonly T[];
@@ -244,6 +244,13 @@ export function selectedSourceOverload<T>(
 ): T | undefined {
   const sourceGroup = sourceGroups.find(candidate =>
     candidate.key === group.key) ?? group;
+  if (group.overloads.length === 1) {
+    const sourceIndex = memberOverloadSourceIndex(
+      sourceGroups,
+      group,
+      0);
+    return sourceGroup.overloads[sourceIndex] ?? group.overloads[0];
+  }
   return selectedConcreteOverload(sourceGroup.overloads, selectedIndex);
 }
 

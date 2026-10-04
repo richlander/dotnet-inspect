@@ -1023,7 +1023,7 @@ test("member family re-entry leaves exact ordinary methods for the shared docume
     /const methodGroup = ordinaryMethodGroup\(group\)/);
   assert.match(
     openMemberGroup,
-    /state\.selectedOverloadIndex = graphOnlyTarget \? 0 : null;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
+    /const singletonSourceIndex =[\s\S]*memberNavOverloadSourceIndex\(group, 0\)[\s\S]*state\.selectedOverloadIndex =\s*graphOnlyTarget \? 0 : singletonSourceIndex;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
 });
 
 test("fallback ordinary families load the shared document", () => {
@@ -1142,7 +1142,7 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /state\.selectedOverloadIndex\s*=== memberNavOverloadSourceIndex\(entry\.group, entry\.index\)/);
   assert.match(
     cursor,
-    /entry\.group\.sourceOverloadCount \?\? entry\.group\.overloads\.length/);
+    /const isMulti = memberGroupUsesFamilySurface\(entry\.group\);[\s\S]*isMulti \? state\.selectedOverloadIndex == null : true/);
   const selection =
     appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
     ?? "";

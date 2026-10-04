@@ -1104,6 +1104,33 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      export async function queryMemberDeclaration(
+        id, version, framework, assembly, typeIdentity, memberName,
+        selectorKey, metadataToken, implementationMember) {
+        document.documentElement.dataset.memberDeclarationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, memberName,
+            selectorKey, metadataToken, implementationMember,
+          ]);
+        const type = surfaceFor(id, version, framework).types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const member = type?.api.find(item =>
+          item.name === memberName
+          && item.stableSelector === selectorKey
+          && (item.declarationMetadataToken ?? item.metadataToken ?? 0)
+            === metadataToken);
+        return member
+          ? {
+              text: member.signature,
+              unavailable: null,
+              compatibility: false,
+            }
+          : {
+              text: null,
+              unavailable: "The selected declaration is unavailable.",
+              compatibility: false,
+            };
+      }
       function typeMemberPopulation(
         surface, typeIdentity, spelling, accessibility) {
         function accessibilityBucket(member) {

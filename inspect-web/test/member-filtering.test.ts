@@ -250,19 +250,22 @@ test("filtered member overloads retain their exact source index", () => {
     selectedSourceOverload(source, filtered, 2),
     source[0]?.overloads[2],
   );
-  assert.equal(selectedSourceOverload(source, filtered, null), undefined);
+  assert.equal(
+    selectedSourceOverload(source, filtered, null),
+    source[0]?.overloads[2],
+  );
   assert.throws(
     () => memberOverloadVisibleIndex(source, filtered, 1),
     /Source overload 1 .* is not visible/);
 });
 
-test("selecting a filtered source-family parent clears its exact child", () => {
+test("only a visible multi-declaration family clears its exact child", () => {
   const state = { selectedOverloadIndex: 1 };
   assert.equal(selectMemberFamilyParent(state, {
     overloads: [{ stableSelector: "Item~1" }],
     sourceOverloadCount: 2,
-  }), true);
-  assert.equal(state.selectedOverloadIndex, null);
+  }), false);
+  assert.equal(state.selectedOverloadIndex, 1);
 
   const single = { selectedOverloadIndex: 0 };
   assert.equal(selectMemberFamilyParent(single, {
@@ -270,6 +273,16 @@ test("selecting a filtered source-family parent clears its exact child", () => {
     sourceOverloadCount: 1,
   }), false);
   assert.equal(single.selectedOverloadIndex, 0);
+
+  const family = { selectedOverloadIndex: 1 };
+  assert.equal(selectMemberFamilyParent(family, {
+    overloads: [
+      { stableSelector: "Item~0" },
+      { stableSelector: "Item~1" },
+    ],
+    sourceOverloadCount: 2,
+  }), true);
+  assert.equal(family.selectedOverloadIndex, null);
 });
 
 test("only multiple visible declarations use the MemberGroup surface", () => {

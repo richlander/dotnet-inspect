@@ -8037,10 +8037,15 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
+  const singletonSourceIndex =
+    group?.overloads.length === 1 && !graphOnlyTarget
+      ? memberNavOverloadSourceIndex(group, 0)
+      : null;
   const methodGroup = ordinaryMethodGroup(group);
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
-  state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
+  state.selectedOverloadIndex =
+    graphOnlyTarget ? 0 : singletonSourceIndex;
   clearMemberContentCache();
   if (state.memberGroupDocumentKey
       !== memberGroupDocumentRequestKey(type, group)) {
@@ -8111,6 +8116,17 @@ function normalizeMemberSelection() {
     state.selectedMemberKey = "";
     state.selectedOverloadIndex = null;
     resetMemberSectionState();
+    return;
+  }
+  const group = memberGroupForCurrentFilters(
+    type,
+    state.selectedMemberKey);
+  if (group?.overloads.length === 1) {
+    const graphTarget = graphOnlyBodyTarget(group.overloads[0]);
+    state.selectedOverloadIndex = graphTarget
+      ? 0
+      : memberNavOverloadSourceIndex(group, 0);
+    state.selectedBodyTarget = graphTarget;
   }
 }
 
@@ -8176,8 +8192,7 @@ function memberNavCursor(entries: readonly MemberNavEntry[]) {
         && state.selectedOverloadIndex
           === memberNavOverloadSourceIndex(entry.group, entry.index);
     }
-    const isMulti =
-      (entry.group.sourceOverloadCount ?? entry.group.overloads.length) > 1;
+    const isMulti = memberGroupUsesFamilySurface(entry.group);
     return entry.group.key === state.selectedMemberKey && (isMulti ? state.selectedOverloadIndex == null : true);
   });
 }

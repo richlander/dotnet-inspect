@@ -1285,9 +1285,15 @@ test("Member filters use dropdowns and request all accessibility buckets", async
 
   await filteredRun.click();
   await expect(page.locator(".member-surface-head"))
-    .toContainText("method · 1 of 2");
+    .toContainText("method · 2 of 2");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(0);
+  await expect(page.locator(".signature-code"))
+    .toContainText("public void Run(int value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Run","Run:2",100663298,false\]$/,
+  );
   await expect(page.getByText(
     "M:Example.Widget.Run(System.Int32)",
     { exact: true },
