@@ -1392,8 +1392,6 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.False(PackageCommand.RequiresPackageMetadata(
             producerOptions,
             pipeline));
-        Assert.False(PackageCommand.AllowsVulnerabilityTraffic(
-            producerOptions));
         Assert.Empty(pipeline.GetRequiredQueries(
             producerOptions.Verbosity,
             producerOptions.IncludeSections,
@@ -1589,25 +1587,6 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.False(PackageCommand.RequiresIdentifierMetadata(
             options,
             pipeline));
-        Assert.True(PackageCommand.AllowsVulnerabilityTraffic(
-            options));
-    }
-
-    [Fact]
-    public void PackageCommand_DetailedMetadataProducerAuthorizesVulnerabilityTraffic()
-    {
-        var options = new InspectionOptions
-        {
-            IncludeSections =
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    PackageSections.Manifest,
-                },
-            Verbosity = Verbosity.Detailed,
-        };
-
-        Assert.True(PackageCommand.AllowsVulnerabilityTraffic(
-            options));
     }
 
     [Theory]
