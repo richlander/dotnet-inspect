@@ -63,6 +63,8 @@ public static class MemberCommand
         MemberInspectionTerminalPlan? terminalPlan = null;
         ResolvedMemberInspectionBasis? companionExplanationBasis = null;
         MemberTargetResolution? contextualExplanationResolution = null;
+        ApiMember? contextualExplanationMember = null;
+        string? contextualExplanationSelector = null;
         if ((options.SourceParts || options.SourcePart is not null)
             && options.Select is null && options.IncludeSections is null)
         {
@@ -194,10 +196,14 @@ public static class MemberCommand
 
         try
         {
-            bool requiresExactExplanation =
-                options.Explain
+            bool requiresExactExplanationContext =
+                options.Explanation is not null
                 || options.CompanionOutput
-                    == CompanionOutput.Explanation;
+                    == CompanionOutput.Explanation
+                || options.CompanionOutput == CompanionOutput.Tips
+                    && (options.OverloadIndex.HasValue
+                        || !string.IsNullOrWhiteSpace(
+                            options.MemberDigest));
             if (loadedSurface is null
                 && ApiCommand.TryWriteCallSiteCount(
                     source,
@@ -228,7 +234,7 @@ public static class MemberCommand
             if (!lookupResult.Found)
             {
                 if (options.RouterDeferredTypeOrMember
-                    && !requiresExactExplanation)
+                    && !requiresExactExplanationContext)
                 {
                     return await ExecuteDeferredTypeAsync(
                         unresolvedOptions,
@@ -250,7 +256,7 @@ public static class MemberCommand
             ResolvedAssemblyReference? sourceAssembly =
                 loaded.TryGetSourceAssembly(apiType);
             if (options.RouterDeferredTypeOrMember
-                && !requiresExactExplanation
+                && !requiresExactExplanationContext
                 && lookupResult.ImpliedMember is null
                 && DeferredExactTargetUsesTypePipeline(
                     apiType,
@@ -465,7 +471,7 @@ public static class MemberCommand
                 }
             }
 
-            if (requiresExactExplanation
+            if (requiresExactExplanationContext
                 && options.MemberFilter.Count != 1)
             {
                 CommandError.Write(
@@ -579,7 +585,7 @@ public static class MemberCommand
                 return 1;
             }
 
-            if (requiresExactExplanation)
+            if (requiresExactExplanationContext)
             {
                 string memberName =
                     effectiveOptions.MemberFilter.First();
@@ -607,6 +613,13 @@ public static class MemberCommand
                 ResolvedMemberTarget target =
                     contextualExplanationResolution.Target!;
                 ApiMember selected = target.ApiMember.Member;
+                contextualExplanationMember = selected;
+                contextualExplanationSelector =
+                    target.OverloadIndex.HasValue
+                        || target.DigestPrefix is not null
+                    ? target.NormalizedSelector
+                    : $"{ApiMemberIdentity.GetMemberSelectorName(selected)}"
+                        + $":{target.SelectorIndex}";
                 string? detailDllPath =
                     apiType.SourceAssemblyPath
                     ?? apiDllPath;
@@ -659,23 +672,70 @@ public static class MemberCommand
                 companionExplanationBasis =
                     explanationTerminalPlan.Basis;
 
-                if (effectiveOptions.Explain)
+                if (effectiveOptions.Explanation
+                    is { } explanationProjection)
                 {
-                    apiType.Members = [selected];
-                    int explanationExitCode =
-                        MemberExplanationOutput.WritePrimary(
-                            MemberExplanationBindings
+                    InspectionEnvelope<
+                        MemberContextualExplanationDocument>? explanation =
+                            explanationProjection
+                                    == ExplanationProjection.Complete
+                                || effectiveOptions.CompanionOutput
+                                    == CompanionOutput.Explanation
+                            ? MemberExplanationBindings
                                 .ExplainExactSubject(
-                                    explanationTerminalPlan.Basis),
-                            effectiveOptions.Format);
+                                    explanationTerminalPlan.Basis)
+                            : null;
+                    int explanationExitCode =
+                        explanationProjection switch
+                        {
+                            ExplanationProjection.Complete =>
+                                MemberExplanationOutput.WritePrimary(
+                                    explanation
+                                        ?? throw new InvalidOperationException(
+                                            "Complete Member explanation "
+                                                + "was not constructed."),
+                                    effectiveOptions.Format),
+                            ExplanationProjection.Tips =>
+                                Hints.WritePrimaryTips(
+                                    () => MemberTipBindings.ResolveExact(
+                                        apiType,
+                                        selected,
+                                        contextualExplanationSelector,
+                                        options.PlatformAssembly,
+                                        options.PackagePath,
+                                        options.AssemblyPath,
+                                        packageName,
+                                        packageVersion)),
+                            _ => throw new InvalidOperationException(
+                                $"Unsupported Member explanation projection "
+                                    + $"'{explanationProjection}'."),
+                        };
                     if (explanationExitCode == 0
+                        && effectiveOptions.CompanionOutput
+                            == CompanionOutput.Explanation)
+                    {
+                        MemberExplanationOutput.WriteCompanion(
+                            explanation
+                                ?? throw new InvalidOperationException(
+                                    "Companion Member explanation was not "
+                                        + "constructed."));
+                    }
+                    else if (explanationExitCode == 0
                         && effectiveOptions.CompanionOutput
                             == CompanionOutput.Tips)
                     {
                         Hints.WriteTips(
                             effectiveOptions.CompanionOutput,
-                            () => MemberTipBindings.Resolve(
+                            () => MemberTipBindings.ResolveExact(
                                 apiType,
+                                contextualExplanationMember
+                                    ?? throw new InvalidOperationException(
+                                        "Exact Member tips completed without "
+                                            + "a resolved subject."),
+                                contextualExplanationSelector
+                                    ?? throw new InvalidOperationException(
+                                        "Exact Member tips completed without "
+                                            + "a resolved selector."),
                                 options.PlatformAssembly,
                                 options.PackagePath,
                                 options.AssemblyPath,
@@ -727,6 +787,28 @@ public static class MemberCommand
                                 ?? throw new InvalidOperationException(
                                     "Exact Member explanation completed "
                                         + "without a resolved subject.")));
+                }
+                else if (memberDocumentExitCode == 0
+                    && effectiveOptions.CompanionOutput
+                        == CompanionOutput.Tips)
+                {
+                    Hints.WriteTips(
+                        effectiveOptions.CompanionOutput,
+                        () => MemberTipBindings.ResolveExact(
+                            apiType,
+                            contextualExplanationMember
+                                ?? throw new InvalidOperationException(
+                                    "Exact Member tips completed without "
+                                        + "a resolved subject."),
+                            contextualExplanationSelector
+                                ?? throw new InvalidOperationException(
+                                    "Exact Member tips completed without "
+                                        + "a resolved selector."),
+                            options.PlatformAssembly,
+                            options.PackagePath,
+                            options.AssemblyPath,
+                            packageName,
+                            packageVersion));
                 }
                 return memberDocumentExitCode;
             }
@@ -945,10 +1027,15 @@ public static class MemberCommand
                             effectiveOptions.ProjectAssetsPath,
                             effectiveOptions.Tfm,
                             effectiveOptions.SourceOptions));
-                return WriteExplanationCompanion(
+                return WriteContextualCompanion(
                     cloneCandidatesExitCode,
                     effectiveOptions,
-                    companionExplanationBasis);
+                    companionExplanationBasis,
+                    apiType,
+                    contextualExplanationMember,
+                    contextualExplanationSelector,
+                    packageName,
+                    packageVersion);
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -1018,10 +1105,15 @@ public static class MemberCommand
                         effectiveOptions,
                         memberGroupAssemblyPath,
                         CancellationToken.None);
-                return WriteExplanationCompanion(
+                return WriteContextualCompanion(
                     memberGroupExitCode,
                     effectiveOptions,
-                    companionExplanationBasis);
+                    companionExplanationBasis,
+                    apiType,
+                    contextualExplanationMember,
+                    contextualExplanationSelector,
+                    packageName,
+                    packageVersion);
             }
             if (effectiveOptions.Tree
                 && !(effectiveOptions.Count
@@ -1562,32 +1654,15 @@ public static class MemberCommand
             if (selectedSurfaceExitCode != 0)
                 return selectedSurfaceExitCode;
 
-            if (effectiveOptions.CompanionOutput
-                == CompanionOutput.Explanation)
-            {
-                MemberExplanationOutput.WriteCompanion(
-                    MemberExplanationBindings.ExplainExactSubject(
-                        companionExplanationBasis
-                        ?? throw new InvalidOperationException(
-                            "Exact Member explanation completed without "
-                                + "a resolved subject.")));
-            }
-            else if (effectiveOptions.CompanionOutput
-                    == CompanionOutput.Tips
-                && effectiveOptions.OverloadIndex == null)
-            {
-                Hints.WriteTips(
-                    effectiveOptions.CompanionOutput,
-                    () => MemberTipBindings.Resolve(
-                        apiType,
-                        options.PlatformAssembly,
-                        options.PackagePath,
-                        options.AssemblyPath,
-                        packageName,
-                        packageVersion));
-            }
-
-            return 0;
+            return WriteContextualCompanion(
+                0,
+                effectiveOptions,
+                companionExplanationBasis,
+                apiType,
+                contextualExplanationMember,
+                contextualExplanationSelector,
+                packageName,
+                packageVersion);
         }
         catch (Exception ex)
         {
@@ -1605,10 +1680,15 @@ public static class MemberCommand
         }
     }
 
-    private static int WriteExplanationCompanion(
+    private static int WriteContextualCompanion(
         int exitCode,
         MemberOptions options,
-        ResolvedMemberInspectionBasis? basis)
+        ResolvedMemberInspectionBasis? basis,
+        ApiType type,
+        ApiMember? exactMember,
+        string? exactSelector,
+        string? packageName,
+        string? packageVersion)
     {
         if (exitCode == 0
             && options.CompanionOutput
@@ -1620,6 +1700,35 @@ public static class MemberCommand
                     ?? throw new InvalidOperationException(
                         "Exact Member explanation completed without "
                             + "a resolved subject.")));
+        }
+        else if (exitCode == 0
+            && options.CompanionOutput == CompanionOutput.Tips)
+        {
+            Hints.WriteTips(
+                options.CompanionOutput,
+                () => exactMember is null
+                    ? MemberTipBindings.ResolveSelected(
+                        type,
+                        ApiCommand.BuildFilteredTypeForSections(
+                            type,
+                            options).Members,
+                        options.PlatformAssembly,
+                        options.PackagePath,
+                        options.AssemblyPath,
+                        packageName,
+                        packageVersion)
+                    : MemberTipBindings.ResolveExact(
+                        type,
+                        exactMember,
+                        exactSelector
+                            ?? throw new InvalidOperationException(
+                                "Exact Member tips completed without "
+                                    + "a resolved selector."),
+                        options.PlatformAssembly,
+                        options.PackagePath,
+                        options.AssemblyPath,
+                        packageName,
+                        packageVersion));
         }
 
         return exitCode;

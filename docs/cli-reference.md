@@ -560,30 +560,43 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
-dotted token, for up to three contextual suggestions on `stderr`. Member also
-admits two complete contextual-explanation forms:
+Tips are off by default. Member uses one dotted explanation-projection
+namespace at two placements: `--explain` replaces ordinary output with a
+primary result on `stdout`, while short-only `-E` preserves ordinary output and
+writes a companion to `stderr`. Bare selects the complete explanation;
+`.tips`, as a separate dotted token, selects up to three contextual
+suggestions:
 
 ```bash
 dotnet-inspect member --explain
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
   --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  --explain .tips
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  -E .tips
 ```
 
 Command-level `member --explain` is acquisition-free. Subject-bearing
 `--explain` resolves exactly one Member and writes the explanation as the
 terminal stdout document instead of ordinary inspection output. Exact-subject
-bare `-E` preserves ordinary stdout byte-for-byte, flushes it, then writes the
-same explanation Content to `stderr`. `--explain -E` is a duplicate and is
-rejected; exact-subject `--explain -E .tips` is valid. Bare `-E` remains
-reserved on other commands, and `-E .references` remains reserved everywhere.
+`--explain .tips` writes only the headless plain-text suggestions to stdout; it
+does not produce ordinary Member Content. Command-level `.tips` requires an
+exact Member because the command resource has no applicable gesture context.
+Exact-subject bare `-E` preserves ordinary stdout byte-for-byte, flushes it,
+then writes the same explanation Content to `stderr`. `--explain -E` and
+`--explain .tips -E .tips` are duplicate projections and are rejected;
+different primary and companion projections compose. Bare `-E` remains
+reserved on other commands. Both `.references` placements remain reserved
+until reusable inspection references are available.
 Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
-`-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
-unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
-token after `-E` remains positional. Option-like filenames and other required
-option values retain that option's ownership; for example, `--out --tips`
-names an output path rather than invoking the retired option. `E`
+`-E references` / `--explain tips` / `--explain references`, attached or
+inline `-E.tips` / `-E=.tips` / `-E:.tips` / `--explain=.tips`, unknown dotted
+children, and repeated placement options are invalid. An unrelated undotted
+token after either option remains positional. Option-like filenames and other
+required option values retain that option's ownership; for example,
+`--out --tips` names an output path rather than invoking the retired option. `E`
 suggests *explain* and can also remind users that the companion is written to
 the error stream; the latter is a mnemonic, not an error classification.
 
@@ -613,7 +626,7 @@ not adopted this transport.
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
 | Explain the Member command or one exact Member | `member --explain`, exact `member ... --explain`, or exact `member ... -E` |
-| Show contextual tips | `-E .tips` |
+| Show contextual tips | Exact `member ... --explain .tips` on stdout or `-E .tips` on stderr |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
@@ -1393,6 +1406,7 @@ dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member --explain
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain .tips
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json

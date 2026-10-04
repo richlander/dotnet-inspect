@@ -51,6 +51,7 @@ type PackageOperations =
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion"
   | "runPackageActivity"
+  | "runEcosystemPackageQuery"
   | "runPackageQuery"
   | "searchCapabilities"
   | "searchTypes";

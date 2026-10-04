@@ -898,12 +898,18 @@ internal static class MethodQuerySource
                 + "in this work description.");
         }
 
-        if (work.Producers.Length != 1
-            || !ReferenceEquals(work.Producers[0], producer))
+        int requestedProducers = 0;
+        foreach (ProducerDeclaration planned in work.Producers)
+        {
+            if (work.WasRequested(planned))
+                requestedProducers++;
+        }
+        if (requestedProducers != 1)
         {
             throw new ProducerContractException(
-                "A direct Method-source request accepts exactly one planned "
-                + "producer; request sets compose independent requests.");
+                "A Method-source request accepts exactly one requested "
+                + "producer plus its dependency closure; request sets "
+                + "compose independent requests.");
         }
 
         foreach (ProducerDeclaration planned in work.Producers)

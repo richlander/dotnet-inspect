@@ -91,6 +91,7 @@ public sealed class ProductionFacadeContextTests
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
+            "RunEcosystemPackageQuery",
             "RunPackageActivity",
             "RunPackageQuery",
             "SearchCapabilities",
