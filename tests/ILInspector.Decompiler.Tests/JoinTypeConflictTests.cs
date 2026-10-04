@@ -457,7 +457,7 @@ public class JoinTypeConflictTests : IDisposable
         int aRow;
         using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
         {
-            var reader = pe.GetMetadataReader();
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
             Assert.True(reader.GetHeapSize(System.Reflection.Metadata.Ecma335.HeapIndex.String) < 0x10000);
             int rowSize = reader.GetTableRowSize(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef);
             Assert.Equal(4 + 2 + 2 + 2 + 2 + 2, rowSize);
@@ -479,7 +479,7 @@ public class JoinTypeConflictTests : IDisposable
         BitConverter.GetBytes((ushort)(aRow << 2)).CopyTo(bytes, extendsOffset);   // TypeDefOrRef tag 0 = TypeDef
         using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
         {
-            var reader = pe.GetMetadataReader();
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
             var b = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == "B");
             Assert.Equal(System.Reflection.Metadata.HandleKind.TypeDefinition, b.BaseType.Kind);
             Assert.Equal("A", reader.GetString(reader.GetTypeDefinition((System.Reflection.Metadata.TypeDefinitionHandle)b.BaseType).Name));
