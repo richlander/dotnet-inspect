@@ -470,7 +470,9 @@ Applied without waiting for CI; full conditions live in
   round; afterward, recover in the next numbered round — or take the
   exact-head trivial-interaction waiver when eligible. A conflict is never a
   waiting state; resolve and push it immediately unless both sides changed the
-  same logic and either choice loses behavior, which requires `HELP`.
+  same logic and either choice loses behavior, which requires `HELP`. A head
+  held for a scope-violation or split decision remains unchanged; report the
+  conflict in that pending decision instead.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
