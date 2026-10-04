@@ -13,6 +13,57 @@ namespace ILInspector.Analysis.Tests;
 public class CatalogCallGraphScopeTests
 {
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void CallerTreeOrdersAttributedPhysicalSitesByIlOffset()
+    {
+        string path =
+            typeof(CatalogReverseCallOrderFixture).Assembly.Location;
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        int targetToken = typeof(CatalogReverseCallOrderFixture)
+            .GetMethod(
+                nameof(CatalogReverseCallOrderFixture.Target),
+                BindingFlags.Static | BindingFlags.NonPublic)!
+            .MetadataToken;
+        ResolvedAssemblyReference assembly = Descriptor(analysis);
+        using var scope = new CatalogCallGraphScope(
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)),
+            [new(analysis.CallGraph, assembly)]);
+
+        CallTreeNode root = scope.BuildCallerTree(
+            analysis.CallGraph,
+            targetToken,
+            maxDepth: 1,
+            maxNodes: int.MaxValue);
+        CallTreeNode caller = Assert.Single(
+            root.Children,
+            child =>
+                child.Member.DeclaringType.Name.EndsWith(
+                    nameof(CatalogReverseCallOrderFixture),
+                    StringComparison.Ordinal)
+                && child.Member.Name
+                    == nameof(
+                        CatalogReverseCallOrderFixture
+                            .CallsTargetDirectlyAndFromLocal));
+        Assert.Equal(2, caller.ParentEdgeCallSites.Length);
+        Assert.Equal(
+            2,
+            caller.ParentEdgeCallSites
+                .Select(call => call.EvidenceMethod.MetadataToken)
+                .Distinct()
+                .Count());
+        Assert.Equal(
+            caller.ParentEdgeCallSites
+                .Select(call => call.ILOffset)
+                .Order(),
+            caller.ParentEdgeCallSites
+                .Select(call => call.ILOffset));
+    }
+
+    [Fact]
     public void EmptyIndexCatalogBindingUsesIssuedModuleIdentity()
     {
         string path =
@@ -432,6 +483,23 @@ public class CatalogCallGraphScopeTests
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static class CatalogReverseCallOrderFixture
+    {
+        internal static int Target(int value) => value;
+
+        internal static int CallsTargetDirectlyAndFromLocal(int value)
+        {
+            value++;
+            value *= 2;
+            value -= 3;
+            value ^= 4;
+            value += 5;
+            return Target(value) + Local(value);
+
+            static int Local(int value) => Target(value);
         }
     }
 

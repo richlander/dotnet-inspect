@@ -455,16 +455,18 @@ implementation volume. Relationship Crossing renders every endpoint and edge
 in Research's bounded relationship projection; the Browser performs no second
 topology selection.
 
-The ordinary Type Browser automatically requests the exhaustive Library
-structural-salience document when it presents an exact Library: the namespace
-index and every exact namespace Type-leverage shard in index order. This makes
-every pole and pole-filter count authoritative in the initial all-namespaces
-view. Namespace and pole filtering are client-side projections over the same
-complete document; they neither start another analysis nor change document
-identity. Browser visibly rejects a document with missing, extra, duplicated,
-or reordered namespace shards. The request does not run implementation
-profiles, body-use analysis, the call graph, or Library Metrics. Package and
-platform Libraries use the same managed query shape and Browser contract.
+The ordinary Type Browser automatically requests the exhaustive structural-
+salience document for every exact Library represented in its current Type
+inventory: the namespace index and every exact namespace Type-leverage shard
+in index order. An exact-Library view requests one document. The default
+all-Libraries package view requests one independently cached document per
+represented Library and joins each cue only to Types from that Library. This
+makes every displayed pole authoritative in the initial all-namespaces view
+without treating module-local Type identities as package-global. Browser
+visibly rejects a document with missing, extra, duplicated, or reordered
+namespace shards. The request does not run implementation profiles, body-use
+analysis, the call graph, or Library Metrics. Package and platform Libraries
+use the same managed query shape and Browser contract.
 
 Structural salience has no separate viewer. Metrics continues to present its
 Research-issued Complexity Explorer and Relationship Crossing evidence without
@@ -482,11 +484,11 @@ Browser presentation consumes Research-issued top-leverage and nullable Type
 pole designations. It does not apply a second percentage, rank, threshold, or
 tie-break.
 
-Sea-level and mountain-peak filters select their respective presentation
-categories and intersect with the existing text, namespace, kind, Library, and
-accessibility filters. Row cues use distinct accents without replacing the
-selected or hover state. The filter summary and each decorated row expose the
-category in text so color is not the only carrier.
+Structural salience adds no filter or activation control. Existing text,
+namespace, kind, Library, and accessibility filters continue to select Types;
+the retained rows carry their owner-issued cue when available. Row cues use
+distinct shapes and accessible descriptions without replacing the selected or
+hover state, so color is not the only carrier.
 
 Structural salience follows the existing implementation-heat visual grammar.
 Categorical achievements occupy a shared left-gutter rail with zero to two
@@ -664,8 +666,8 @@ stack. Each slice has one normative owner and lands a usable typed contract:
 4. The CLI adds the two named `Library Metrics` row groups through Markout
    without changing the command's explicit-only disclosure.
 5. Browser/Wasm automatically requests the dedicated metadata-only surface
-   query for an exact-Library Type inventory, with category cues and
-   intersecting filters.
+   query for every exact Library represented by the current Type inventory,
+   with category cues and no salience-specific control.
 6. A later provider-backed composition may push Graph demand into Metadata and
    Analysis acquisition. It is a separately evidenced QuerySpace optimization,
    not a condition of the closed-document stack.

@@ -74,6 +74,7 @@ export interface TypeSummary {
   members: number;
   accessibility?: string;
   assembly: string;
+  assemblyId?: string;
   definitionId?: string;
   platformPack?: string | null;
 }
@@ -350,7 +351,6 @@ export interface TypePanelBindingActions {
   onKindSelect: (kind: string) => void;
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
-  onTypeLeverageFilterSelect?: (filter: string) => void;
   onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -366,8 +366,6 @@ export interface TypePanelBindingActions {
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
-  onMethodLeverageActivate: () => void;
-  onMethodLeverageFilterSelect: (filter: string | undefined) => void;
   onMethodLeverageRetry: () => void;
   onMemberOverloadOpen: (index: number) => void;
   onMemberSelect: (memberKey: string | undefined) => void;
@@ -412,12 +410,6 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
-  root.querySelectorAll<HTMLElement>("[data-type-leverage-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onTypeLeverageFilterSelect?.(
-          button.dataset.typeLeverageFilter ?? "")));
   root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
     actions.onTypeNavBack);
@@ -460,18 +452,9 @@ export function bindTypePanel(
       select.addEventListener(
         "change",
         () => actions.onMemberKindFilterSelect(select.value)));
-  root.querySelector("[data-method-leverage-activate]")?.addEventListener(
-    "click",
-    actions.onMethodLeverageActivate);
   root.querySelector("[data-method-leverage-retry]")?.addEventListener(
     "click",
     actions.onMethodLeverageRetry);
-  root.querySelectorAll<HTMLSelectElement>(
-    "[data-method-leverage-filter]",
-  ).forEach(select =>
-    select.addEventListener(
-      "change",
-      () => actions.onMethodLeverageFilterSelect(select.value)));
   root.querySelectorAll<HTMLSelectElement>("[data-member-access-filter]")
     .forEach(select =>
       select.addEventListener(
@@ -627,7 +610,6 @@ export interface TypeNavOptions {
   kindOptions: readonly TypeSelectorOption[];
   accessibilityOptions: readonly TypeSelectorOption[];
   traitOptions: readonly TypeSelectorOption[];
-  leverageControlHtml?: string;
   library: string;
   parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
@@ -660,7 +642,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     accessibilityFilter, traitFilter, namespaceCount, namespaceOptionsHtml,
     kindOptions, accessibilityOptions, traitOptions,
-    leverageControlHtml = "",
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
   } = options;
@@ -722,9 +703,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
                 `<option value="${escapeHtml(option.value)}" ${traitFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
             </select>
           </label>
-        </div>
-        <div class="chip-stack">
-          ${leverageControlHtml}
         </div>
       </details>
       ${statusHtml}

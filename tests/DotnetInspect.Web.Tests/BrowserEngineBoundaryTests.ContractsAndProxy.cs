@@ -425,7 +425,8 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         using AssemblyInspectionSession session = AssemblyInspectionSession.Open(
             FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
-        ApiSurface surface = session.ApiSurface(includeAll: true);
+        ApiSurface surface =
+            session.CompatibilityApiSurface(includeAll: true);
         ApiType receiver = Assert.Single(
             surface.Types,
             type => type.FullName
@@ -464,7 +465,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 "RealAssets",
                 "PlatformDemo",
                 "System.Private.CoreLib.dll"));
-        ApiSurface surface = session.ApiSurface(
+        ApiSurface surface = session.CompatibilityApiSurface(
             ApiSurfaceExtractionScope.PublicWithNonPublicTypes);
         ApiType receiver = Assert.Single(
             surface.Types,

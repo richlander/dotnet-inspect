@@ -245,7 +245,8 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         AssemblyInspectionSession session)
     {
         ApiSurface surface =
-            session.ApiSurface(ApiSurfaceExtractionScope.Public);
+            session.CompatibilityApiSurface(
+                ApiSurfaceExtractionScope.Public);
         var members =
             new Dictionary<
                 int,
