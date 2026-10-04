@@ -1998,6 +1998,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_HistoryRejectsWhereBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--package", "pr9223.missing@1.0.0..2.0.0",
+            "--history",
+            "-t", "Sample.Widget",
+            "--finding", "api.type",
+            "--where", "Literal starts-with https://"
+            );
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--history does not accept --where",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Version discovery",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Diff_Transitions_RequiresTypeOrMemberSurfaceBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(

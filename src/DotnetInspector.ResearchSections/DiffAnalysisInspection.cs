@@ -234,6 +234,13 @@ public sealed record DiffAnalysisApiInspectionFailure(
 
 public static class DiffAnalysisInspection
 {
+    public const string FailedComparisonTransition =
+        "FindingComparison.Failed";
+
+    public static bool IsFailedComparison(
+        DiffAnalysisTransitionRow row) =>
+        row.Transition == FailedComparisonTransition;
+
     public static InspectionEnvelope<DiffAnalysisDocument> Execute(
         DiffAnalysisInspectionRequest request)
     {
@@ -355,7 +362,7 @@ public static class DiffAnalysisInspection
             new InspectionShare.NonProjectable(
                 "comparison/endpoints",
                 "No portable projection is available for an ordered Diff analysis endpoint pair."),
-            [.. Diagnostics(result, apiDiff)]);
+            [.. Diagnostics(result, apiDiff, projections)]);
     }
 
     private static AnalysisReportSurfaceKind SurfaceOf(
@@ -616,7 +623,8 @@ public static class DiffAnalysisInspection
 
     private static IEnumerable<InspectionDiagnostic> Diagnostics(
         DiffAnalysisResult result,
-        ApiDiff? apiDiff)
+        ApiDiff? apiDiff,
+        IReadOnlyList<OutcomeProjection> projections)
     {
         foreach (DiffAnalysisOutcome outcome in result.Outcomes)
         {
@@ -639,6 +647,18 @@ public static class DiffAnalysisInspection
                         outcome.Identity);
                     break;
             }
+        }
+
+        foreach (DiffAnalysisTransitionRow failure in projections
+                     .SelectMany(projection => projection.Transitions)
+                     .Where(IsFailedComparison))
+        {
+            yield return new InspectionDiagnostic(
+                "diff-analysis.finding-comparison-failed",
+                InspectionDiagnosticSeverity.Error,
+                $"Finding comparison '{failure.Finding}' failed for "
+                    + $"'{failure.Target}': {failure.Detail}",
+                failure.Target);
         }
 
         if (apiDiff is null)
@@ -671,7 +691,7 @@ public static class DiffAnalysisInspection
                 Count(PairKind.Changed),
                 Count(PairKind.Present),
                 rows.FirstOrDefault(row =>
-                    row.Transition == "FindingComparison.Failed")?.Detail
+                    IsFailedComparison(row))?.Detail
                     ?? (outcome is DiffAnalysisOutcome.Compared
                         {
                             Comparison: KeyedFindingComparison.Api
@@ -928,7 +948,7 @@ public static class DiffAnalysisInspection
             string oldInspection = InspectionState(failed.OldInspection);
             string newInspection = InspectionState(failed.NewInspection);
             yield return new(
-                "FindingComparison.Failed",
+                FailedComparisonTransition,
                 descriptor.Id,
                 target,
                 beforeVersion,
