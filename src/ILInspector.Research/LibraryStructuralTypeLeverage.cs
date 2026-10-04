@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Graph;
 
@@ -15,6 +16,7 @@ public static class LibraryStructuralSalience
 public enum LibraryStructuralSalienceEvidenceMode
 {
     Signature,
+    BodyUse,
 }
 
 public enum LibraryStructuralTypeRole
@@ -84,6 +86,39 @@ public sealed record LibraryStructuralTypeLeverageShard(
     LibraryStructuralEvidenceDisposition RoleDisposition,
     LibraryStructuralSignatureUseQualification SignatureUse,
     LibraryStructuralTypeLeverageGraphWork GraphWork);
+
+public sealed record LibraryStructuralBodyUseQualification(
+    AnalysisLibraryBodyUseReceipt Receipt,
+    AnalysisLibraryBodyUseDisposition Disposition,
+    AnalysisLibraryBodyUseCoverage Coverage,
+    int OccurrenceCount,
+    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
+
+public sealed record LibraryStructuralBodyTypeLeverageRow(
+    MetadataTypeDefinitionAddress Type,
+    MetadataTypeDefinitionName Name,
+    MetadataLibraryTypeClassification Classification,
+    bool DesignationEligible,
+    int BodyIncomingDegree,
+    int BodyOutgoingDegree,
+    LibraryStructuralTypeRole Role,
+    LibraryStructuralTypePole? Pole);
+
+public sealed record LibraryStructuralBodyTypeLeverageGraphWork(
+    GraphExecutionWorkReceipt BodyIncomingDegree,
+    GraphExecutionWorkReceipt BodyOutgoingDegree);
+
+public sealed record LibraryStructuralBodyTypeLeverageShard(
+    string MethodologyVersion,
+    LibraryStructuralSalienceEvidenceMode EvidenceMode,
+    string Namespace,
+    ImmutableArray<LibraryStructuralBodyTypeLeverageRow> Rows,
+    LibraryStructuralTypeLeverageOrder SeaLevel,
+    LibraryStructuralTypeLeverageOrder MountainPeak,
+    LibraryStructuralEvidenceDisposition RoleDisposition,
+    LibraryStructuralSignatureUseQualification TypeInventory,
+    LibraryStructuralBodyUseQualification BodyUse,
+    LibraryStructuralBodyTypeLeverageGraphWork GraphWork);
 
 public sealed record LibraryStructuralSalienceDocument(
     string MethodologyVersion,

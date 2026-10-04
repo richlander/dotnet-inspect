@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -269,6 +270,185 @@ public sealed class LibraryStructuralTypeLeverageTests
     }
 
     [Fact]
+    public void BodyTypeShardUsesTypedOperandsDistinctPeersAndMetadataEligibility()
+    {
+        LibraryStructuralBodyTypeLeverageShard shard = BodyShard(
+            "B",
+            [
+                ("Sea", MetadataLibraryTypeClassification.None),
+                ("Peak", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+                ("Excluded", MetadataLibraryTypeClassification.Enum),
+            ],
+            [
+                (1, 0, AnalysisLibraryBodyUseOperandKind.Call),
+                (2, 0, AnalysisLibraryBodyUseOperandKind.Field),
+                (3, 0, AnalysisLibraryBodyUseOperandKind.Type),
+                (4, 0, AnalysisLibraryBodyUseOperandKind.MethodToken),
+                (2, 0, AnalysisLibraryBodyUseOperandKind.Constructor),
+                (0, 0, AnalysisLibraryBodyUseOperandKind.TypeToken),
+                (1, 2, AnalysisLibraryBodyUseOperandKind.Array),
+                (1, 3, AnalysisLibraryBodyUseOperandKind.Box),
+                (1, 4, AnalysisLibraryBodyUseOperandKind.Constrained),
+                (5, 0, AnalysisLibraryBodyUseOperandKind.FieldToken),
+                (5, 2, AnalysisLibraryBodyUseOperandKind.Cast),
+                (5, 3, AnalysisLibraryBodyUseOperandKind.TypeTest),
+                (5, 4, AnalysisLibraryBodyUseOperandKind.Unbox),
+                (5, 5, AnalysisLibraryBodyUseOperandKind.MethodReference),
+            ]);
+
+        LibraryStructuralBodyTypeLeverageRow sea = BodyRow(shard, 0);
+        Assert.Equal(5, sea.BodyIncomingDegree);
+        Assert.Equal(0, sea.BodyOutgoingDegree);
+        Assert.Equal(LibraryStructuralTypeRole.Foundation, sea.Role);
+        Assert.Equal(LibraryStructuralTypePole.SeaLevel, sea.Pole);
+
+        LibraryStructuralBodyTypeLeverageRow peak = BodyRow(shard, 1);
+        Assert.Equal(0, peak.BodyIncomingDegree);
+        Assert.Equal(4, peak.BodyOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypeRole.Orchestrator,
+            peak.Role);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            peak.Pole);
+
+        LibraryStructuralBodyTypeLeverageRow excluded =
+            BodyRow(shard, 5);
+        Assert.False(excluded.DesignationEligible);
+        Assert.Null(excluded.Pole);
+        Assert.DoesNotContain(excluded.Type, shard.SeaLevel.Types);
+        Assert.DoesNotContain(
+            excluded.Type,
+            shard.MountainPeak.Types);
+        Assert.Same(
+            shard.GraphWork.BodyIncomingDegree.SourceDocument,
+            shard.GraphWork.BodyOutgoingDegree.SourceDocument);
+        Assert.Equal(
+            LibraryStructuralSalienceEvidenceMode.BodyUse,
+            shard.EvidenceMode);
+    }
+
+    [Fact]
+    public void BodyTypeShardUsesExactNamespaceInducedRelationships()
+    {
+        MetadataLibrarySignatureUseResult inventory = Evidence(
+            [
+                ("N", "A", MetadataLibraryTypeClassification.None),
+                ("N", "B", MetadataLibraryTypeClassification.None),
+            ],
+            [],
+            exactNamespace: "N");
+        AnalysisLibraryBodyUseType[] bodyTypes =
+        [
+            .. inventory.Types.Select(static type =>
+                new AnalysisLibraryBodyUseType(
+                    type.Type,
+                    type.Name,
+                    type.DefinitionKind)),
+            new(
+                Address(2),
+                Name("Other", "External"),
+                AssemblyTypeDefinitionKind.Class),
+        ];
+        AnalysisLibraryBodyUseResult bodyUse = BodyEvidence(
+            bodyTypes,
+            [
+                (0, 1, AnalysisLibraryBodyUseOperandKind.Call),
+                (0, 2, AnalysisLibraryBodyUseOperandKind.Field),
+                (2, 0, AnalysisLibraryBodyUseOperandKind.Type),
+            ]);
+
+        LibraryStructuralBodyTypeLeverageShard shard =
+            LibraryStructuralReport.CreateBodyTypeLeverageShard(
+                inventory,
+                bodyUse);
+
+        LibraryStructuralBodyTypeLeverageRow a = BodyRow(shard, 0);
+        LibraryStructuralBodyTypeLeverageRow b = BodyRow(shard, 1);
+        Assert.Equal(0, a.BodyIncomingDegree);
+        Assert.Equal(1, a.BodyOutgoingDegree);
+        Assert.Equal(1, b.BodyIncomingDegree);
+        Assert.Equal(0, b.BodyOutgoingDegree);
+    }
+
+    [Theory]
+    [InlineData(
+        MetadataLibrarySignatureUseDisposition.Complete,
+        AnalysisLibraryBodyUseDisposition.Complete,
+        LibraryStructuralEvidenceDisposition.Complete)]
+    [InlineData(
+        MetadataLibrarySignatureUseDisposition.Partial,
+        AnalysisLibraryBodyUseDisposition.Complete,
+        LibraryStructuralEvidenceDisposition.Qualified)]
+    [InlineData(
+        MetadataLibrarySignatureUseDisposition.Complete,
+        AnalysisLibraryBodyUseDisposition.Qualified,
+        LibraryStructuralEvidenceDisposition.Qualified)]
+    [InlineData(
+        MetadataLibrarySignatureUseDisposition.Complete,
+        AnalysisLibraryBodyUseDisposition.Partial,
+        LibraryStructuralEvidenceDisposition.Qualified)]
+    public void BodyTypeShardQualifiesEveryViewFromBothEvidenceSources(
+        MetadataLibrarySignatureUseDisposition inventoryDisposition,
+        AnalysisLibraryBodyUseDisposition bodyDisposition,
+        LibraryStructuralEvidenceDisposition expectedDisposition)
+    {
+        LibraryStructuralBodyTypeLeverageShard shard = BodyShard(
+            "N",
+            [
+                ("A", MetadataLibraryTypeClassification.None),
+                ("B", MetadataLibraryTypeClassification.None),
+            ],
+            [(0, 1, AnalysisLibraryBodyUseOperandKind.Call)],
+            inventoryDisposition,
+            bodyDisposition);
+
+        Assert.Equal(expectedDisposition, shard.SeaLevel.Disposition);
+        Assert.Equal(
+            expectedDisposition,
+            shard.MountainPeak.Disposition);
+        Assert.Equal(expectedDisposition, shard.RoleDisposition);
+        Assert.Equal(
+            inventoryDisposition,
+            shard.TypeInventory.Disposition);
+        Assert.Equal(bodyDisposition, shard.BodyUse.Disposition);
+    }
+
+    [Fact]
+    public void BodyTypeShardRejectsMismatchedLibraryGeneration()
+    {
+        MetadataLibrarySignatureUseResult inventory = Evidence(
+            [("N", "A", MetadataLibraryTypeClassification.None)],
+            [],
+            exactNamespace: "N");
+        AnalysisLibraryBodyUseResult bodyUse = BodyEvidence(
+            inventory.Types.Select(static type =>
+                new AnalysisLibraryBodyUseType(
+                    type.Type,
+                    type.Name,
+                    type.DefinitionKind)),
+            []) with
+        {
+            Receipt = new(
+                Guid.NewGuid(),
+                s_assembly,
+                new WorkReceipt(0, [])),
+        };
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => LibraryStructuralReport.CreateBodyTypeLeverageShard(
+                inventory,
+                bodyUse));
+        Assert.Contains(
+            "same exact Library generation",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExhaustiveCompositionRequiresEveryOrderedNamespaceShard()
     {
         MetadataLibrarySignatureUseResult whole = Evidence(
@@ -376,6 +556,86 @@ public sealed class LibraryStructuralTypeLeverageTests
                 @namespace,
                 signatureDisposition));
 
+    private static LibraryStructuralBodyTypeLeverageShard BodyShard(
+        string @namespace,
+        IReadOnlyList<(
+            string Name,
+            MetadataLibraryTypeClassification Classification)> types,
+        IReadOnlyList<(
+            int Source,
+            int Target,
+            AnalysisLibraryBodyUseOperandKind Kind)> bodyRelationships,
+        MetadataLibrarySignatureUseDisposition inventoryDisposition =
+            MetadataLibrarySignatureUseDisposition.Complete,
+        AnalysisLibraryBodyUseDisposition bodyDisposition =
+            AnalysisLibraryBodyUseDisposition.Complete)
+    {
+        MetadataLibrarySignatureUseResult inventory = Evidence(
+            types.Select(type =>
+                (@namespace, type.Name, type.Classification))
+                .ToArray(),
+            [],
+            @namespace,
+            inventoryDisposition);
+        return LibraryStructuralReport.CreateBodyTypeLeverageShard(
+            inventory,
+            BodyEvidence(
+                inventory.Types.Select(static type =>
+                    new AnalysisLibraryBodyUseType(
+                        type.Type,
+                        type.Name,
+                        type.DefinitionKind)),
+                bodyRelationships,
+                bodyDisposition));
+    }
+
+    private static AnalysisLibraryBodyUseResult BodyEvidence(
+        IEnumerable<AnalysisLibraryBodyUseType> types,
+        IReadOnlyList<(
+            int Source,
+            int Target,
+            AnalysisLibraryBodyUseOperandKind Kind)> bodyRelationships,
+        AnalysisLibraryBodyUseDisposition disposition =
+            AnalysisLibraryBodyUseDisposition.Complete)
+    {
+        AnalysisLibraryBodyUseType[] bodyTypes = [.. types];
+        AnalysisLibraryBodyUseOccurrence[] occurrences =
+        [
+            .. bodyRelationships.Select((relationship, ordinal) =>
+                new AnalysisLibraryBodyUseOccurrence(
+                    bodyTypes[relationship.Source].Type,
+                    bodyTypes[relationship.Source].Name,
+                    bodyTypes[relationship.Target].Type,
+                    bodyTypes[relationship.Target].Name,
+                    0x06000001 + ordinal,
+                    relationship.Kind,
+                    0x0A000001 + ordinal,
+                    ordinal,
+                    ordinal)),
+        ];
+        int examinedBodies = occurrences.Length == 0 ? 0 : 1;
+        return new(
+            new(
+                s_moduleVersionId,
+                s_assembly,
+                new WorkReceipt(0, [])),
+            disposition,
+            [.. bodyTypes],
+            [.. occurrences],
+            [],
+            new(
+                bodiesConsidered: examinedBodies,
+                bodiesExamined: examinedBodies,
+                bodiesPhysicalOnly: 0,
+                bodiesUnavailable: 0,
+                bodiesLimited: 0,
+                operandsConsidered: occurrences.Length,
+                operandsExamined: occurrences.Length,
+                operandsUnavailable: 0,
+                operandsLimited: 0),
+            []);
+    }
+
     private static MetadataLibrarySignatureUseResult Evidence(
         IReadOnlyList<(
             string Namespace,
@@ -427,6 +687,13 @@ public sealed class LibraryStructuralTypeLeverageTests
 
     private static LibraryStructuralTypeLeverageRow Row(
         LibraryStructuralTypeLeverageShard shard,
+        int typeIndex) =>
+        Assert.Single(
+            shard.Rows,
+            row => row.Type == Address(typeIndex));
+
+    private static LibraryStructuralBodyTypeLeverageRow BodyRow(
+        LibraryStructuralBodyTypeLeverageShard shard,
         int typeIndex) =>
         Assert.Single(
             shard.Rows,
