@@ -15,16 +15,16 @@ public static class StringLiteralUsePatternAnalysis
 
     /// <summary>
     /// Finds every physical <c>ldstr</c> occurrence whose decoded value
-    /// contains <paramref name="operand"/> under ordinal comparison.
+    /// satisfies <paramref name="predicate"/> under ordinal comparison.
     /// </summary>
     public static StringLiteralUsePatternResult Inspect(
         AssemblyInspectionSession session,
-        StringLiteralUseOperand operand,
+        StringLiteralUsePredicate predicate,
         StringLiteralUsePatternBudget budget,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(operand);
+        ArgumentNullException.ThrowIfNull(predicate);
         ArgumentNullException.ThrowIfNull(budget);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -222,12 +222,8 @@ public static class StringLiteralUsePatternAnalysis
                                 string literal = decoded.Value;
                                 userStringsDecoded++;
                                 userStringCharactersDecoded += literal.Length;
-                                if (!literal.Contains(
-                                        operand.RawValue,
-                                        StringComparison.Ordinal))
-                                {
+                                if (!predicate.Matches(literal))
                                     break;
-                                }
 
                                 cancellationToken.ThrowIfCancellationRequested();
                                 if (occurrences.Count

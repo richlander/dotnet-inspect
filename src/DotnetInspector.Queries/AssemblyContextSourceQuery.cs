@@ -1729,7 +1729,7 @@ public static partial class AssemblyContextSourceQuery
     {
         ApiType? match = null;
         foreach (ApiType candidate
-            in session.ApiSurface(includeAll: true).Types)
+            in session.CompatibilityApiSurface(includeAll: true).Types)
         {
             if (candidate.DefinitionName != type)
                 continue;

@@ -234,8 +234,12 @@ test("Ecosystems is a first-class product catalog destination", async ({
     .toContainText("3 core packages");
   await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
     .toContainText("Integration scanner");
-  await expect(page.locator(".ecosystem-catalog button, .ecosystem-catalog a"))
-    .toHaveCount(0);
+  const workspaceReadyRows = page.locator(
+    ".ecosystem-catalog-row",
+  ).filter({ hasText: "Workspace-ready" });
+  const openActions = page.locator("[data-ecosystem-open]");
+  expect(await openActions.count()).toBe(await workspaceReadyRows.count());
+  expect(await openActions.count()).toBeGreaterThan(0);
   await page.locator("[data-product-navigation-button]").click();
   await expect(page.locator(
     "[data-product-destination][aria-current='page']",
@@ -243,7 +247,40 @@ test("Ecosystems is a first-class product catalog destination", async ({
   await page.keyboard.press("Escape");
   await page.screenshot({ path: testInfo.outputPath("ecosystems-wide.png") });
 
-  await page.getByRole("link", { name: "Home", exact: true }).click();
+  const firstReady = workspaceReadyRows.first();
+  const ecosystemId = await firstReady.getAttribute("data-ecosystem");
+  if (ecosystemId === null) {
+    throw new Error("The Workspace-ready Ecosystem omitted its catalog ID.");
+  }
+  const ecosystemTitle = await firstReady.locator("strong").innerText();
+  await firstReady.locator("[data-ecosystem-open]").click();
+  await expect(page).toHaveURL(`/ecosystems/${ecosystemId}`);
+  await expect(page.locator(
+    '[data-navigation-group="subject"][data-navigation-current="true"]'
+      + '[data-navigation-item="tab"]',
+  )).toContainText(ecosystemTitle);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(page.locator(
+    "[data-product-package-action],"
+      + " [data-workspace-platform],"
+      + " [data-workspace-framework-library]",
+  )).toHaveCount(0);
+  const ecosystemLocation = page.url();
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await page.goBack();
+  await expect(page).toHaveURL(ecosystemLocation);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL("/");
+
+  await page.goto("/");
   await page.getByRole("link", { name: "Ecosystems", exact: true }).click();
   await expect(page).toHaveURL("/ecosystems");
   await page.reload();

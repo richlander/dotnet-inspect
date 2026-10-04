@@ -44,6 +44,10 @@ public class MemberOptionsParserTests
         var indexOption = new Option<int?>("--index");
         var sourcePartsOption = new Option<bool>("--source-parts");
         var sourcePartOption = new Option<string?>("--part");
+        var explainOption = new Option<bool>("--explain");
+        var companionOption =
+            SharedOptions.CreateCompanionOption(
+                allowBareExplanation: true);
         var shareOption = new Option<string?>("--share");
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
         kindOption.Aliases.Add("--kind");
@@ -77,6 +81,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(indexOption);
         memberCommand.Options.Add(sourcePartsOption);
         memberCommand.Options.Add(sourcePartOption);
+        memberCommand.Options.Add(explainOption);
         opts.AddPrintOptionTo(memberCommand);
         memberCommand.Options.Add(shareOption);
         memberCommand.Options.Add(kindOption);
@@ -90,7 +95,9 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.ReadableNames);
-        opts.AddOutputOptionsTo(memberCommand);
+        opts.AddOutputOptionsTo(
+            memberCommand,
+            companion: companionOption);
         opts.AddNuGetOptionsTo(memberCommand);
 
         memberCommand.SetAction((_, _) => Task.FromResult(0));
@@ -101,7 +108,8 @@ public class MemberOptionsParserTests
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            routerDeferredTargetOption, sourcePartsOption, sourcePartOption);
+            routerDeferredTargetOption, sourcePartsOption, sourcePartOption,
+            explainOption, companionOption);
 
         return (root, opts, args);
     }

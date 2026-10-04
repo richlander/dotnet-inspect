@@ -320,7 +320,7 @@ function sharedState(): BrowserWorkspaceShareState {
     selectedContextId: "both",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
 }
@@ -1359,7 +1359,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     selectedContextId: "platform-context",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -2062,7 +2062,10 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
+    diff: { kind: "previous" },
+    diffContent: { kind: "api" },
+    clone: { kind: "workspace" },
+    mode: "diff",
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
@@ -2366,7 +2369,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [] },
+      section: null, libraries: [], sourceView: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

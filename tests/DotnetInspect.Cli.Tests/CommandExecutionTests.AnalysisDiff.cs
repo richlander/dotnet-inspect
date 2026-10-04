@@ -1416,6 +1416,159 @@ public partial class CommandExecutionTests
         Assert.Contains(newEvidence, output);
     }
 
+    [Fact]
+    public async Task Diff_StringLiterals_ContainsRetainsCompleteLiteralRows()
+    {
+        string oldPath =
+            FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string newPath =
+            FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--library",
+            $"{oldPath}..{newPath}",
+            "--analysis",
+            "string-literals",
+            "--where",
+            "Literal contains https://",
+            "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "https://old.example and https://shared.example",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "https://new.example and https://shared.example",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "prefix https://embedded.example",
+            output,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            output.Split('\n').Count(line => line.Contains(
+                "https://old.example and https://shared.example",
+                StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Diff_StringLiterals_StartsWithExcludesEmbeddedOnlyLiteral()
+    {
+        string oldPath =
+            FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string newPath =
+            FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--library",
+            $"{oldPath}..{newPath}",
+            "--analysis",
+            "string-literals",
+            "--where",
+            "Literal starts-with https://",
+            "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("https://old.example", output);
+        Assert.Contains("https://new.example", output);
+        Assert.DoesNotContain(
+            "prefix https://embedded.example",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Literal contains https://", "https://", 3)]
+    [InlineData("Literal contains https:// ", "https:// ", 0)]
+    [InlineData("Literal contains  https://", " https://", 3)]
+    [InlineData("Literal contains  ", " ", 3)]
+    public async Task Diff_StringLiterals_JsonRetainsExactPredicateContext(
+        string expression,
+        string expectedValue,
+        int expectedTransitions)
+    {
+        string oldPath =
+            FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string newPath =
+            FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--library",
+            $"{oldPath}..{newPath}",
+            "--analysis",
+            "string-literals",
+            "--where",
+            expression,
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement predicate = Assert.Single(
+            document.RootElement
+                .GetProperty("comparison")
+                .GetProperty("predicates")
+                .EnumerateArray());
+        Assert.Equal("Literal", predicate.GetProperty("key").GetString());
+        Assert.Equal(
+            "contains",
+            predicate.GetProperty("operator").GetString());
+        Assert.Equal(
+            expectedValue,
+            predicate.GetProperty("value").GetString());
+        Assert.Equal(
+            expectedTransitions,
+            document.RootElement
+                .GetProperty("transitions")
+                .GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData(
+        new[] { "--analysis", "string-literals" },
+        "requires exactly one --where")]
+    [InlineData(
+        new[]
+        {
+            "--analysis", "api",
+            "--where", "Literal contains https://",
+        },
+        "not consumed")]
+    [InlineData(
+        new[]
+        {
+            "--analysis", "string-literals",
+            "--where", "literal contains https://",
+        },
+        "exact --where key 'Literal'")]
+    public async Task Diff_StringLiterals_InvalidPredicateFailsBeforeAcquisition(
+        string[] arguments,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "diff",
+                "--library",
+                "/definitely/missing/old.dll../definitely/missing/new.dll",
+                .. arguments,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("call-site", "DiffFixtureSample.DiffSample", "NoSuchMember")]
     [InlineData("call-site,allocation", "DiffFixtureSample.NoSuchType", "Foo")]
@@ -1845,6 +1998,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_HistoryRejectsWhereBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--package", "pr9223.missing@1.0.0..2.0.0",
+            "--history",
+            "-t", "Sample.Widget",
+            "--finding", "api.type",
+            "--where", "Literal starts-with https://"
+            );
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--history does not accept --where",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Version discovery",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Diff_Transitions_RequiresTypeOrMemberSurfaceBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1853,7 +2029,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("The Transitions view requires the Type or Member surface", error);
+        Assert.Contains(
+            "The Transitions view is not declared at this report surface",
+            error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 

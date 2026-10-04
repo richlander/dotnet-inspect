@@ -561,8 +561,23 @@ Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
-dotted token, for up to three contextual suggestions on `stderr`. Bare `-E`
-and `-E .references` are reserved and currently fail before acquisition.
+dotted token, for up to three contextual suggestions on `stderr`. Member also
+admits two complete contextual-explanation forms:
+
+```bash
+dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
+```
+
+Command-level `member --explain` is acquisition-free. Subject-bearing
+`--explain` resolves exactly one Member and writes the explanation as the
+terminal stdout document instead of ordinary inspection output. Exact-subject
+bare `-E` preserves ordinary stdout byte-for-byte, flushes it, then writes the
+same explanation Content to `stderr`. `--explain -E` is a duplicate and is
+rejected; exact-subject `--explain -E .tips` is valid. Bare `-E` remains
+reserved on other commands, and `-E .references` remains reserved everywhere.
 Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
 `-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
 unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
@@ -597,6 +612,7 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
+| Explain the Member command or one exact Member | `member --explain`, exact `member ... --explain`, or exact `member ... -E` |
 | Show contextual tips | `-E .tips` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
@@ -969,7 +985,23 @@ dotnet-inspect find System.Text.Json.JsonSerializer \
   --tfm net10.0
 ```
 
-Default Markdown, tips, table formats, and plain type-search JSON retain their
+Find defaults to TSV, with one stable header and unified Type and Member rows:
+`Coordinate`, `Kind`, `Source`, `Library`, `Pattern`, `Declaration`, `Signature`,
+`Match`, and `Ecosystem`. `Kind` is `type` or `member`; `Declaration` describes
+the class, method, property, or other declaration category. Coordinates are
+display addresses, not substitutes for the internally retained declaration
+identity. Implicit Member matches are included in TSV. `--columns` selects
+columns and `--no-header` suppresses the header.
+
+Settled Member and wildcard Type rows print progressively during source
+search. Ordinary Type patterns wait when implicit Member fallback could
+supersede a weak match. Ecosystem searches publish each settled layer before
+searching the next. Semantic row-selection requests (`-n`, `--rows`, `--tail`)
+retain the existing buffered selection behavior; Count emits its final scalar.
+Diagnostics stay on stderr, and already printed rows remain available if a
+later source fails.
+
+Explicit `--markdown`, table, JSONL, and plain type-search JSON retain their
 existing shapes; plain JSON remains a root result array. When a selected
 Package row feeds Type or Member inspection internally, the handoff preserves
 the selected package-relative implementation asset and compatible TFM rather
@@ -996,10 +1028,11 @@ This searches Aspire's core packages first and, when they fill the window,
 does not realize ASP.NET Core or Runtime. Only named populations are searched:
 registered package prefixes do not trigger package-prefix discovery. If the
 entire selection has no named populations, Find fails with a prefix hint.
-Current Markdown output retains Find's existing Members-before-Results
-sections; rows remain nearest-first within each kind. A follow-on design will
-unify Type and Member result rows and make layer-ordered TSV the progressive
-default for all Find invocations.
+Explicit Markdown output retains Find's existing Members-before-Results
+sections; rows remain nearest-first within each kind. Unbounded default TSV
+instead publishes each layer's settled unified rows before the next layer.
+Selection-bearing requests keep the existing selection order until the
+separately owned row-selection work adopts the unified stream.
 
 ### Package Query over selected implementation libraries
 
@@ -1326,6 +1359,9 @@ dotnet-inspect type string --tree
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
+dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
@@ -1662,17 +1698,30 @@ not compose with those comparison views.
 It takes one or more analysis identities, comma-separated or repeated, and
 `-S` then selects views of their result. `diff -D`, `--help`, and
 `explain analyses` list the identities: `api`, `api-attribute`,
-`allocation`, `call-site`, `unsafety`, `csharp`, and `il`. The request's
-surface comes from its filters: any `--member` is Member, otherwise `--type`
-is Type, otherwise Library. The body analyses (`allocation`, `call-site`,
-`unsafety`, `csharp`, `il`) take exactly one `--member`; `api-attribute`
-takes `--type`.
+`allocation`, `call-site`, `unsafety`, `csharp`, `il`, and
+`string-literals`. The request's surface comes from its filters: any
+`--member` is Member, otherwise `--type` is Type, otherwise Library. The body
+analyses (`allocation`, `call-site`, `unsafety`, `csharp`, `il`) take exactly
+one `--member`; `api-attribute` takes `--type`; `string-literals` takes the
+Library surface and exactly one `--where` predicate.
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --member "Serialize:1" \
   --analysis api,call-site,allocation
+
+dotnet-inspect diff --package Microsoft.Identity.Client@4.89.0..4.90.0 \
+  --analysis string-literals --where "Literal contains https://"
+
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
+  --analysis string-literals --where "Literal starts-with https://" --json
 ```
+
+String-literal predicates use exact ordinal UTF-16 matching. The key is
+case-sensitive `Literal`; the supported operators are `contains` and
+`starts-with`. Each Transition row retains the complete decoded literal. Two
+matching positions within one literal still produce one row, while separate
+physical `ldstr` instructions remain separate occurrences.
 
 Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to
@@ -1681,7 +1730,9 @@ with its outcome (`Compared`, `Unavailable`, or `Failed`) and its `Added`,
 `Removed`, `Changed`, and `Present` counts. `-S Transitions` lists each
 selected analysis's per-Finding transitions in selection order; at the Type
 surface `api` shows its `api.type` rows and then its `api.member` rows.
-`Changes` requires `api`, and `Transitions` requires `--type` or `--member`.
+`Changes` requires `api`. `Transitions` requires a selected analysis that
+declares it at the request surface: Type and Member analyses do so at their
+surfaces, while `string-literals` declares Library Transitions.
 `--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
 only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
 entries are all reported before acquisition.
@@ -1690,8 +1741,10 @@ Pairwise `--finding` and `-S "Finding Transitions"` are retired: they fail
 with guidance naming the `--analysis` identity and `-S Transitions`.
 `--history` keeps `--finding` and does not accept `--analysis` yet.
 `--analysis` does not combine with `Analysis Diff`, `Implementation Diff`,
-`Complexity Context`, or `Structural Context`, and `--json` and `--envelope`
-are rejected with it until the result's JSON transport lands.
+`Complexity Context`, or `Structural Context`. `--json` emits the shared
+`DiffAnalysisDocument`; `--envelope` emits that same Content plus Share and
+diagnostics. Both retain the exact string-literal predicate in the comparison
+context.
 
 Select `Implementation Diff` directly to inspect body-level C#, IL, and
 normal-flow complexity evidence. Select `Complexity Context` directly for a

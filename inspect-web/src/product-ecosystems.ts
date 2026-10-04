@@ -9,16 +9,26 @@ import {
 export type ProductEcosystemCatalogEntry = BrowserEcosystemCatalogEntry;
 
 let catalogEntries: readonly ProductEcosystemCatalogEntry[] = [];
+const catalogIdSet = new Set<string>();
 
 export function setProductEcosystemCatalog(
   ecosystems: readonly ProductEcosystemCatalogEntry[],
 ): void {
   catalogEntries = ecosystems.slice();
+  catalogIdSet.clear();
+  for (const ecosystem of ecosystems)
+    catalogIdSet.add(ecosystem.id);
 }
 
 export function productEcosystemCatalog():
   readonly ProductEcosystemCatalogEntry[] {
   return catalogEntries;
+}
+
+export function isProductEcosystemId(
+  value: string | undefined | null,
+): value is string {
+  return typeof value === "string" && catalogIdSet.has(value);
 }
 
 export function isProductEcosystemsPath(pathname: string): boolean {
@@ -86,6 +96,9 @@ export function productEcosystemsViewHtml(
         `<li class="ecosystem-catalog-row" data-ecosystem="${escapeHtml(ecosystem.id)}">
           <div class="ecosystem-catalog-heading">
             <strong>${escapeHtml(ecosystem.title)}</strong>
+            ${ecosystem.hasWorkspaceRegistration
+              ? `<button type="button" data-ecosystem-open="${escapeHtml(ecosystem.id)}" aria-label="Open ${escapeHtml(ecosystem.title)} Ecosystem">Open</button>`
+              : ""}
           </div>
           <p>${escapeHtml(ecosystem.summary)}</p>
           <ul class="ecosystem-capabilities" aria-label="${escapeHtml(ecosystem.title)} capabilities">

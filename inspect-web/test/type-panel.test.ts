@@ -351,10 +351,6 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onMemberGroupOpen: value => calls.push(`member-open:${value}`),
     onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
-    onMethodLeverageActivate: () =>
-      calls.push("method-leverage-activate"),
-    onMethodLeverageFilterSelect: value =>
-      calls.push(`method-leverage-filter:${value}`),
     onMethodLeverageRetry: () =>
       calls.push("method-leverage-retry"),
     onMemberOverloadOpen: value => calls.push(`member-overload:${value}`),
@@ -404,7 +400,7 @@ test("type panel binds the qualified Type leverage retry", () => {
   assert.deepEqual(calls, ["type-leverage-retry"]);
 });
 
-test("type panel bindings dispatch member filters without eager work", () => {
+test("type panel bindings dispatch member filters and leverage retry", () => {
   const root = new FakeRoot();
   const kind = new FakeElement();
   kind.value = "method";
@@ -418,12 +414,6 @@ test("type panel bindings dispatch member filters without eager work", () => {
   root.addAll("[data-member-access-filter]", accessibility);
   root.addAll("[data-member-spelling]", spelling);
   root.addAll("[data-member-trait-filter]", trait);
-  const leverage = new FakeElement();
-  leverage.value = "top-leverage";
-  root.addAll("[data-method-leverage-filter]", leverage);
-  const leverageActivate = root.add(
-    "[data-method-leverage-activate]",
-    new FakeElement());
   const leverageRetry = root.add(
     "[data-method-leverage-retry]",
     new FakeElement());
@@ -458,8 +448,6 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-spelling:metadata",
     "member-trait:static",
   ]);
-  leverageActivate.dispatch("click");
-  leverage.dispatch("change");
   leverageRetry.dispatch("click");
   filter.dispatch("input");
   disclosure.open = true;
@@ -472,8 +460,6 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-access:protected",
     "member-spelling:metadata",
     "member-trait:static",
-    "method-leverage-activate",
-    "method-leverage-filter:top-leverage",
     "method-leverage-retry",
     "member-filter:parse",
     "member-filter-disclosure:true",
@@ -899,12 +885,10 @@ test("the type nav renders exclusive accessible pole cues", () => {
       ...typeSelectorOptions,
       namespaceCount: 1,
       namespaceOptionsHtml: "",
-      leverageControlHtml:
-        '<button data-type-leverage-filter="sea-level">sea level</button>',
       library: "System.Text.Json",
       parentSubject: "library",
       filtersExpanded: true,
-      filterSummary: "sea level",
+      filterSummary: "public",
       escapeHtml,
       typeDisplayName,
       typeLibraryLabel: noTypeLibraryLabel,
@@ -936,7 +920,7 @@ test("the type nav renders exclusive accessible pole cues", () => {
       },
     });
 
-    assert.match(html, /data-type-leverage-filter="sea-level"/);
+    assert.doesNotMatch(html, /data-type-leverage-filter/);
     assert.match(html, /type-row selected sea-level/);
     assert.match(html, /class="item-achievement-glyph sea-level"/);
     assert.match(html, /class="item-achievement-glyph mountain-peak"/);
@@ -2182,16 +2166,62 @@ test("member source part selection resets across request signatures and absent p
   assert.equal(selector.select("second", authored, "Attributes"), true);
 });
 
-test("decompiled member source has no authored selector", () => {
+test("decompiled member source offers every available source part", () => {
+  const text = "[DebuggerStepThrough]\npublic void M() { }";
   const memberSource: BrowserMemberSource = {
     source: {
       provider: "decompiled",
       provenance: inertStringFixture("decompiled"),
       url: null,
       pdbSourceLimitation: "No PDB",
-      text: "public void M() { }",
+      text,
     },
-    parts: [],
+    parts: [
+      {
+        kind: "Member",
+        spans: [{
+          start: 0,
+          length: text.length,
+          startLine: 1,
+          endLine: 2,
+          leadingIndentation: "",
+          end: text.length,
+        }],
+      },
+      {
+        kind: "Attributes",
+        spans: [{
+          start: 0,
+          length: 21,
+          startLine: 1,
+          endLine: 1,
+          leadingIndentation: "",
+          end: 21,
+        }],
+      },
+      {
+        kind: "Signature",
+        spans: [{
+          start: 22,
+          length: 15,
+          startLine: 2,
+          endLine: 2,
+          leadingIndentation: "",
+          end: 37,
+        }],
+      },
+      {
+        kind: "Body",
+        spans: [{
+          start: 38,
+          length: 3,
+          startLine: 2,
+          endLine: 2,
+          leadingIndentation: "",
+          end: 41,
+        }],
+      },
+    ],
     diagnostics: [],
   };
   const html = renderSourcePageActions({
@@ -2201,7 +2231,12 @@ test("decompiled member source has no authored selector", () => {
     escapeHtml,
   });
 
-  assert.doesNotMatch(html, /member-source-part/);
+  assert.match(html, /member-source-part/);
+  assert.match(html, />Member<\/option>/);
+  assert.match(html, />Attributes<\/option>/);
+  assert.match(html, />Signature<\/option>/);
+  assert.match(html, />Body<\/option>/);
+  assert.doesNotMatch(html, />XML docs<\/option>/);
   assert.match(html, /id="copy-source"/);
   assert.equal(
     memberSourceText(memberSource, "Member"),

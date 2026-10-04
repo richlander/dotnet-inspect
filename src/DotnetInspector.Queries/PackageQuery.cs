@@ -1696,7 +1696,7 @@ public static partial class PackageQuery
             PortableQueryOperator @operator,
             string value) =>
         @operator == PortableQueryOperator.Equal
-        && value.Length is > 0 and <= StringLiteralUseOperand.MaximumLength
+        && value.Length is > 0 and <= StringLiteralUsePredicate.MaximumLength
             ? Bound(
                 PackageQueryPredicateKind.LibraryLiteral,
                 value,

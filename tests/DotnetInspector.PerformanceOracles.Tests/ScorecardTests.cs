@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Queries;
+using ILInspector.Instructions;
 using NLinq;
 
 namespace DotnetInspector.PerformanceOracles.Tests;
@@ -174,6 +175,222 @@ public sealed class ScorecardTests
         ScorecardAnswer<TypeFindPopulationScorecardRow> rows =
             oracle.Answer(ScorecardClosing.Rows, assets[0].Asset);
         Assert.Equal([41, 7], rows.Rows!.Select(static row => row.Association));
+    }
+
+    [Fact]
+    public void MethodBodyTraversalColumns_AgreeOnRealAssembly()
+    {
+        IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
+            PreparedMethodBodies.LoadAssets(
+                [typeof(ScorecardTests).Assembly.Location]);
+        try
+        {
+            ScorecardColumn<
+                PreparedMethodBodies,
+                MethodBodyScanSummary>[] columns =
+                    MethodBodyTraversalPrototype.Columns();
+            ScorecardColumn<
+                PreparedMethodBodies,
+                MethodBodyScanSummary> oracle =
+                    columns[0];
+            ScorecardCheck check = Scorecard.Check(
+                assets,
+                oracle,
+                columns,
+                MethodBodyTraversalPrototype.RowText,
+                closings: MethodBodyTraversalPrototype.Closings);
+
+            Assert.True(
+                check.Agrees,
+                string.Join(Environment.NewLine, check.Mismatches));
+            MethodBodyScanSummary summary = Assert.Single(
+                oracle.Answer(
+                    ScorecardClosing.Rows,
+                    assets[0].Asset)
+                .Rows!);
+            Assert.True(summary.Bodies > 0);
+            Assert.True(summary.Instructions > 0);
+            Assert.Equal(0, summary.IncompleteLayer0);
+        }
+        finally
+        {
+            foreach (ScorecardAsset<PreparedMethodBodies> asset in assets)
+                asset.Asset.Dispose();
+        }
+    }
+
+    [Fact]
+    public void MethodBodyDemandColumns_AgreeOnRealAssembly()
+    {
+        IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
+            PreparedMethodBodies.LoadAssets(
+                [typeof(ScorecardTests).Assembly.Location]);
+        try
+        {
+            Assert.False(assets[0].Asset.FlowProbeInputsPrepared);
+            Assert.Empty(assets[0].Asset.CheckThrowPresenceAgreement());
+            Assert.False(assets[0].Asset.FlowProbeInputsPrepared);
+            ScorecardColumn<
+                PreparedMethodBodies,
+                MethodThrowPresenceSummary>[] columns =
+                    MethodBodyDemandPrototype.Columns();
+            ScorecardColumn<
+                PreparedMethodBodies,
+                MethodThrowPresenceSummary> oracle =
+                    columns[0];
+            ScorecardCheck check = Scorecard.Check(
+                assets,
+                oracle,
+                columns,
+                MethodBodyDemandPrototype.RowText,
+                closings: MethodBodyDemandPrototype.Closings);
+
+            Assert.True(
+                check.Agrees,
+                string.Join(Environment.NewLine, check.Mismatches));
+            MethodThrowPresenceSummary summary = Assert.Single(
+                oracle.Answer(
+                    ScorecardClosing.Rows,
+                    assets[0].Asset)
+                .Rows!);
+            Assert.True(summary.Bodies > 0);
+            Assert.InRange(summary.WithThrows, 1, summary.Bodies);
+        }
+        finally
+        {
+            foreach (ScorecardAsset<PreparedMethodBodies> asset in assets)
+                asset.Asset.Dispose();
+        }
+    }
+
+    [Fact]
+    public void MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand()
+    {
+        MethodBodyAnalyzerPlan single =
+            MethodBodyAnalyzerPlans.ThrowPresence;
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            single.Source);
+        Assert.Equal(
+            new(
+                MethodBodyInstructionAccess.ForwardOnly,
+                MethodBodyInstructionDetail.OpcodeAndExtent),
+            single.Demand);
+
+        MethodBodyAnalyzerPlan forward =
+            MethodBodyAnalyzerPlans.ForwardShallow;
+        Assert.Equal(3, forward.Analyzers.Length);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            forward.Source);
+
+        MethodBodyAnalyzerPlan selective =
+            MethodBodyAnalyzerPlanner.Plan(
+                MethodBodyAnalyzerDeclarations.StableGetter);
+        Assert.Equal(
+            new(
+                MethodBodyInstructionAccess.ForwardOnly,
+                MethodBodyInstructionDetail.SelectiveOperands),
+            selective.Demand);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            selective.Source);
+
+        MethodBodyAnalyzerPlan mixed = MethodBodyAnalyzerPlans.Mixed;
+        Assert.Equal(5, mixed.Analyzers.Length);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            mixed.Source);
+        Assert.Equal(
+            new(
+                MethodBodyInstructionAccess.RetainedPrefix,
+                MethodBodyInstructionDetail.SelectiveOperands),
+            mixed.Demand);
+    }
+
+    [Fact]
+    public void MethodBodyAnalyzerPlanner_JoinIsOrderIndependent()
+    {
+        MethodBodyAnalyzerPlan first = MethodBodyAnalyzerPlanner.Plan(
+            MethodBodyAnalyzerDeclarations.ThrowPresence,
+            MethodBodyAnalyzerDeclarations.BoundedFlow,
+            MethodBodyAnalyzerDeclarations.StableGetter);
+        MethodBodyAnalyzerPlan second = MethodBodyAnalyzerPlanner.Plan(
+            MethodBodyAnalyzerDeclarations.StableGetter,
+            MethodBodyAnalyzerDeclarations.ThrowPresence,
+            MethodBodyAnalyzerDeclarations.BoundedFlow);
+
+        Assert.Equal(first.Demand, second.Demand);
+        Assert.Equal(first.Source, second.Source);
+
+        Assert.Throws<ArgumentException>(
+            () => MethodBodyAnalyzerPlanner.Plan());
+        Assert.Throws<ArgumentException>(
+            () => MethodBodyAnalyzerPlanner.Plan(
+                MethodBodyAnalyzerDeclarations.ThrowPresence,
+                MethodBodyAnalyzerDeclarations.ThrowPresence));
+    }
+
+    [Fact]
+    public void MethodBodyAnalyzerPlanner_PreservesRealClassifierResults()
+    {
+        IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
+            PreparedMethodBodies.LoadAssets(
+                [typeof(InstructionSequence).Assembly.Location]);
+        try
+        {
+            Assert.Empty(
+                assets[0].Asset.CheckClassifierQueryAgreement());
+            ScorecardColumn<
+                PreparedMethodBodies,
+                ClassifierQuerySummary>[] columns =
+                    ClassifierQueryPrototype.Columns();
+            ScorecardCheck check = Scorecard.Check(
+                assets,
+                columns[0],
+                columns,
+                ClassifierQueryPrototype.RowText,
+                closings: ClassifierQueryPrototype.Closings);
+
+            Assert.True(
+                check.Agrees,
+                string.Join(Environment.NewLine, check.Mismatches));
+            ClassifierQuerySummary summary = Assert.Single(
+                columns[^1].Answer(
+                    ScorecardClosing.Rows,
+                    assets[0].Asset)
+                .Rows!);
+            Assert.True(summary.StableGetters > 0);
+        }
+        finally
+        {
+            foreach (ScorecardAsset<PreparedMethodBodies> asset in assets)
+                asset.Asset.Dispose();
+        }
+    }
+
+    [Fact]
+    public void FlowProbeInventory_IsPreparedOnlyForFlowScenario()
+    {
+        IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
+            PreparedMethodBodies.LoadAssets(
+                [typeof(ScorecardTests).Assembly.Location]);
+        try
+        {
+            PreparedMethodBodies bodies = assets[0].Asset;
+            Assert.False(bodies.FlowProbeInputsPrepared);
+
+            bodies.PlannedThrowPresence();
+            Assert.False(bodies.FlowProbeInputsPrepared);
+
+            bodies.CheckFlowProbeAgreement();
+            Assert.True(bodies.FlowProbeInputsPrepared);
+        }
+        finally
+        {
+            foreach (ScorecardAsset<PreparedMethodBodies> asset in assets)
+                asset.Asset.Dispose();
+        }
     }
 
     struct StaticMethodSelection : IMethodSelection
