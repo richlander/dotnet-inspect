@@ -1838,7 +1838,7 @@ public partial class CommandExecutionTests
             "| References | section | library/sections/references "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
-        Assert.Contains("| Shape |", output);
+        Assert.Contains("| Cardinality |", output);
         Assert.Contains("| Terminals |", output);
         Assert.Contains(
             "| Library Info | section | library/sections/library-info "
@@ -1926,7 +1926,7 @@ public partial class CommandExecutionTests
             row.GetProperty("formats")
                 .EnumerateArray()
                 .Select(item => item.GetString()));
-        Assert.False(row.TryGetProperty("shape", out _));
+        Assert.False(row.TryGetProperty("cardinality", out _));
         Assert.False(row.TryGetProperty("terminals", out _));
     }
 
@@ -1956,7 +1956,7 @@ public partial class CommandExecutionTests
             row.GetProperty("name").GetString());
         Assert.Equal(
             "scalar",
-            row.GetProperty("shape").GetString());
+            row.GetProperty("cardinality").GetString());
         Assert.Empty(
             row.GetProperty("terminals").EnumerateArray());
     }
@@ -4813,7 +4813,7 @@ public partial class CommandExecutionTests
             {
                 JsonElement row = Assert.Single(
                     discoveryDocument.RootElement.EnumerateArray());
-                Assert.False(row.TryGetProperty("shape", out _));
+                Assert.False(row.TryGetProperty("cardinality", out _));
                 Assert.False(row.TryGetProperty("terminals", out _));
             }
         }

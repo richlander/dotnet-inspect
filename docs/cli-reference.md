@@ -692,12 +692,24 @@ dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --valu
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl
 ```
 
-Library `-D --details` is structural and does not acquire the target. It adds a
-`Formats` column to the top-level catalog, or reports one exact category or
-section in detail. A category reports the formats supported by its complete
-expansion plus the formats of each member; it never selects or drops members to
-satisfy a format. Use the result to choose an exact section before requesting a
-single-result projection such as `--tree` or `--mermaid`.
+Library and Package `-D --details` are structural and do not acquire the
+target. They add the owner-issued section properties to the top-level catalog,
+or report one exact category or section in detail: `Formats`, and, where the
+owner declares them, `Shape` (`table`, `hierarchy`, or `text`, per
+[Section shapes](design/section-shapes.md)), `Cardinality` (`scalar` or
+`inventory`), and `Terminals`. Package declares all of them; Library declares
+cardinality for `Library Info`. A category reports the formats supported by its
+complete expansion plus the formats of each member; it never selects or drops
+members to satisfy a format. Use the result to choose an exact section before
+requesting a single-result projection such as `--tree` or `--mermaid`.
+`explain package/sections/<section>` reports the same shape and cardinality
+for one package section, beside its formats and members.
+
+```bash
+dotnet-inspect package System.Text.Json -D --details
+dotnet-inspect package System.Text.Json -D "Package files" --details --json
+dotnet-inspect explain package/sections/package-files
+```
 
 ## Common examples
 

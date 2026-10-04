@@ -699,6 +699,67 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DiscoverDetails_ReportsDeclaredShapeAndCardinality()
+    {
+        // Package is the first Section shapes adopter: structural discovery
+        // carries each section's declared shape beside its cardinality, and
+        // the format list derives from the shape (a Hierarchy adds --tree).
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.ShapeDiscovery",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-D", "--details");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "| Name | Kind | Path | Formats | Shape | Cardinality | Terminals |",
+                output);
+            Assert.Contains(
+                "| Package files | section | package/sections/package-files "
+                + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl, --tree "
+                + "| hierarchy | inventory | rows, count |",
+                output);
+            Assert.Contains(
+                "| Package README file | section | package/sections/package-readme-file "
+                + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+                + "| text | scalar |  |",
+                output);
+            Assert.Contains(
+                "| Target Frameworks | section | package/sections/target-frameworks "
+                + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+                + "| table | inventory | rows, count |",
+                output);
+            // The file family is not yet a renderable row stream, so the
+            // category advertises only the composition formats.
+            Assert.Contains(
+                "| @Files | category | package/categories/files "
+                + "| --markdown, --plaintext, --json |  |  |  |",
+                output);
+
+            var (jsonExit, json, jsonError) = await RunAppAsync(
+                "package", packagePath, "-D", "Package files", "--details", "--json");
+
+            Assert.Equal(0, jsonExit);
+            Assert.Empty(jsonError);
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement row = Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Equal("hierarchy", row.GetProperty("shape").GetString());
+            Assert.Equal("inventory", row.GetProperty("cardinality").GetString());
+            Assert.Contains(
+                "--tree",
+                row.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_DiscoverSection_ListsPackageInfoFields()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
