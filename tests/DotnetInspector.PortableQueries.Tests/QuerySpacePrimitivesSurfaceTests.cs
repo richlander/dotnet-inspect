@@ -2,6 +2,7 @@ using System.Reflection;
 using QuerySpace.Composition;
 using QuerySpace.Operations;
 using QuerySpace.Rows;
+using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.PortableQueries.Tests;
 
@@ -92,6 +93,10 @@ public sealed class QuerySpacePrimitivesSurfaceTests
     [InlineData(typeof(RowSelectionIntent<>))]
     [InlineData(typeof(RowSelectionStageKind))]
     [InlineData(typeof(RowSequenceKey))]
+    [InlineData(typeof(VocabularyDefinition))]
+    [InlineData(typeof(VocabularyMapDefinition))]
+    [InlineData(typeof(VocabularySnapshot))]
+    [InlineData(typeof(VocabularySnapshotIdentity))]
     public void DispositionTablePlacesDeclarationsInPrimitives(Type type) =>
         Assert.Same(Primitives, type.Assembly);
 

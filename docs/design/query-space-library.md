@@ -180,12 +180,16 @@ QuerySpace
 QuerySpace.Rows
 QuerySpace.Operations
 QuerySpace.Composition
+QuerySpace.Vocabulary
 ```
 
 Portable intent and shared structural identities use the root namespace.
 Row-query and semantic-selection contracts use `QuerySpace.Rows`. Generic
 operation registration uses `QuerySpace.Operations`. Multi-scope Query Space
-descriptors and requests use `QuerySpace.Composition`.
+descriptors and requests use `QuerySpace.Composition`. Value-vocabulary
+declarations, terms, maps, and snapshot identity, whose semantics
+[Vocabulary Mappings](vocabulary-mappings.md) owns, use
+`QuerySpace.Vocabulary`; they live in `QuerySpace.Primitives`.
 
 The initial public center preserves established semantic type names rather than
 renaming them only for symmetry:
