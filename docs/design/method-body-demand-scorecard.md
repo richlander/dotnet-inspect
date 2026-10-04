@@ -15,7 +15,7 @@ joins those facets, and the scorecard executes the selected no-retention or
 retained source. The cross-domain capability specification remains a
 post-merge follow-up.
 
-Accepted NativeAOT performance evidence is **unverified**.
+Accepted NativeAOT performance evidence is recorded below.
 
 ## Question
 
@@ -96,6 +96,43 @@ through repeated NativeAOT measurement.
 - Production adoption still requires QuerySpace to group compatible requests
   and the Method source to preserve each request's independent settlement,
   failure, and participation evidence.
+
+## Accepted NativeAOT evidence
+
+Exact head `51806ba5bb80f2d47cec41371d9eb9bc96447524` was published
+for `linux-x64` with .NET SDK `11.0.100-rc.1.26425.128`. The resulting
+NativeAOT scorecard binary had SHA-256
+`f986a1d7fba0df6b94be9d96db864a7f90cf739bc1d683073a4271c4ad455792`.
+
+Six rotated rounds, five warmups, and two-second cell budgets ran under one
+`perf-guard` lease on `dotnet-inspect-perf-3`, an Ubuntu 24.04 AMD EPYC 9V74
+host with four vCPUs. The lease began at 99.75 percent CPU idle. Inputs were
+the .NET 11 RC1 runtime assemblies whose SHA-256 prefixes were
+`61bfbbb5` (System.Text.Json), `a1b8e438` (System.Linq), `5606a44c`
+(System.Net.Http), and `9573ebab` (System.Private.CoreLib). Every lane agreed
+for all 51,626 admitted Method bodies.
+
+| Single-classifier lane | Ratio to planner-selected stream | Asset range |
+| --- | ---: | ---: |
+| Planner-selected stream | 1.00x | 1.00-1.00x |
+| Lazy shallow cursor | 1.81x | 1.72-1.92x |
+| Eager decoded instructions | 3.52x | 3.40-3.58x |
+
+| Real specialized lane | Ratio to eager decoded instructions | Asset range |
+| --- | ---: | ---: |
+| Stable getter, lazy cursor | 0.49x | 0.44-0.59x |
+| Bounded flow, lazy indexed | 0.45x | 0.43-0.46x |
+
+| Five-classifier lane | Ratio to eager separate passes | Asset range |
+| --- | ---: | ---: |
+| Eager decoded separate passes | 1.00x | 1.00-1.00x |
+| Eager decoded fused pass | 1.01x | 1.01-1.02x |
+| Planner-selected lazy shared | 0.63x | 0.63-0.64x |
+
+The no-retention source remains the clear floor for one shallow forward
+classifier. The retained sequence costs about 51 percent of eager full decode
+for that query, beats eager decode for both real selective/indexed shapes, and
+runs the mixed query about 37 percent faster than eager separate passes.
 
 ## Local development signal
 
