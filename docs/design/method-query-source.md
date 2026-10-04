@@ -506,7 +506,10 @@ Migration is incremental:
    and lifted execution bodies under finite candidate, generated-method, probe,
    IL-byte, and relationship bounds. Scoped lifted-owner evidence settles once
    per owner group, state-machine authentication remains targeted, and nested
-   TypeDef traversal is included in relationship-node work.
+   TypeDef traversal is included in relationship-node work. Targeted
+   state-machine lookup indexes each parent TypeDef's nested names once per
+   acquisition, so sibling sources reuse both resolved and missing targets
+   without hiding the relationship work charged by the first lookup.
 6. Add referenced-body expansion only with a consumer that requires it.
 7. Let the host-neutral request-set planner from #8574 group compatible
    requests. Method Classification implements the first mixed-terminal CLI

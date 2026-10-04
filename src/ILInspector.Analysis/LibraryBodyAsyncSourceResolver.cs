@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -56,6 +57,14 @@ internal sealed class LibraryBodyAsyncSourceResolver
         _typeDefinitionIndex;
     readonly Action? _typeDefinitionIndexBuilt;
     readonly Action? _stateMachineExecutionMethodsBuilt;
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<TargetedSourceTypeChain>>
+        _targetedSourceTypeChains = new();
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<IReadOnlyDictionary<string, TypeDefinitionHandle>>>
+        _targetedNestedTypesByParent = new();
 
     internal LibraryBodyAsyncSourceResolver(
         MetadataReader reader,
@@ -870,6 +879,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
             || !TryResolveTargetedStateMachineType(
                 sourceMethod.GetDeclaringType(),
                 stateMachineType,
+                work,
                 out TypeDefinitionHandle stateMachineHandle)
             || stateMachineHandle.IsNil)
         {
@@ -914,22 +924,15 @@ internal sealed class LibraryBodyAsyncSourceResolver
         MetadataTypeDefinitionName stateMachineType,
         MethodDefinitionGeneratedExpansionWork work)
     {
-        Span<TypeDefinitionHandle> chain =
-            stackalloc TypeDefinitionHandle[
-                MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
-                _reader,
-                sourceType,
-                chain,
-                out int count,
-                out _,
-                out _))
+        TargetedSourceTypeChain sourceChain =
+            GetTargetedSourceTypeChain(sourceType, work);
+        if (!sourceChain.Complete)
         {
             return false;
         }
 
         MethodDefinitionHandle claimant = default;
-        foreach (TypeDefinitionHandle typeHandle in chain[..count])
+        foreach (TypeDefinitionHandle typeHandle in sourceChain.Types)
         {
             TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
             foreach (MethodDefinitionHandle methodHandle
@@ -971,19 +974,14 @@ internal sealed class LibraryBodyAsyncSourceResolver
     bool TryResolveTargetedStateMachineType(
         TypeDefinitionHandle sourceType,
         MetadataTypeDefinitionName stateMachineType,
+        MethodDefinitionGeneratedExpansionWork work,
         out TypeDefinitionHandle stateMachineHandle)
     {
         stateMachineHandle = default;
-        Span<TypeDefinitionHandle> chain =
-            stackalloc TypeDefinitionHandle[
-                MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
-                _reader,
-                sourceType,
-                chain,
-                out int count,
-                out _,
-                out _)
+        TargetedSourceTypeChain sourceChain =
+            GetTargetedSourceTypeChain(sourceType, work);
+        int count = sourceChain.Types.Length;
+        if (!sourceChain.Complete
             || count == 0
             || stateMachineType.Segments.Length < count)
         {
@@ -991,7 +989,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
         }
 
         TypeDefinition root =
-            _reader.GetTypeDefinition(chain[count - 1]);
+            _reader.GetTypeDefinition(sourceChain.Types[count - 1]);
         if (!_reader.StringComparer.Equals(
                 root.Namespace,
                 stateMachineType.Namespace))
@@ -1002,7 +1000,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
         {
             TypeDefinition sourceSegment =
                 _reader.GetTypeDefinition(
-                    chain[count - segment - 1]);
+                    sourceChain.Types[count - segment - 1]);
             if (!_reader.StringComparer.Equals(
                     sourceSegment.Name,
                     stateMachineType.Segments[segment]))
@@ -1016,29 +1014,84 @@ internal sealed class LibraryBodyAsyncSourceResolver
             segment < stateMachineType.Segments.Length;
             segment++)
         {
-            TypeDefinitionHandle match = default;
-            foreach (TypeDefinitionHandle nested
-                in _reader.GetTypeDefinition(current).GetNestedTypes())
+            IReadOnlyDictionary<string, TypeDefinitionHandle> nestedTypes =
+                GetTargetedNestedTypes(current, work);
+            if (!nestedTypes.TryGetValue(
+                    stateMachineType.Segments[segment],
+                    out TypeDefinitionHandle match)
+                || match.IsNil)
             {
-                TypeDefinition candidate =
-                    _reader.GetTypeDefinition(nested);
-                if (!_reader.StringComparer.Equals(
-                        candidate.Name,
-                        stateMachineType.Segments[segment]))
-                {
-                    continue;
-                }
-                if (!match.IsNil)
-                    return false;
-                match = nested;
-            }
-            if (match.IsNil)
                 return false;
+            }
             current = match;
         }
 
         stateMachineHandle = current;
         return true;
+    }
+
+    TargetedSourceTypeChain GetTargetedSourceTypeChain(
+        TypeDefinitionHandle sourceType,
+        MethodDefinitionGeneratedExpansionWork work) =>
+        _targetedSourceTypeChains.GetOrAdd(
+            sourceType,
+            handle => new Lazy<TargetedSourceTypeChain>(
+                () => BuildTargetedSourceTypeChain(handle, work),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    TargetedSourceTypeChain BuildTargetedSourceTypeChain(
+        TypeDefinitionHandle sourceType,
+        MethodDefinitionGeneratedExpansionWork work)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        bool complete =
+            MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    _reader,
+                    sourceType,
+                    chain,
+                    out int count,
+                    out _,
+                    out _);
+        for (int index = 1; index < count; index++)
+            work.RecordRelationshipNode(chain[index]);
+        return new([.. chain[..count]], complete);
+    }
+
+    IReadOnlyDictionary<string, TypeDefinitionHandle>
+        GetTargetedNestedTypes(
+            TypeDefinitionHandle parent,
+            MethodDefinitionGeneratedExpansionWork work) =>
+            _targetedNestedTypesByParent.GetOrAdd(
+                parent,
+                handle => new Lazy<
+                    IReadOnlyDictionary<
+                        string,
+                        TypeDefinitionHandle>>(
+                    () => BuildTargetedNestedTypes(handle, work),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    IReadOnlyDictionary<string, TypeDefinitionHandle>
+        BuildTargetedNestedTypes(
+            TypeDefinitionHandle parent,
+            MethodDefinitionGeneratedExpansionWork work)
+    {
+        var result = new Dictionary<
+            string,
+            TypeDefinitionHandle>(
+                StringComparer.Ordinal);
+        foreach (TypeDefinitionHandle nested
+            in _reader.GetTypeDefinition(parent).GetNestedTypes())
+        {
+            work.RecordRelationshipNode(nested);
+            string name = _reader.GetString(
+                _reader.GetTypeDefinition(nested).Name);
+            if (!result.TryAdd(name, nested))
+                result[name] = default;
+        }
+        return result;
     }
 
     StateMachineExecutionMethods BuildStateMachineExecutionMethods()
@@ -2142,6 +2195,10 @@ internal sealed class LibraryBodyAsyncSourceResolver
             AuthenticatedStateMachines,
         IReadOnlySet<MetadataTypeDefinitionName>
             RejectedStateMachines);
+
+    sealed record TargetedSourceTypeChain(
+        ImmutableArray<TypeDefinitionHandle> Types,
+        bool Complete);
 
     readonly record struct StateMachineExecutionSource(
         MethodDefinitionHandle Source,

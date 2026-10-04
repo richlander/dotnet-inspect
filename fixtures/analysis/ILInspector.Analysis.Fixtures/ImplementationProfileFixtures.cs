@@ -96,6 +96,23 @@ public static class GeneratedUnsafeEvidenceSample
     }
 }
 
+public static class GeneratedExpansionAsyncSiblingSample
+{
+    public static async Task<int> FirstAsync(int value)
+    {
+        await Task.Yield();
+        return System.Runtime.CompilerServices.Unsafe.As<int, int>(
+            ref value);
+    }
+
+    public static async Task<int> SecondAsync(int value)
+    {
+        await Task.Yield();
+        return System.Runtime.CompilerServices.Unsafe.As<int, int>(
+            ref value);
+    }
+}
+
 public static class GeneratedExpansionNestedTypeBudgetSample
 {
     public static int Identity(int value) => value;
