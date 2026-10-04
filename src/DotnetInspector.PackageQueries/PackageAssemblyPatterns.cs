@@ -28,14 +28,14 @@ public sealed class PackageAssemblyPatternRequest
 {
     internal PackageAssemblyPatternRequest(
         PackageAssemblyPatternDescriptor pattern,
-        StringLiteralUseOperand operand)
+        StringLiteralUsePredicate predicate)
     {
         Pattern = pattern;
-        Operand = operand;
+        Predicate = predicate;
     }
 
     public PackageAssemblyPatternDescriptor Pattern { get; }
-    public StringLiteralUseOperand Operand { get; }
+    public StringLiteralUsePredicate Predicate { get; }
 }
 
 public static class PackageAssemblyPatterns
@@ -49,7 +49,7 @@ public static class PackageAssemblyPatterns
         PackageAssemblyPatternRole.ImplementationBody,
         PackageAssemblyPatternLibraryScope.AggregateRole,
         StringLiteralUsePatternAnalysis.ProducerId,
-        StringLiteralUseOperand.MaximumLength);
+        StringLiteralUsePredicate.MaximumLength);
 
     public static ImmutableArray<PackageAssemblyPatternDescriptor> Descriptors { get; } =
         [LiteralPattern];
@@ -66,7 +66,11 @@ public static class PackageAssemblyPatterns
                 "The assembly pattern is not registered.",
                 nameof(patternId));
         }
-        return new(LiteralPattern, StringLiteralUseOperand.Create(operand));
+        return new(
+            LiteralPattern,
+            StringLiteralUsePredicate.Create(
+                StringLiteralUsePredicateKind.Contains,
+                operand));
     }
 }
 

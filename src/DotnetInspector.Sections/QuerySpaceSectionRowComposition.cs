@@ -541,17 +541,31 @@ public static class QuerySpaceSectionRowResolver
                     resolution.Failure));
         }
 
-        bool countOnly =
-            validatedRequest.Terminal
-                is QuerySpaceTerminalRequirement.Count
-            && resolution.SchemaBinding!
-                .CanExecuteCountWithoutRows;
+        bool canExecuteCountWithoutRows =
+            resolution.SchemaBinding!.CanExecuteCountWithoutRows;
         var exactCountIdentities =
             exactCounts is null
                 ? null
                 : new HashSet<string>(
                     exactCounts.Keys,
                     StringComparer.Ordinal);
+        var unresolved =
+            new List<
+                SectionRowSetDeclaration<string, TProjection>>(
+                    participating.Length);
+        foreach (SectionRowSetDeclaration<string, TProjection> rowSet
+            in participating)
+        {
+            if (exactCounts?.ContainsKey(rowSet.Identity) is not true)
+                unresolved.Add(rowSet);
+        }
+        SectionRowCapabilityPlan<string>? capabilityPlan =
+            unresolved.Count == 0
+                ? null
+                : SectionRowCapabilityPlanner.Plan(
+                    unresolved,
+                    validatedRequest.Terminal,
+                    canExecuteCountWithoutRows);
         for (int index = 0; index < participating.Length; index++)
         {
             if (exactCounts?.TryGetValue(
@@ -565,8 +579,9 @@ public static class QuerySpaceSectionRowResolver
             }
             else
             {
-                participating[index] =
-                    participating[index].ResolveSnapshot(countOnly);
+                participating[index] = participating[index].ResolveSnapshot(
+                    capabilityPlan!.IsCountOnly(
+                        participating[index].Identity));
             }
         }
         var sectionAssociation =

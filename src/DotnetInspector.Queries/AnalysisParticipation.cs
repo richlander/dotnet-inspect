@@ -22,7 +22,8 @@ public sealed class AnalysisSurfaceParticipation
     public AnalysisSurfaceParticipation(
         AnalysisReportSurfaceKind surface,
         IEnumerable<FindingDescriptor> descriptors,
-        AnalysisDeclarationId producerRoute)
+        AnalysisDeclarationId producerRoute,
+        IEnumerable<AnalysisProjectionDescriptor>? projections = null)
     {
         if (!Enum.IsDefined(surface))
             throw new ArgumentOutOfRangeException(nameof(surface));
@@ -45,6 +46,17 @@ public sealed class AnalysisSurfaceParticipation
                 "Finding descriptors must be unique within one surface.",
                 nameof(descriptors));
         }
+        Projections = projections is null ? [] : [.. projections];
+        if (Projections.Any(projection => projection is null))
+            throw new ArgumentException("The collection cannot contain null.", nameof(projections));
+        if (Projections.Select(projection => projection.Id)
+                .Distinct()
+                .Count() != Projections.Length)
+        {
+            throw new ArgumentException(
+                "Projection descriptors must be unique within one surface.",
+                nameof(projections));
+        }
         Surface = surface;
         ProducerRoute = producerRoute;
     }
@@ -56,6 +68,9 @@ public sealed class AnalysisSurfaceParticipation
 
     /// <summary>The producer route (not its delivery) dispatched at this surface.</summary>
     public AnalysisDeclarationId ProducerRoute { get; }
+
+    /// <summary>Result projections this participation exposes at this surface.</summary>
+    public ImmutableArray<AnalysisProjectionDescriptor> Projections { get; }
 }
 
 /// <summary>One owner-issued operation participation declaration.</summary>

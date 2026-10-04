@@ -21,6 +21,7 @@ export interface CompareFrameOptions {
   readonly targetText: string;
   readonly status: string;
   readonly content: string;
+  readonly tools?: string;
   readonly escapeHtml: (value: unknown) => string;
 }
 
@@ -50,6 +51,7 @@ export function renderCompareFrame(options: CompareFrameOptions): string {
           <button type="button" class="compare-change-target" id="compare-change-target">Change target</button>
         </div>
       </div>
+      ${options.tools ?? ""}
       <div class="compare-mode-tabs" role="tablist" aria-label="Compare modes">${tabs}</div>
     </header>
     <div id="compare-panel" class="compare-panel" role="tabpanel" aria-labelledby="compare-mode-${mode}">${options.content}</div>

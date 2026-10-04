@@ -29,6 +29,10 @@ public sealed class PackageAssemblyQueryPlanningTests
         Assert.Equal(
             PackageAssemblyPatternRole.ImplementationBody,
             plan.Pattern.Pattern.Role);
+        Assert.Equal(
+            StringLiteralUsePredicateKind.Contains,
+            plan.Pattern.Predicate.Kind);
+        Assert.Equal("Json", plan.Pattern.Predicate.DisplayText.ToString());
         Assert.Same(PackageAssemblyEvaluationBudget.Default, plan.Budget);
     }
 
