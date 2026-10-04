@@ -65,13 +65,17 @@ The target CLI has one compact discovery, query, and companion-output model:
 | --- | --- |
 | `-D` | Discover the registered facets available for the command or resolved subject, including each facet's semantic Content kind and presentation shape. |
 | `-Q <facet>` | Execute one or more registered facets by canonical ID or contextual dot notation. |
+| `--explain[ <projection>]` | Return the selected explanation projection on `stdout` instead of ordinary Content. |
 | `-E` | Emit the complete default explanation for the executed request as a final `stderr` sidecar. |
 | `-E .tips` | Dereference only the bounded related-gesture projection from that explanation. |
 | `-E .references` | Dereference one owner-issued reusable reference per selected semantic row as the final `stderr` sidecar. |
 
-`--explain` remains the terminal form: it returns explanation Content on
-`stdout` instead of executing the selected facet. Top-level `explain` remains
-the installed-resource and reusable-reference facade.
+`--explain` and `-E` select from the same bare/default, `.tips`, and
+`.references` namespace. `--explain` is the primary form: it returns the
+selected projection on `stdout` instead of executing the selected facet.
+`-E` is the companion form: it preserves ordinary output and writes the
+selected projection to `stderr`. Top-level `explain` remains the
+installed-resource and reusable-reference facade.
 
 For example:
 
@@ -516,33 +520,36 @@ dotnet-inspect library System.Text.Json \
 
 ### Companion family
 
-`-E` is the explicit companion-output family. Exactly one projection is
-selected per invocation:
+`--explain` and `-E` share one explanation-projection namespace:
 
-- bare `-E` requests the complete default contextual explanation for the
-  resolved request;
-- `-E .tips` dereferences only the deterministic bounded executable-gesture
+- bare selects the complete default contextual explanation for the resolved
+  request;
+- `.tips` dereferences only the deterministic bounded executable-gesture
   projection; and
-- `-E .references` dereferences one owner-issued reusable reference for every
+- `.references` dereferences one owner-issued reusable reference for every
   selected semantic row, in selected order.
 
-The `-E` option establishes the current companion resource. An absent operand
-selects that resource's default complete explanation; a leading dot selects one
-exact named child in the companion-projection namespace. `.tips` and
+`--explain` establishes primary placement on stdout and replaces ordinary
+Content. `-E` establishes companion placement on stderr after ordinary
+Content. An absent operand selects the current resource's default complete
+explanation; a leading dot selects one exact named child in the
+explanation-projection namespace. `.tips` and
 `.references` are owner-issued projection names, not search text,
 `ViewFacetId` values, Registry aliases, or persisted cross-host identity.
 
-The leading dot is also the option-value ownership marker. After `-E`, a dotted
-token belongs to `-E`; an unrelated undotted token remains available to
-ordinary command and positional parsing. An unknown dotted value is an invalid
-companion projection and fails before acquisition with the known `.tips` and
+The leading dot is also the option-value ownership marker. After either option,
+a dotted token belongs to that option; an unrelated undotted token remains
+available to ordinary command and positional parsing. An unknown dotted value
+is invalid and fails before acquisition with the known `.tips` and
 `.references` values.
 
 The former undotted spellings `-E tips` and `-E references` are invalid and
 receive focused replacement diagnostics. They do not remain aliases and cannot
 silently rebind `tips` or `references` as positional subjects. Repeated `-E`,
 including repetitions that select the same projection, is invalid rather than
-order-dependent.
+order-dependent. Repeated `--explain` is equally invalid. Selecting the same
+projection once at each placement is a duplicate and is also invalid;
+selecting different projections at the two placements remains valid.
 
 Complete explanation means complete at the explanation owner's documented
 finite default extent. It does not mean recursive traversal, execution of Info
@@ -556,10 +563,10 @@ Each row contributes its already-issued reusable reference. A selected row set
 without a complete reference projection fails before output rather than
 falling through to ordinary Content or omitting rows.
 
-Without `-E`, explanation descriptors, affordances, host bindings, ranking,
-reference projection, and companion rendering remain unrealized beyond
-ordinary option parsing and descriptor work already required by the selected
-facet.
+Without an explanation-projection request, explanation descriptors,
+affordances, host bindings, ranking, reference projection, and explanation
+rendering remain unrealized beyond ordinary option parsing and descriptor work
+already required by the selected facet.
 
 When any `-E` projection is requested, the CLI:
 
@@ -599,6 +606,7 @@ owning output-sink contract; the process cannot roll back bytes already
 accepted by an external stream.
 
 `--explain -E` is rejected as duplicate full explanation.
+`--explain .tips -E .tips` is rejected as duplicate tips.
 `--explain -E .tips` is useful and remains admitted.
 `--explain -E .references` is rejected because terminal explanation does not
 execute and select the ordinary semantic rows whose references it would
