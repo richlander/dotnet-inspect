@@ -158,4 +158,4 @@ while preserving cursor replay, indexed prefix access, and on-demand detail
 resolution. The mixed query's declared needs select that retained source and
 run about 33% faster than eager separate passes. A pure shallow forward set
 selects the stream instead and pays no retention. These numbers are diagnostic,
-not accepted evidence; the controlled-host NativeAOT gate remains unverified.
+not accepted evidence; the accepted controlled-host result is recorded above.
