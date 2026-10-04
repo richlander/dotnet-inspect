@@ -570,9 +570,14 @@ approves keeping the PR intact. Full checkpoint mechanics:
   `ci-required` unless parallel review is approved or conflict recovery applies.
   Query GitHub status only when the round cadence requires it; follow
   [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
-  instead of polling. During a bounded wait, fetch the live base and locally
-  test each new tip for conflicts; never report budget exhaustion without
-  checking the final tip. If an hour passes without an authored change while
+  instead of polling. Every status attempt — before reviewer dispatch, at each
+  bounded-wait snapshot, at a check-in, and in merge preflight — begins with
+  the local conflict probe: fetch the live base and test-merge the candidate
+  head before any GitHub query. A local conflict enters conflict recovery at
+  once, whatever GitHub's mergeability fields report and whether or not the API
+  answers; those fields can be rate-limited, `null`, or stale, so they confirm
+  the probe and never replace it. Never report budget exhaustion without
+  probing the final tip. If an hour passes without an authored change while
   an independent gate hasn't started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate
   (`.github/workflows/ci.yml`): it passes only when the aggregate itself
