@@ -84,12 +84,19 @@ issued by its owners.
 
 `--explain` and `-E` are placement gestures over one explanation projection
 namespace. Bare selects the complete explanation Document. `.tips` selects a
-bounded host-gesture projection over owner-issued affordances, and `.reference`
-selects reusable owner-issued inspection references. The
+bounded host-gesture projection over owner-issued affordances. The approved
+successor to the former `--references` projection is singular `.reference`,
+which selects reusable owner-issued inspection references. The
 [Contextual Resource Explanation](contextual-resource-explanation.md) owner
 defines their admission, stream, ordering, and direct-subject handoff. This
 owner defines the complete Document they can select and the typed relationships
 from which host projections may be derived.
+
+This design records the approved singular target but does not admit that
+spelling by itself. Contextual Resource Explanation and the dotted-gesture
+grammar currently reserve plural `.references`; their focused #7916 adoption
+must replace that reservation, diagnostics, and examples before `.reference`
+is available in production.
 
 The intended agent loop is:
 
@@ -300,8 +307,9 @@ Adapter construction is bidirectionally total within that boundary:
 - every canonical registration resolves to exactly one authoritative resource
   in the declared domain;
 - every authoritative relationship of an adopted kind produces exactly one
-  typed graph edge, including an opaque external edge when the target owner has
-  no registered path; and
+  typed observation, preserving a targetless admitted outcome or every
+  available graph target, including an opaque external target when the target
+  owner has no registered path; and
 - no projected resource or relationship exists without its owner-issued
   source.
 
@@ -434,8 +442,8 @@ ExplanationSchema
 
 ExplanationResourceSnapshot
   owner-issued explanation key and resource-type identity
-  schema-conforming direct facts
-  schema-conforming relationship targets
+  schema-conforming direct fact observations
+  schema-conforming relationship observations
   zero or more owner-issued public addresses
 
 ExplanationCatalog
@@ -444,9 +452,10 @@ ExplanationCatalog
   validated cross-owner identity and relationship joins
 
 ResourceExplanationDocument
+  self-contained bounded schema slice
   one root resource
   bounded ordered resource expansion
-  bounded ordered relationships
+  bounded ordered relationship observations
   traversal receipt
 ```
 
@@ -560,24 +569,35 @@ One detached resource snapshot contains:
 
 - the exact owner-issued explanation key;
 - its declared resource-type identity and schema version;
-- direct fact values keyed by declared fact identity;
-- relationship targets keyed by declared relationship identity;
+- direct fact observations keyed by declared fact identity;
+- relationship observations keyed by declared relationship identity;
 - whether the snapshot represents an installed contract or a resolved
   request-scoped resource; and
 - zero or more owner-issued public addresses.
 
-Every fact value is validated against its declared shape and cardinality.
-Every relationship target preserves its owner-issued explanation key and must
-satisfy the declared target-type constraint. Equal labels, property names,
-field names, CLR types, or serialized values never create identity or
-relationships.
+Every available fact value is validated against its declared shape and
+cardinality. Every available relationship target preserves its owner-issued
+explanation key and must satisfy the declared target-type constraint. Equal
+labels, property names, field names, CLR types, or serialized values never
+create identity or relationships.
 
-One optional fact has three distinct states: declared absence, an available
-schema-conforming value, or an owner-issued unavailable or failed outcome when
-the fact declaration admits outcomes. Ordered-many facts similarly distinguish
-an available empty sequence from unavailable production. Outcome identity,
-reason, and diagnostics remain typed owner data; they are not encoded as
-`null`, an empty sequence, or display prose.
+One fact or relationship observation has exactly one state:
+
+- **Available** carries one schema-conforming value or an ordered target
+  sequence, including a valid empty sequence for ordered-many cardinality;
+- **Absent** carries no value and is valid only for optional-one cardinality;
+- **Unavailable** carries one owner-issued typed reason admitted by the
+  declaration; or
+- **Failed** carries one owner-issued typed failure admitted by the
+  declaration.
+
+Unavailable and failed relationship observations carry no target. A required
+relationship can therefore report a typed failure without inventing a target,
+and an available empty many-target sequence remains distinct from absence,
+unavailability, and failure.
+
+Outcome identity, reason, and diagnostics remain typed owner data; they are not
+encoded as `null`, an empty sequence, or display prose.
 
 A public address is navigation, not semantic identity. Resource Explanation
 owns canonical product-resource paths for installed resources. The reusable
@@ -594,10 +614,10 @@ safety, and resolution remain with that owner. The Document therefore never
 uses one untyped string field for both a product-resource path and a reusable
 inspection reference.
 
-An unavailable relationship remains an owner-issued unavailable or failed
-outcome where that owner admits such an outcome. It is not replaced by an
-empty target list, display placeholder, or omission that looks like successful
-absence.
+An unavailable relationship remains its targetless owner-issued unavailable
+or failed observation where that owner admits such an outcome. It is not
+replaced by an empty target list, display placeholder, or omission that looks
+like successful absence.
 
 ### Explanation catalog
 
@@ -610,12 +630,14 @@ Construction validates:
 1. Schema, resource-type, fact, relationship, resource, and
    public-address-kind identities are unique in their declared scopes.
 2. Every installed snapshot conforms to one available resource-type schema.
-3. Every declared fact value and relationship target conforms to its shape,
-   cardinality, and target constraint.
+3. Every observation state is admitted by its declaration, and every available
+   fact value or relationship target conforms to its shape, cardinality, and
+   target constraint.
 4. Every public-address value resolves to at most one resource within its
    address kind, and every canonical path resolves to exactly one installed
    resource.
-5. Every required navigable relationship target has one registered address.
+5. Every available relationship target whose declaration requires navigation
+   has one registered address.
 6. Every adopted owner domain is represented completely under that owner's
    declared adoption boundary.
 7. No composed fact, relationship, or resource exists without an owner-issued
@@ -624,6 +646,31 @@ Construction validates:
 Invalid composition prevents catalog publication. A host never advertises a
 partially accepted database or silently drops an owner declaration.
 
+### Document schema slice
+
+The completed Document contains the smallest self-contained schema slice that
+interprets every emitted value, observation, target, and address. In
+deterministic owner declaration order it carries:
+
+- each schema identity and version used by the Document;
+- every complete resource-type declaration needed by an emitted resource or
+  target, including its fact and relationship declarations;
+- every data-shape declaration transitively referenced by those declarations
+  and emitted values; and
+- every public-address-kind declaration needed by an emitted address.
+
+The slice carries owner-issued meanings, field and case declarations,
+cardinalities, admitted outcomes, and target constraints. Hosts therefore
+lower the completed Document without consulting owner catalogs or guessing
+semantics from identifiers.
+
+Every request contains a positive schema-declaration limit in addition to its
+resource and relationship limits. The root resource's required schema closure
+must fit or the operation fails visibly without a partial Document. Expansion
+admits another resource or relationship observation only when both the item
+and its newly required transitive declarations fit. The traversal receipt
+records schema declarations emitted and schema-limit truncation separately.
+
 ### Resource Explanation Document
 
 The completed Content value is:
@@ -631,24 +678,35 @@ The completed Content value is:
 ```text
 ResourceExplanationDocument
   object-model schema version
+  ordered self-contained schema slice
+    schema identities and versions
+    data-shape declarations
+    resource-type, fact, and relationship declarations
+    public-address-kind declarations
   root explanation key
   root resource-type identity
   requested public-address kind and value when one was used
   ordered resources
     explanation key and resource-type identity
     available typed public addresses
-    ordered schema-conforming facts
-  ordered relationships
+    ordered fact observations
+      fact identity
+      available, absent, unavailable, or failed outcome
+      schema-conforming value or typed outcome data
+  ordered relationship observations
     source explanation key
     relationship identity
-    target explanation key and resource-type identity
-    available typed target addresses
+    available, absent, unavailable, or failed outcome
+    ordered available targets
+      target explanation key and resource-type identity
+      available typed target addresses
   traversal receipt
     requested depth
-    requested resource and relationship limits
+    requested schema, resource, and relationship limits
     completed depth
+    emitted schema declaration count
     visited resource count
-    emitted relationship count
+    emitted relationship-observation count
     completeness
     truncation reasons
 ```
@@ -664,7 +722,8 @@ and diagnostics. Registration of a stable `result_kind`, schema version, and
 wire serializer remains an output-contract-owner adoption; it does not delay
 use of the ordinary typed service envelope.
 
-The requested root appears exactly once. Every relationship target is one of:
+The requested root appears exactly once. Every available relationship target
+is one of:
 
 - an expanded resource in the Document;
 - a registered resource outside the selected traversal bound, with its
@@ -739,15 +798,16 @@ Document to match their visual layout.
 ### Default explanation
 
 Every host-neutral request contains resolved numeric limits for maximum depth,
-resources, and relationships. Hosts may offer shorthands, but they resolve
-those defaults before calling Resource Explanation. The completed Document
-records all three limits.
+schema declarations, resources, and relationship observations. Hosts may offer
+shorthands, but they resolve those defaults before calling Resource
+Explanation. The completed Document records all four limits.
 
 Default explanation resolves depth zero:
 
 - the root resource and its typed direct facts are complete;
-- direct relationships are listed in deterministic order up to the explicit
-  relationship limit, with every available target address; and
+- direct relationship observations are listed in deterministic order up to
+  the explicit relationship limit, preserving targetless outcomes and every
+  available target address; and
 - related resources are not expanded.
 
 This keeps the common response concise while making the next exact gesture
@@ -765,19 +825,21 @@ copy an unbounded descriptor collection.
 ### Recursive explanation
 
 Recursive explanation expands declared relationships only. The semantic
-request contains explicit non-negative maximum depth and positive resource and
-relationship limits. A CLI shorthand may supply documented finite defaults,
-but the host-neutral request always contains the resolved numeric bounds.
+request contains explicit non-negative maximum depth and positive schema,
+resource, and relationship limits. A CLI shorthand may supply documented
+finite defaults, but the host-neutral request always contains the resolved
+numeric bounds.
 
 Traversal:
 
 1. starts with the root at depth zero;
 2. visits each explanation key at most once;
-3. records encountered relationships in total deterministic order until the
-   relationship limit is reached;
-4. expands a target only when the next depth and resource limit admit it; and
-5. records depth, resource, and relationship truncation in the traversal
-   receipt.
+3. records encountered relationship observations in total deterministic order
+   until the relationship limit is reached;
+4. expands a target only when the next depth, schema, and resource limits admit
+   it; and
+5. records depth, schema, resource, and relationship truncation in the
+   traversal receipt.
 
 Cycles therefore remain visible as relationships when encountered before the
 relationship bound, but cannot loop. No host may replace any bound with an
@@ -906,14 +968,15 @@ The complete Document may expose every owner-issued related-operation
 relationship. `.tips` applies the Contextual Resource Explanation host-binding
 and ranking contract to those relationships.
 
-`.reference` remains the separate row-preserving projection owned by
-Contextual Resource Explanation. Each selected semantic row retains one
-owner-issued reusable-reference value conforming to a declared reference
-shape. The projection does not require every selected row to become an
-explainable resource, enter the catalog, or appear in the complete Document.
-When a resolved root resource itself has a reusable inspection reference, that
-reference may also be one of its public addresses; neither use changes the
-resource key or schema.
+The approved singular `.reference` remains the separate row-preserving
+projection owned by Contextual Resource Explanation, staged until that owner
+and the dotted-gesture grammar replace their current plural reservation. Each
+selected semantic row retains one owner-issued reusable-reference value
+conforming to a declared reference shape. The projection does not require
+every selected row to become an explainable resource, enter the catalog, or
+appear in the complete Document. When a resolved root resource itself has a
+reusable inspection reference, that reference may also be one of its public
+addresses; neither use changes the resource key or schema.
 
 ### Output-contract resources
 
@@ -1038,8 +1101,9 @@ valid command without guessing semantic identities.
    the same object model.
 7. Run the same exact Member with `-E`; ordinary stdout remains unchanged and
    the same complete explanation Content follows on stderr.
-8. Select `.tips` to project applicable host gestures, or `.reference` to
-   issue the reusable Member identity once #7916 supplies it.
+8. Select `.tips` to project applicable host gestures. After the focused
+   contextual and #7916 adoption replaces the plural reservation, select
+   `.reference` to issue the reusable Member identity.
 
 The neighboring missing-target case runs the same structural explanation
 without a package, file, or platform selection. It must produce equal Content,
@@ -1063,7 +1127,8 @@ The pathological graph includes:
 - an authoritative resource added without a path registration;
 - an authoritative relationship omitted by its adapter;
 - a cycle of cross-owner navigational relationships; and
-- valid expansions truncated by depth, resource, and relationship limits.
+- valid expansions truncated by depth, schema, resource, and relationship
+  limits.
 
 ## Invariants and evidence
 
@@ -1072,14 +1137,15 @@ Implementation slices must name Release gates for the following properties:
 | Property | Required gate |
 | --- | --- |
 | Owner schemas are closed, internally valid, and independent of concrete domain assemblies. | Schema-construction tests covering scalar, term, record, choice, reference, and cardinality declarations, plus a real owner-specific shape whose CLR type stays in its owner assembly. |
-| Every snapshot fact and relationship conforms to its declared shape, cardinality, and target-type constraint. | Construction matrix covering valid values, optional absence, unavailable and failed outcomes, invalid scalar/term/record/choice values, excess cardinality, and wrong-target relationships. |
+| Every snapshot fact and relationship observation uses an admitted state and every available value or target conforms to its declared shape, cardinality, and target-type constraint. | Construction matrix covering valid values, optional absence, available-empty many values, targetless unavailable and failed outcomes, invalid scalar/term/record/choice values, excess cardinality, and wrong-target relationships. |
+| Every completed Document carries the bounded transitive schema slice needed to interpret all emitted observations, targets, and addresses without owner-catalog access. | Document-construction tests over colliding physical scalar values with distinct named meanings, nested record/choice references, typed addresses, schema-limit truncation, and a root closure that exceeds the schema limit and fails without partial Content. |
 | Installed resources and detached resolved resources use the same Document model without placing contextual snapshots in the installed catalog. | Shared Content-shape tests over one installed query facet and one exact `System.Text.Json` Member, with catalog immutability asserted before and after contextual explanation. |
 | Canonical paths are shell-safe, unique case-insensitively, and registered rather than derived from labels. | Registry-construction tests over every shipped registration. |
-| Each adopted descriptor domain has bidirectionally total resource registration and relationship projection. | Adapter-construction tests comparing the complete real owner enumerations with projected identities and edges, plus omission, duplicate, and extra-projection contract fixtures. |
+| Each adopted descriptor domain has bidirectionally total resource registration and relationship-observation projection. | Adapter-construction tests comparing the complete real owner enumerations with projected identities and observations, plus omission, duplicate, and extra-projection contract fixtures. |
 | Exact resolution returns one root or a visible failure with no partial Document. | Resolver contract tests including unknown paths and bounded suggestions. |
 | Structural, query, value, and contextual snapshots preserve owner-issued typed identities and native values. | Adapter contract tests against real owner descriptors and the exact Member contextual basis. |
 | Equal labels do not create resource identity or relationships. | Collision fixture spanning structural and query owners. |
-| Recursive traversal visits each identity once, preserves encountered cycle edges, and reports depth, resource, and relationship truncation. | Cyclic and permuted-input graph fixtures exercising every bound and the total ordering key. |
+| Recursive traversal visits each identity once, preserves encountered cycle edges, and reports depth, schema, resource, and relationship truncation. | Cyclic and permuted-input graph fixtures exercising every bound and the total ordering key. |
 | Capability explanation performs no acquisition. | Host-level missing-target test with acquisition and planning services replaced by fail-fast recording fakes, asserting no capability was requested. |
 | Direct contextual explanation resolves and acquires once, then hands one detached snapshot to Resource Explanation without serializing a reusable reference. | Authentic exact-Member integration test with counting resolution/acquisition collaborators and fail-fast reference serialization and ordinary-content producers. |
 | CLI and Browser/Wasm receive equal Content for equal descriptor inputs. | Shared Content equality or serialization fixture exercised by both hosts. |
