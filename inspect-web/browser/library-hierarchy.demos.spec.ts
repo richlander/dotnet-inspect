@@ -269,10 +269,26 @@ test("Ecosystems is a first-class product catalog destination", async ({
   );
   const discoveredPackages = page.locator(
     "[data-ecosystem-package-open]");
+  const packageAdmissions = page.locator(
+    "[data-ecosystem-package-add]");
   await expect(discoveredPackages).toHaveCount(24);
+  await expect(packageAdmissions).toHaveCount(24);
   await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
   const initialOperation = await page.locator("html").getAttribute(
     "data-ecosystem-package-query");
+  await packageAdmissions.first().click();
+  await expect(packageAdmissions.first()).toHaveText("Added");
+  await expect(page).toHaveURL(`/ecosystems/${ecosystemId}`);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admissions",
+    /"Aspire\.Hosting","9\.0\.0","ecosystem\.fixture-[^"]+","ExactPackage","Aspire\.Hosting"/u,
+  );
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
   await discoveredPackages.first().click();
   await expect(page.locator(".query-error")).toHaveText(
     "Fixture package activation failed.");

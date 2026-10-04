@@ -25,6 +25,11 @@ function packageRow(index: number): QueryResultRow {
     answers: [],
     evidence: [],
     totalDownloads: index,
+    ecosystemAdmission: {
+      ecosystemId: "ecosystem.aspire",
+      basis: "PackagePrefix",
+      registration: "Aspire.",
+    },
   };
 }
 
@@ -44,6 +49,7 @@ test("Ecosystem discovery renders cumulative 24, 48, and 96 capacities", () => {
     capacity: 24,
     pendingCapacity: null,
     navigationError: "",
+    packageAddStates: new Map(),
   }, escapeHtml);
 
   assert.match(html, /24 packages shown/);
@@ -69,11 +75,47 @@ test("completed Ecosystem discovery removes capacities that cannot reveal more",
     capacity: 48,
     pendingCapacity: null,
     navigationError: "",
+    packageAddStates: new Map(),
   }, escapeHtml);
 
   assert.match(html, /30 packages shown/);
   assert.doesNotMatch(html, /data-ecosystem-package-capacity="96"/);
   assert.match(html, /All matching packages are shown/);
+});
+
+test("Ecosystem discovery renders distinct Open and Workspace admission states", () => {
+  const query = initialQueryState();
+  query.request = createEcosystemQueryRequest("ecosystem.aspire");
+  query.outcome = {
+    rows: [packageRow(1), packageRow(2), packageRow(3)],
+    assessments: [],
+    failures: [],
+    progress: [],
+    completion: { kind: "exhausted" },
+  };
+  const states = new Map([
+    ["Aspire.Package.1\u00009.0.0", { status: "adding" as const }],
+    ["Aspire.Package.2\u00009.0.0", { status: "added" as const }],
+    ["Aspire.Package.3\u00009.0.0", {
+      status: "failed" as const,
+      message: "Admission failed visibly.",
+    }],
+  ]);
+
+  const html = renderEcosystemPackageDiscovery({
+    query,
+    capacity: 24,
+    pendingCapacity: null,
+    navigationError: "",
+    packageAddStates: states,
+  }, escapeHtml);
+
+  assert.equal((html.match(/>Open</g) ?? []).length, 3);
+  assert.match(html, />Adding\u2026</);
+  assert.match(html, />Added</);
+  assert.match(html, />Add to workspace</);
+  assert.match(html, /Admission failed visibly\./);
+  assert.equal((html.match(/ disabled/g) ?? []).length, 3);
 });
 
 test("Ecosystem capacity parsing accepts only product capacities", () => {

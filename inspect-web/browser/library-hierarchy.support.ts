@@ -1015,6 +1015,11 @@ async function installFacades(
           rootRequest: null,
           owners: ["fixture"],
           manifest: null,
+          ecosystemAdmission: {
+            ecosystemId,
+            basis: index === 0 ? "ExactPackage" : "PackagePrefix",
+            registration: index === 0 ? packageId : "Aspire.",
+          },
         };
       }
       function packageQueryCompletion(ecosystemId, count) {
@@ -3239,6 +3244,75 @@ async function installFacades(
             kind: "PackageUnavailable",
             message: "Fixture package activation failed.",
           },
+        };
+      }
+      export async function admitEcosystemPackageToWorkspace(
+        retainedDefinitionId,
+        realizationId,
+        packageId,
+        version,
+        ecosystemId,
+        basis,
+        registration,
+      ) {
+        if (preparedRetainedWorkspace === null
+          || preparedRetainedWorkspace.retainedDefinitionId
+            !== retainedDefinitionId
+          || preparedRetainedWorkspace.realizationId !== realizationId) {
+          return {
+            status: "superseded",
+            posting: null,
+            navigation: null,
+            message: null,
+          };
+        }
+        const navigation = structuredClone(
+          preparedRetainedWorkspace.navigation,
+        );
+        navigation.operation = "Scope";
+        navigation.request = "ecosystem-package-admission";
+        navigation.snapshot.generation =
+          "ecosystem-workspace-generation-admitted";
+        navigation.outcome = {
+          kind: "Applied",
+          rejection: null,
+          failureSource: null,
+          message: null,
+          request: null,
+          resolution: null,
+          scope: {
+            kind: "Committed",
+            operation: "Add",
+            rejection: null,
+            failure: null,
+          },
+          diagnostics: [],
+          coordinateRetention: null,
+        };
+        navigation.synchronization = "Current";
+        navigation.authority = {
+          session: "ecosystem-session",
+          revision: "ecosystem-admission-revision",
+          intent: "ecosystem-admission-intent",
+          epoch: "ecosystem-admission-epoch",
+        };
+        preparedRetainedWorkspace = {
+          ...preparedRetainedWorkspace,
+          navigation,
+        };
+        document.documentElement.dataset.ecosystemPackageAdmissions =
+          JSON.stringify([
+            packageId,
+            version,
+            ecosystemId,
+            basis,
+            registration,
+          ]);
+        return {
+          status: "admitted",
+          posting: preparedRetainedWorkspace,
+          navigation,
+          message: null,
         };
       }
       export async function commitRetainedWorkspaceActivation() {

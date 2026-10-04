@@ -4,6 +4,7 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using NuGetFetch;
 
 namespace DotnetInspect.Web;
@@ -165,6 +166,8 @@ internal sealed class BrowserRetainedNavigationPreparation
             options.PackageSurfaceLimits);
     }
 
+    internal ApiSurfaceProjectionLimits SurfaceLimits => _surfaceLimits;
+
     internal ValueTask<NavigationPreparation> PrepareAsync(
         WorkspaceRealizationOperationLease operation,
         NavigationEvaluationRequest request,
@@ -265,6 +268,97 @@ internal sealed class BrowserRetainedNavigationPreparation
                     _availability)));
     }
 
+    internal ValueTask<NavigationScopePreparation> PrepareEcosystemScopeAsync(
+        WorkspaceRealizationOperationLease operation,
+        NavigationScopeEvaluationRequest request,
+        WorkspaceScopeOperationResult settlement,
+        WorkspaceEcosystemRegistrationDeclaration declaration,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(settlement);
+        ArgumentNullException.ThrowIfNull(declaration);
+        if (!ReferenceEquals(operation.Realization, request.Workspace))
+        {
+            return ValueTask.FromResult<NavigationScopePreparation>(
+                new NavigationScopePreparation.Unavailable(
+                    "The Navigation Scope operation names a different "
+                        + "Workspace realization."));
+        }
+        if (settlement is WorkspaceScopeOperationResult.Unavailable)
+        {
+            return ValueTask.FromResult<NavigationScopePreparation>(
+                new NavigationScopePreparation.Historical());
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        WorkspaceScopeSnapshot scope = settlement switch
+        {
+            WorkspaceScopeOperationResult.Committed committed =>
+                committed.Snapshot,
+            WorkspaceScopeOperationResult.NoEffect noEffect =>
+                noEffect.Snapshot,
+            WorkspaceScopeOperationResult.Rejected rejected =>
+                rejected.Snapshot,
+            WorkspaceScopeOperationResult.Failed failed =>
+                failed.Snapshot,
+            WorkspaceScopeOperationResult.Cancelled cancelled =>
+                cancelled.Snapshot,
+            WorkspaceScopeOperationResult.Superseded superseded =>
+                superseded.Snapshot,
+            _ => throw new InvalidOperationException(
+                "Unknown Workspace Scope settlement."),
+        };
+        WorkspaceRegistrationReadResult registrations =
+            operation.Workspace.GetRegistrationSnapshot();
+        if (registrations is WorkspaceRegistrationReadResult.Unavailable
+                unavailable)
+        {
+            return ValueTask.FromResult<NavigationScopePreparation>(
+                new NavigationScopePreparation.Unavailable(
+                    $"Workspace registrations are unavailable: "
+                        + $"{unavailable.RuntimeFailure}."));
+        }
+
+        WorkspaceRegistrationRevision revision =
+            ((WorkspaceRegistrationReadResult.Available)registrations).Revision;
+        WorkspaceEcosystemRegistrationOccurrence[] occurrences =
+        [
+            .. revision.EcosystemContributions
+                .Select(static contribution => contribution.Ecosystem)
+                .Where(occurrence =>
+                    occurrence.Declaration.Id == declaration.Id),
+        ];
+        if (occurrences.Length != 1
+            || !ReferenceEquals(
+                occurrences[0].Declaration,
+                declaration))
+        {
+            return ValueTask.FromResult<NavigationScopePreparation>(
+                new NavigationScopePreparation.Unavailable(
+                    $"Ecosystem '{declaration.Id}' is no longer the exact "
+                        + "active Workspace registration."));
+        }
+
+        return ValueTask.FromResult<NavigationScopePreparation>(
+            new NavigationScopePreparation.Ready(
+                new(
+                    scope,
+                    Package: null,
+                    _availability)
+                {
+                    Ecosystem = new(
+                        revision,
+                        occurrences[0]),
+                },
+                new(
+                    StructuralSubjectIdentity.ForEcosystem(
+                        StructuralSubjectIdentity.ForWorkspace(
+                            operation.Realization),
+                        occurrences[0]))));
+    }
+
     sealed record Source(
         PackageRootBinding Binding,
         WorkspacePackageOccurrenceDescriptor Occurrence,
@@ -301,6 +395,29 @@ internal abstract record BrowserRetainedWorkspacePackageOperationAdmission
 
     internal sealed record Unavailable(string Message)
         : BrowserRetainedWorkspacePackageOperationAdmission;
+}
+
+internal abstract record BrowserEcosystemPackageAdmissionResult
+{
+    private protected BrowserEcosystemPackageAdmissionResult() { }
+
+    internal sealed record Admitted(
+        BrowserRetainedWorkspacePosting Posting,
+        NavigationOperationResult Navigation)
+        : BrowserEcosystemPackageAdmissionResult;
+
+    internal sealed record NoEffect(
+        BrowserRetainedWorkspacePosting Posting)
+        : BrowserEcosystemPackageAdmissionResult;
+
+    internal sealed record Failed(
+        string Message,
+        BrowserRetainedWorkspacePosting? Posting = null,
+        NavigationOperationResult? Navigation = null)
+        : BrowserEcosystemPackageAdmissionResult;
+
+    internal sealed record Superseded
+        : BrowserEcosystemPackageAdmissionResult;
 }
 
 internal sealed record BrowserRetainedWorkspaceCleanupEvidence(string Message);
@@ -1262,6 +1379,404 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
         admitted.Lease.Dispose();
         return new WorkspaceRealizationOperationAdmission.Unavailable(
             WorkspaceRealizationOperationUnavailableReason.NoActiveRealization);
+    }
+
+    internal async Task<BrowserEcosystemPackageAdmissionResult>
+        AdmitEcosystemPackageAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string packageId,
+            string version,
+            PackageQueryEcosystemAdmission admission,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentNullException.ThrowIfNull(admission);
+
+        WorkspaceRealizationOperationAdmission entered =
+            await EnterOperationAsync(
+                retainedDefinitionId,
+                cancellationToken).ConfigureAwait(false);
+        if (entered
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Superseded();
+        }
+        using WorkspaceRealizationOperationLease operation = admitted.Lease;
+
+        BrowserRetainedWorkspacePosting expected;
+        CompleteRestorationRequestBasis.RegistrationOnlyEcosystemInput request;
+        WorkspaceEcosystemRegistrationDeclaration declaration;
+        lock (_gate)
+        {
+            if (_active is not { } active
+                || active.RetainedDefinitionId != retainedDefinitionId
+                || active.RealizationId != realizationId
+                || !ReferenceEquals(active.Realization, operation.Realization))
+            {
+                return new BrowserEcosystemPackageAdmissionResult.Superseded();
+            }
+            expected = active;
+            if (active.RestorationRequest
+                is not CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemInput ecosystem)
+            {
+                return new BrowserEcosystemPackageAdmissionResult.Failed(
+                    "The active retained Workspace is not an Ecosystem "
+                        + "Workspace.");
+            }
+            request = ecosystem;
+            WorkspaceRegistration.Ecosystem[] registrations =
+            [
+                .. request.Plan.Registrations
+                    .OfType<WorkspaceRegistration.Ecosystem>()
+                    .Where(candidate =>
+                        candidate.Declaration.Id == request.Ecosystem),
+            ];
+            if (registrations.Length != 1)
+            {
+                return new BrowserEcosystemPackageAdmissionResult.Failed(
+                    $"The active Workspace does not retain exactly one "
+                        + $"Ecosystem registration '{request.Ecosystem}'.");
+            }
+            declaration = registrations[0].Declaration;
+        }
+
+        if (!ValidateEcosystemAdmission(
+                declaration,
+                packageId,
+                admission,
+                out string? admissionFailure))
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Failed(
+                admissionFailure!);
+        }
+
+        WorkspacePackageOccurrenceDescriptor? existing =
+            operation.Scope.Packages.FirstOrDefault(candidate =>
+                candidate.Occurrence.Package.PackageId.Equals(
+                    packageId,
+                    StringComparison.OrdinalIgnoreCase)
+                && candidate.Occurrence.Package.PackageVersion.Equals(
+                    version,
+                    StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            lock (_gate)
+            {
+                if (!ReferenceEquals(_active, expected))
+                {
+                    return new BrowserEcosystemPackageAdmissionResult
+                        .Superseded();
+                }
+                bool projected = expected.Packages.Any(package =>
+                    package.Inventory.Package.PackageId.Equals(
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && package.Inventory.Package.PackageVersion.Equals(
+                        version,
+                        StringComparison.OrdinalIgnoreCase));
+                return projected
+                    ? new BrowserEcosystemPackageAdmissionResult.NoEffect(
+                        expected)
+                    : new BrowserEcosystemPackageAdmissionResult.Failed(
+                        $"Package '{packageId}' {version} is already admitted "
+                            + "but its Browser presentation is unavailable.",
+                        expected);
+            }
+        }
+
+        BrowserPackageAcquisitionResult acquisition =
+            await BrowserPackageWorkspace.AcquireWithSettlementAsync(
+                packageId,
+                version,
+                cancellationToken).ConfigureAwait(false);
+        if (acquisition
+            is BrowserPackageAcquisitionResult.NotSettled notSettled)
+        {
+            string message = notSettled.VersionSettlement.Content
+                is PackageVersionSettlementOutcome.NotSettled failure
+                    ? failure.Failure.Reason.ToString()
+                    : "Package version settlement did not complete.";
+            return new BrowserEcosystemPackageAdmissionResult.Failed(message);
+        }
+
+        BrowserPackage package =
+            ((BrowserPackageAcquisitionResult.Acquired)acquisition)
+                .Acquisition.Package;
+        if (!package.PackageId.Equals(
+                packageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !package.Version.Equals(
+                version,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Failed(
+                $"Package acquisition returned '{package.PackageId}' "
+                    + $"{package.Version} instead of '{packageId}' {version}.");
+        }
+        var binding = package.CreateRootBinding(
+            request.Plan.TraversalTargetPolicy.TargetFramework);
+
+        if (!IsCurrentEcosystemRegistration(
+                expected,
+                operation,
+                declaration))
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Superseded();
+        }
+
+        WorkspaceScopeRequest scopeRequest =
+            operation.Workspace.IssueAddPackagesRequest(
+                operation.Scope.Revision,
+                operation.Scope.PublicationBase,
+                [binding],
+                DateTimeOffset.UtcNow.Add(
+                    BrowserPackageWorkspace.PackageChangesOperationTimeout));
+        BrowserNavigationScopeOperationResult navigation;
+        try
+        {
+            navigation =
+                await expected.NavigationState.ExecuteScopeOperationAsync(
+                    scopeRequest,
+                    (submitted, token) =>
+                    {
+                        if (!IsCurrentEcosystemRegistration(
+                                expected,
+                                operation,
+                                declaration))
+                        {
+                            return ValueTask.FromException<
+                                WorkspaceScopeOperationResult>(
+                                new EcosystemAdmissionSupersededException());
+                        }
+                        return operation.Workspace.SubmitScopeRequestAsync(
+                            submitted,
+                            token);
+                    },
+                    (evaluation, settlement, token) =>
+                        expected.NavigationPreparation
+                            .PrepareEcosystemScopeAsync(
+                                operation,
+                                evaluation,
+                                settlement,
+                                declaration,
+                                token),
+                    cancellationToken).ConfigureAwait(false);
+        }
+        catch (EcosystemAdmissionSupersededException)
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Superseded();
+        }
+        if (navigation
+            is BrowserNavigationScopeOperationResult.Refused refused)
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Failed(
+                refused.Refusal.Message);
+        }
+        if (navigation is BrowserNavigationScopeOperationResult.Retired)
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Superseded();
+        }
+
+        var completed =
+            (BrowserNavigationScopeOperationResult.Completed)navigation;
+        BrowserRetainedWorkspacePosting navigationPosting;
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_active, expected))
+            {
+                return new BrowserEcosystemPackageAdmissionResult.Superseded();
+            }
+            navigationPosting = expected with
+            {
+                Navigation = completed.Result.Consumer,
+            };
+            _active = navigationPosting;
+        }
+
+        if (completed.Result.Consumer.Outcome.Kind
+            != NavigationOutcomeKind.Applied
+            || completed.Settlement
+                is not WorkspaceScopeOperationResult.Committed committed)
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Failed(
+                completed.Result.Consumer.Outcome.Message
+                    ?? $"Workspace Scope admission returned "
+                        + $"'{completed.Settlement.GetType().Name}'.",
+                navigationPosting,
+                completed.Result);
+        }
+
+        WorkspacePackageOccurrenceDescriptor? occurrence =
+            committed.Snapshot.FindExactPackageOccurrence(binding);
+        if (occurrence?.Realization.Status
+            is not ArtifactRootRealizationStatus.Ready ready)
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Failed(
+                $"The admitted Package '{packageId}' {version} is not ready.",
+                navigationPosting,
+                completed.Result);
+        }
+        NavigationConsumerPackageDescriptor[] consumerPackages =
+        [
+            .. completed.Result.Consumer.Snapshot.Packages.Where(candidate =>
+                candidate.PackageId.Equals(
+                    packageId,
+                    StringComparison.OrdinalIgnoreCase)
+                && candidate.Version.Equals(
+                    version,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+        if (consumerPackages.Length != 1)
+        {
+            return new BrowserEcosystemPackageAdmissionResult.Failed(
+                $"Navigation projected {consumerPackages.Length} entries for "
+                    + $"the admitted Package '{packageId}' {version}.",
+                navigationPosting,
+                completed.Result);
+        }
+
+        ArtifactRootResult<NavigationPackageEvaluation> evaluated =
+            await operation.Workspace.ExecutePackageRootQueryAsync(
+                (PackageArtifactRootCorrespondence)
+                    occurrence.Occurrence.Correspondence,
+                ready.Generation,
+                (realization, token) => ValueTask.FromResult(
+                    NavigationPackageEvaluationFactory.Create(
+                        occurrence,
+                        binding,
+                        realization,
+                        ApiSurfaceScope.PublicWithNonPublicTypes,
+                        navigationPosting.NavigationPreparation.SurfaceLimits,
+                        token)),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (evaluated
+            is not ArtifactRootResult<NavigationPackageEvaluation>.Available
+                available)
+        {
+            string failure = ((ArtifactRootResult<
+                NavigationPackageEvaluation>.Rejected)evaluated)
+                .Failure.ToString();
+            return new BrowserEcosystemPackageAdmissionResult.Failed(
+                $"The admitted Package could not be projected: {failure}.",
+                navigationPosting,
+                completed.Result);
+        }
+
+        string navigationId = consumerPackages[0].Subject.Id;
+        int contextIndex = navigationPosting.Packages
+            .Select(static presentation => presentation.ContextIndex)
+            .Concat(navigationPosting.Platforms.Select(
+                static presentation => presentation.ContextIndex))
+            .DefaultIfEmpty(-1)
+            .Max() + 1;
+        CompleteRestorationPackageInventory inventory =
+            CompleteRestorationPackageInventory.Capture(
+                navigationId,
+                contextIndex,
+                binding,
+                available.Value);
+        var presentation = new BrowserRetainedWorkspacePackagePresentation(
+            navigationId,
+            contextIndex,
+            consumerPackages[0].Subject.Id,
+            inventory,
+            BrowserPackageSurfaceProjection.Project(
+                inventory,
+                BrowserPackage.ProjectIcon(
+                    PackageIconQuery.Execute(binding.Root))));
+        BrowserRetainedWorkspacePosting finalPosting;
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_active, navigationPosting))
+            {
+                return new BrowserEcosystemPackageAdmissionResult.Superseded();
+            }
+            finalPosting = navigationPosting with
+            {
+                Packages = [.. navigationPosting.Packages, presentation],
+            };
+            _active = finalPosting;
+        }
+        return new BrowserEcosystemPackageAdmissionResult.Admitted(
+            finalPosting,
+            completed.Result);
+    }
+
+    bool IsCurrentEcosystemRegistration(
+        BrowserRetainedWorkspacePosting expected,
+        WorkspaceRealizationOperationLease operation,
+        WorkspaceEcosystemRegistrationDeclaration declaration)
+    {
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_active, expected))
+                return false;
+        }
+        WorkspaceRegistrationReadResult registrations =
+            operation.Workspace.GetRegistrationSnapshot();
+        return registrations is WorkspaceRegistrationReadResult.Available
+            {
+                Revision: var revision,
+            }
+            && revision.EcosystemContributions.Count(contribution =>
+                contribution.Ecosystem.Declaration.Id == declaration.Id
+                && ReferenceEquals(
+                    contribution.Ecosystem.Declaration,
+                    declaration)) == 1;
+    }
+
+    static bool ValidateEcosystemAdmission(
+        WorkspaceEcosystemRegistrationDeclaration declaration,
+        string packageId,
+        PackageQueryEcosystemAdmission admission,
+        out string? failure)
+    {
+        if (admission.Ecosystem != declaration.Id)
+        {
+            failure =
+                $"Package admission names Ecosystem '{admission.Ecosystem}' "
+                    + $"instead of '{declaration.Id}'.";
+            return false;
+        }
+
+        bool valid = admission.Basis switch
+        {
+            PackageQueryEcosystemMembershipBasis.ExactPackage =>
+                packageId.Equals(
+                    admission.Registration,
+                    StringComparison.OrdinalIgnoreCase)
+                && declaration.CorePackages.Any(package =>
+                    package.PackageId.Equals(
+                        admission.Registration,
+                        StringComparison.OrdinalIgnoreCase)),
+            PackageQueryEcosystemMembershipBasis.PackagePrefix =>
+                packageId.StartsWith(
+                    admission.Registration,
+                    StringComparison.OrdinalIgnoreCase)
+                && declaration.Populations
+                    .OfType<
+                        WorkspaceEcosystemPopulationDeclaration.PackagePrefix>()
+                    .Any(prefix => prefix.Prefix.Prefix.Equals(
+                        admission.Registration,
+                        StringComparison.OrdinalIgnoreCase)),
+            _ => false,
+        };
+        failure = valid
+            ? null
+            : $"Package '{packageId}' does not satisfy the exact "
+                + $"{admission.Basis} registration "
+                + $"'{admission.Registration}' in Ecosystem "
+                + $"'{declaration.Id}'.";
+        return valid;
+    }
+
+    sealed class EcosystemAdmissionSupersededException : Exception
+    {
     }
 
     internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePackagePresentation>>

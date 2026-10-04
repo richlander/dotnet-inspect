@@ -14,11 +14,18 @@ export interface EcosystemPackageDiscoveryViewState {
   readonly capacity: EcosystemPackageCapacity;
   readonly pendingCapacity: EcosystemPackageCapacity | null;
   readonly navigationError: string;
+  readonly packageAddStates: ReadonlyMap<string, EcosystemPackageAddState>;
 }
 
 export interface EcosystemPackageDiscoveryActions {
   onCapacity: (capacity: EcosystemPackageCapacity) => void;
   onPackageOpen: (packageId: string, version: string) => void;
+  onPackageAdd: (packageId: string, version: string) => void;
+}
+
+export interface EcosystemPackageAddState {
+  readonly status: "adding" | "added" | "failed";
+  readonly message?: string;
 }
 
 export function isEcosystemPackageCapacity(
@@ -101,6 +108,8 @@ function status(
 
 function packageRow(
   row: QueryResultRow,
+  addState: EcosystemPackageAddState | undefined,
+  admissionPending: boolean,
   escapeHtml: (value: unknown) => string,
 ): string {
   return `
@@ -118,8 +127,17 @@ function packageRow(
         <span>${row.totalDownloads === null
           ? "Lifetime downloads unavailable"
           : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
-        <button type="button" data-ecosystem-package-open="${escapeHtml(row.packageId)}" data-ecosystem-package-version="${escapeHtml(row.version)}">Open</button>
+        <span class="query-row-actions">
+          <button type="button" data-ecosystem-package-open="${escapeHtml(row.packageId)}" data-ecosystem-package-version="${escapeHtml(row.version)}">Open</button>
+          ${row.ecosystemAdmission === null
+              || row.ecosystemAdmission === undefined
+            ? ""
+            : `<button type="button" data-ecosystem-package-add="${escapeHtml(row.packageId)}" data-ecosystem-package-version="${escapeHtml(row.version)}"${admissionPending || addState?.status === "added" ? " disabled" : ""}>${addState?.status === "adding" ? "Adding\u2026" : addState?.status === "added" ? "Added" : "Add to workspace"}</button>`}
+        </span>
       </div>
+      ${addState?.status === "failed"
+        ? `<p class="query-error" role="alert">${escapeHtml(addState.message ?? "Package admission failed.")}</p>`
+        : ""}
     </article>`;
 }
 
@@ -127,8 +145,15 @@ export function renderEcosystemPackageDiscovery(
   state: EcosystemPackageDiscoveryViewState,
   escapeHtml: (value: unknown) => string,
 ): string {
+  const admissionPending = [...state.packageAddStates.values()]
+    .some(addState => addState.status === "adding");
   const rows = state.query.outcome.rows
-    .map(row => packageRow(row, escapeHtml))
+    .map(row => packageRow(
+      row,
+      state.packageAddStates.get(`${row.packageId}\u0000${row.version}`),
+      admissionPending,
+      escapeHtml,
+    ))
     .join("");
   const failures = state.query.outcome.failures
     .map(failure => `<li>${escapeHtml(failure)}</li>`)
@@ -174,5 +199,12 @@ export function bindEcosystemPackageDiscovery(
     const packageId = button.dataset.ecosystemPackageOpen;
     const version = button.dataset.ecosystemPackageVersion;
     if (packageId && version) actions.onPackageOpen(packageId, version);
+  }));
+  root.querySelectorAll<HTMLButtonElement>(
+    "[data-ecosystem-package-add]",
+  ).forEach(button => button.addEventListener("click", () => {
+    const packageId = button.dataset.ecosystemPackageAdd;
+    const version = button.dataset.ecosystemPackageVersion;
+    if (packageId && version) actions.onPackageAdd(packageId, version);
   }));
 }

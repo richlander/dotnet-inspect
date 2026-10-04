@@ -190,6 +190,29 @@ public partial class PackageQueryTests
                 match,
                 PackageQuery.EcosystemEvidenceId,
                 "basis")));
+        Assert.Equal(
+            [
+                (
+                    "ecosystem.contoso",
+                    PackageQueryEcosystemMembershipBasis.ExactPackage,
+                    "Contoso.Core"),
+                (
+                    "ecosystem.contoso",
+                    PackageQueryEcosystemMembershipBasis.ExactPackage,
+                    "Contoso.Hosting"),
+                (
+                    "ecosystem.contoso",
+                    PackageQueryEcosystemMembershipBasis.PackagePrefix,
+                    "Contoso."),
+                (
+                    "ecosystem.contoso",
+                    PackageQueryEcosystemMembershipBasis.PackagePrefix,
+                    "Fabrikam."),
+            ],
+            matches.Select(match => (
+                match.EcosystemAdmission!.Ecosystem.Value,
+                match.EcosystemAdmission.Basis,
+                match.EcosystemAdmission.Registration)));
         Assert.All(matches, match =>
         {
             PackageQueryEvidence scope = match.Evidence[0];
