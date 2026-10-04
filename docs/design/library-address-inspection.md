@@ -145,6 +145,6 @@ Release tests cover:
 - cancellation and invalid-request lease settlement; and
 - detached content remaining readable after Library retirement.
 
-PackageHouse composition, CLI and Inspect Web adoption, discovery projection,
-and retirement of the legacy package-to-Library continuation remain later
-slices of #8672.
+This slice supplies PackageHouse composition, CLI adoption, and discovery
+projection. Inspect Web adoption and retirement of the legacy
+package-to-Library continuation remain later slices of #8672.
