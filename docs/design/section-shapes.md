@@ -255,14 +255,21 @@ presentation code.
 
 Where properties appear follows from the format:
 
-- a tree or a native Document prints them once, after the subject identity
-  on the title line, in issued order;
+- a tree prints them once, after the subject identity on the title line, in
+  issued order;
 - a Markdown composition prints them on the section heading line or the
   document title in the same way;
-- a structured format carries them as a sibling of the content, named and
-  ordered as issued; and
+- a native Document prints its payload only, because the payload is the whole
+  output and a title would decorate it; its properties appear when the same
+  Document is rendered inside a composition; and
 - a row stream has no place for them and omits them, because a header row
   describes columns, not context.
+
+Structured formats do not carry properties under this document.
+[Projected JSON](projected-json.md) gives each section one value and owns the
+root namespace, so a per-section property association is a Projected JSON
+design question. Until that owner defines one, structured output omits
+properties, and no adoption invents a carriage of its own.
 
 The subject's identity itself — the package, library, type, or member being
 inspected — is not a property. Identity is owned by the subject's resolution;
@@ -278,11 +285,11 @@ Share slot, which carries a packet or URL, not shell text. Neither belongs in a
 content row or field. A consumer reading the content must not be able to tell
 which host produced it.
 
-**The title prints issued properties and nothing else.** A section or command
-title carries the subject identity and the owner-issued properties for what is
-shown. Facts about the subject that the user did not select belong in their
-own sections, not in the title, and no renderer adds a value the owner did not
-issue.
+**The title prints issued properties and nothing else.** Where a format has a
+title or heading, it carries the subject identity and the owner-issued
+properties for what is shown. Facts about the subject that the user did not
+select belong in their own sections, not in the title, and no renderer adds a
+value the owner did not issue.
 
 **Count is shape-invariant.** For an inventory section, Count, `-n`, and
 `--rows` observe the same rows in every permitted lowering of that section.
@@ -428,7 +435,8 @@ gates covering, for its command:
   and its body in the native and structured ones;
 - the absence of host replay text from structured content;
 - title and heading text composed only from the subject identity and issued
-  properties, with the same properties carried in structured output; and
+  properties, a bare payload for a native Document, and no properties in row
+  streams or structured output; and
 - the one-row hierarchy, absent document, heterogeneous request, and
   homogeneous family cases above.
 
@@ -447,5 +455,6 @@ This document does not:
 - define Browser/Wasm widgets or interaction;
 - change section identity, categories, verbosity presets, or cost classes;
 - define discovery output columns;
-- fix the vocabulary of property names, which each owner issues; or
+- fix the vocabulary of property names, which each owner issues;
+- define how structured formats carry properties, which Projected JSON owns; or
 - authorize one implementation sweep across commands.
