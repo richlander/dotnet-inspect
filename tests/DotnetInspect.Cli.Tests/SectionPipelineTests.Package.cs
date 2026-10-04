@@ -105,6 +105,34 @@ public partial class SectionPipelineTests
             categories[SectionCategoryNames.Audit]);
     }
 
+    [Fact]
+    public void PackagePipeline_DependencyDomainIssuesOneExactFacetSet()
+    {
+        SectionCatalog<InspectionResult> catalog =
+            PackageSectionDescriptors.SectionCatalog;
+
+        ViewFacetSetDescriptor set = Assert.Single(catalog.AuthoredFacetSets);
+        Assert.Same(PackageSectionDescriptors.DependenciesFacetSet, set);
+        Assert.Equal("dependencies", set.Id.Value);
+        Assert.Equal("Dependencies", set.Title);
+        Assert.Equal(
+            ["package.dependencies", "package.dependency-hierarchy"],
+            set.Facets.Select(static facet => facet.Value));
+        Assert.DoesNotContain(
+            set.Facets,
+            static facet => facet.Value == "package.overview");
+
+        CompiledSectionCategory category = Assert.Single(
+            catalog.AuthoredCategories,
+            static category =>
+                category.Name == SectionCategoryNames.Dependencies);
+        Assert.Same(set, category.FacetSet);
+        Assert.All(
+            catalog.AuthoredCategories.Where(
+                static category => category.Role == SectionCategoryRole.Base),
+            static category => Assert.Null(category.FacetSet));
+    }
+
     [Theory]
     [InlineData("ordinary text", false)]
     [InlineData("C:\\tmp\\package", false)]
