@@ -62,6 +62,13 @@ reads the same prepared snapshot, so no lane pays a body-byte copy during
 measurement. This scorecard therefore measures shallow prefix retention above
 the non-materializing `InstructionDecoder.Visit` floor.
 
+The standalone bounded-flow scenario prepares its known probe offsets only
+when that scenario is requested, during exact checking before its timed lanes.
+Loading an asset or running a throw-only or forward-shallow plan performs no
+flow-probe instruction scan. The mixed classifier query discovers its
+allocation candidates inside every measured lane because candidate discovery
+is part of that query.
+
 The scorecard does not claim that every random-access analyzer can settle
 early. It establishes the sequence mechanics for analyzers that request
 instructions incrementally. Full-body Count, complete control-flow, and
@@ -100,18 +107,18 @@ over 51,626 bodies: zero aggregate mismatches and zero per-body mismatches.
 | Single-classifier lane | Ratio to planner-selected stream | Asset range |
 | --- | ---: | ---: |
 | Planner-selected stream | 1.00x | 1.00-1.00x |
-| Lazy shallow cursor | 2.37x | 2.08-2.72x |
-| Eager decoded instructions | 3.90x | 3.63-4.18x |
+| Lazy shallow cursor | 2.34x | 2.28-2.39x |
+| Eager decoded instructions | 3.61x | 2.68-4.25x |
 
 | Five-classifier lane | Ratio to eager separate passes | Asset range |
 | --- | ---: | ---: |
 | Eager decoded separate passes | 1.00x | 1.00-1.00x |
-| Eager decoded fused pass | 1.01x | 0.89-1.14x |
-| Planner-selected lazy shared | 0.65x | 0.52-0.72x |
+| Eager decoded fused pass | 0.93x | 0.78-1.07x |
+| Planner-selected lazy shared | 0.67x | 0.55-0.86x |
 
-The lazy shallow single-classifier lane costs about 61% of eager full decode
+The lazy shallow single-classifier lane costs about 65% of eager full decode
 while preserving cursor replay, indexed prefix access, and on-demand detail
 resolution. The mixed query's declared needs select that retained source and
-run about 35% faster than eager separate passes. A pure shallow forward set
+run about 33% faster than eager separate passes. A pure shallow forward set
 selects the stream instead and pays no retention. These numbers are diagnostic,
 not accepted evidence; the controlled-host NativeAOT gate remains unverified.

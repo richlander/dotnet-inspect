@@ -296,11 +296,13 @@ public sealed partial class PreparedMethodBodies
 
     public FlowProbeSummary EagerFlowProbes()
     {
+        ImmutableArray<MethodBodyFlowProbeInput> inputs =
+            FlowProbeInputs;
         int newObjectProbes = 0;
         int newObjectThrows = 0;
         int boxProbes = 0;
         int boxThrows = 0;
-        foreach (MethodBodyFlowProbeInput input in _flowProbeInputs)
+        foreach (MethodBodyFlowProbeInput input in inputs)
         {
             ImmutableArray<DecodedInstruction> instructions =
                 InstructionDecoder.Decode(
@@ -325,7 +327,7 @@ public sealed partial class PreparedMethodBodies
         }
 
         return new(
-            _flowProbeInputs.Length,
+            inputs.Length,
             newObjectProbes,
             newObjectThrows,
             boxProbes,
@@ -334,11 +336,13 @@ public sealed partial class PreparedMethodBodies
 
     public FlowProbeSummary LazyShallowFlowProbes()
     {
+        ImmutableArray<MethodBodyFlowProbeInput> inputs =
+            FlowProbeInputs;
         int newObjectProbes = 0;
         int newObjectThrows = 0;
         int boxProbes = 0;
         int boxThrows = 0;
-        foreach (MethodBodyFlowProbeInput input in _flowProbeInputs)
+        foreach (MethodBodyFlowProbeInput input in inputs)
         {
             var sequence =
                 new InstructionSequence(_bodyIl[input.BodyIndex]);
@@ -362,7 +366,7 @@ public sealed partial class PreparedMethodBodies
         }
 
         return new(
-            _flowProbeInputs.Length,
+            inputs.Length,
             newObjectProbes,
             newObjectThrows,
             boxProbes,
@@ -372,9 +376,11 @@ public sealed partial class PreparedMethodBodies
     public ImmutableArray<FlowProbeMismatch>
         CheckFlowProbeAgreement()
     {
+        ImmutableArray<MethodBodyFlowProbeInput> inputs =
+            FlowProbeInputs;
         var mismatches =
             ImmutableArray.CreateBuilder<FlowProbeMismatch>();
-        foreach (MethodBodyFlowProbeInput input in _flowProbeInputs)
+        foreach (MethodBodyFlowProbeInput input in inputs)
         {
             ImmutableArray<byte> il = _bodyIl[input.BodyIndex];
             ImmutableArray<DecodedInstruction> instructions =

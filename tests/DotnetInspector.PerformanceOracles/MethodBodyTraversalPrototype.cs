@@ -36,7 +36,7 @@ public sealed partial class PreparedMethodBodies : IDisposable
     readonly ImmutableArray<ImmutableArray<byte>> _bodyIl;
     readonly ImmutableArray<MethodDefinitionHandle> _methodHandles;
     readonly ImmutableArray<int> _stableGetterBodyIndices;
-    readonly ImmutableArray<MethodBodyFlowProbeInput> _flowProbeInputs;
+    ImmutableArray<MethodBodyFlowProbeInput> _flowProbeInputs;
     readonly CallScan _calls = new();
     readonly AllocationScan _allocations = new();
     readonly ThrowScan _throws = new();
@@ -56,8 +56,6 @@ public sealed partial class PreparedMethodBodies : IDisposable
         var methodHandles =
             ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
         var stableGetterBodyIndices = ImmutableArray.CreateBuilder<int>();
-        var flowProbeInputs =
-            ImmutableArray.CreateBuilder<MethodBodyFlowProbeInput>();
         foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
         {
             MethodDefinition method = reader.GetMethodDefinition(handle);
@@ -85,10 +83,6 @@ public sealed partial class PreparedMethodBodies : IDisposable
                 stableGetterBodyIndices.Add(bodyIndex);
             }
 
-            MethodBodyFlowProbeInput probes =
-                MethodBodyFlowProbeInput.Create(bodyIndex, il);
-            if (probes.HasProbes)
-                flowProbeInputs.Add(probes);
         }
 
         _bodies = bodies.ToImmutable();
@@ -96,10 +90,38 @@ public sealed partial class PreparedMethodBodies : IDisposable
         _methodHandles = methodHandles.ToImmutable();
         _stableGetterBodyIndices =
             stableGetterBodyIndices.ToImmutable();
-        _flowProbeInputs = flowProbeInputs.ToImmutable();
     }
 
     public int BodyCount => _bodies.Length;
+
+    internal bool FlowProbeInputsPrepared =>
+        !_flowProbeInputs.IsDefault;
+
+    internal ImmutableArray<MethodBodyFlowProbeInput> FlowProbeInputs
+    {
+        get
+        {
+            if (!_flowProbeInputs.IsDefault)
+                return _flowProbeInputs;
+
+            var inputs =
+                ImmutableArray.CreateBuilder<MethodBodyFlowProbeInput>();
+            for (int bodyIndex = 0;
+                bodyIndex < _bodyIl.Length;
+                bodyIndex++)
+            {
+                MethodBodyFlowProbeInput probes =
+                    MethodBodyFlowProbeInput.Create(
+                        bodyIndex,
+                        _bodyIl[bodyIndex]);
+                if (probes.HasProbes)
+                    inputs.Add(probes);
+            }
+
+            _flowProbeInputs = inputs.ToImmutable();
+            return _flowProbeInputs;
+        }
+    }
 
     public static IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> LoadAssets(
         IReadOnlyList<string> paths)

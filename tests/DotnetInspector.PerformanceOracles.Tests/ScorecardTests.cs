@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Queries;
+using ILInspector.Instructions;
 using NLinq;
 
 namespace DotnetInspector.PerformanceOracles.Tests;
@@ -226,7 +227,9 @@ public sealed class ScorecardTests
                 [typeof(ScorecardTests).Assembly.Location]);
         try
         {
+            Assert.False(assets[0].Asset.FlowProbeInputsPrepared);
             Assert.Empty(assets[0].Asset.CheckThrowPresenceAgreement());
+            Assert.False(assets[0].Asset.FlowProbeInputsPrepared);
             ScorecardColumn<
                 PreparedMethodBodies,
                 MethodThrowPresenceSummary>[] columns =
@@ -333,7 +336,7 @@ public sealed class ScorecardTests
     {
         IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
             PreparedMethodBodies.LoadAssets(
-                [typeof(ScorecardTests).Assembly.Location]);
+                [typeof(InstructionSequence).Assembly.Location]);
         try
         {
             Assert.Empty(
@@ -352,6 +355,36 @@ public sealed class ScorecardTests
             Assert.True(
                 check.Agrees,
                 string.Join(Environment.NewLine, check.Mismatches));
+            ClassifierQuerySummary summary = Assert.Single(
+                columns[^1].Answer(
+                    ScorecardClosing.Rows,
+                    assets[0].Asset)
+                .Rows!);
+            Assert.True(summary.StableGetters > 0);
+        }
+        finally
+        {
+            foreach (ScorecardAsset<PreparedMethodBodies> asset in assets)
+                asset.Asset.Dispose();
+        }
+    }
+
+    [Fact]
+    public void FlowProbeInventory_IsPreparedOnlyForFlowScenario()
+    {
+        IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
+            PreparedMethodBodies.LoadAssets(
+                [typeof(ScorecardTests).Assembly.Location]);
+        try
+        {
+            PreparedMethodBodies bodies = assets[0].Asset;
+            Assert.False(bodies.FlowProbeInputsPrepared);
+
+            bodies.PlannedThrowPresence();
+            Assert.False(bodies.FlowProbeInputsPrepared);
+
+            bodies.CheckFlowProbeAgreement();
+            Assert.True(bodies.FlowProbeInputsPrepared);
         }
         finally
         {
