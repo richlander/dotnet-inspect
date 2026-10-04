@@ -103,6 +103,10 @@ public sealed partial class WorkspaceContextLoaderTests
                         LocatorDefinition(metadata, "N", "Widget");
                         LocatorDefinition(metadata, "N.Child", "Nested");
                         LocatorDefinition(metadata, "N", "Box`1");
+                        LocatorDefinition(
+                            metadata,
+                            "N",
+                            "NullablePatternTarget`1");
                     }));
         TypeFindQuestion question =
             TypeFindQuestion.Create(
@@ -119,6 +123,9 @@ public sealed partial class WorkspaceContextLoaderTests
                     TypeFindPattern.Create(4, "idge"),
                     TypeFindPattern.Create(5, "Widgit"),
                     TypeFindPattern.Create(6, "Missing"),
+                    TypeFindPattern.Create(
+                        7,
+                        "N.NullablePatternTargat<string?>"),
                 ],
                 FindVisibility.Public);
 
@@ -145,7 +152,7 @@ public sealed partial class WorkspaceContextLoaderTests
                 match.Pattern.Ordinal == 2
                 && match.Match is TypeFindSemanticMatchKind.Glob);
         Assert.Equal(
-            3,
+            4,
             block.Matches.Count(
                 static match =>
                     match.Pattern.Ordinal == 3
@@ -166,6 +173,9 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Equal(
             FindPatternSettlementKind.NoMatch,
             block.Settlements[6].Kind);
+        Assert.Equal(
+            FindPatternSettlementKind.NoMatch,
+            block.Settlements[7].Kind);
     }
 
     [Fact]

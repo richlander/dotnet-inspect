@@ -858,7 +858,7 @@ public static class TypeFindSourceEvaluator
             {
                 match = TypeFindSemanticMatchKind.Substring;
             }
-            else if (pattern is not TypeFindPattern.Glob
+            else if (IsSimilarityEligible(pattern.Text)
                 && TypeMatcher.NameSimilarity(
                     fullName,
                     pattern.Text) is >= 0.5 and var score)
@@ -891,6 +891,10 @@ public static class TypeFindSourceEvaluator
         pattern.Contains('.')
         && !pattern.Contains('<')
         && !pattern.Contains('`');
+
+    private static bool IsSimilarityEligible(string pattern) =>
+        !pattern.Contains('*')
+        && !pattern.Contains('?');
 }
 
 /// <summary>Reduces ordered Type source outcomes into one portable block.</summary>
