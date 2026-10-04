@@ -76,9 +76,10 @@ closed, draft, and head or base-ref mismatch outrank conflict recovery. When
 the API cannot be read on this attempt, start conflict recovery only against
 the last successfully observed open, non-draft PR at the expected head and
 base ref; otherwise keep the recorded conflict and retry the read under the
-round cadence. If the budget expires in that state, surface the recorded
-conflict together with the lifecycle-read failure instead of the status
-budget report, which describes an unobserved result.
+round cadence. [Bounded status waiting](round-orchestration.md#bounded-status-waiting)
+owns what a budget that expires in that state publishes: the recorded
+conflict together with the lifecycle-read failure, not the status budget
+report, which describes an unobserved result.
 
 Fetch on every attempt so base movement is discovered, but rerun the test
 merge only for an unrecorded tip. Base movement alone does not invalidate the
@@ -167,8 +168,9 @@ by the same interpretation rules:
 `baseRef { target { oid } }`, `isDraft`, `mergeable`, and `mergeStateStatus`.
 Do not request `statusCheckRollup` in that first query.
 
-After validating the response, request `headRefOid` and `statusCheckRollup`
-state and contexts with `pageInfo` in a second query. Confirm `headRefOid` still equals the expected head before
+After validating the response, and unless a conflict is recorded, request
+`headRefOid` and `statusCheckRollup` state and contexts with `pageInfo` in a
+second query. Confirm `headRefOid` still equals the expected head before
 using the status result. Request enough contexts for the normal check matrix;
 if another page exists and `ci-required` is absent, page before concluding that
 the check is missing. These fields and the `MergeableState` and

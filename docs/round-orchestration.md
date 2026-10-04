@@ -195,9 +195,11 @@ snapshot runs and how its result changes round state.
 ### Obtain one snapshot
 
 Every snapshot begins with the local live-base conflict probe and only then
-reads GitHub; a rate-limited or stale API never skips the probe. The probe
-decides whether the candidate conflicts; the table below still ranks the PR
-read's lifecycle and head/base outcomes above conflict recovery. Follow
+reads GitHub; a rate-limited or stale API never skips the probe. A local
+conflict is decisive and GitHub's `mergeable` of `null` or `true` never clears
+it, while a GitHub-reported conflict still counts as one; the table below
+still ranks the PR read's lifecycle and head/base outcomes above conflict
+recovery. Follow
 [GitHub status queries](github-status-queries.md#probe-the-live-base-locally-first)
 for the probe and the rest of that document for API selection, request
 ordering, fixed-head checks, and response classification. This document does
@@ -222,7 +224,7 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
-| The local live-base test merge conflicts, or GitHub reports a conflict | Leave the status wait; apply conflict recovery before considering CI. The local result decides the conflict; a GitHub `mergeable` of `null` or `true` does not override it, while the rows above still outrank it. |
+| The local live-base test merge conflicts, or GitHub reports a conflict | Leave the status wait; apply conflict recovery before considering CI. A local conflict is decisive and a GitHub `mergeable` of `null` or `true` does not clear it; the rows above still outrank it. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
@@ -246,7 +248,9 @@ conflict probe. When CI is a reviewer-dispatch prerequisite, pending, missing,
 rate-limited, or transient status enters the 60-minute budget below; expiry publishes the status report and stops without
 dispatch. When CI may remain pending, record that status and continue the
 current review path. A known conflict, required CI completed without success,
-or terminal query failure still takes its transition.
+or terminal query failure still takes its transition, subject to the
+lifecycle rule in [GitHub status queries](github-status-queries.md#probe-the-live-base-locally-first)
+when the PR could not be read.
 
 A reviewer-dispatch CI prerequisite spends up to a 60-minute status budget
 before dispatch. Every third round, and any merge or readiness goal, may use the
@@ -274,7 +278,9 @@ sleeps, or concurrent status requests.
 
 When the budget expires with status unresolved, obtain a final snapshot. Do not
 publish the report below unless its fetched live base equals
-`conflict-checked-base`; classify and surface a fetch or probe failure instead.
+`conflict-checked-base`; instead classify and surface a fetch or probe
+failure, or a recorded local conflict together with the lifecycle-read
+failure that kept recovery from starting.
 Then clear `schedule`, keep the unresolved predicates, publish the report, set
 `rec=stop`, and end. This is an informational stop: it ends observation only
 and neither closes nor abandons the PR.
