@@ -362,7 +362,7 @@ public partial class LibraryCommand
     }
 
     /// <summary>
-    /// Converts bare <c>-S</c> into the library pipeline's fixed overview while
+    /// Converts bare <c>-S</c> into the library pipeline's fixed, network-free overview while
     /// preserving explicit selectors and higher user-selected verbosity.
     /// </summary>
     internal static LibraryOptions NormalizeBareSelect(
@@ -494,13 +494,13 @@ public partial class LibraryCommand
             }
         }
 
-        // Bare -S selects the "fixed" overview: only sections whose declared growth class is Fixed
-        // and whose cost is NetworkFree, so the rendered set is structurally identical for every
-        // package (absence means "not applicable", never "too long for this package"). This
-        // includes the symbol-dependent fact tables (Symbols, Signals), which acquire a missing
-        // PDB outside --offline and read only an embedded, adjacent, or cached PDB under it.
-        // Consume the marker so it never resolves as a section set; keep display verbosity at
-        // Normal so those PDB facts stay enabled (never downgrading a higher verbosity
+        // Bare -S selects the network-free "fixed" overview: only sections whose declared growth
+        // class is Fixed and whose cost is NetworkFree, so the rendered set is structurally
+        // identical for every package (absence means "not applicable", never "too long for this
+        // package"). This still includes the symbol-dependent fact tables (Symbols, Signals)
+        // because they read an embedded, adjacent, or already-cached PDB without touching the
+        // network. Consume the marker so it never resolves as a section set; keep display verbosity
+        // at Normal so the cache-only PDB read stays enabled (never downgrading a higher verbosity
         // the user asked for, in which case the normal curated ladder applies instead of the fixed
         // overview). Combined with an explicit selector the explicit selection wins and the marker
         // is dropped. See #3547.

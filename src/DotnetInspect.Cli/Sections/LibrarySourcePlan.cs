@@ -1,6 +1,5 @@
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
-using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -37,28 +36,14 @@ internal static class LibrarySourcePlans
         Section<LibrarySections.NonNormalizedPaths>(readCachedPdb: true),
     ];
 
-    // The library pipeline owns which sections an implicit render selects at each verbosity.
-    private static readonly Lazy<SectionPipeline<LibraryInspection>> s_pipeline =
-        new(LibrarySections.CreatePipeline);
-
     internal static ReadOnlySpan<LibrarySourceSectionPlan> Sections => s_sections;
 
     internal static LibrarySourcePlan For(LibraryOptions options)
-        => For(
-            options.UserVerbosity,
-            options.UserIncludeSections,
-            DotnetInspector.Networking.HttpClientFactory.IsOffline);
+        => For(options.UserVerbosity, options.UserIncludeSections);
 
-    /// <summary>
-    /// Plans PDB and source work for a library render. Outside <c>--offline</c>, an implicitly
-    /// rendered section that declares PDB facts may acquire a missing PDB at the verbosity where
-    /// it renders (docs/design/progressive-disclosure.md#network-policy). Under <c>--offline</c>,
-    /// implicit renders below Detailed read only embedded, adjacent, or cached PDBs.
-    /// </summary>
     internal static LibrarySourcePlan For(
         Verbosity userVerbosity,
-        HashSet<string>? include,
-        bool offline = false)
+        HashSet<string>? include)
     {
         bool downloadPdb = false;
         bool collectSourceFiles = false;
@@ -66,29 +51,24 @@ internal static class LibrarySourcePlans
         var mode = hasExplicitSelection
             ? LibrarySourcePlanModes.Explicit
             : userVerbosity >= Verbosity.Detailed
-                || (!offline && userVerbosity >= Verbosity.Normal)
                 ? LibrarySourcePlanModes.Detailed
                 : LibrarySourcePlanModes.None;
 
-        // The auto-rendered symbol-dependent sections (Symbols, Signals) appear from Normal up.
-        // Online, they may acquire a missing PDB there; under --offline a Normal / bare-`S` render
-        // still consults an embedded, adjacent, or already-cached PDB without touching the network.
-        // Explicit selection already authorizes a cache-first download, so it needs no separate
-        // cache-only read.
+        // Cache-only PDB reads are network-free, so they are authorized one tier before downloads:
+        // the auto-rendered symbol-dependent sections (Symbols, Signals) appear from Normal up, so
+        // a Normal / bare-`S` render may consult an embedded, adjacent, or already-cached PDB
+        // without touching the network. Explicit selection already authorizes a cache-first
+        // download, so it needs no separate cache-only read.
         bool readCachedPdb = !hasExplicitSelection && userVerbosity >= Verbosity.Normal;
 
         if (mode == LibrarySourcePlanModes.None)
             return new LibrarySourcePlan(false, false, readCachedPdb);
 
-        HashSet<string>? rendered = hasExplicitSelection
-            ? null
-            : s_pipeline.Value.GetCandidateSections(userVerbosity);
         foreach (var section in s_sections)
         {
             bool selected = hasExplicitSelection
                 ? include!.Contains(section.Name)
-                : (section.Modes & LibrarySourcePlanModes.Detailed) != 0
-                    && rendered!.Contains(section.Name);
+                : (section.Modes & LibrarySourcePlanModes.Detailed) != 0;
             if (!selected || (section.Modes & mode) == 0)
                 continue;
 
