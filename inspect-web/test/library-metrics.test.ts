@@ -76,21 +76,21 @@ const dependencyData: BrowserLibraryDependencyStructure = {
       typeCount: 1,
       intraNamespaceRelationshipCount: 0,
       cycleIndex: null,
-      level: 0,
+      level: 1,
     }, {
       namespace: "Example.Core",
       isGlobalNamespace: false,
       typeCount: 1,
       intraNamespaceRelationshipCount: 1,
       cycleIndex: 0,
-      level: 1,
+      level: 0,
     }, {
       namespace: "Example.Storage",
       isGlobalNamespace: false,
       typeCount: 1,
       intraNamespaceRelationshipCount: 0,
       cycleIndex: 0,
-      level: 1,
+      level: 0,
     }],
     namespaceEdges: [{
       sourceNamespace: "Example.Api",
@@ -113,8 +113,30 @@ const dependencyData: BrowserLibraryDependencyStructure = {
         },
       }],
       remainingContributorCount: 1,
+    }, {
+      sourceNamespace: "Example.Core",
+      targetNamespace: "Example.Storage",
+      counts: {
+        invocations: 2,
+        functionReferences: 0,
+        total: 2,
+      },
+      contributingTypeEdgeCount: 1,
+      explainingTypeEdges: [],
+      remainingContributorCount: 1,
+    }, {
+      sourceNamespace: "Example.Storage",
+      targetNamespace: "Example.Core",
+      counts: {
+        invocations: 1,
+        functionReferences: 0,
+        total: 1,
+      },
+      contributingTypeEdgeCount: 1,
+      explainingTypeEdges: [],
+      remainingContributorCount: 1,
     }],
-    totalNamespaceEdgeCount: 1,
+    totalNamespaceEdgeCount: 3,
     cycles: [{
       namespaces: ["Example.Core", "Example.Storage"],
     }],
@@ -185,6 +207,14 @@ test("renders analysis-issued dependency levels, cycles, and explanations", () =
   assert.match(html, /Level 0/);
   assert.match(html, /Level 1/);
   assert.match(html, /cycle 1/);
+  assert.match(
+    html,
+    /Example\.Core depends on Example\.Storage through 2 relationships/,
+  );
+  assert.match(
+    html,
+    /Example\.Storage depends on Example\.Core through 1 relationship/,
+  );
   assert.match(html, /Example\.Api\.Endpoint/);
   assert.match(
     html,

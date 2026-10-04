@@ -88,7 +88,7 @@ const dependencyData: BrowserLibraryDependencyStructure = {
       typeCount: 1,
       intraNamespaceRelationshipCount: 0,
       cycleIndex: null,
-      level: 0,
+      level: 2,
     }, {
       namespace: "Example.Core",
       isGlobalNamespace: false,
@@ -109,7 +109,7 @@ const dependencyData: BrowserLibraryDependencyStructure = {
       typeCount: 1,
       intraNamespaceRelationshipCount: 0,
       cycleIndex: null,
-      level: 2,
+      level: 0,
   }],
   namespaceEdges: [{
       sourceNamespace: "Example.Api",
@@ -150,14 +150,74 @@ const dependencyData: BrowserLibraryDependencyStructure = {
         counts: { invocations: 2, functionReferences: 0, total: 2 },
       }],
       remainingContributorCount: 0,
+    }, {
+      sourceNamespace: "Example.Workflows",
+      targetNamespace: "Example.Core",
+      counts: { invocations: 1, functionReferences: 0, total: 1 },
+      contributingTypeEdgeCount: 1,
+      explainingTypeEdges: [{
+        sourceTypeKey: "Example.C",
+        sourceTypeDisplay: "Example.LongRunningRequestCoordinator",
+        targetTypeKey: "Example.B",
+        targetTypeDisplay: "Example.B",
+        counts: { invocations: 1, functionReferences: 0, total: 1 },
+      }],
+      remainingContributorCount: 0,
   }],
-  totalNamespaceEdgeCount: 3,
+  totalNamespaceEdgeCount: 4,
   cycles: [{
     namespaces: ["Example.Core", "Example.Workflows"],
   }],
   diagnostics: [],
   failure: null,
 };
+const deepDependencyData: BrowserLibraryDependencyStructure = {
+  outcome: "available",
+  methodologyVersion: "library-dependency-structure.v1",
+  completeness: "Complete",
+  population: {
+    examinedCallCount: 11,
+    internalCallCount: 11,
+    externalCallCount: 0,
+    unresolvedCallCount: 0,
+    incompleteBodyCount: 0,
+    typeCount: 12,
+    namespaceCount: 12,
+  },
+  namespaces: Array.from({ length: 12 }, (_, level) => ({
+    namespace: `Example.Level${level}`,
+    isGlobalNamespace: false,
+    typeCount: 1,
+    intraNamespaceRelationshipCount: 0,
+    cycleIndex: null,
+    level,
+  })),
+  namespaceEdges: Array.from({ length: 11 }, (_, index) => {
+    const sourceLevel = index + 1;
+    return {
+      sourceNamespace: `Example.Level${sourceLevel}`,
+      targetNamespace: `Example.Level${index}`,
+      counts: { invocations: 1, functionReferences: 0, total: 1 },
+      contributingTypeEdgeCount: 1,
+      explainingTypeEdges: [{
+        sourceTypeKey: `Example.Level${sourceLevel}.Type`,
+        sourceTypeDisplay: `Example.Level${sourceLevel}.Type`,
+        targetTypeKey: `Example.Level${index}.Type`,
+        targetTypeDisplay: `Example.Level${index}.Type`,
+        counts: { invocations: 1, functionReferences: 0, total: 1 },
+      }],
+      remainingContributorCount: 0,
+    };
+  }),
+  totalNamespaceEdgeCount: 11,
+  cycles: [],
+  diagnostics: [],
+  failure: null,
+};
+const selectedDependencyData =
+  new URLSearchParams(window.location.search).get("dependency") === "deep"
+    ? deepDependencyData
+    : dependencyData;
 const appElement = document.querySelector("#app");
 if (!(appElement instanceof HTMLElement))
   throw new Error("Library metrics harness root is missing.");
@@ -193,7 +253,7 @@ function render(
     activateType: typeKey => {
       activation.value = typeKey;
     },
-    loadDependencyStructure: () => render(dependencyData),
+    loadDependencyStructure: () => render(selectedDependencyData),
   });
 }
 

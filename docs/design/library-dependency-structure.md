@@ -588,9 +588,12 @@ cache.
    node and cycle and selects at most 64 owner-ranked namespace edges; the
    response carries the total edge count so the host discloses any omitted
    edges. TypeScript positions nodes by their issued levels, marks their issued
-   cycle indices, and activates explaining types by exact type key. It does not
-   derive SCCs, levels, completeness, or relationships. This interactive SVG
-   and native-details lowering deliberately bypasses Markout because
+   cycle indices, preserves distinct directional arrows for reciprocal selected
+   relationships, and activates explaining types by exact type key. Cycle
+   badges describe the complete analyzed topology even when edge selection
+   omits a cycle-forming relationship. It does not derive SCCs, levels,
+   completeness, or relationships. This interactive SVG and native-details
+   lowering deliberately bypasses Markout because
    visual-edge selection and exact-Type activation are Browser interaction
    concerns. A later Metrics request and dependency request may repeat
    Analysis work; cross-request prepared sharing remains owned by

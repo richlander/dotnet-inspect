@@ -1568,7 +1568,7 @@ kbd {
   border-radius: 6px; background: var(--panel);
 }
 .metrics-dependency-structure {
-  display: block; width: max(100%, 900px); height: auto; min-height: 300px;
+  display: block; width: auto; min-width: 100%; height: auto; min-height: 300px;
 }
 .metrics-dependency-level {
   fill: var(--dim); font: 600 10px var(--mono); letter-spacing: .08em;

@@ -123,6 +123,20 @@ test("dependency layout preserves issued levels and cycles responsively", async 
     "Level 2",
   ]);
   await expect(page.locator(".metrics-dependency-node-cycle")).toHaveCount(2);
+  const cycleDirections = await page.locator("path.metrics-dependency-edge")
+    .evaluateAll(elements => elements
+      .map(element => ({
+        title: element.querySelector("title")?.textContent ?? "",
+        path: element.getAttribute("d") ?? "",
+        markerEnd: element.getAttribute("marker-end") ?? "",
+      }))
+      .filter(edge =>
+        edge.title.includes("Example.Core depends on Example.Workflows") ||
+        edge.title.includes("Example.Workflows depends on Example.Core")));
+  expect(cycleDirections).toHaveLength(2);
+  expect(new Set(cycleDirections.map(edge => edge.path)).size).toBe(2);
+  expect(cycleDirections.every(edge =>
+    edge.markerEnd === "url(#metrics-dependency-arrow)")).toBe(true);
   const viewport = page.locator(".metrics-dependency-viewport");
   const geometry = await viewport.evaluate(element => ({
     clientWidth: element.clientWidth,
@@ -133,4 +147,35 @@ test("dependency layout preserves issued levels and cycles responsively", async 
 
   expect(geometry.scrollWidth).toBeGreaterThanOrEqual(geometry.clientWidth);
   expect(geometry.right).toBeLessThanOrEqual(geometry.documentWidth + .5);
+});
+
+test("deep dependency levels scroll without shrinking labels", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto("/browser/library-metrics.html?dependency=deep");
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  const geometry = await page.locator(".metrics-dependency-viewport")
+    .evaluate(element => {
+      const svg = element.querySelector(".metrics-dependency-structure");
+      const label = element.querySelector(".metrics-dependency-level");
+      if (!(svg instanceof SVGSVGElement) ||
+          !(label instanceof SVGTextElement)) {
+        throw new Error("Dependency layout is incomplete.");
+      }
+      const matrix = label.getScreenCTM();
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        svgWidth: svg.getBoundingClientRect().width,
+        labelScale: matrix === null ? 0 : Math.hypot(matrix.a, matrix.b),
+      };
+    });
+
+  expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
+  expect(geometry.svgWidth).toBeGreaterThanOrEqual(2_580);
+  expect(geometry.labelScale).toBeGreaterThanOrEqual(.99);
 });

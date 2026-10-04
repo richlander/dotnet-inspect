@@ -344,18 +344,34 @@ function renderDependencyStructure(
     const x = 30 + index * columnSpacing + DEPENDENCY_NODE_WIDTH / 2;
     return `<text class="metrics-dependency-level" x="${x.toFixed(1)}" y="26" text-anchor="middle">Level ${formatNumber(level)}</text>`;
   }).join("");
+  const directions = new Set(dependency.namespaceEdges.map(edge =>
+    `${edge.sourceNamespace}\u0000${edge.targetNamespace}`));
   const edgePaths = dependency.namespaceEdges.map((edge, index) => {
     const source = positions.get(edge.sourceNamespace);
     const target = positions.get(edge.targetNamespace);
     if (!source || !target) return "";
-    const sourceX = source.x + DEPENDENCY_NODE_WIDTH;
     const sourceY = source.y + DEPENDENCY_NODE_HEIGHT / 2;
-    const targetX = target.x;
     const targetY = target.y + DEPENDENCY_NODE_HEIGHT / 2;
     const sameColumn = Math.abs(source.x - target.x) < 1;
-    const controlX = sameColumn
-      ? sourceX + 62 + index % 3 * 14
-      : (sourceX + targetX) / 2;
+    let sourceX: number;
+    let targetX: number;
+    let controlX: number;
+    if (sameColumn) {
+      const reciprocal = directions.has(
+        `${edge.targetNamespace}\u0000${edge.sourceNamespace}`,
+      );
+      const routeLeft = reciprocal &&
+        edge.sourceNamespace.localeCompare(edge.targetNamespace) > 0;
+      sourceX = source.x + (routeLeft ? 0 : DEPENDENCY_NODE_WIDTH);
+      targetX = target.x + (routeLeft ? 0 : DEPENDENCY_NODE_WIDTH);
+      controlX = sourceX + (routeLeft ? -1 : 1) *
+        (62 + index % 3 * 14);
+    } else {
+      const travelsRight = source.x < target.x;
+      sourceX = source.x + (travelsRight ? DEPENDENCY_NODE_WIDTH : 0);
+      targetX = target.x + (travelsRight ? 0 : DEPENDENCY_NODE_WIDTH);
+      controlX = (sourceX + targetX) / 2;
+    }
     const path = `M ${sourceX.toFixed(1)} ${sourceY.toFixed(1)} C ${controlX.toFixed(1)} ${sourceY.toFixed(1)}, ${controlX.toFixed(1)} ${targetY.toFixed(1)}, ${targetX.toFixed(1)} ${targetY.toFixed(1)}`;
     const label = `${edge.sourceNamespace || "(global)"} depends on ${edge.targetNamespace || "(global)"} through ${formatCount(edge.counts.total, "relationship")}`;
     return `<path class="metrics-dependency-edge" d="${path}" marker-end="url(#metrics-dependency-arrow)" data-dependency-edge-index="${index}" tabindex="0" role="button" aria-label="${escapeHtml(`${label}. Show explaining types.`)}"><title>${escapeHtml(label)}</title></path>`;
@@ -398,8 +414,8 @@ function renderDependencyStructure(
     : " Expand an edge for its bounded type explanations.";
 
   return `${qualified}<section class="document-section metrics-visual-section">
-    <div class="metrics-visual-copy"><h2>Dependency Structure</h2><p>Namespaces are arranged by analysis-issued level. Marked nodes belong to analysis-issued cycles; arrows show the selected dependency edges.</p></div>
-    <div class="metrics-dependency-viewport"><svg class="metrics-dependency-structure" viewBox="0 0 ${width} ${height}" role="group" aria-label="Levelized namespace dependency structure"><defs><marker id="metrics-dependency-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>${columns}${edgePaths}${nodes}</svg></div>
+    <div class="metrics-visual-copy"><h2>Dependency Structure</h2><p>Namespaces are arranged by analysis-issued level. Cycle badges reflect the complete analyzed topology; arrowheads show the direction of selected dependency edges.</p></div>
+    <div class="metrics-dependency-viewport"><svg class="metrics-dependency-structure" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Levelized namespace dependency structure"><defs><marker id="metrics-dependency-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>${columns}${edgePaths}${nodes}</svg></div>
     <p class="metrics-visual-caption">${formatCount(dependency.namespaces.length, "namespace")} · ${formatCount(dependency.cycles.length, "cycle")} · ${formatCount(retained, "selected edge")}.${selection}</p>
     <div class="metrics-dependency-details">${details || "<p>No cross-namespace dependency edges were issued.</p>"}</div>
   </section>`;
