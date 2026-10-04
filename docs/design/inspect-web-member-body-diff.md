@@ -1,0 +1,406 @@
+# Inspect Web Member Body Diff
+
+## Status and ownership
+
+This document owns **Member Body** as Browser Compare content: the hierarchy
+that discovers changed implementations and the inline Member reader that shows
+one exact implementation comparison. It is part of the Compare experience
+tracked by
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
+
+Its normative claim is:
+
+> For one retained Gallery Package Library and its effective Diff target,
+> Member Body projects the settled Implementation Diff document into changed
+> Type and Member destinations. Opening one issued Member destination presents
+> that exact Member's Annotated Source diff document in the shared diff viewer
+> on the Member page. Managed code issues every identity and destination; the
+> Browser performs no correspondence, text comparison, or identity inference.
+
+Member is the detailed-result boundary. Explore may expand the same retained
+Member document, but it neither owns nor replaces the inline result.
+
+This document defines:
+
+- the `member-body` Compare content choice and its Library-to-Type-to-Member
+  hierarchy;
+- the Browser operation association and bounded projection of body changes;
+- the exact handoff from an inventory row to one Member comparison;
+- the inline Member Body reader, its media, states, and retention; and
+- the relationship between that reader and optional Explore expansion.
+
+It consumes and does not redefine:
+
+| Owner | Contract consumed |
+| --- | --- |
+| [Compare experience](inspect-web-compare-experience.md) | The retained Package model, effective Diff target, sticky Compare state, subject drill-down, Member detail boundary, and return behavior |
+| [Implementation Diff](implementation-diff.md) | Exact-Library-pair endpoints, changed body-backed Members, `ResearchSubjectKey` identity, producer evidence, and per-mechanism coverage |
+| [Annotated Source diff document](annotated-source-diff-document.md) | Exact-Member side outcomes, C# and optional IL text comparisons, line maps, and fact comparison |
+| [Diff viewer interaction](inspect-web-diff-viewer-interaction.md) | Embedded and full-bleed rendering of one mapped diff |
+| [Source-diff transport](inspect-web-source-diff-transport.md) | Bounded mapped rows and typed admission outcomes |
+| [Operation Authority](inspect-web-operation-authority.md) | Request identity, authorization, cancellation, supersession, and publication |
+| Browser Navigation | Canonical Type and Member locations and atomic subject transitions |
+
+## Why
+
+Public API answers which declarations changed. It cannot answer which
+implementations changed while their declarations stayed stable. The existing
+Member reader is reached only through a changed API relation, so it hides the
+most interesting implementation changes and makes the viewer appear absent for
+ordinary unchanged declarations.
+
+The motivating Gallery pair is
+`System.Text.Json@11.0.0-preview.6.26359.118..11.0.0-preview.7.26381.103`.
+Production `dotnet-inspect --implementation` reports 27 changed Member subjects
+on `System.Text.Json.JsonSerializerOptions` before Browser public-population
+scoping; the public API comparison exposes the new
+`InferClosedTypePolymorphism` declaration but does not expose the added
+assignment in
+`JsonSerializerOptions(JsonSerializerOptions)`. Member Body makes the changed
+constructor discoverable and opens its C# body comparison inline. This
+observation motivates the design; the pinned package gate below is the
+repeatable evidence.
+
+The user-visible precedent is the content-first Member Compare composition in
+[#9042](https://github.com/richlander/dotnet-inspect/pull/9042): summary first,
+then the diff reader directly on the Member page. The full-bleed viewer in
+[#9112](https://github.com/richlander/dotnet-inspect/pull/9112) is an expansion
+of that result, not its primary home.
+
+## Content and hierarchy
+
+The Compare content picker offers these closed choices in this order:
+
+1. **Public API**
+2. **Member Body**
+3. **String literals**
+
+Public API remains the default. Selecting Member Body is explicit because
+decompilation and whole-Library implementation comparison are materially more
+expensive than API comparison. The choice is retained in the Package model and
+stays active through Compare-owned Library, Type, and Member navigation,
+including Up/Down Member navigation. It is not portable Workspace state.
+
+Member Body has one hierarchy:
+
+| Subject | Presentation |
+| --- | --- |
+| Library | Aggregate mechanism and coverage summary followed by changed Types |
+| Type | Changed body-backed Members declared by that Type |
+| Member | One inline exact-Member body comparison |
+
+Library and Type are inventories, not detail panes. A Type row carries a
+managed-issued Type destination. A Member row carries a managed-issued exact
+Member destination when its identity can be represented by Browser Navigation.
+Activating a destination performs one atomic subject transition while retaining
+Compare and Member Body.
+
+Rows whose evidence cannot issue an exact destination remain visible with their
+typed identity or analysis reason and are inert. The Browser never converts
+`Display`, `TypeName`, or `MemberName` text into a selector and never resolves
+an ordinal independently on each endpoint.
+
+## Inventory operation
+
+Member Body starts no work until the user selects it or returns to a retained
+Member Body result. The request identity contains:
+
+- the retained Package model generation;
+- current and target package versions in their Compare order;
+- framework and exact compile asset for each endpoint;
+- exact Library assembly identity for each endpoint;
+- the selected Implementation Diff mechanisms;
+- the public body-backed Member selections issued from both endpoint surfaces;
+  and
+- the Operation Authority generation.
+
+The first production slice requests C# and IL/body mechanisms. Complexity may
+be added later as a separately visible summary; it is not silently computed or
+used to decide whether a row is changed.
+
+Managed code resolves exactly one Library assembly at each endpoint through the
+retained Gallery scopes. It obtains the union of public body-backed Member
+selections from the endpoint surface and correspondence owners and passes
+those typed selections to the existing `ImplementationDiffDocumentQuery`.
+The query therefore compares the requested public population; the host does
+not compare every implementation and filter private rows afterward. A
+rejected or failed endpoint does not manufacture an empty document. The result
+keeps its
+`InspectionEnvelope<ImplementationDiffDocument>` baseline and ordered
+diagnostics.
+
+The Browser projection is a bounded, lossless view of that result for this
+host. Managed code groups changed subjects by their owner-issued `TypeName`,
+retains each complete `ResearchSubjectKey`, mechanism evidence, coverage, and
+typed failure, and joins canonical Navigation destinations where available.
+It does not recompute correspondence or parse display strings. If complete
+Content fits the ordinary Worker limits, the projection retains it; otherwise
+it returns the typed transport rejection and no successful-looking inventory.
+
+The projection admits at most 10,000 changed Member subjects and the ordinary
+Worker's 16,777,216-character and 524,288-collection-entry limits. Admission
+measures the complete serialized result, including Content, Share, diagnostics,
+inventory rows, destinations, and coverage. The operation does not truncate
+Members, evidence, or diagnostics to fit.
+
+## Library and Type presentation
+
+The common Compare frame remains quiet and stable while content changes:
+
+```text
+Compare System.Text.Json                              Diff
+preview.6 -> preview.7                       Change target
+Public API | Member Body | String literals
+
+27 changed Members · C# 14 · IL 9 · 2 incomplete
+
+JsonSerializerOptions                         8 changed Members  >
+JsonTypeInfo                                  3 changed Members  >
+...
+```
+
+Counts come from the projected document and its coverage, not from rendered
+rows. An incomplete mechanism names its evaluated, exact, changed,
+unavailable, incomplete, and failed subject counts beside the inventory. A
+Type row count is the number of distinct owner-issued Member subjects under
+that Type.
+
+Type presentation narrows the settled Library result:
+
+```text
+Compare JsonSerializerOptions                          Diff
+Public API | Member Body | String literals
+
+8 changed Members
+
+JsonSerializerOptions(JsonSerializerOptions)   C# · IL  changed  >
+EqualityComparer.Equals(...)                   C# · IL  changed  >
+get_InferClosedTypePolymorphism()               C#       added    >
+```
+
+Mechanism, outcome, and subject are separate dimensions. Added, removed,
+changed, unavailable, and failed are never collapsed into one visual
+"changed" state. A Member with evidence from several mechanisms appears once;
+its row summarizes those mechanisms without discarding their individual
+outcomes.
+
+Library-to-Type and Type-to-Member navigation does not rerun the assembly-wide
+comparison. Back, Forward, and returning from the Member restore the same
+settled inventory, selected row, list position, and useful focus.
+
+A removed Member has no current Navigation subject. Its row and Before-side
+evidence remain visible in the Type inventory, but it is inert. Added and
+paired Members with issued current locations may open the Member result.
+
+## Exact Member handoff
+
+An active Member row supplies:
+
+- the ordered comparison endpoints from the inventory request;
+- its complete `ResearchSubjectKey`;
+- the declaring Type identity and stable Member selector issued from that key;
+- nullable canonical Before and After Member locations;
+- the inventory request identity; and
+- one Annotated Source diff request identity derived in managed code.
+
+The exact-Member request executes the existing Annotated Source diff query. Its
+correspondence owner decides `Paired`, `BeforeOnly`, `AfterOnly`, unavailable,
+or absent; the Browser does not resolve the stable selector twice or infer that
+same-named methods correspond.
+
+The handoff is authorized only while the retained Package model, target,
+Library pair, content choice, subject, and operation generation still match.
+A late inventory or Member result changes no visible state after any of those
+values changes.
+
+## Member presentation
+
+The Member page is the primary body-diff experience:
+
+```text
+Compare JsonSerializerOptions(JsonSerializerOptions)           Diff
+preview.6 -> preview.7                                  Change target
+Public API | Member Body | String literals
+
+Member Body                                      C# | IL   Explore
+───────────────────────────────────────────────────────────────
+  184 184      _unknownTypeHandling = options._unknownTypeHandling;
+      185 +    _inferClosedTypePolymorphism =
+      186 +        options._inferClosedTypePolymorphism;
+  185 187      _unmappedMemberHandling = options._unmappedMemberHandling;
+```
+
+The reader loads automatically from already acquired package evidence. It does
+not require the authored-Source network action. C# is the default medium; IL is
+available when the document carries it. Switching media runs no comparison.
+The embedded reader uses the same mapped rows, whitespace and move controls,
+keyboard navigation, narrow layout, and accessibility behavior as the shared
+diff viewer.
+
+The section header and result summary remain visible for identical,
+one-sided, unavailable, not-applicable, failed, and too-complex results. The
+body area shows:
+
+| Document outcome | Inline presentation |
+| --- | --- |
+| Both sides Present, text differs | Mapped diff |
+| Both sides Present, selected medium identical | **Identical** |
+| BeforeOnly or AfterOnly | Present side as source beside **Not present on this side** |
+| Medium Too complex | Typed limit and the other medium when available |
+| Unavailable or NotApplicable side | The side's typed reason and any present other side |
+| Projection or query Failed | Failure with retry when the context remains current |
+| Canceled | **Canceled**, never an empty or identical diff |
+
+An added or removed property relation is not itself a body Member. Its accessor
+appears only when Implementation Diff issues that accessor as a body-backed
+Member with an exact destination. The Browser does not invent accessor
+selection from a Property row.
+
+## Retention and Explore
+
+One settled inventory is retained by inventory request identity for the
+retained Package model. One settled Annotated Source diff document is retained
+per exact-Member request identity. Available, identical, one-sided, unavailable,
+not-applicable, and too-complex outcomes may be retained; failed and canceled
+operations are not.
+
+Returning to a Member with the same identity presents its retained reader
+without running again. A new target, Library pair, Package generation, or
+destination identity discards the old association. A pending superseded
+operation is canceled, and its late completion cannot publish.
+
+**Explore** is optional expansion of the settled Member document. It opens the
+full-bleed diff viewer over the same mapped rows and current medium, preserving
+the Member, Compare, Member Body, target, and history. Closing it restores the
+embedded reader's medium, scroll position, and useful focus. Explore never
+starts an independent comparison and is not required to see the body diff.
+
+## States
+
+The common Compare frame remains mounted through every state:
+
+| State | Presentation |
+| --- | --- |
+| Not requested | Member Body choice only; no speculative work |
+| Loading inventory | Progress associated with the exact Library-pair request |
+| Available, non-empty | Coverage and complete Type or Member inventory |
+| Available, no changes | **No implementation changes found** with complete coverage |
+| Available, incomplete | Rows plus explicit mechanism coverage and reasons |
+| Inventory unavailable or failed | Typed endpoint, comparison, or transport reason |
+| Loading Member | Stable Member heading and inline-reader progress |
+| Settled Member | The outcome table above |
+
+No-changes is valid only when every requested mechanism's coverage is complete.
+Zero changed rows with unavailable, incomplete, or failed coverage is not an
+empty success.
+
+## Progressive disclosure
+
+Member Body is an explicit Compare content choice and therefore may perform
+local decompilation across the selected Library pair. It does not request PDB
+Source, SourceLink, repository access, or any other network source-content
+operation. Authored Source remains separately explicit under its existing
+owner.
+
+The initial Member reader shows body text. The Annotated Source document's fact
+comparison remains available for a later evidence layer, but the Browser does
+not need code lenses to deliver the primary Member Body experience.
+
+## Preserved follow-on
+
+[PR #8550](https://github.com/richlander/dotnet-inspect/pull/8550) is
+superseded as a placement design: Decompiler is not an Explore-only mode.
+Its useful evidence-presentation requirements remain candidate input for a
+later focused code-lens owner:
+
+- added, removed, changed, conditional, and optionally present facts;
+- exact line placement through document targets and line maps;
+- a bounded summary for facts without a visible row;
+- caller-supplied viewer row decorations; and
+- fact visibility when text is identical.
+
+That enrichment must present the same retained Annotated Source diff document.
+It is not a prerequisite for Member Body inventory, navigation, or the inline
+text reader.
+
+## Non-claims
+
+This design does not claim:
+
+- new implementation correspondence, C#, IL, complexity, or fact semantics;
+- semantic equivalence when body text is identical;
+- authored Source acquisition or presentation;
+- Property, Event, or Field comparison without an issued accessor Member;
+- private, internal, or protected implementation inventory;
+- a generalized Browser analysis picker;
+- local assembly, platform, or multi-Library comparison;
+- a second live Workspace or comparison session; or
+- code-lens content or interaction.
+
+## Adoption
+
+| Step | Delivers | Production host |
+| --- | --- | --- |
+| MB1 | `member-body` choice, exact-pair operation, bounded managed inventory projection, Library and Type presentation, sticky drill-down | Inspect Web Compare |
+| MB2 | Exact Member destination and Annotated Source diff Browser export, automatic inline C#/IL reader, retained result, optional Explore expansion | Inspect Web Member Compare |
+
+MB1 and MB2 may land as a stack, but MB2 is the production adoption target and
+the stack is not complete until the viewer is visible on the Member page. Any
+temporary MB1-only deployment must keep Member rows inert rather than route
+them to a placeholder or the API Member detail.
+
+The implementation retires any Explore-only Decompiler route it supersedes. It
+reuses the shared diff viewer and one Annotated Source document per request
+identity; it does not keep a parallel Member-body dialog or comparison path.
+
+## Demo and gates
+
+The production demo compares
+`System.Text.Json@11.0.0-preview.6.26359.118..11.0.0-preview.7.26381.103`,
+selects `System.Text.Json`, opens **Member Body**, drills through
+`JsonSerializerOptions`, and opens
+`JsonSerializerOptions(JsonSerializerOptions)`. The Member page shows the
+inline C# diff containing the new `_inferClosedTypePolymorphism` assignment;
+switching to IL changes the retained medium without another comparison.
+
+| Gate | Evidence |
+| --- | --- |
+| Release managed Browser operation tests | Pinned System.Text.Json pair, exact endpoint order and assets, complete envelope, stable Member destinations, one-sided and identity-failure rows, mechanism coverage, transport bounds, cancellation, and stale publication rejection |
+| Release Annotated Source Browser projection tests | Exact Member handoff, Present/Absent/Unavailable/NotApplicable/Failed sides, changed and identical C#/IL media, Too complex admission, and no host-side correspondence |
+| Node Compare composition tests | Closed content choices, explicit activation, sticky Library/Type/Member and Up/Down navigation, inert failure rows, restoration, and stale completion suppression |
+| Node diff viewer tests | Embedded changed, identical, one-sided, failure, narrow, keyboard, whitespace, move, and medium-switch behavior |
+| Published Firefox gate | Real Gallery package acquisition and inline Member reader through the generated Wasm facade |
+
+Synthetic fixtures define deterministic failure, one-sided, collision, limit,
+and stale-operation boundaries. The pinned System.Text.Json gate preserves the
+real product value and must exercise product-owned document construction; the
+harness does not manufacture or repair C# or IL.
+
+## Acceptance scenarios
+
+1. Compare the pinned System.Text.Json pair, select Member Body, and confirm
+   Library shows changed Types that Public API alone does not reveal.
+2. Open `JsonSerializerOptions`, activate its copy constructor, and confirm the
+   Member page immediately shows the C# diff with the added
+   `_inferClosedTypePolymorphism` assignment.
+3. Switch C# to IL and back and confirm no operation runs and the viewer keeps
+   the same exact Member relation.
+4. Move to the next or previous Member with Up/Down and confirm Compare and
+   Member Body remain active while the exact destination and viewer change.
+5. Open an added method and confirm its body appears beside **Not present on
+   this side**; confirm a removed method remains visible with Before-side
+   evidence but has no navigation affordance.
+6. Open a Member with identical C# but changed IL and confirm each medium states
+   its own outcome.
+7. Exercise unavailable, incomplete, failed, canceled, and too-complex results
+   and confirm none appears as no changes, identical, or empty source.
+8. Exercise an identity-failure row and confirm its evidence remains visible,
+   it has no navigation affordance, and the Browser does not derive one.
+9. Open Explore and close it and confirm it uses the same result and restores
+   the inline medium, scroll position, and focus.
+10. Change the target while inventory and Member requests are pending and
+    confirm neither stale completion can publish.
+11. Return to the same Member and request identity and confirm the settled
+    reader appears without another comparison.
+12. At a narrow viewport, confirm the inventory and embedded reader use one
+    vertical scroll owner each and create no page-level horizontal overflow.

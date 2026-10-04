@@ -277,7 +277,7 @@ an agent receives exactly what the host received.
 | --- | --- |
 | Agent | The complete document as JSON through the CLI; C#-only unless an explicit option requests IL |
 | CLI text | The text comparison per medium through Markout's GNU-style lowering; facts are not shown |
-| Inspect Web | The Decompiler mode of Compare Explore: the diff viewer over the text comparison, with facts as code lenses on their lines, owned by the Inspect Web decompiler diff design |
+| Inspect Web | The inline [Member Body Diff](inspect-web-member-body-diff.md) reader over the text comparison, with optional Explore expansion over the same retained document |
 
 Every host renders from the same document; none recomputes a comparison.
 
@@ -309,7 +309,7 @@ This design does not claim:
 | --- | --- | --- |
 | ADD1 | The document, its query, side acquisition with the typed participant join, both media with line maps, the text comparison, JSON serialization | CLI: `diff` Member section emitting the document as JSON |
 | ADD2 | Fact projection, scope keys, and the fact comparison | The same CLI section |
-| ADD3 | Browser Source-facade export over two package scopes | Inspect Web Compare Explore's Decompiler mode |
+| ADD3 | Browser Source-facade export over two package scopes | Inspect Web's inline Member Body reader and its optional Explore expansion |
 | ADD4 | Implementation Diff's Member C# lane on this document's text comparison; retirement of the trimmed line identity for Member comparisons | CLI `diff` Implementation Diff |
 
 ADD1 lands with a pinned real-package pair whose Member's body changed

@@ -275,9 +275,10 @@ view of the Type query's bounded candidate rows.
 Member is the first subject that presents detailed comparison evidence in the
 Compare working surface.
 
-Member Diff projects the exact Member entry from the containing Library-root
-Diff document. It summarizes correspondence, compatibility, and the complete
-API-change evidence carried there, in this order:
+For **Public API** content, Member Diff projects the exact Member entry from the
+containing Library-root Diff document. It summarizes correspondence,
+compatibility, and the complete API-change evidence carried there, in this
+order:
 
 ```text
 <Member>                                                 Diff | Clone
@@ -351,6 +352,13 @@ collapsed Member evidence remain.
 
 Member Diff shows no section whose evidence has no issued producer: it adds no
 placeholder, disabled section, or "not available yet" pane.
+
+For **Member Body** content, the separately owned
+[Member Body Diff](inspect-web-member-body-diff.md) projects the selected
+implementation relation and places the shared C#/IL diff viewer directly on
+this same Member boundary. It does not route the user through Public API's
+What changed or authored-Source composition, and Explore only expands the same
+retained Member Body document.
 
 Member Clone renders the Member-scoped globally ranked candidate rows and
 selected-candidate evidence supplied by Clone Candidates Presentation.
