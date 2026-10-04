@@ -1709,9 +1709,19 @@ public sealed class MetadataSource : IDisposable
         // (TryRebindToModuleReferences): this module must reference it, so no
         // TypeRef enters the IR under an identity the function's rows do not
         // share; otherwise the join stays honestly unknown.
+        // Both walks are bounded by iteration count, never by set size: two
+        // resolved assemblies in version skew can declare `A : B` and `B : A`
+        // (each compiled against the other's earlier shape), and a chain that
+        // revisits a type would otherwise stop growing the set but never stop
+        // the loop. A revisit ends the walk; the join then falls through to
+        // the caller's family fallback like any chain without a shared ancestor.
         var ancestorsA = new Dictionary<TypeRef, TypeRef>();
-        for (var current = a; current is not null && ancestorsA.Count < 64; current = ResolveBaseTypeForMerge(current))
-            ancestorsA.TryAdd(current, current);
+        var ancestor = a;
+        for (int depth = 0; ancestor is not null && depth < 64; depth++, ancestor = ResolveBaseTypeForMerge(ancestor))
+        {
+            if (!ancestorsA.TryAdd(ancestor, ancestor))
+                break;
+        }
         var fromB = b;
         for (int depth = 0; fromB is not null && depth < 64; depth++, fromB = ResolveBaseTypeForMerge(fromB))
         {

@@ -355,17 +355,6 @@ internal sealed class CrossAssemblyTypeResolver
     }
 
     /// <summary>
-    /// The base type of a referenced (cross-assembly) type, decoded through the
-    /// shared metadata context with a generic instance's arguments substituted.
-    /// <see cref="MetadataFactState.Yes"/> carries the base in
-    /// <paramref name="baseType"/>; <see cref="MetadataFactState.No"/> means the
-    /// definition resolved and declares no base (<c>System.Object</c> or an
-    /// interface); unreachable metadata or a same-assembly type returns
-    /// <see cref="MetadataFactState.Unknown"/> and never a guess. Serves
-    /// <c>MetadataSource.ResolveBaseType</c>, whose same-assembly map stops at
-    /// the first cross-assembly link of a base chain.
-    /// </summary>
-    /// <summary>
     /// Whether two references denote the same type definition once each is
     /// resolved through the context, so a facade reference
     /// (<c>[System.Xml.ReaderWriter]XmlReader</c>) and the implementing
@@ -390,6 +379,18 @@ internal sealed class CrossAssemblyTypeResolver
         }
     }
 
+    /// <summary>
+    /// The base type of a referenced (cross-assembly) type, decoded through the
+    /// shared metadata context with a generic instance's arguments substituted.
+    /// <see cref="MetadataFactState.Yes"/> carries the base in
+    /// <paramref name="baseType"/>; <see cref="MetadataFactState.No"/> means the
+    /// definition resolved and declares no base (<c>System.Object</c> or an
+    /// interface); unreachable metadata or a same-assembly type returns
+    /// <see cref="MetadataFactState.Unknown"/> and never a guess. Serves the
+    /// merge-private <c>MetadataSource.ResolveBaseTypeForMerge</c>, which
+    /// continues a base chain past the first cross-assembly link; the shared
+    /// same-assembly <c>ResolveBaseType</c> never calls it.
+    /// </summary>
     public MetadataFactState BaseType(TypeRef type, out TypeRef? baseType)
     {
         baseType = null;

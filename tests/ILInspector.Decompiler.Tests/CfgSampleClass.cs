@@ -5158,8 +5158,11 @@ public class CfgSampleClass
         => (c ? (object)attribute : comment).ToString()!;
 
     // A null-literal arm adopts the other arm's type; it proves nothing about
-    // System.Object, so no widening may be published for it.
-    public static string? NullArmJoin(bool c, string s) => c ? null : s;
+    // System.Object, so no widening may be published for it. The conditional
+    // feeds a call argument so the ldnull/string join stays on the evaluation
+    // stack: returned directly, Roslyn duplicates the `ret` into both arms and
+    // no join is ever merged.
+    public static bool NullArmJoin(bool c, string s) => string.IsNullOrEmpty(c ? null : s);
 
     // A ?? join whose arms are a cross-assembly interface and a cross-assembly
     // class that implements it: IEqualityComparer<string> and

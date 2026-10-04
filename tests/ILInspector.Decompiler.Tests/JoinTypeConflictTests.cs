@@ -330,6 +330,113 @@ public class JoinTypeConflictTests : IDisposable
 
         Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
         Assert.Empty(function.ProvenReferenceWidenings);
+        // The join must exist for the assertion above to mean anything: the
+        // conditional is raised from a merged evaluation-stack slot, so the
+        // printed body still carries the `null` arm.
+        var printed = CSharpPrinter.PrintRaised(function);
+        Assert.Equal(DecompilationFidelity.Full, printed.Fidelity);
+        Assert.Contains("c ? null : s", printed.Output);
+    }
+
+    [Fact]
+    public void ReferenceJoin_CyclicCrossAssemblyBaseChain_TerminatesAndFallsBackToObject()
+    {
+        // Version skew can close a base chain into a cycle without any
+        // hand-written IL: SkewX v2 declares `A : B` (compiled against a SkewY
+        // in which B has no base) and SkewY declares `B : A` (compiled against
+        // SkewX v1). Deployed together they resolve to A -> B -> A -> ...
+        // The merge-private chain walk must end on the revisit; before the
+        // iteration bound it spun forever on `Merge(A, C)`, so the import of a
+        // method joining those arms never returned (adversarial review of
+        // #9266, round 2).
+        var deployment = CompileSkewCycleDeployment();
+        _disposables.Push(deployment);
+        var source = MetadataSource.Open(deployment.ConsumerPath);
+        _disposables.Push(source);
+
+        foreach (var method in new[] { "L", "G", "K", "H" })
+        {
+            IrFunction? function = null;
+            var worker = new Thread(() => function = IrImporter.Import(source, "M.P", method)) { IsBackground = true };
+            worker.Start();
+            Assert.True(worker.Join(TimeSpan.FromSeconds(60)), $"IrImporter.Import of M.P::{method} did not return within 60 seconds");
+            Assert.NotNull(function);
+            // No ancestor is shared below object, so the family fallback types
+            // the join as object and the method stays fully raised.
+            Assert.DoesNotContain(function!.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+            var printed = CSharpPrinter.PrintRaised(function);
+            Assert.Equal(DecompilationFidelity.Full, printed.Fidelity);
+            Assert.All(function.ProvenReferenceWidenings, w => Assert.True(w.To.Equals(TypeRef.CoreLib("System", "Object")), w.ToString()));
+        }
+
+        // The hierarchy merge itself declines in both arm orders and returns
+        // promptly; the chain walk is what looped.
+        var imported = IrImporter.Import(source, "M.P", "K")!;
+        var a = imported.Signature.Parameters[1].Type;
+        var c = imported.Signature.Parameters[2].Type;
+        foreach (var (x, y) in new[] { (a, c), (c, a) })
+        {
+            TypeRef? merged = null;
+            var worker = new Thread(() => merged = source.MergeReferenceTypes(x, y)) { IsBackground = true };
+            worker.Start();
+            Assert.True(worker.Join(TimeSpan.FromSeconds(30)), $"MergeReferenceTypes({x.ToDisplayString()}, {y.ToDisplayString()}) did not return");
+            Assert.Null(merged);
+        }
+    }
+
+    sealed class SkewCycleDeployment : IDisposable
+    {
+        public required string Directory { get; init; }
+        public required string ConsumerPath { get; init; }
+        public void Dispose()
+        {
+            try { System.IO.Directory.Delete(Directory, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>
+    /// Compiles the four skew assemblies with Roslyn and deploys the consumer
+    /// beside SkewX v2 and SkewY, the shape a package directory takes when two
+    /// packages were each built against the other's earlier version. The
+    /// construction is intrinsic to the case (a malformed deployment), so it is
+    /// test-local rather than a cataloged fixture binary.
+    /// </summary>
+    static SkewCycleDeployment CompileSkewCycleDeployment()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"skew-cycle-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(directory);
+
+        var xReference = Compile("SkewX", "namespace S; public class A {} public class C {}");
+        var yStub = Compile("SkewY", "namespace S; public class B {}");
+        var yDeployed = Compile("SkewY", "namespace S; public class B : A {}", xReference);
+        var xDeployed = Compile("SkewX", "namespace S; public class A : B {} public class C {}", yStub);
+        var consumer = Compile(
+            "SkewM",
+            "namespace M; public static class P {" +
+                " public static string K(bool c, S.A a, S.C cc) => (c ? (object)a : cc).ToString();" +
+                " public static string L(bool c, S.A a, S.C cc) => (c ? (object)cc : a).ToString();" +
+                " public static int H(bool c, S.A a, S.C cc) => (c ? (object)a : cc).GetHashCode();" +
+                " public static int G(bool c, S.A a, S.C cc) => (c ? (object)cc : a).GetHashCode(); }",
+            xReference);
+
+        File.WriteAllBytes(Path.Combine(directory, "SkewX.dll"), xDeployed);
+        File.WriteAllBytes(Path.Combine(directory, "SkewY.dll"), yDeployed);
+        string consumerPath = Path.Combine(directory, "SkewM.dll");
+        File.WriteAllBytes(consumerPath, consumer);
+        return new SkewCycleDeployment { Directory = directory, ConsumerPath = consumerPath };
+
+        static byte[] Compile(string assemblyName, string code, params byte[][] references)
+        {
+            var compilation = CSharpCompilation.Create(
+                assemblyName,
+                [CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.Preview))],
+                [.. RoslynTestReferences.TrustedPlatform, .. references.Select(image => MetadataReference.CreateFromImage(image))],
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
+            using var stream = new MemoryStream();
+            var emit = compilation.Emit(stream);
+            Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+            return stream.ToArray();
+        }
     }
 
     [Fact]
@@ -346,6 +453,9 @@ public class JoinTypeConflictTests : IDisposable
 
         Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        // The ldnull arm adopts System.Type; adoption proves nothing about
+        // System.Object, so the real null-literal join publishes no widening.
+        Assert.Empty(function.ProvenReferenceWidenings);
         function.CheckInvariant();
     }
 }

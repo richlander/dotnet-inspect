@@ -1120,12 +1120,14 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `Partial`-by-unknown-join methods 155 → 119; the enum/int bucket for
    same-assembly int-backed enums is zero. The reference-merge lane now reads
    cross-assembly base chains, interface-ness, and interface implementations
-   through the shared metadata context (`MetadataSource.ResolveBaseType`,
-   `IsInterface`, `Implements` over `CrossAssemblyTypeResolver`), so a
-   `UTF8Encoding`/`Encoding` diamond or an `IEqualityComparer<T>` ??
-   `EqualityComparer<T>` join types at import. The cross-assembly reach is
-   merge-private (`ResolveBaseTypeForMerge`, `IsInterfaceForMerge`,
-   `ImplementsForMerge`): `ResolveBaseType` and its other consumers —
+   through the shared metadata context (`CrossAssemblyTypeResolver.BaseType`,
+   `Implements`, `SameDefinition`), so a `UTF8Encoding`/`Encoding` diamond or
+   an `IEqualityComparer<T>` ?? `EqualityComparer<T>` join types at import.
+   The cross-assembly reach is merge-private (`ResolveBaseTypeForMerge`,
+   `IsInterfaceForMerge`, `ImplementsForMerge`), and both chain walks are
+   bounded by iteration count and end on a revisited type, because two
+   resolved assemblies in version skew can declare `A : B` and `B : A` (each
+   compiled against the other's earlier shape); `ResolveBaseType` and its other consumers —
    `AreProvablyDisjoint`, `InterfacesOf`, `SupportsCollectionInitializer`,
    the importer's declaring-type base, `ConstructorConfinementFacts` — keep
    their same-assembly contracts, because a facade-forwarded ancestor
@@ -1136,16 +1138,20 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    same definition); the merge returns the arm instance when the common
    ancestor is an arm and declines (honest unknown) an ancestor this module
    never references, so no `TypeRef` enters a function under an identity its
-   rows do not share. Each successful reference merge — not a null-literal
-   arm adopting the other arm's type — publishes the conversions it proved as
+   rows do not share. Each reference join the importer types — a successful
+   reference merge, or the ECMA O-family fallback that types two reference
+   arms with no provable common supertype as `object`, every reference type
+   being assignable to it — publishes the conversions it proved as
    `IrFunction.ProvenReferenceWidenings` (`From → To`), the only hierarchy
    fact `ReferenceAssignmentTargets` consults when materialization admits a
-   subtype store into a join-typed slot. Remaining, by census:
+   subtype store into a join-typed slot; a null-literal arm adopting the
+   other arm's type publishes nothing. Remaining, by census:
    cross-assembly enum-likes (width unprovable — recoverable later only with
    sink-context evidence), reference joins with no common supertype below
    `object` (`ISymbolInternal` ?? `ITypeReference` consumed at an `object`
-   sink — a sink-typed join plus an arm cast, not a merge), and the
-   `void*`/`nuint` native clique. The full RyuJIT typed-temp model (spill and re-import) stays
+   sink — a sink-typed join plus an arm cast, not a merge), sibling joins
+   whose common ancestor this module never references (declined under the
+   identity rule), and the `void*`/`nuint` native clique. The full RyuJIT typed-temp model (spill and re-import) stays
    open here for instance 2.
 5. **Materialize stack-slot locals (instance 2).** On the step-4 propagation, emit
    each slot's live ranges as typed local IR nodes and **delete
