@@ -204,18 +204,35 @@ public sealed class ResourceExplanationView
                     subject.Framework,
                 }.Where(static value =>
                     !string.IsNullOrWhiteSpace(value)));
+        (string title, string context, string? identity) =
+            (document.Kind, subject) switch
+            {
+                (MemberContextualExplanationKind.Command, null) =>
+                    ("Explain member", "Member command", null),
+                (
+                    MemberContextualExplanationKind.MemberGroup,
+                    MemberGroupContextualExplanationSubject group) =>
+                    (
+                        $"Explain {group.TypeName}.{group.Group.Name}",
+                        "MemberGroup",
+                        $"{group.Group.Category} / {group.Group.Role}"),
+                (
+                    MemberContextualExplanationKind.ExactMember,
+                    ExactMemberContextualExplanationSubject exact) =>
+                    (
+                        $"Explain {exact.TypeName}.{exact.StableSelector}",
+                        "Exact Member",
+                        exact.CanonicalSignature),
+                _ => throw new InvalidOperationException(
+                    "The contextual Member explanation kind and subject "
+                        + "do not agree."),
+            };
         return Create(
             document.Resource,
             new(
-                document.Kind
-                    == MemberContextualExplanationKind.Command
-                    ? "Explain member"
-                    : $"Explain {subject!.TypeName}.{subject.StableSelector}",
-                document.Kind
-                    == MemberContextualExplanationKind.Command
-                    ? "Member command"
-                    : "Exact Member",
-                subject?.CanonicalSignature,
+                title,
+                context,
+                identity,
                 source,
                 document.DefaultFacet?.Value,
                 [
