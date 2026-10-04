@@ -208,11 +208,15 @@ size, provenance, and whatever else the owner issues. A README, a nuspec, a
 skill, a decompiled or authored source body, and a diff are Documents.
 
 A section is a Document only when its owner guarantees at most one payload for
-the selected subject: the best README, the single root nuspec, the selected
-member's source. When a matcher can yield several files, as license files and
-skill documents can, the section is a Table whose row unit is a Document fact
-row. Each row names a payload the command can open through its existing path
-selection, and the opened payload is a Document.
+the selected subject: the best README, the root manifest, the selected
+member's source. The guarantee comes from the owner's selection rule, not from
+the hope that a file matcher yields one hit. A package's nuspec Document is the
+root manifest, which the package format places exactly once; other files with
+the same extension are ordinary rows of the file inventory. When a selection
+rule can yield several files, as license files and skill documents can, the
+section is a Table whose row unit is a Document fact row. Each row names a
+payload the command can open through its existing path selection, and the
+opened payload is a Document.
 
 The native format is the text itself, undecorated. Permitted lowerings are the
 fenced or embedded body inside a Markdown composition, a JSON value that is an
@@ -222,9 +226,11 @@ flooding it, and how Documents and Document-row Tables selected together
 remain one homogeneous table: a package's nuspec and README Documents and its
 license and skill Tables all lower to Path/Size rows.
 
-A large Document continues through the ordered `Lines` inventory owned by
-[Source document cardinality](source-document-cardinality.md); it is never
-clipped silently.
+A large Document is never clipped silently. Each Document owner supplies its
+own completeness behavior: type and member Source continue through the ordered
+`Lines` inventory owned by
+[Source document cardinality](source-document-cardinality.md); other owners
+mark the page incomplete and keep a complete transfer gesture available.
 
 ## Invariants every lowering keeps
 
@@ -275,7 +281,7 @@ evaluates a complete selection against those capabilities.
 | Format spellings, admission, defaults, destination | [CLI Output Format and Destination](cli-output-format-and-destination.md) | Spells formats; admits or rejects a command-format pair using the shape's lowerings |
 | Relationship section names, Hierarchy versus Graph | [Relationship Section Naming](relationship-section-naming.md) | Names the result; this document presents it |
 | Typed JSON representability | [Projected JSON](projected-json.md) | Decides when a lowered JSON shape is representable |
-| Document continuation | [Source Document Cardinality](source-document-cardinality.md) | Owns `Lines`, exact Count, and continuation for large text |
+| Document completeness | [Source Document Cardinality](source-document-cardinality.md) for type and member Source; each other Document owner for its own payloads | Owns `Lines`, exact Count, and continuation for Source; other owners supply their own incomplete-page and complete-transfer behavior |
 | Discovery surface | [Schema Query](schema-query.md) | Exposes shape beside name and kind |
 | Each command's sections | The command owner | Classifies its sections and chooses its names and defaults |
 | Rendering | Markout and host writers | Produce the lowering without changing the content |
@@ -308,9 +314,10 @@ Conforming adoptions preserve these outcomes:
    before acquisition, naming Table and its permitted lowerings. It does not
    quietly render a table.
 8. **Large document.** A Document whose body exceeds the presentation budget
-   continues through `Lines`. Its first page is marked incomplete and names the
-   continuation under Source document cardinality, which may not know the
-   exact remainder before exhaustion; it never ends as though complete.
+   is marked incomplete on its first page and names how to obtain the rest
+   under its owner's contract: `Lines` continuation for type and member
+   Source, which may not know the exact remainder before exhaustion, or a
+   complete transfer for a package README. It never ends as though complete.
 9. **Host text in content.** A JSON content row containing a replay command or
    a shell-quoted selector is a defect, whichever host produced it.
 
@@ -341,9 +348,10 @@ unchanged.
 
 1. **Package owner.** The first adoption classifies the Package Tree and the
    file inventory as Hierarchies, `Target Frameworks` and `Dependencies` as
-   Tables, `Package Info` as a scalar record, the nuspec and README sections
-   as Documents, and the license and skill sections as Tables of Document fact
-   rows. Its target spellings are `Files`,
+   Tables, `Package Info` as a scalar record, the root manifest and the best
+   README as Documents, and the license and skill sections as Tables of
+   Document fact rows. Other `.nuspec` paths remain rows of the file inventory.
+   Its target spellings are `Files`,
    `Nuspec`, `README`, `Licenses`, and `Skills`, with the whole-package
    listing outside the `@Files` door as today. The Tree title names source,
    target, and asset root. Replay selectors leave the JSON content.
