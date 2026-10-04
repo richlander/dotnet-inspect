@@ -292,8 +292,7 @@ internal sealed class PreparedHierarchyRelationIndexStore
                 AssemblyImageAccessResult<
                     AssemblyContextHierarchyRelationIndexPreparation>
                     access =
-                        _group.UseSnapshot(
-                            participant,
+                        preparationBorrow.UseSnapshot(
                             cancellationToken,
                             (
                                 Owner: this,

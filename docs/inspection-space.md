@@ -425,7 +425,9 @@ admission immediately. An already admitted lease remains usable until its
 owner disposes it; it keeps the participant snapshot retained and accounted,
 and group release remains non-quiescent. Abandoning a lease can therefore keep
 terminal release waiting because the group cannot infer that repeated
-execution has ended.
+execution has ended. Preparation that still needs snapshot access after lease
+admission uses the lease-bound snapshot operation; ordinary snapshot admission
+continues to reject a participant whose release has already been requested.
 
 After release is requested and the final lease for one participant-resource
 pair closes, the group may retire that resource's participant state. Every
