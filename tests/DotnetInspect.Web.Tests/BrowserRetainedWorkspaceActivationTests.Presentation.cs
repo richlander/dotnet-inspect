@@ -1011,21 +1011,22 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         const string sourceUrl = "https://api.nuget.org/v3/index.json";
         string framework =
             TraversalTargetFrameworkPolicy.ProductDefault.TargetFramework;
-        (string PackageId, string AssemblyName, string AssetDirectory)[] packages =
+        (string PackageId, string AssemblyPath)[] packages =
         [
-            ("Aspire.Hosting", "System.Text.Json", "Spotlight/package"),
-            ("Aspire.Example", "Microsoft.Extensions.Logging", "PlatformDemo"),
+            (
+                "Aspire.Hosting",
+                typeof(BrowserRetainedWorkspaceActivationTests)
+                    .Assembly.Location),
+            (
+                "Aspire.Example",
+                typeof(BrowserPackageWorkspace).Assembly.Location),
         ];
-        foreach ((string packageId, string assemblyName, string assetDirectory)
-            in packages)
+        foreach ((string packageId, string assemblyPath) in packages)
         {
             byte[] assembly = await File.ReadAllBytesAsync(
-                Path.Combine(
-                    AppContext.BaseDirectory,
-                    "RealAssets",
-                    assetDirectory,
-                    $"{assemblyName}.dll"),
+                assemblyPath,
                 TestContext.Current.CancellationToken);
+            string assemblyName = Path.GetFileName(assemblyPath);
             await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
                 new BrowserPackage(
                     packageId,

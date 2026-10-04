@@ -9376,7 +9376,7 @@ async function addEcosystemPackageToWorkspace(
 
   const key = `${row.packageId}\u0000${row.version}`;
   if ([...ecosystemPackageDiscovery.packageAddStates.values()]
-      .some(state => state.status === "adding")) return;
+      .some(addState => addState.status === "adding")) return;
   ecosystemPackageDiscovery.packageAddStates.set(key, { status: "adding" });
   render({ synchronizeUrl: false });
 
