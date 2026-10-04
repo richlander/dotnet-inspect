@@ -603,7 +603,10 @@ returns — stay outside the enumeration with their reasons documented at
 `CoercionSinks`. What the checker guarantees is **routing agreement** for
 wrappable sinks plus a visible residual ledger for the rest; each residual is
 printer-owned — rendered by its own `CoerceText` branch — until it graduates
-into the enumeration and its count goes to zero.
+into the enumeration and its count goes to zero. Slot loads graduate through
+[Residual storage binding](#residual-storage-binding): once every leftover
+web is a bound local, the pass discharges the shared insertion decision over
+the occurrences it minted, and the slot-load residual category retires.
 
 This proves **routing, not rendering**: the invariant guarantees every sink *reaches*
 the one coercion function, collapsing the leak surface from ~12 sites to one — but it
@@ -714,13 +717,14 @@ rules to the pass.
 
 **Position.** The pass runs on every body — function, raised lambda, raised
 local function — immediately after `CoercionInsertionPass` and before
-`ScalarSelfUpdatePass`, in the default pipeline only, with the same membership
-as `SlotMaterializationPass`: the reconstruction pipelines that exclude
-materialization also exclude binding, and their transplanted bodies bind when
-the host's tail runs. It is the last pass that may observe a stack-slot node.
-The position is chosen so the pass sees exactly the tree the printer sees
-today: `SwapIdiomPass`, `PointerCompoundAssignmentPass`, and
-`UnsafeAwaitBoundaryPass` have consumed their slot patterns;
+`ScalarSelfUpdatePass`, in every pipeline that includes
+`SlotMaterializationPass` (`Default`, `Lowered`, and the capturing-lambda
+splits) and in none that excludes it: the `ForReconstruction` pipelines leave
+their slot nodes for the host's tail, which binds the transplanted body. It is
+the last pass that may observe a stack-slot node. The position is chosen so
+the pass sees exactly the tree the printer sees today in that pipeline: the
+slot-consuming raises present in it (`SwapIdiomPass`,
+`PointerCompoundAssignmentPass`, `UnsafeAwaitBoundaryPass`) have run;
 `ReferenceConditionalBindingPass` and `PrimitiveJoinBindingPass` have bound
 the conditional and join facts the policy reads; and `CoercionInsertionPass`
 has already wrapped each leftover slot store at its testified type where
@@ -731,6 +735,19 @@ identity on exactly those webs. The pass recomputes
 than reusing the earlier decision list. Nested bodies bind inside their own
 finalized pipeline, as they materialize today; a nested body whose own tail
 has not run reaches the printer boundary and fails visibly.
+
+**Binding discharges the coercion invariant.** Insertion ran before the pass
+and exempts `LoadStackSlot` values, so a freshly minted `LoadLocal` or
+`StoreLocal` at an in-domain typed sink would otherwise sit unwrapped, which
+`CoercionInvariant.Check` reports as a violation and which the printer, with
+its slot-transparent `CoerceText` branch deleted, would spell through its
+ordinary cast path. The pass therefore ends by applying the shared insertion
+decision (`RequiresCoercion`, the same rule `CoercionInsertionPass` and the
+checker use) to exactly the occurrences it minted and to no other node. This
+is the graduation the [invariant section](#the-invariant) reserves for slot
+loads: the slot-load residual category retires and the gates keep asserting
+zero violations. The discharge adds `Coerce` nodes only; it moves no
+expression and changes no binding.
 
 **Policy is the printer's, ported verbatim and frozen.** The pass applies the
 residual policy `CSharpPrinter.CollectStackSlotNames` and
@@ -743,9 +760,9 @@ residual policy `CSharpPrinter.CollectStackSlotNames` and
    requires it to fail visibly rather than fall back; the pass raises the same
    typed failure.
 1. **Unified.** The candidate set is every load's node type, every
-   `StoreElement` element target whose stored value is a load of the slot and
-   whose stores are all conditionals renderable for that element type, and
-   every store's result type, in that order. The first candidate every store
+   `StoreElement` element target whose stored value is a load of the slot
+   and whose web has at least one store, all of them conditionals renderable
+   for that element type, and every store's result type, in that order. The first candidate every store
    can be assigned to (exact type, implicit numeric assignment, renderable
    conditional target or assignable conditional result type, representable
    unknown-enum constant; a `Coalesce` store never qualifies), every load can
@@ -758,6 +775,10 @@ residual policy `CSharpPrinter.CollectStackSlotNames` and
    `S_n` for the first distinct type in occurrence order and `S_n_k` for each
    later one. This is the printer's existing split key; it is not a live-range
    or store-ordered split, and no pass proves it.
+   A `Fixed` statement whose local is a stack slot resolves to the bound local
+   whose split key matches its slot and declared slot type; a `Fixed` with no
+   matching bound local is a visible pass failure rather than the printer's
+   bare `S_n` fallback.
 3. **Untyped.** Any local that steps 1 and 2 would issue without a type — a
    whole web with no node type, or the `<unknown>`-keyed piece of a split web
    whose store or load carries none — is a visible pass failure. The printer
@@ -808,8 +829,10 @@ implementation slice.
 `CollectResidualStackSlotDeclaringStores`, `ResidualSlotUpdateKind`,
 `EnsureNoResidualManagedReferenceSlots` (subsumed by the general boundary),
 `FixedLocalName`'s stack-slot branch and the `Fixed.LocalIsStackSlot` flag,
-and every rendering branch keyed on `StoreStackSlot`/`LoadStackSlot` leave the
-printer family. The slot-store sink case in `CoercionInsertionPass` and the
+and every rendering branch keyed on `StoreStackSlot`/`LoadStackSlot`,
+including `CoerceText`'s slot-transparent branch, leave the printer family;
+the discharge above replaces that branch's role. The slot-store sink case in
+`CoercionInsertionPass` and the
 `StoreStackSlot` unsafe-run case in `LocalDeclarationPlan` remain until the
 implementation slice measures that they are unreachable at the boundary, and
 leave with their own evidence. The printer's residual-stack-slot spelling is replaced by its
@@ -861,13 +884,18 @@ initializer form, now owned by the declaration plan instead of
 `CollectResidualStackSlotDeclaringStores`, as earlier materialization slices
 produced; same-place update spelling for bound locals (`x += y`), now issued
 by `ScalarSelfUpdatePass` under its own contract instead of the printer's
-`ResidualSlotUpdateKind`, which reused that pass's classifier; and untyped
-webs and managed-reference webs moving from invalid or renderer-fallback
-output to visible failure. The pass changes no expression and introduces no
-coercion: insertion has already run. Render A/B over the fixed corpus
-classifies every changed method into one of those classes or stops; a
-valid-to-invalid transition, or a valid-to-valid change in which occurrence
-reads which local, is the stop signal. The multi-candidate unified population
+`ResidualSlotUpdateKind`, which reused that pass's classifier; coerced
+bound-occurrence spelling, where a sink that today renders a slot load
+transparently now carries the `Coerce` the shared decision issues for the
+bound local, so an implicit IL narrowing such as an `int` carrier stored to a
+`short` field gains its explicit cast; and untyped webs and managed-reference
+webs moving from invalid or renderer-fallback output to visible failure. The
+pass moves no expression; the only nodes it adds are the discharge's `Coerce`
+wrappers. Render A/B over the fixed corpus classifies every changed method
+into one of those classes or stops; a valid-to-invalid transition, or a
+valid-to-valid change in which occurrence reads which local, is the stop
+signal, and every coerced bound-occurrence change is reviewed as
+invalid-to-valid or as a value-preserving widening. The multi-candidate unified population
 is zero on the fixed corpus, so the corpus cannot measure the unified kind
 beyond single-candidate webs; the focused fixtures carry that evidence.
 
