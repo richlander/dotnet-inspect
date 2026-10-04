@@ -362,6 +362,16 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
                         cancel: true)
                     .ConfigureAwait(false));
         }
+        catch (AssemblyReferenceResolutionWorkExhaustedException exhausted)
+        {
+            return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
+                exhausted.Exhaustion,
+                await RetireCandidateAsync(
+                        coordinator,
+                        candidate,
+                        cancel: true)
+                    .ConfigureAwait(false));
+        }
         catch (Exception failure)
         {
             return new AssemblyReferenceWorkspaceContinuationOutcome.Failed(

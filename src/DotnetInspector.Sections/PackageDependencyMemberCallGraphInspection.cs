@@ -157,7 +157,7 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
 
     public PackageHouse House { get; }
 
-    internal PackageSourceOperationLease IssueOperation(
+    public PackageSourceOperationLease IssueOperation(
         PackageHouseOperation operation,
         CancellationToken cancellationToken)
     {
@@ -176,6 +176,25 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
 
         return sourceOperation;
     }
+}
+
+public sealed record PackageDependencyMemberCallGraphInspectionPreparation(
+    PackageDependencyMemberCallGraphInspectionRequest Request,
+    PackageDependencyMemberCallGraphInspectionSource Source,
+    PackageDependencyTraversalOutcome Traversal,
+    ImmutableArray<PackageDependencyEdgeRealizationExecution>
+        EdgeExecutions);
+
+public abstract class
+    PackageDependencyMemberCallGraphInspectionContinuation
+{
+    public abstract ValueTask<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteAsync(
+            PackageDependencyMemberCallGraphInspectionPreparation
+                preparation,
+            CancellationToken cancellationToken);
 }
 
 public sealed record PackageDependencyMemberCallGraphDocument(
@@ -280,6 +299,22 @@ public static class PackageDependencyMemberCallGraphInspection
             PackageDependencyMemberCallGraphInspectionRequest request,
             PackageDependencyMemberCallGraphInspectionSource source,
             CancellationToken cancellationToken = default)
+        => await ExecuteAsync(
+                request,
+                source,
+                continuation: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public static async ValueTask<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteAsync(
+            PackageDependencyMemberCallGraphInspectionRequest request,
+            PackageDependencyMemberCallGraphInspectionSource source,
+            PackageDependencyMemberCallGraphInspectionContinuation?
+                continuation,
+            CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(source);
@@ -340,6 +375,17 @@ public static class PackageDependencyMemberCallGraphInspection
                 .ConfigureAwait(false);
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
             executions = PrepareExecutions(request, traversal);
+        if (continuation is not null)
+        {
+            return await continuation.ExecuteAsync(
+                    new(
+                        request,
+                        source,
+                        traversal,
+                        executions),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         await using var workspace =
             new InspectionWorkspace(request.WorkspacePlan);
@@ -425,8 +471,17 @@ public static class PackageDependencyMemberCallGraphInspection
                     sourceOperation)
                 .ConfigureAwait(false);
 
+        return ProjectEnvelope(lowerOutcome);
+    }
+
+    public static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>
+        ProjectEnvelope(
+        PackageDependencyMemberCallGraphOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
         PackageDependencyMemberCallGraphInspectionOutcome content =
-            Project(lowerOutcome);
+            Project(outcome);
         return Envelope(
             content,
             content

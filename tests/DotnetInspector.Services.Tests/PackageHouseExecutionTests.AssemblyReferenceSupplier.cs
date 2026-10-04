@@ -837,6 +837,8 @@ public sealed partial class PackageHouseExecutionTests
                 request,
                 association,
                 packageRoutes.Receipt);
+        var charged =
+            new Dictionary<AssemblyReferenceResolutionWorkKind, long>();
 
         var packageOwned = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.PackageOwned>(
@@ -852,7 +854,10 @@ public sealed partial class PackageHouseExecutionTests
                             throw new InvalidOperationException(
                                 "Platform must not run after Package selection.");
                         },
-                        TestContext.Current.CancellationToken));
+                        TestContext.Current.CancellationToken,
+                        (kind, amount) =>
+                            charged[kind] =
+                                charged.GetValueOrDefault(kind) + amount));
 
         Assert.Equal(identity, packageOwned.Package.Selection.Assembly.Identity);
         Assert.Same(request, packageOwned.Request);
@@ -861,7 +866,81 @@ public sealed partial class PackageHouseExecutionTests
             packageRoutes.Receipt,
             packageRoute.PackageRoutes);
         Assert.Equal(0, platformCalls);
+        Assert.True(
+            charged[
+                AssemblyReferenceResolutionWorkKind
+                    .PackageCandidateOperation] > 0);
+        Assert.True(
+            charged[
+                AssemblyReferenceResolutionWorkKind.SourceOperation] > 0);
+        Assert.Equal(
+            1,
+            charged[AssemblyReferenceResolutionWorkKind.Acquisition]);
+        Assert.Equal(
+            1,
+            charged[
+                AssemblyReferenceResolutionWorkKind.RealizedAssembly]);
         operation.Dispose();
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        EmptyPlatformCompositionRetainsTypedNonParticipation()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        (
+                            $"lib/net11.0/{MaterializedPackageId}.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ],
+                    IncludeManifest: true));
+        (PackageAssemblyReferenceSupplierAssociation association, _) =
+            await SupplierAssociationAsync(
+                environment,
+                (MaterializedPackageId, RouteVersion));
+        var projected = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                association.RouteProjection);
+        AssemblyBindingRequest request =
+            BindingRequest(CallGraphTargetIdentity());
+        var nonParticipation =
+            new PlatformAssemblyReferenceNonParticipationEvidence(
+                projected.Receipt.Generation,
+                projected.Receipt.FocalScope,
+                projected.Receipt,
+                "No exact Platform target is eligible.");
+        var route = new PlatformAssemblyReferenceExternalRoute(
+            request,
+            projected.Receipt.Generation,
+            projected.Receipt.FocalScope,
+            [],
+            projected.Receipt,
+            nonParticipation);
+        var familyCalls = 0;
+
+        var missing = Assert.IsType<
+            PlatformAssemblyReferenceBindingOutcome.Missing>(
+                await PlatformAssemblyReferenceRouteAdapter.ExecuteAsync(
+                    route,
+                    (_, _) =>
+                    {
+                        familyCalls++;
+                        throw new InvalidOperationException(
+                            "An empty Platform composition has no family work.");
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, familyCalls);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+        Assert.Empty(missing.FamilyResults);
+        Assert.Same(nonParticipation, route.NonParticipation);
         await environment.AssertRootSettledAsync();
     }
 

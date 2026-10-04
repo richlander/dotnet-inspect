@@ -143,6 +143,70 @@ public sealed partial class AssemblyReferenceResolutionLadderTests
 
     [Fact]
     public async Task
+        WorkspaceContinuationProjectsConstructionWorkExhaustion()
+    {
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease predecessor =
+            await ActivateAsync(coordinator);
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        var work = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 0,
+                maxAcquisitions: 1,
+                maxRealizedAssemblies: 1,
+                maxTransferBytes: 1,
+                maxRetainedAssemblyBytes: 1,
+                maxWorkspaceReplacements: 1,
+                deadline: DateTimeOffset.UtcNow.AddMinutes(5)));
+        AssemblyReferenceResolutionRequest request =
+            ResolutionRequest(
+                predecessor,
+                binding,
+                new AssemblyBindingPolicyVersion(),
+                AssemblyBindingSelection.NameNotOwned(),
+                work);
+        TestExternalRoute route = new(binding, request.Generation);
+        var demand = new AssemblyReferenceWorkspaceContinuationDemand(
+            request,
+            RouteSet(request, route),
+            route,
+            ownerEvidence: new object());
+
+        AssemblyReferenceWorkspaceContinuationOutcome outcome =
+            await AssemblyReferenceWorkspaceContinuationOperation.ExecuteAsync(
+                coordinator,
+                predecessor,
+                demand,
+                (_, _, _) =>
+                {
+                    work.Charge(
+                        AssemblyReferenceResolutionWorkKind.SourceOperation,
+                        amount: 1);
+                    throw new InvalidOperationException(
+                        "Exhausted work must stop successor construction.");
+                },
+                TestContext.Current.CancellationToken);
+
+        var incomplete = Assert.IsType<
+            AssemblyReferenceWorkspaceContinuationOutcome.Incomplete>(
+                outcome);
+        var exhaustion = Assert.IsType<
+            AssemblyReferenceResolutionWorkExhaustion>(
+                incomplete.Evidence);
+        Assert.Equal(
+            AssemblyReferenceResolutionWorkKind.SourceOperation,
+            exhaustion.Kind);
+        Assert.NotNull(incomplete.Cleanup.Candidate);
+        Assert.True(incomplete.Cleanup.Succeeded);
+        Assert.Null(incomplete.Cleanup.Publication);
+        Assert.Same(predecessor.Realization, coordinator.Current!.Identity);
+    }
+
+    [Fact]
+    public async Task
         WorkspaceContinuationCancelsConstructionAtWorkDeadline()
     {
         await using var coordinator = new WorkspaceReplacementCoordinator();
