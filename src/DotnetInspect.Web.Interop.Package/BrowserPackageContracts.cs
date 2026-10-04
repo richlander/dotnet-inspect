@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using TsJsExport;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -493,20 +494,85 @@ public sealed record BrowserPackageQueryManifest(
     string? IconUrl,
     BrowserPackageQueryManifestIdentityProvenance IdentityProvenance);
 
+[JsExportJsonSchema(
+    PackageQueryDurableRowContract.ContractIdentity,
+    PackageQueryDurableRowContract.Direction,
+    PackageQueryDurableRowContract.VocabularyCatalog,
+    PackageQueryDurableRowContract.VocabularySnapshotIdentity)]
 public sealed record BrowserPackageQueryRow(
+    [property: JsExportJsonSchemaSlot(
+        0,
+        PackageQueryDurableRowContract.PackageId,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.PackageId)]
     string PackageId,
+    [property: JsExportJsonSchemaSlot(
+        1,
+        PackageQueryDurableRowContract.Version,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Version)]
     string Version,
+    [property: JsExportJsonSchemaSlot(
+        2,
+        PackageQueryDurableRowContract.Tier,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Tier)]
     BrowserPackageQueryAcquisitionTier Tier,
+    [property: JsExportJsonSchemaSlot(
+        3,
+        PackageQueryDurableRowContract.Answers,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Answers)]
     BrowserPackageQueryAnswer[] Answers,
+    [property: JsExportJsonSchemaSlot(
+        4,
+        PackageQueryDurableRowContract.Evidence,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Evidence)]
     BrowserPackageQueryEvidence[] Evidence,
+    [property: JsExportJsonSchemaSlot(
+        5,
+        PackageQueryDurableRowContract.TotalDownloads,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.TotalDownloads)]
     long? TotalDownloads,
+    [property: JsExportJsonSchemaSlot(
+        6,
+        PackageQueryDurableRowContract.Verified,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Verified)]
     bool? Verified,
+    [property: JsExportJsonSchemaSlot(
+        7,
+        PackageQueryDurableRowContract.Producer,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Producer)]
     string Producer,
+    [property: JsExportJsonSchemaSlot(
+        8,
+        PackageQueryDurableRowContract.Description,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Description)]
     string? Description = null,
+    [property: JsExportJsonSchemaSlot(
+        9,
+        PackageQueryDurableRowContract.RootRequest,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.RootRequest)]
     string? RootRequest = null)
 {
+    [JsExportJsonSchemaSlot(
+        10,
+        PackageQueryDurableRowContract.Owners,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Owners)]
     public string[] Owners { get; init; } = [];
 
+    [JsExportJsonSchemaSlot(
+        11,
+        PackageQueryDurableRowContract.Manifest,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.Manifest)]
     public BrowserPackageQueryManifest? Manifest { get; init; }
 }
 
@@ -1361,7 +1427,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
-[JsonSerializable(typeof(PackageQueryDurableRow))]
+[JsonSerializable(typeof(BrowserPackageQueryRow))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageQueryDocument))]
 [JsonSerializable(typeof(BrowserPackageQueryInspection))]
