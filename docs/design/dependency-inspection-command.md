@@ -886,7 +886,7 @@ these roles:
 | Root, acquisition, declaration, relationship, traversal, and pruning failures | Typed baseline Content; required operational context may also remain in ordinary Diagnostics. |
 | Package root identity, provenance, declaration groups, group selection, restored package nodes, restored edges, processing observations, and their owner-issued phase states | Supplemental Package Dependency Evidence retained in `TEvidence`. |
 | CLI root labels, section membership, row windows, display ordering, and Markout or JSON lowering | Host presentation, not service evidence. |
-| Network policy rejection or offline failure | Ordinary operation failure, not evidence-only data. |
+| `--offline` rejection or other network failure | Ordinary operation failure, not evidence-only data. |
 
 The same owner-issued fact may support a baseline row and remain in Evidence.
 That is deliberate: optional capture cannot make Content incomplete or force a
