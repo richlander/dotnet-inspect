@@ -16,6 +16,11 @@ output and Browser catalog prove the need and supply the first production data.
 The later [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md)
 design consumes this pattern without extending its claim.
 
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) moves the
+declaration contracts into the `QuerySpace.Primitives` floor so that term
+owners declare their own vocabularies; see
+[Physical placement](#physical-placement).
+
 ## Owner and exact claim
 
 **Vocabulary Mappings** owns:
@@ -518,9 +523,24 @@ suite exists. Existing `VocabularyCommandTests` retain CLI compatibility.
 `BrowserStyleOptionsTests`, strict generated-TypeScript compilation, and the
 Inspect Web test/build gates own the Browser adoption.
 
+## Physical placement
+
+This owner's contracts are split by role across two existing owners' assemblies;
+semantic authority stays here.
+
+| Contract | Assembly | Reason |
+| --- | --- | --- |
+| Catalog, vocabulary, term, map, and snapshot identities; `VocabularyDefinition`, `VocabularyTerm`, map definitions and entries, scalar values, cardinality, coverage; `VocabularySnapshot` and its construction-time validation | `QuerySpace.Primitives` | A declaration a term owner must be able to produce from any family; the floor is dependency-free under the [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers) |
+| `VocabularyDocument`, sections, fields, operators, rows, the wire document, and `VocabularyJson` | `DotnetInspector.Sections` | Product Vocabulary's declared section schema and compatibility wire projection; not part of the reusable mapping pattern |
+
+Owners declare; hosts compose. A declaration is a value, not an interface the
+owner implements, and no reflection or plugin discovery assembles the list.
+The composed snapshot's identity derives from its declarations, so hosts that
+ship the same declarations observe the same identity.
+
 ## Delivery plan
 
-This shared substrate has a counted three-step path to both production hosts:
+This shared substrate has a counted four-step path to both production hosts:
 
 1. **Focused design — complete.** The merged design locks this pattern and the
    bounded Product Vocabulary adoption.
@@ -534,6 +554,11 @@ This shared substrate has a counted three-step path to both production hosts:
    its explicit feature binding, and remove the Browser-local semantic row
    interfaces, guards, double-materialized `JsonElement` path, and any
    superseded internal `ListVocabulary` shape.
+4. **Owner declaration and retirement — #9250.** Move the declaration
+   contracts to `QuerySpace.Primitives` and the document contracts to
+   `DotnetInspector.Sections`, have the Decompiler and Queries declare their
+   vocabularies, compose the snapshot in both hosts, and retire
+   `DotnetInspector.Vocabulary`.
 
 Step 3 resolves the allocation follow-up in
 [#4494](https://github.com/richlander/dotnet-inspect/issues/4494) if its

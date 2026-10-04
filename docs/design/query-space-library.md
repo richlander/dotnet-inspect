@@ -25,22 +25,34 @@ remain separate focused slices under the
 [Required evidence](#required-evidence) remain **unverified** until their named
 adoption lands.
 
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) splits the
+library into two assemblies along its
+[lifetime classes](#five-lifetime-classes) and names the
+[two participation tiers](#two-assemblies-and-two-participation-tiers) that
+decide which assembly a component references. The split is designed; its
+implementation and the first tier-1 adopter, Product Vocabulary, are tracked
+there.
+
 ## Owner and exact claim
 
 **QuerySpace Library Boundary** owns this exact claim:
 
-> `QuerySpace` is one dependency-free, host-neutral .NET library whose public
+> `QuerySpace` is one host-neutral .NET library, delivered as a
+> dependency-free declaration floor (`QuerySpace.Primitives`) and a planning
+> and execution assembly (`QuerySpace`) that references it, whose public
 > boundary composes the existing owner-issued portable query, row planning,
-> semantic selection, operation registration, and Query Space structural
-> contracts for reuse by dotnet-inspect, Inspect Web, and independent .NET
-> applications. It owns their physical and API composition, dependency
-> boundary, lifetime boundary, and extension seams without taking semantic
-> ownership from their focused designs.
+> semantic selection, operation registration, Query Space structural, and
+> value-vocabulary declaration contracts for reuse by dotnet-inspect, Inspect
+> Web, and independent .NET applications. It owns their physical and API
+> composition, dependency boundary, lifetime boundary, and extension seams
+> without taking semantic ownership from their focused designs.
 
 This owner defines:
 
-- the `QuerySpace` assembly, package, root namespace, and focused child
-  namespaces;
+- the `QuerySpace` package, its two assemblies, root namespace, and focused
+  child namespaces;
+- the assignment of each lifetime class to one of the two assemblies, and
+  the two participation tiers that follow from it;
 - which reusable contracts belong in that library and which product contracts
   remain outside it;
 - the separation among durable structural data, reusable execution machinery,
@@ -134,10 +146,14 @@ owners:
 | Typed `Head`, `Tail`, `Window`, and `Top` plans and complete-sequence reference execution | [Semantic row selection](semantic-row-selection.md) |
 | Generic operation definition, routes, profiles, effects, and effective capability projection | [Query Operation Infrastructure](query-operation-infrastructure.md) |
 | Query-space descriptors, scopes, row-intent associations, terminal requirements, and structural composition | [Query Space Composition](query-space-composition.md) |
+| Value-vocabulary declaration, term, map, and snapshot-identity contracts, and the typed value-vocabulary identity a facet names | [Vocabulary mappings](vocabulary-mappings.md) |
 
 The library does not carry:
 
 - product-owned vocabularies, operation plans, or result types;
+- the Product Vocabulary document, its sections, fields, operator lists,
+  rows, or wire projection, a declared section schema owned by
+  `DotnetInspector.Sections`;
 - declared section schemas, section projection, envelopes, or
   `SectionCountOutcome`;
 - source-selection, acquisition, delegation, completion, or continuation
@@ -152,8 +168,12 @@ QuerySpace.
 
 ## Namespaces and identity
 
-The package and assembly name is `QuerySpace`. Its public namespaces are
-organized by reusable role:
+The package name is `QuerySpace`. It ships two assemblies,
+`QuerySpace.Primitives` and `QuerySpace`, whose contents are assigned by
+[lifetime class](#two-assemblies-and-two-participation-tiers). Namespaces
+follow reusable role, not assembly: a type keeps its namespace when it is
+assigned to `Primitives`, so the split changes no consumer source. The public
+namespaces are:
 
 ```text
 QuerySpace
@@ -213,6 +233,47 @@ or enumerated.
 An opaque source continuation may be retained beside a completed result under
 its source owner's contract. It is a durable receipt, not a live QuerySpace
 handle and not part of portable query identity.
+
+## Two assemblies and two participation tiers
+
+The five lifetime classes map onto two assemblies:
+
+| Assembly | Lifetime classes | Contents | Dependencies |
+| --- | --- | --- | --- |
+| `QuerySpace.Primitives` | Declaration; Portable request | Facets, row vocabularies, value-vocabulary declarations and snapshot identity, operation registrations, query-space definitions and descriptors, portable intents, row associations, terminal requirements, and every shared structural identity | Platform only; listed in `dependency-free-contract-floors` |
+| `QuerySpace` | Resolved plan and binding; Execution context; Result | Planners, normalized operands, structural plans, typed accessors, bindings, reference execution, results, and receipts | Platform and `QuerySpace.Primitives` |
+
+`Primitives` contains no planner, binding, evaluator, or execution type. A
+type that holds a live source, enumerator, buffer, or cancellation source
+cannot be placed there. This follows
+[`ILInspector.MetadataPrimitives`](library-family-boundaries.md): a
+dependency-free floor of mechanical currencies beneath an assembly that owns
+the semantics built on them.
+
+The split exists so that a component can choose how it participates:
+
+- **Tier 1, typed data.** The component publishes declarations and ordinary
+  typed results: stable identities, deterministic order, construction-time
+  validity. It references `QuerySpace.Primitives` only. It gets discovery,
+  explanation, and joins by identity, and it can never alter execution
+  semantics because it cannot reach them. `ILInspector.Decompiler` is tier 1:
+  its style, body-kind, and node-kind catalogs become value-vocabulary
+  declarations beside the catalogs that own them.
+- **Tier 2, optimized integration.** The component owns a source and needs
+  execution control: unit enumeration, lanes and breadth, early stop, request
+  collapse across consumers, completion evidence. It references `QuerySpace`
+  and carries the bar [Source delegation](source-delegation.md) sets: a
+  closed barrier, completion evidence rather than asserted satisfaction, no
+  silent fallback, and an equivalence gate against the reference path.
+  `ILInspector.Analysis` is tier 2 under
+  [Assembly Analysis Operation](assembly-analysis-operation.md).
+
+A tier-1 component's policy rule admits `QuerySpace.Primitives` and not
+`QuerySpace`; a tier-2 component's rule admits both. The repository's L1
+queries declare demand on a tier-2 component in `Primitives` types and
+receive typed results; they do not construct the tier-2 component's planning
+or binding types. Adopting that rule for existing Analysis demand belongs to
+the Analysis programs, not to this document.
 
 ## Data and machinery separation
 
@@ -411,16 +472,22 @@ owner defines the exact supported modes, fallback behavior, and diagnostics.
 
 ## Dependencies and platforms
 
-The `QuerySpace` runtime library may depend on .NET platform libraries,
-including `System.Text.Json` for the canonical payload codec. It has no external
+Both assemblies may depend on .NET platform libraries, including
+`System.Text.Json` for the canonical payload codec. Neither has an external
 package, product, CLI, Browser, Markout, or Roslyn dependency. STJ-generated
 witness and adapter integration remains outside the core library.
 
-Per the user's evidence choice for this design, the negative external-package
-and product dependency claim has **no automated absence gate** and remains
-**unverified**. The implementation slice must report its actual project,
-package, and platform assembly references, but this design does not require a
-project-graph or compiled-reference enforcement gate.
+`QuerySpace.Primitives` depends on the platform only and is listed in the
+`dependency-free-contract-floors` rule of `eng/dependency-policy.json`, which
+enforces that claim over the project and compiled-assembly graphs. That gate
+is a fresh evidence choice for a new assembly.
+
+For `QuerySpace` itself, the user's earlier evidence choice stands: its
+negative external-package and product dependency claim has **no automated
+absence gate** and remains **unverified**. The implementation slice must
+report its actual project, package, and platform assembly references, but this
+design does not require a project-graph or compiled-reference enforcement gate
+for that assembly.
 
 The public runtime contract remains compatible with NativeAOT and
 single-threaded Browser/Wasm. Optional build-time generation may use Roslyn
@@ -494,6 +561,10 @@ Implementation proceeds as focused slices:
 8. Complete Package Query and Library Query CLI adoption, then adopt the same
    descriptors and plans in Inspect Web/Browser Wasm and remove superseded
    product-local paths.
+9. Split `QuerySpace.Primitives` from `QuerySpace` along the lifetime
+   classes, placement-only, and add it to `dependency-free-contract-floors`;
+   then let Product Vocabulary adopt it as the first tier-1 declaration under
+   [#9250](https://github.com/richlander/dotnet-inspect/issues/9250).
 
 Each step names one semantic owner or this library-boundary owner. A later slice
 does not reopen this document to absorb its adopting owner's semantics.
@@ -510,6 +581,8 @@ does not reopen this document to absorb its adopting owner's semantics.
 | `SpecializedRowExecutionMatchesReferenceEvaluator` | When compiler acceleration lands, every admitted specialized topology matches the reference evaluator over contract-defining and pathological inputs. |
 | Focused STJ integration gates | When integration lands, an explicitly supplied runtime witness or post-compilation evidence establishes exact context and root correspondence; direction respects effective generation mode, and an STJ property never creates query semantics implicitly. |
 | Dependency report | The implementation PR reports the core project's evaluated project, package, and platform assembly references; by explicit user choice, no automated absence gate is required and the negative external-package and product dependency claim remains unverified. |
+| `dependency-free-contract-floors` covers `QuerySpace.Primitives` | After the split, a project or package reference added to `Primitives` fails the dependency-policy gate over both graphs. |
+| `PrimitivesCarriesOnlyDeclarationAndRequestTypes` | After the split, a public-surface inventory of `QuerySpace.Primitives` contains no planner, binding, evaluator, execution-context, or result type; the lifetime-class assignment is enforced, not described. |
 
 ## Non-claims
 
