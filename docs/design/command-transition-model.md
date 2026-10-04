@@ -888,6 +888,20 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
 - There are no aliases. Help, completion, `-D`, and `explain` list the
   Compare-participating identities from the same registration that Diff
   dispatches on.
+- `--where` carries owner-issued query intent for analyses that require it.
+  `string-literals` accepts exactly one predicate in either canonical form:
+  `--where "Literal contains https://"` or
+  `--where "Literal starts-with https://"`.
+- The exact key is `Literal`. `contains` and `starts-with` are ordinal UTF-16
+  relations owned by
+  [string-literal-use Analysis](analysis-string-literal-use-pattern.md).
+  Selecting `string-literals` without one predicate, supplying a predicate when
+  no selected analysis consumes it, repeating it, or using an unknown key,
+  operator, empty value, or over-limit value rejects before package, platform,
+  or file acquisition.
+- CLI and Browser requests resolve the same portable vocabulary and carry the
+  same typed predicate into the shared producer. Neither host reparses the
+  predicate after acquisition.
 - For validation, a pairwise request's report-surface kind comes from its
   filters, in this order of precedence:
   - A request with one or more `--member` targets is Member. A member is
@@ -923,6 +937,7 @@ produces:
 | `allocation` | Member | `analysis.allocation` | `AnalysisFindings.CompareAllocations` |
 | `call-site` | Member | `analysis.call-site` | `AnalysisFindings.CompareCallSites` |
 | `unsafety` | Member | `analysis.unsafety` | `AnalysisFindings.CompareUnsafety` |
+| `string-literals` | Library | `analysis.string-literal-use` | Shared path- or AssemblyContext-backed string-literal comparison query |
 | `csharp` | Member | `csharp.line` | `CSharpFindings.Compare` |
 | `il` | Member | `il.op` | `IlFindings.Compare` |
 
@@ -943,23 +958,29 @@ Diff offers these views over the result:
 | `Transitions` | Each selected analysis's per-Finding transitions, including `Present`, in selection order, and within an analysis in descriptor declaration order |
 
 A view is admitted only when the selected set contains an analysis it
-projects. `Changes` requires `api`. `Transitions` requires the Type
-or Member surface and a selected analysis that supports it. Otherwise the request
-is rejected before execution, naming the view and the missing analysis. A view
-never adds an analysis and never renders an empty success.
+projects. `Changes` requires `api`. `Transitions` requires a selected
+participation that declares it at the requested surface. Type and Member
+participations continue to support it. At Library, `string-literals` is the
+first declaration; Library `api` and Member-only analyses do not gain Library
+Transition support. Otherwise the request is rejected before execution,
+naming the view and the missing analysis. A view never adds an analysis and
+never renders an empty success.
 
 `Transitions` is a view, not a route. It replaces today's `Finding
 Transitions` section, which is a command-owned route: it declares no query, runs its own per-type API comparison, and must be
 selected alone. As a view of the `api` result, its API rows follow the `api`
 producer's scope and member matching instead of that separate comparison,
 including under `-a`, and at Type it shows `api.type` and `api.member` rows
-together. That is an **intentionally breaking** change under
+together. For `analysis.string-literal-use`, `Old` and `New` contain the
+complete decoded literal or `absent`; repeated matching positions inside one
+literal do not multiply rows, while separate physical `ldstr` occurrences
+remain separate Finding instances. That is an **intentionally breaking** change under
 [CLI change classification](cli-change-classification.md). The rename is part
 of the same change and gets no alias. `-S "Finding Transitions"` is rejected
 with guidance naming `-S Transitions`. The name matches Diff History's
 `Transitions` view of the same `PairFinding` transitions, because History is
-Diff's temporal mode. The view stays available at the Type and Member
-surfaces, as today. Offering it at the Library surface is a later decision.
+Diff's temporal mode. The view stays available at Type and Member and is
+available at Library only through a selected participation that declares it.
 
 #### Retiring pairwise `--finding`
 

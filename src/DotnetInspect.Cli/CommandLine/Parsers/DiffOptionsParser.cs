@@ -181,6 +181,7 @@ public static class DiffOptionsParser
             Analysis = ParseAnalysisSet(
                 parseResult.GetResult(args.AnalysisOption) is { Implicit: false },
                 parseResult.GetValue(args.AnalysisOption)),
+            Where = parseResult.GetValue(opts.RowWhere) ?? [],
             Legend = parseResult.GetValue(args.LegendOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
