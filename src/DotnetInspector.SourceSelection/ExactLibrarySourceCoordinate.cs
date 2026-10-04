@@ -1,11 +1,17 @@
 using ILInspector.Metadata;
 using NuGetFetch;
+using System.Text.Json.Serialization;
 
 namespace DotnetInspector.SourceSelection;
 
 /// <summary>
 /// Identifies one exact managed library within an exact source domain.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(ExactLibrarySourceCoordinate.Package), "package")]
+[JsonDerivedType(typeof(ExactLibrarySourceCoordinate.Platform), "platform")]
+[JsonDerivedType(typeof(ExactLibrarySourceCoordinate.Project), "project")]
+[JsonDerivedType(typeof(ExactLibrarySourceCoordinate.Local), "local")]
 public abstract class ExactLibrarySourceCoordinate :
     IEquatable<ExactLibrarySourceCoordinate>
 {

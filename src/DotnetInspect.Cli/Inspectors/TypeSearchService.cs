@@ -289,10 +289,12 @@ internal static class TypeSearchService
             ConfiguredDeclarationLocatorWorkspace workspace,
             CancellationToken cancellationToken)
     {
-        TypeDeclarationLocatorSectionResult censusSection =
+        TypeDeclarationLocatorInspectionExecution execution =
             await workspace.LocateAsync(
                 ["*"],
                 cancellationToken);
+        TypeDeclarationLocatorSectionResult censusSection =
+            execution.Inspection.Content;
         if (censusSection
             is not TypeDeclarationLocatorSectionResult.Evaluated census)
         {
@@ -309,6 +311,22 @@ internal static class TypeSearchService
                     options.IncludeAll,
                     workspace)),
         ];
+        if (options.TypeMatchIntent == FindTypeMatchIntent.Ordinary
+            && options.TypeFilter is null)
+        {
+            TypeFindQuestion question =
+                CreateSemanticTypeQuestion(patterns, options);
+            TypeFindSemanticPopulation population =
+                TypeFindSourceEvaluator.EvaluateLocatorCensus(
+                    question,
+                    execution.LocatorResult);
+            TypeFindBlock block =
+                FindSemanticReducer.ReduceType(question, population);
+            return ProjectSemanticTypeBlock(
+                block,
+                candidates);
+        }
+
         return ClassifyPatterns(
             patterns,
             candidates,
@@ -316,6 +334,133 @@ internal static class TypeSearchService
             answer.IsComplete,
             options.TypeMatchIntent);
     }
+
+    private static TypeFindQuestion CreateSemanticTypeQuestion(
+        IReadOnlyList<string> patterns,
+        FindOptions options) =>
+        TypeFindQuestion.Create(
+            patterns.Select(
+                static (pattern, ordinal) =>
+                    TryGetNamespaceSearchPattern(
+                        pattern,
+                        out NamespaceSearchPattern namespacePattern)
+                        ? namespacePattern.Match
+                            is MetadataNamespaceMatch.Exact
+                                ? TypeFindPattern
+                                    .CreateWithExactNamespaceFallback(
+                                        ordinal,
+                                        pattern,
+                                        namespacePattern.Namespace)
+                                : TypeFindPattern.CreateNamespace(
+                                    ordinal,
+                                    pattern,
+                                    namespacePattern.Namespace,
+                                    namespacePattern.Match)
+                        : TypeFindPattern.Create(ordinal, pattern)),
+            options.IncludeAll
+                ? FindVisibility.All
+                : FindVisibility.Public,
+            options.Limit);
+
+    private static List<TypeFindResult> ProjectSemanticTypeBlock(
+        TypeFindBlock block,
+        IReadOnlyList<TypeSearchResult> candidates)
+    {
+        var byDeclaration =
+            candidates
+                .Where(static candidate => candidate.Location is not null)
+                .ToDictionary(
+                    static candidate =>
+                        SemanticDeclarationKey(candidate.Location!));
+        var results = new List<TypeFindResult>();
+        foreach (TypeFindPattern pattern in block.Question.Patterns)
+        {
+            foreach (TypeFindSemanticMatch match
+                in block.Matches.Where(
+                    match =>
+                        match.Pattern.Ordinal == pattern.Ordinal))
+            {
+                TypeFindDeclarationKey key =
+                    SemanticDeclarationKey(match.Declaration);
+                if (!byDeclaration.TryGetValue(
+                        key,
+                        out TypeSearchResult? candidate))
+                {
+                    throw new InvalidOperationException(
+                        "The semantic Type match has no locator declaration projection.");
+                }
+
+                results.Add(
+                    ToFindResult(
+                        match.EffectivePattern,
+                        ToCliMatchKind(match.Match),
+                        match.Similarity,
+                        candidate));
+            }
+
+            TypeFindPatternSettlement settlement =
+                block.Settlements[pattern.Ordinal];
+            if (settlement.Kind is FindPatternSettlementKind.NoMatch)
+            {
+                results.Add(
+                    new TypeFindResult
+                    {
+                        Pattern = pattern.Text,
+                        Match = TypeFindMatchKind.NotFound,
+                    });
+            }
+        }
+        return results;
+    }
+
+    private static TypeFindMatchKind ToCliMatchKind(
+        TypeFindSemanticMatchKind match) =>
+        match switch
+        {
+            TypeFindSemanticMatchKind.Exact =>
+                TypeFindMatchKind.Exact,
+            TypeFindSemanticMatchKind.Direct =>
+                TypeFindMatchKind.Direct,
+            TypeFindSemanticMatchKind.Glob =>
+                TypeFindMatchKind.Glob,
+            TypeFindSemanticMatchKind.Namespace =>
+                TypeFindMatchKind.Namespace,
+            TypeFindSemanticMatchKind.Prefix =>
+                TypeFindMatchKind.Prefix,
+            TypeFindSemanticMatchKind.Substring =>
+                TypeFindMatchKind.Substring,
+            TypeFindSemanticMatchKind.Partial =>
+                TypeFindMatchKind.Partial,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(match),
+                match,
+                "Unknown semantic Type Find match kind."),
+        };
+
+    private static TypeFindDeclarationKey SemanticDeclarationKey(
+        TypeDeclarationLocatorSectionCandidate candidate) =>
+        new(
+            candidate.Observation.ContextOrder,
+            candidate.Observation.MemberOrder,
+            candidate.ModuleVersionId,
+            candidate.DeclarationOrder,
+            candidate.Name);
+
+    private static TypeFindDeclarationKey SemanticDeclarationKey(
+        TypeFindDeclarationAssociation declaration) =>
+        new(
+            declaration.Source.ContextOrder,
+            declaration.Source.MemberOrder,
+            declaration.ModuleVersionId,
+            declaration.DeclarationOrder,
+            declaration.Name);
+
+    private readonly record struct TypeFindDeclarationKey(
+        int ContextOrder,
+        int MemberOrder,
+        Guid ModuleVersionId,
+        int DeclarationOrder,
+        MetadataTypeDefinitionName Name);
 
     private static IOrderedEnumerable<TypeSearchResult>
         InFindSourceOrder(IEnumerable<TypeSearchResult> candidates) =>
