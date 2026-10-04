@@ -168,15 +168,18 @@ type ImplementationProfileCacheStatus =
 
 /**
  * Single-flight result cache keyed by an exact request identity. A settled or
- * producer-failed entry belongs only to its key; retry replaces only a
- * producer failure.
+ * producer-failed entry belongs only to its key; retry replaces a producer
+ * failure or a settled result explicitly admitted by the caller.
  */
 export interface KeyedResultCache<TRequest, TResult> {
   load(
     request: TRequest,
     producer: (request: TRequest) => Promise<TResult>,
   ): Promise<TResult>;
-  retry(request: TRequest): boolean;
+  retry(
+    request: TRequest,
+    retrySettled?: (result: TResult) => boolean,
+  ): boolean;
   status(request: TRequest): ImplementationProfileCacheStatus;
 }
 
@@ -326,9 +329,14 @@ export function createKeyedResultCache<TRequest, TResult>(
       return promise;
     },
 
-    retry(request) {
+    retry(request, retrySettled) {
       const key = keyOf(request);
-      if (entries.get(key)?.kind !== "producer-failed") return false;
+      const entry = entries.get(key);
+      if (entry?.kind !== "producer-failed"
+        && (entry?.kind !== "settled"
+          || retrySettled?.(entry.result) !== true)) {
+        return false;
+      }
       entries.delete(key);
       return true;
     },

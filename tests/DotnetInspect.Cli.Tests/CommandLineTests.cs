@@ -257,8 +257,9 @@ public class CommandLineTests
                 root.Parse(tipTokens),
                 tipTokens));
 
-        Assert.DoesNotContain("Tips:", withoutTips.Error);
-        Assert.Contains("Tips:", withTips.Error);
+        Assert.Empty(withoutTips.Error);
+        Assert.DoesNotContain("Tips:", withTips.Error);
+        Assert.Contains("package <package>", withTips.Error);
     }
 
     [Fact]
@@ -273,7 +274,8 @@ public class CommandLineTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.NotEmpty(result.Output);
-        Assert.Contains("Tips:", result.Error);
+        Assert.DoesNotContain("Tips:", result.Error);
+        Assert.Contains("package <package>", result.Error);
     }
 
     [Theory]
@@ -610,7 +612,7 @@ public class CommandLineTests
                     new("package", "Fourth", "fourth"),
                 ]));
 
-        Assert.Contains("Tips:", error);
+        Assert.DoesNotContain("Tips:", error);
         Assert.Contains("First", error);
         Assert.Contains("Second", error);
         Assert.Contains("Third", error);

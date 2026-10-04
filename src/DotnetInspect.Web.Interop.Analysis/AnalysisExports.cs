@@ -793,6 +793,88 @@ public static partial class AnalysisExports
             compileLibrary);
     }
 
+    /// <summary>
+    /// Top Leverage designation for every method declared by one Type in a
+    /// package implementation Library.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageTypeMethodLeverage(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeDefinitionId)
+    {
+        BrowserTypeMethodLeverage leverage =
+            await PackageTypeMethodLeverageAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeDefinitionId);
+        return JsonSerializer.Serialize(
+            leverage,
+            BrowserAnalysisJsonContext.Default
+                .BrowserTypeMethodLeverage);
+    }
+
+    static async Task<BrowserTypeMethodLeverage>
+        PackageTypeMethodLeverageAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            string typeDefinitionId)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserAnalysisWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(
+                    coordinate.Selection));
+        if (!coordinate.Selection.IsSelected)
+        {
+            return BrowserImplementationProfileWireProjection
+                .TypeMethodLeverageUnavailable(
+                    compileLibrary.Status.ToString(),
+                    $"The package has no selected compile library "
+                        + $"({compileLibrary.Status}).",
+                    compileLibrary);
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        if (!scope.ImplementationParticipants.Contains(participant))
+        {
+            return BrowserImplementationProfileWireProjection
+                .TypeMethodLeverageUnavailable(
+                    "NoImplementationAssembly",
+                    "The selected library has no managed implementation "
+                        + "assembly.",
+                    compileLibrary);
+        }
+
+        InspectionEnvelope<
+            AssemblyContextEntry<AssemblyTypeMethodLeverageInspection>>
+                inspection =
+                    scope.UseImplementationParticipant(
+                        participant,
+                        (group, selectedParticipant) =>
+                            TypeMethodLeverageInspectionOperation.Execute(
+                                group,
+                                selectedParticipant,
+                                typeDefinitionId));
+        return BrowserImplementationProfileWireProjection
+            .ProjectTypeMethodLeverage(
+                inspection,
+                compileLibrary);
+    }
+
     static async Task<BrowserLibraryMetrics> PackageLibraryMetricsAsync(
         string packageId,
         string version,

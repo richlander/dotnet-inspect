@@ -243,7 +243,7 @@ Each line is a substring that must appear in stderr. Used for tips and diagnosti
 
 ````markdown
 ```expect-stderr
-Tips:
+package <package>
 ```
 ````
 
