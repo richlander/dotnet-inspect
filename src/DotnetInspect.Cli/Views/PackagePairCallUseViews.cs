@@ -28,16 +28,48 @@ public sealed class PackagePairDirectUseClusterViewRow
 {
     public int Cluster { get; init; }
     public int LibraryPair { get; init; }
-    public required string SourcePackage { get; init; }
-    public required string SourceLibrary { get; init; }
+    public required string SourcePackage
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string SourceLibrary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
     [MarkoutPropertyName("Source MVID")]
-    public required string SourceMvid { get; init; }
-    public required string AnchorSourceToken { get; init; }
-    public required string TargetPackage { get; init; }
-    public required string TargetLibrary { get; init; }
+    public required string SourceMvid
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string AnchorSourceToken
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string TargetPackage
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string TargetLibrary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
     [MarkoutPropertyName("Target MVID")]
-    public required string TargetMvid { get; init; }
-    public required string AnchorTargetToken { get; init; }
+    public required string TargetMvid
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string AnchorTargetToken
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
     public int SourceMembers { get; init; }
     public int ProviderTypes { get; init; }
     public int TargetMembers { get; init; }
@@ -49,10 +81,26 @@ public sealed class PackagePairDirectUseClusterViewRow
 public sealed class PackagePairLibraryPairViewRow
 {
     public int LibraryPair { get; init; }
-    public required string FirstPackage { get; init; }
-    public required string FirstLibrary { get; init; }
-    public required string SecondPackage { get; init; }
-    public required string SecondLibrary { get; init; }
+    public required string FirstPackage
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string FirstLibrary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string SecondPackage
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string SecondLibrary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
     public int Clusters { get; init; }
     public int CallSites { get; init; }
     public bool Complete { get; init; }
@@ -63,23 +111,79 @@ public sealed class PackagePairCallSiteViewRow
 {
     public int LibraryPair { get; init; }
     public int Cluster { get; init; }
-    public required string SourcePackage { get; init; }
-    public required string SourceLibrary { get; init; }
+    public required string SourcePackage
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string SourceLibrary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
     [MarkoutPropertyName("Source MVID")]
-    public required string SourceMvid { get; init; }
-    public required string SourceMember { get; init; }
-    public required string SourceToken { get; init; }
-    public required string TargetPackage { get; init; }
-    public required string TargetLibrary { get; init; }
+    public required string SourceMvid
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string SourceMember
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string SourceToken
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string TargetPackage
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string TargetLibrary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
     [MarkoutPropertyName("Target MVID")]
-    public required string TargetMvid { get; init; }
-    public required string TargetMember { get; init; }
-    public required string TargetToken { get; init; }
-    public required string Call { get; init; }
-    public required string EvidenceMethod { get; init; }
-    public required string EvidenceToken { get; init; }
+    public required string TargetMvid
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string TargetMember
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string TargetToken
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string Call
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string EvidenceMethod
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
+    public required string EvidenceToken
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
     [MarkoutPropertyName("IL Offset")]
-    public required string IlOffset { get; init; }
+    public required string IlOffset
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    }
 }
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
