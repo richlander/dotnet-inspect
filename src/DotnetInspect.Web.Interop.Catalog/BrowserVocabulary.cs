@@ -1,5 +1,5 @@
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 
 namespace DotnetInspect.Web.Interop.Catalog;
 

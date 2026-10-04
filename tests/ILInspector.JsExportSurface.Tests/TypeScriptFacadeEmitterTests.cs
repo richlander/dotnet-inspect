@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.JsonSchema;
-using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;

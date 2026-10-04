@@ -498,7 +498,12 @@ Explorer omits zero-body relationship-only summaries because they carry no
 implementation volume. Relationship Crossing renders every endpoint and edge
 in Research's bounded relationship projection; selecting an arc exposes its
 exact source and target Types as traversable actions plus its retained call-site
-count as relationship depth. The Browser performs no second topology selection.
+count as relationship depth and its one-based position in Research's
+deterministic relationship order as rank. Browser presentation initially
+exposes half of the retained relationship prefix, capped at 24 arcs. Its range
+control discloses quartile prefixes through the complete projection while
+preserving Research's order; the Browser performs no second ranking or
+topology computation.
 
 The ordinary Type Browser automatically requests the exhaustive structural-
 salience document for every exact Library represented in its current Type
