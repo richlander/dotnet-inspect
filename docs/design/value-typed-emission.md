@@ -1118,11 +1118,23 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    expression, and coalesce arms alike, family-guarded so the underlying cast
    can never truncate. Join-census over the 15-assembly corpus:
    `Partial`-by-unknown-join methods 155 → 119; the enum/int bucket for
-   same-assembly int-backed enums is zero. Remaining, by census: cross-assembly
-   enum-likes (width unprovable — recoverable later only with sink-context
-   evidence), the reference-merge lane (cross-assembly base chains and
-   constructed-generic interfaces, SRM-boundary work), and the `void*`/`nuint`
-   native clique. The full RyuJIT typed-temp model (spill and re-import) stays
+   same-assembly int-backed enums is zero. The reference-merge lane now reads
+   cross-assembly base chains, interface-ness, and interface implementations
+   through the shared metadata context (`MetadataSource.ResolveBaseType`,
+   `IsInterface`, `Implements` over `CrossAssemblyTypeResolver`), so a
+   `UTF8Encoding`/`Encoding` diamond or an `IEqualityComparer<T>` ??
+   `EqualityComparer<T>` join types at import; a base decoded from another
+   module is bound to that module's assembly identity before it enters the
+   IR, and the merge returns the arm instance when the common ancestor is an
+   arm. Each successful reference merge publishes the conversions it proved
+   as `IrFunction.ProvenReferenceWidenings` (`From → To`), the only
+   hierarchy fact `ReferenceAssignmentTargets` consults when materialization
+   admits a subtype store into a join-typed slot. Remaining, by census:
+   cross-assembly enum-likes (width unprovable — recoverable later only with
+   sink-context evidence), reference joins with no common supertype below
+   `object` (`ISymbolInternal` ?? `ITypeReference` consumed at an `object`
+   sink — a sink-typed join plus an arm cast, not a merge), and the
+   `void*`/`nuint` native clique. The full RyuJIT typed-temp model (spill and re-import) stays
    open here for instance 2.
 5. **Materialize stack-slot locals (instance 2).** On the step-4 propagation, emit
    each slot's live ranges as typed local IR nodes and **delete

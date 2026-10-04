@@ -5108,6 +5108,24 @@ public class CfgSampleClass
     // raised to a null-conditional invocation node?.Shape().
     public static string NullConditionalCall(JoinBase node) => node?.Shape() ?? "none";
 
+    static readonly System.Text.UTF8Encoding s_strictUtf8 = new(false, true);
+
+    // A reference-type stack join whose arms are both defined in another
+    // assembly: Encoding.UTF8 (Encoding) and a UTF8Encoding field. The merge
+    // must walk UTF8Encoding's base chain through the metadata context to
+    // Encoding and publish the UTF8Encoding -> Encoding widening it proved, so
+    // the slot types Encoding and materializes as one local that both arms
+    // may store to.
+    public static string MergedCrossAssemblyBaseSlot(bool strict, byte[] bytes)
+        => (strict ? s_strictUtf8 : System.Text.Encoding.UTF8).GetString(bytes);
+
+    // A ?? join whose arms are a cross-assembly interface and a cross-assembly
+    // class that implements it: IEqualityComparer<string> and
+    // EqualityComparer<string>. The merge resolves to the interface through the
+    // metadata context's implementation walk.
+    public static bool CoalescedCrossAssemblyInterface(IEqualityComparer<string>? comparer, string left, string right)
+        => (comparer ?? EqualityComparer<string>.Default).Equals(left, right);
+
     // A null-conditional property whose result type is a cross-assembly reference
     // type outside the primitive/string stack-family table. The null arm must
     // adopt the property type at the join, not conflict as object vs Type.

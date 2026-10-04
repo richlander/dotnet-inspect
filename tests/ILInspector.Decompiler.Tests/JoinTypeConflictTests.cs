@@ -182,6 +182,61 @@ public class JoinTypeConflictTests : IDisposable
     }
 
     [Fact]
+    public void ReferenceJoin_CrossAssemblyBaseChain_TypesTheSlotAndProvesTheWidening()
+    {
+        // Both arms are CoreLib types the test assembly only references:
+        // UTF8Encoding's base chain reaches Encoding through the metadata
+        // context, so the join types Encoding (the arm instance, not a
+        // decoded copy) and records the UTF8Encoding -> Encoding widening.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.MergedCrossAssemblyBaseSlot))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var load = Assert.Single(function.Descendants.OfType<LoadStackSlot>()
+            .Where(l => l.Type is { Namespace: "System.Text", Name: "Encoding" }));
+        Assert.Contains(
+            function.ProvenReferenceWidenings,
+            w => w.From is { Namespace: "System.Text", Name: "UTF8Encoding" }
+                && w.To.Equals(load.Type));
+        function.CheckInvariant();
+
+        // Materialization admits the UTF8Encoding store into the Encoding slot
+        // on the strength of that widening: one typed local, no residual slot.
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.DoesNotContain(function.Descendants, n => n is StoreStackSlot or LoadStackSlot);
+        Assert.Contains(function.Locals, l => l is { Namespace: "System.Text", Name: "Encoding" });
+    }
+
+    [Fact]
+    public void ReferenceJoin_CrossAssemblyInterfaceImplementation_TypesTheCoalesce()
+    {
+        // IEqualityComparer<string> ?? EqualityComparer<string>.Default: the
+        // interface arm is a cross-assembly generic instance, the class arm
+        // implements it in another assembly. The merge must resolve to the
+        // interface through the metadata context instead of leaving an
+        // untyped slot the printer could only spell as `var`.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.CoalescedCrossAssemblyInterface))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), l => l.Type is null);
+        Assert.Contains(
+            function.ProvenReferenceWidenings,
+            w => w.From is { Name: "EqualityComparer`1" } && w.To is { Name: "IEqualityComparer`1" });
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Contains("comparer ?? EqualityComparer<string>.Default", output);
+        Assert.DoesNotContain("var S_", output);
+    }
+
+    [Fact]
     public void ReferenceJoin_NullLiteralAdoptsCrossAssemblyReferenceType()
     {
         // The null arm of a ?. lowering is the null literal, not a hard object
