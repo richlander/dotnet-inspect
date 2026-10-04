@@ -133,6 +133,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_NonFirstOverloadTipsPreserveExactSelector()
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize:7",
+        ];
+
+        var primary =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companion =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, primary.Exit);
+        Assert.Equal(0, companion.Exit);
+        Assert.Empty(primary.Error);
+        Assert.Contains("Serialize:7", primary.Output);
+        Assert.DoesNotContain("Serialize:1", primary.Output);
+        Assert.Equal(primary.Output.Trim(), companion.Error.Trim());
+        Assert.Contains("System.IO.Stream utf8Json", companion.Output);
+    }
+
+    [Fact]
     public async Task Member_PrimaryTips_ComposesWithCompanionExplanation()
     {
         var (exit, output, error) = await RunAppAsync(

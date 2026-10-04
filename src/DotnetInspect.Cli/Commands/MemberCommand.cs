@@ -64,6 +64,7 @@ public static class MemberCommand
         ResolvedMemberInspectionBasis? companionExplanationBasis = null;
         MemberTargetResolution? contextualExplanationResolution = null;
         ApiMember? contextualExplanationMember = null;
+        string? contextualExplanationSelector = null;
         if ((options.SourceParts || options.SourcePart is not null)
             && options.Select is null && options.IncludeSections is null)
         {
@@ -613,6 +614,12 @@ public static class MemberCommand
                     contextualExplanationResolution.Target!;
                 ApiMember selected = target.ApiMember.Member;
                 contextualExplanationMember = selected;
+                contextualExplanationSelector =
+                    target.OverloadIndex.HasValue
+                        || target.DigestPrefix is not null
+                    ? target.NormalizedSelector
+                    : $"{ApiMemberIdentity.GetMemberSelectorName(selected)}"
+                        + $":{target.SelectorIndex}";
                 string? detailDllPath =
                     apiType.SourceAssemblyPath
                     ?? apiDllPath;
@@ -693,6 +700,7 @@ public static class MemberCommand
                                     () => MemberTipBindings.ResolveExact(
                                         apiType,
                                         selected,
+                                        contextualExplanationSelector,
                                         options.PlatformAssembly,
                                         options.PackagePath,
                                         options.AssemblyPath,
@@ -724,6 +732,10 @@ public static class MemberCommand
                                     ?? throw new InvalidOperationException(
                                         "Exact Member tips completed without "
                                             + "a resolved subject."),
+                                contextualExplanationSelector
+                                    ?? throw new InvalidOperationException(
+                                        "Exact Member tips completed without "
+                                            + "a resolved selector."),
                                 options.PlatformAssembly,
                                 options.PackagePath,
                                 options.AssemblyPath,
@@ -788,6 +800,10 @@ public static class MemberCommand
                                 ?? throw new InvalidOperationException(
                                     "Exact Member tips completed without "
                                         + "a resolved subject."),
+                            contextualExplanationSelector
+                                ?? throw new InvalidOperationException(
+                                    "Exact Member tips completed without "
+                                        + "a resolved selector."),
                             options.PlatformAssembly,
                             options.PackagePath,
                             options.AssemblyPath,
@@ -1017,6 +1033,7 @@ public static class MemberCommand
                     companionExplanationBasis,
                     apiType,
                     contextualExplanationMember,
+                    contextualExplanationSelector,
                     packageName,
                     packageVersion);
             }
@@ -1094,6 +1111,7 @@ public static class MemberCommand
                     companionExplanationBasis,
                     apiType,
                     contextualExplanationMember,
+                    contextualExplanationSelector,
                     packageName,
                     packageVersion);
             }
@@ -1642,6 +1660,7 @@ public static class MemberCommand
                 companionExplanationBasis,
                 apiType,
                 contextualExplanationMember,
+                contextualExplanationSelector,
                 packageName,
                 packageVersion);
         }
@@ -1667,6 +1686,7 @@ public static class MemberCommand
         ResolvedMemberInspectionBasis? basis,
         ApiType type,
         ApiMember? exactMember,
+        string? exactSelector,
         string? packageName,
         string? packageVersion)
     {
@@ -1700,6 +1720,10 @@ public static class MemberCommand
                     : MemberTipBindings.ResolveExact(
                         type,
                         exactMember,
+                        exactSelector
+                            ?? throw new InvalidOperationException(
+                                "Exact Member tips completed without "
+                                    + "a resolved selector."),
                         options.PlatformAssembly,
                         options.PackagePath,
                         options.AssemblyPath,
