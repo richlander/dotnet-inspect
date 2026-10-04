@@ -2707,7 +2707,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       library.id,
     );
     expect(salience.outcome).toBe("available");
-    expect(salience.methodologyVersion).toBe("structural-salience.v2");
+    expect(salience.methodologyVersion).toBe("structural-salience.v3");
     expect(salience.evidenceMode).toBe("signature");
     expect(salience.failure).toBeNull();
     expect(salience.namespaceIndex).not.toBeNull();
