@@ -5712,7 +5712,8 @@ function selectedTypeMetadataLibraryIdentity() {
 
 function selectDefaultPackageSubject(pkg: AppPackage) {
   state.workspaceSubjectOpen = false;
-  state.atLibraryRoot = Boolean(pkg.assemblyId);
+  state.atLibraryRoot =
+    pkg.assemblies.length > 0 && Boolean(pkg.assemblyId);
   state.atPackageRoot = !state.atLibraryRoot;
   state.libraryScope = null;
   state.packageLens = "overview";
@@ -11326,9 +11327,7 @@ function loadPackageSurface(pkg: AppPackage): Promise<boolean> {
       return false;
     } finally {
       packageSurfaceLoads.delete(pkg);
-      if (state.package === pkg
-        && state.atLibraryRoot
-        && selectedLibrary()) {
+      if (state.package === pkg && state.atLibraryRoot) {
         renderPreservingContentFrameFocus();
       }
     }
@@ -11364,8 +11363,15 @@ function prepareSpotlightResults() {
     "Loading Type and Member search choices");
 }
 
-async function enterTypeSubjectFromPackageSummary(pkg: AppPackage) {
-  if (!await loadPackageSurface(pkg) || state.package !== pkg) return;
+async function enterTypeSubjectFromPackageSummary(
+  pkg: AppPackage,
+  navigationSeq: number,
+) {
+  if (!await loadPackageSurface(pkg)
+    || state.package !== pkg
+    || !navigationSequence.isCurrent(navigationSeq)) {
+    return;
+  }
   state.selectedTypeId = defaultVisibleTypeId(pkg);
   const type = selectedType();
   if (!type || !enterTypeSubject(type)) {
@@ -11386,7 +11392,7 @@ async function loadDeepPackageSurface(
 ) {
   const requestsType = Boolean(deep?.type || deep?.member);
   const requestsLibrary =
-    Boolean(deep?.library)
+    Boolean(deep?.atLibraryRoot || deep?.library)
     || (librarySelection?.activate === true
       && Boolean(librarySelection.id || librarySelection.name));
   if ((requestsType || requestsLibrary) && packageSurfaceCanLoadTypes(pkg)) {
@@ -11398,7 +11404,6 @@ function maybeAutoLoadPackageSurfaceForLibraryNavigation() {
   const pkg = state.package;
   if (!pkg
     || !state.atLibraryRoot
-    || !selectedLibrary()
     || !packageSurfaceCanLoadTypes(pkg)) {
     return;
   }
@@ -11612,6 +11617,11 @@ function renderLibraryCompositionOverview(
         row => platformLibraryMatchesDescriptor(row, descriptor))
     : null;
   const role = catalogRow?.kind === "facade" ? "Facade assembly" : null;
+  const unavailableSurfaceDetail = packageSurfaceCanLoadTypes(pkg)
+    ? packageSurfaceSettlements.has(pkg)
+      ? "Library surface details are unavailable."
+      : "Library surface details are loading."
+    : null;
   const kindChips = pkg.typeKinds
     .filter(kind => kinds.has(kind.id))
     .map(kind => {
@@ -11635,12 +11645,12 @@ function renderLibraryCompositionOverview(
     typeKindsHtml: `
       <section class="document-section">
         <div class="section-title"><h2>Type kinds</h2></div>
-        <div class="type-chip-list">${kindChips || '<span class="empty-list">No public types.</span>'}</div>
+        <div class="type-chip-list">${kindChips || `<span class="empty-list">${unavailableSurfaceDetail ?? "No public types."}</span>`}</div>
       </section>`,
     namespacesHtml: `
       <section class="document-section">
         <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
-        <div class="type-chip-list">${namespaceChips || '<span class="empty-list">No public namespaces.</span>'}${nsOverflow}</div>
+        <div class="type-chip-list">${namespaceChips || `<span class="empty-list">${unavailableSurfaceDetail ?? "No public namespaces."}</span>`}${nsOverflow}</div>
       </section>`,
   });
 
@@ -13109,9 +13119,9 @@ function bindScopeBarEvents() {
         showPlatformRoot();
         return;
       }
+      const navigationSeq = navigationSequence.begin();
       contentFramePane = "detail";
       if (target === "workspace") {
-        navigationSequence.begin();
         state.workspaceSubjectOpen = true;
         state.atPackageRoot = true;
         state.atLibraryRoot = false;
@@ -13127,7 +13137,7 @@ function bindScopeBarEvents() {
       } else if (target === "type") {
         if (!selectedType() && packageSurfaceCanLoadTypes(state.package)) {
           observeAsync(
-            enterTypeSubjectFromPackageSummary(state.package),
+            enterTypeSubjectFromPackageSummary(state.package, navigationSeq),
             `Loading ${state.package.id} Type navigation`);
           return;
         }

@@ -544,7 +544,7 @@ for (const width of [1440, 800, 390]) {
       .toHaveCount(4);
     await expect(page.locator(
       `.library-subject-list [data-library-subject="${empty.id}"]`))
-      .toContainText("Library surface details are unavailable.");
+      .toContainText("0 types");
     const aggregateOverview = page.locator(".library-overview-surface");
     expect(await aggregateOverview.boundingBox()).toEqual(
       await page.locator("#inspector-panel").boundingBox());
@@ -1440,6 +1440,8 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
   await page.goBack();
@@ -1508,6 +1510,8 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await selectLibrary(page, core.id);
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Package");
+  await chooseSubject(page, "library", "Library");
   await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
 
   await page.goBack();

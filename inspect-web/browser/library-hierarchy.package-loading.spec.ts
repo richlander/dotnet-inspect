@@ -553,3 +553,31 @@ test("initial package loading retains the full acquisition interstitial", async 
     .toHaveAttribute("aria-current", "page");
   await expect(page.locator(".package-overview-surface")).toBeVisible();
 });
+
+test("newer Library navigation supersedes pending Type activation", async ({
+  page,
+}) => {
+  await installPackageLoadingFacades(page, { deferInitial: true });
+  await page.goto(frameworkRoot);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-query-pending");
+  await releaseFacade(page, "finish-package-query");
+  await expect(subjectTab(page, "package")).toHaveAttribute(
+    "aria-selected", "true");
+  await page.locator("html").evaluate(element => {
+    delete element.dataset.packageQueryPending;
+  });
+
+  await subjectTab(page, "type").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-query-pending");
+  await chooseSubject(page, "library", "Library");
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+
+  await releaseFacade(page, "finish-package-query");
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+  await expect(page.locator(".library-overview-surface"))
+    .not.toContainText("Library surface details are loading.");
+});

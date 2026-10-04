@@ -246,7 +246,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /function deleteRetainedWorkspace\(workspaceId: string\): void \{\s*if \(retainedWorkspaceActivation\?\.state\.definitions\.some\([\s\S]*deleteManagedRetainedWorkspace\(workspaceId\),\s+"Deleting retained Workspace",\s+\);\s+return;\s+\}\s+try \{\s*navigationSequence\.begin\(\)/);
   assert.match(
     appSource,
-    /onScopeSelect: target => \{[\s\S]*if \(target === "workspace"\) \{\s*navigationSequence\.begin\(\);/);
+    /onScopeSelect: target => \{\s*if \(target === "platform"\) \{[\s\S]*return;\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*contentFramePane = "detail";\s*if \(target === "workspace"\) \{/);
   assert.match(
     appSource,
     /const revision = workspaceOccurrenceRevision;[\s\S]*superseded = view\.superseded;[\s\S]*const ownsCurrentRequest =\s*revision === workspaceOccurrenceRevision\s*&& signature === state\.workspaceOccurrenceSignature;[\s\S]*const desiredSignature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);[\s\S]*!state\.workspaceOccurrenceLoading[\s\S]*state\.workspaceOccurrenceSignature !== desiredSignature/);

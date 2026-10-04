@@ -44,21 +44,16 @@ function packageWorkspaceUrl(lens: string) {
 
 for (const preferred of [other, empty]) {
   for (const width of [900, 480]) {
-    test(`implicit package entry selects product-default ${preferred.name} at ${width}px`, async ({ page }) => {
+    test(`implicit package entry selects Package before product-default ${preferred.name} at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await installFacades(page, { ...surface, defaultAssemblyId: preferred.id });
       await page.goto(root.replace("#pkg", ""));
-      await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-      await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
-      await page.reload();
-      await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
-      if (width === 480) {
-        await page.getByRole("button", { name: "Libraries", exact: true }).click();
-      }
-      await chooseSubject(page, "package", "Package");
+      await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
       await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
       await page.reload();
       await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
+      await chooseSubject(page, "library", "Library");
+      await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
     });
   }
 }
@@ -135,7 +130,8 @@ for (const incomingPackage of [surface.package, "Second.Package"]) {
       await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
       await page.goForward();
       await expect(page.locator(".inspected-target")).toContainText(incomingPackage);
-      if (destination === "Package") {
+      if (destination === "Package"
+        || (destination === "default" && incomingPackage === "Second.Package")) {
         await expect(page.locator(".package-overview-surface h1")).toHaveText(incomingPackage);
       } else if (destination === "Metadata") {
         await expect(inspectorTab(page, "data-library-lens", "metadata"))

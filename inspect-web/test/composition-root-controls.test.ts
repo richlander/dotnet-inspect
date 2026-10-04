@@ -1486,11 +1486,11 @@ test("typed scope bar owns its rendered control bindings", () => {
   assert.deepEqual(
     statementSignatures(scope.body.body.slice(1)),
     [
+      "declare:const navigationSeq = navigationSequence.begin()",
       'assign:contentFramePane = "detail"',
       {
         if: 'target === "workspace"',
         whenTrue: [
-          "expression:navigationSequence.begin()",
           "assign:state.workspaceSubjectOpen = true",
           "assign:state.atPackageRoot = true",
           "assign:state.atLibraryRoot = false",
@@ -1523,7 +1523,7 @@ test("typed scope bar owns its rendered control bindings", () => {
                       {
                         if: "!selectedType() && packageSurfaceCanLoadTypes(state.package)",
                         whenTrue: [
-                          "call:observeAsync(enterTypeSubjectFromPackageSummary(state.package), `Loading ${state.package.id} Type navigation`)",
+                          "call:observeAsync(enterTypeSubjectFromPackageSummary(state.package, navigationSeq), `Loading ${state.package.id} Type navigation`)",
                           "statement:ReturnStatement:return;",
                         ],
                         whenFalse: [],
