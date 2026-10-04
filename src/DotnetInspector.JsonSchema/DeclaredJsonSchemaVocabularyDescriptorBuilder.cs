@@ -1,6 +1,6 @@
-using DotnetInspector.Vocabulary;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
+using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.JsonSchema;
 

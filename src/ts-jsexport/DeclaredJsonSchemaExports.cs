@@ -5,6 +5,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
 using ILInspector.JsExportSurface;
 using ILInspector.TypeScriptGeneration;
+using QuerySpace.Vocabulary;
 
 namespace TsJsExport;
 

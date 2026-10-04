@@ -8,6 +8,7 @@ using ILInspector.JsExportSurface;
 using ILInspector.JsExportSurface.JsonSchemaFixtures;
 using ILInspector.Metadata;
 using ILInspector.TypeScriptGeneration;
+using QuerySpace.Vocabulary;
 using TsJsExport;
 
 namespace ILInspector.JsExportSurface.Tests;
