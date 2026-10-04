@@ -415,6 +415,10 @@ requirements.
 
 ## Method-body example
 
+[PR #9226](https://github.com/richlander/dotnet-inspect/pull/9226)
+provides the merged reference planner and accepted NativeAOT evidence for this
+example.
+
 The Method owner defines two independent instruction-demand facets:
 
 | Facet | Ordered values | Meaning |
