@@ -12,8 +12,11 @@ QuerySpace collapse and Method-source routing remain outside this slice.
 The follow-up stack slice adds a resource-free reference planner: real analyzer
 declarations state their minimum instruction Access and Detail, the planner
 joins those facets, and the scorecard executes the selected no-retention or
-retained source. The cross-domain capability specification remains a
-post-merge follow-up.
+retained source.
+[Query Space Producer Capabilities](query-space-producer-capabilities.md) now
+owns the cross-domain distinction between owner-defined demand aggregation,
+shared physical construction, and result coverage. Production Method-source
+adoption remains a focused follow-up.
 
 Accepted NativeAOT performance evidence is recorded below.
 

@@ -18,6 +18,15 @@ This contract is unimplemented. Every property in
 [Required evidence](#required-evidence) remains **unverified** until its named
 implementation or adoption gate lands in Release.
 
+The merged Method-body demand stack in
+[#9165](https://github.com/richlander/dotnet-inspect/pull/9165),
+[#9210](https://github.com/richlander/dotnet-inspect/pull/9210), and
+[#9226](https://github.com/richlander/dotnet-inspect/pull/9226) supplies a
+second structural and measured witness. It proves owner-defined demand
+aggregation and physical-source selection in a reference host; it does not
+implement this reusable QuerySpace contract or production Method-source
+adoption.
+
 ## Owner and exact claim
 
 **Query Space Producer Capabilities** owns this exact claim:
@@ -108,6 +117,14 @@ The producer must see all requirements before choosing among:
 - complete Signature rows that also cover requested Names; or
 - deliberately separate paths when sharing would do more work.
 
+Method-body analysis demonstrates a complementary planning problem. Analyzer
+results do not cover one another, but their instruction needs can share one
+physical source. Each analyzer declares minimum Access and Detail, the Method
+owner joins those independent facets across the complete analyzer set, and the
+producer selects a no-retention stream or lazy retained sequence. The same
+general plan must preserve both cases without confusing shared construction
+with result coverage.
+
 ## Production witness
 
 The Package Tree candidate in #9056 provides the first measured witness.
@@ -129,6 +146,17 @@ replacement uses capability demand to let the Package producer distinguish:
 The same request and producer plan serve the CLI and Browser/Wasm. Hosts choose
 gestures and presentation but do not assemble different capability sets for
 equivalent product questions.
+
+The Method-body reference planner supplies accepted NativeAOT evidence for a
+different source-sensitive shape. Its five-analyzer plan joined shallow forward
+classifiers with stable-getter and bounded-flow analyzers, selected one lazy
+retained source, preserved exact agreement over 51,626 managed Method bodies,
+and ran at 0.63-0.64x eager separate passes on four .NET runtime assemblies.
+The corresponding shallow forward-only set selected the no-retention stream.
+This evidence establishes that producer-owned demand aggregation can preserve
+singleton specialization while choosing shared construction for mixed demand.
+It does not transfer Method semantics or performance claims to Package, Type,
+or another producer.
 
 ## Conventional basis
 
@@ -194,6 +222,19 @@ cache, index, producer instance, callback, host component, or rendering field.
 Equivalent requirements may share one provision, but every association remains
 present in the result.
 
+Capability parameters may contain an owner-defined semantic demand. When a
+producer has independent demand dimensions, their owner may define immutable
+facets and a deterministic join over requirements in one compatible resource
+group. The join must be monotone, commutative, and idempotent so requirement
+order cannot change the selected plan and adding a requirement cannot reduce
+the admitted demand.
+
+Query Space preserves each original requirement and passes the complete set;
+it does not impose a generic `max`, compare unrelated facets, or replace caller
+associations with the joined value. The producer uses the owner-defined join
+only to choose provisions or shared construction. A domain without such an
+algebra plans directly from its requirement set.
+
 ### Provision
 
 A provision is one producer-owned realization that a strategy can construct.
@@ -227,6 +268,12 @@ population without claiming that Signature rows always establish population
 Count. Coverage need not be transitive unless the producer declares and the
 planner validates the complete chain.
 
+Shared physical construction is not coverage. Two analyzer provisions may
+consume one source selected from their joined demand while still producing
+independent results, completion, and failure. Reusing a richer reader, index,
+snapshot, traversal, or cache does not authorize one result to satisfy another
+requirement.
+
 No generic rule treats non-empty Rows, a window, a page, a continuation, a
 provider total, or an observed count as exact population completion.
 
@@ -250,6 +297,12 @@ planning inputs. A producer may consider request breadth, terminal, structural
 scope, known resource descriptors, and owner-owned cost evidence. Query Space
 does not compare costs from unrelated producers or require a prepared artifact
 because it covers more capabilities.
+
+A strategy may normalize owner-defined demand parameters to select shared
+construction before assigning requirements to provisions. That normalization
+remains producer-owned structural planning: it reads no subject, exposes no
+physical reader to consumers, and does not change whether each requirement is
+satisfied directly or through declared result coverage.
 
 When no specialized strategy applies, the producer supplies a deterministic
 reference strategy or rejects the requirement set before execution. It does
@@ -311,6 +364,18 @@ This preserves singleton specialization:
 - Name rows do not imply Signature decoding; and
 - one selected Signature does not expand to complete Signature rows.
 
+### Share construction only from complete demand
+
+A producer may select one physical construction from the joined demand of
+several requirements. It must first receive the complete compatible set, and
+the selected construction must satisfy every participant's minimum demand.
+
+The shared construction remains an implementation of the provision plan, not
+a caller-visible capability or detached result. Every requirement keeps its
+own provision, result association, settlement, completion, and failure path.
+A later request cannot retroactively promote an active no-retention execution
+to retained execution.
+
 ### Results preserve independent meaning
 
 Each result association records:
@@ -347,6 +412,45 @@ accessibility, modifiers, kind, base type, implemented interfaces, and generic
 constraints. Kind-specific signatures may require an enum underlying type or a
 delegate return and parameter list. Member populations remain separate nested
 requirements.
+
+## Method-body example
+
+The Method owner defines two independent instruction-demand facets:
+
+| Facet | Ordered values | Meaning |
+| --- | --- | --- |
+| Access | `ForwardOnly < RetainedPrefix` | Whether every analyzer can advance with one frontier, or any analyzer needs replay, independent progress, or IL-offset lookup. |
+| Detail | `OpcodeAndExtent < SelectiveOperands` | Whether analyzers need shallow instruction identity only, or may resolve selected operands and branch targets. |
+
+Each analyzer requirement retains its own output capability and carries its
+minimum Access and Detail. The owner-defined join is the pointwise maximum:
+
+| Analyzer requirement | Access | Detail |
+| --- | --- | --- |
+| Throw presence, direct calls, or allocations | `ForwardOnly` | `OpcodeAndExtent` |
+| Stable getter | `ForwardOnly` | `SelectiveOperands` |
+| Bounded allocation flow | `RetainedPrefix` | `SelectiveOperands` |
+
+A shallow forward-only set selects one no-retention stream. Adding stable
+getter or bounded flow selects one lazy shallow retained sequence, and the
+forward analyzers share its advancing frontier. The plan never exposes
+`InstructionDecoder` or `InstructionSequence`; those are Method-owned physical
+choices.
+
+The joined demand chooses shared source construction. It does not claim that a
+stable-getter result covers throw presence, that bounded-flow output covers
+allocations, or that the retained sequence is a detached result. Each analyzer
+provision preserves its own typed result and settlement path. A singleton
+shallow forward requirement therefore keeps the stream specialization rather
+than constructing the richer retained source merely because it could host that
+analyzer.
+
+The Release gates
+`MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand`,
+`MethodBodyAnalyzerPlanner_JoinIsOrderIndependent`, and
+`MethodBodyAnalyzerPlanner_PreservesRealClassifierResults` verify this
+reference shape. Carrying the same requirements through production QuerySpace
+and Method Query Source remains **unverified** until the focused adoption lands.
 
 ## Failure and lifetime
 
@@ -402,6 +506,14 @@ owner stack rather than being folded into the Package adoption. This design
 defines the reusable pattern and uses Type to prove its structural adequacy; it
 does not transfer declaration semantics from Metadata, Library, or Type.
 
+Method-body Access and Detail adoption likewise follows as a focused Method
+Query Source stack. It moves the reference declarations into host-neutral
+production capabilities, lets the request-set planner pass the complete
+analyzer requirement set to the Method producer, adopts one real body-analysis
+operation through CLI and Browser/Wasm, and retires the superseded eager or
+repeated decode path. The merged scorecard remains its evidence source, not a
+parallel capability substrate.
+
 ## Required evidence
 
 | Gate | Required property |
@@ -431,6 +543,7 @@ This design does not claim:
 - that producer choice finds a globally optimal plan;
 - that planning may inspect a subject to estimate its cost;
 - that one provision must be shared whenever several requirements can use it;
+- that a joined physical demand makes one consumer result cover another;
 - that a prepared index, cache, or fused traversal is beneficial for singleton
   requests;
 - that capability planning changes query, completion, or failure semantics;
