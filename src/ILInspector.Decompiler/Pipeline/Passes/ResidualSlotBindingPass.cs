@@ -110,6 +110,16 @@ public sealed class ResidualSlotBindingPass : IIrPass
             }
             int index = function.AddSynthesizedLocal(piece.Type, piece.Name);
             indices[piece.Key] = index;
+            // Byref-like value storage keeps its slot provenance exactly as
+            // SlotMaterializationPass does: its legacy up-front declaration
+            // order and scope remain part of the output contract.
+            if (CSharpSpellability.CanSpellByRefLikeValueStorageType(piece.Type, function))
+            {
+                function.MarkMaterializedStackSlotLocal(
+                    index,
+                    piece.Key.Slot,
+                    producerOnly: !plan.Loads.Any(load => load.Key == piece.Key));
+            }
             function.RecordResidualSlotBinding(
                 index,
                 new ResidualSlotBinding(

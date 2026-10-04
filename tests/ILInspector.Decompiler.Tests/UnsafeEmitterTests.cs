@@ -790,11 +790,16 @@ public class UnsafeEmitterTests
         var output = PrintBound(function).Output!;
         var unsafeBody = FirstUnsafeBlockBody(output);
 
+        // Residual storage binding makes S_0 a plan-owned local, so the unsafe run
+        // covers only the stackalloc and its store; the safe InitObject declaration
+        // follows the block as an ordinary initialized declaration.
+        Assert.Contains("S_0 = __stackalloc;", unsafeBody);
+        Assert.DoesNotContain("V_0", unsafeBody);
+        Assert.Contains("Guid V_0 = default;", output);
         Assert.True(
-            output.IndexOf("Guid V_0;", StringComparison.Ordinal)
-                < output.IndexOf("unsafe", StringComparison.Ordinal),
-            "the InitObject declaration must be hoisted above the unsafe block:\n" + output);
-        Assert.Contains("V_0 = default;", unsafeBody);
+            output.IndexOf("Guid V_0 = default;", StringComparison.Ordinal)
+                > output.IndexOf("unsafe", StringComparison.Ordinal),
+            "the InitObject declaration follows the unsafe block:\n" + output);
         Assert.Contains("V_0.GetHashCode()", output);
     }
 
@@ -892,8 +897,13 @@ public class UnsafeEmitterTests
         var output = PrintBound(function).Output!;
         var unsafeBody = FirstUnsafeBlockBody(output);
 
-        Assert.DoesNotContain("int V_0 = 1;", unsafeBody);
-        Assert.Contains("V_0 = 1;", unsafeBody);
+        // Residual storage binding makes S_0 a plan-owned local, so the unsafe run
+        // covers only the stackalloc and its store; the safe local is declared and
+        // initialized after the block instead of being hoisted around it.
+        Assert.Contains("S_0 = __stackalloc;", unsafeBody);
+        Assert.DoesNotContain("V_0", unsafeBody);
+        Assert.Contains("int V_0 = 1;", output);
+        Assert.Contains("_ = S_0;", output);
         Assert.Contains("_ = V_0;", output);
     }
 
@@ -1141,10 +1151,17 @@ public class UnsafeEmitterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
-        var unsafeBody = FirstUnsafeBlockBody(PrintBound(function).Output!);
+        var output = PrintBound(function).Output!;
+        var unsafeBody = FirstUnsafeBlockBody(output);
 
-        Assert.Contains("V_0 = default;", unsafeBody);
+        // Residual storage binding makes S_0 a plan-owned local, so the unsafe run
+        // covers only the stackalloc and its store; the captured local and the
+        // lambda that captures it both follow the block in the enclosing scope.
+        Assert.Contains("S_0 = __stackalloc;", unsafeBody);
+        Assert.DoesNotContain("V_0", unsafeBody);
         Assert.DoesNotContain("=>", unsafeBody);
+        Assert.Contains("Guid V_0 = default;", output);
+        Assert.Contains("Action V_1 = () => { V_0.GetHashCode(); };", output);
     }
 
     [Fact]
