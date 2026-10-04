@@ -899,7 +899,6 @@ public static class JsExportSurfaceBuilder
             roots.Add(type, direction);
         }
         return roots;
-        return roots;
     }
 
     static IReadOnlyDictionary<

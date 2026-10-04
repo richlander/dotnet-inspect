@@ -7,6 +7,7 @@ fixtures/analysis/ILInspector.Analysis.BodyUseVbFixtures
 fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures
+fixtures/analysis/ILInspector.Analysis.CalleeResolutionFixtures
 fixtures/analysis/ILInspector.Analysis.CallerGraphCaller
 fixtures/analysis/ILInspector.Analysis.CallerGraphCallerTwin
 fixtures/analysis/ILInspector.Analysis.CallerGraphIndirectCaller
@@ -51,6 +52,7 @@ fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2
 fixtures/js-export/ILInspector.JsExportSurface.DirectionalJsonValueFixtures
 fixtures/js-export/ILInspector.JsExportSurface.Fixtures
 fixtures/js-export/ILInspector.JsExportSurface.JsonInputFixtures
+fixtures/js-export/ILInspector.JsExportSurface.JsonSchemaFixtures
 fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures
@@ -102,6 +104,7 @@ fixtures/queries/DotnetInspector.RestoredProjectFixtures
 fixtures/queries/DotnetInspector.RestoredRidFixtures
 fixtures/queries/DotnetInspector.SourceDiff.V1
 fixtures/queries/DotnetInspector.SourceDiff.V2
+fixtures/research/ILInspector.Research.DependencyStructureFixtures
 fixtures/research/ILInspector.Research.NameFamilyFixtures
 fixtures/research/ILInspector.Research.TargetFixtures
 fixtures/research/ResearchTargetCorrespondenceFixtures.V1
@@ -127,6 +130,7 @@ src/DotnetInspect.Web.Interop.Source
 src/DotnetInspector.DocumentationHouse.Direct
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.InspectionContracts
 src/DotnetInspector.JsonSchema
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Execution.Installed
@@ -143,7 +147,6 @@ src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
 src/MsdlProxy
-src/TsJsExport.Contracts
 src/mdi
 src/runfaster
 src/ts-jsexport
@@ -225,17 +228,22 @@ tests/nuget/PackageAssetSelection.BuildOracle/Consumer
 tests/nuget/PackageAssetSelection.BuildOracle/Package
 tests/runfaster.Tests
 tools/AnalysisHarness
+tools/AnalysisLibraryBodyUseAdmissionBenchmark
 tools/AotProbe
 tools/BodyUseScorecard
 tools/CSharpDiffHarness
 tools/CSharpPrinter.Benchmarks
+tools/CatalogCallGraphScorecard
 tools/DiffHarnessCommon
 tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/ImplementationMetricPerformance
 tools/InspectWebFixtureResolver
+tools/LibraryInfoCountScorecard
 tools/MemberBodySizeScorecard
 tools/MemberGroupScorecard
+tools/MethodBodyDemandScorecard
+tools/MethodBodyTraversalScorecard
 tools/MethodClassificationScorecard
 tools/OwnershipIncidenceScorecard
 tools/PackageHouse.CliBenchmarks
@@ -243,4 +251,5 @@ tools/QuerySpaceScorecard
 tools/SectionRegistrySpike
 tools/SourceCorpusCensus
 tools/StructuralSaliencePerformance
+tools/SubjectRelationsScorecard
 tools/TypeFindPopulationScorecard
