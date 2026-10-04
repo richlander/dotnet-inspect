@@ -273,7 +273,7 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation pinvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution execution =
@@ -324,7 +324,7 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation pinvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution execution =
@@ -372,7 +372,7 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation pinvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution execution =
@@ -474,11 +474,11 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation sharedPInvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
         MethodDefinitionSourceAssociation independentPInvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution shared =
@@ -530,7 +530,7 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation pointer =
             Association(
-                PointerSignatureAnalyzer.Instance,
+                PointerSignatureClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution shared =
