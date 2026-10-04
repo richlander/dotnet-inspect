@@ -128,8 +128,8 @@ JavaScript Object Notation (JSON) text ...
 
 Selecting several sections composes a Markdown document. Inside it, a
 Hierarchy appears as its tree, a Table as a Markdown table, and a Document as
-its fact row, with the body included only on explicit request. JSON composes
-the same selection as structured content.
+its fact row; a Document's body appears only when the Document is the whole
+selection. JSON composes the same selection as structured content.
 
 ```console
 $ dotnet-inspect package System.Text.Json -S "Target Frameworks" -S README
@@ -221,13 +221,14 @@ section is a Table whose row unit is a Document fact row. Each row names a
 payload the command can open through its existing path selection, and the
 opened payload is a Document.
 
-The native format is the text itself, undecorated. Permitted lowerings are the
-fenced or embedded body inside a Markdown composition, a JSON value that is an
-object carrying the facts and the content, and the fact row in tabular
-formats. A Document's fact row is how it participates in a composition without
-flooding it, and how Documents and Document-row Tables selected together
-remain one homogeneous table: a package's nuspec and README Documents and its
-license and skill Tables all lower to Path/Size rows.
+The native format is the text itself, undecorated. Permitted lowerings are a
+JSON value that is an object carrying the facts and the content, and the fact
+row in tabular formats and in a Markdown composition. The body renders only
+when the Document is the whole selection: natively, or as the content of its
+JSON value. A Document's fact row is how it participates in a composition
+without flooding it, and how Documents and Document-row Tables selected
+together remain one homogeneous table: a package's nuspec and README Documents
+and its license and skill Tables all lower to Path/Size rows.
 
 A large Document is never clipped silently. Each Document owner supplies its
 own completeness behavior: type and member Source continue through the ordered
@@ -257,8 +258,9 @@ Where properties appear follows from the format:
 
 - a tree prints them once, after the subject identity on the title line, in
   issued order;
-- a Markdown composition prints them on the section heading line or the
-  document title in the same way;
+- a Markdown composition prints subject-level properties after the subject
+  identity on the document title, and a section's properties after the
+  section name on that section's heading;
 - a native Document prints its payload only, because the payload is the whole
   output and a title would decorate it; its properties appear when the same
   Document is rendered inside a composition; and
@@ -285,11 +287,12 @@ Share slot, which carries a packet or URL, not shell text. Neither belongs in a
 content row or field. A consumer reading the content must not be able to tell
 which host produced it.
 
-**The title prints issued properties and nothing else.** Where a format has a
-title or heading, it carries the subject identity and the owner-issued
-properties for what is shown. Facts about the subject that the user did not
-select belong in their own sections, not in the title, and no renderer adds a
-value the owner did not issue.
+**Titles and headings print issued properties and nothing else.** Where a
+format has a title, it carries the subject identity and the subject-level
+properties; where it has section headings, each carries the section name and
+that section's properties. Facts about the subject that the user did not
+select belong in their own sections, not in a title or heading, and no renderer
+adds a value the owner did not issue.
 
 **Count is shape-invariant.** For an inventory section, Count, `-n`, and
 `--rows` observe the same rows in every permitted lowering of that section.
@@ -432,7 +435,7 @@ gates covering, for its command:
 - Count, `-n`, and `--rows` invariance across the tree, flat, and structured
   lowerings of each Hierarchy;
 - the fact-row lowering of each Document in tabular and composition formats,
-  and its body in the native and structured ones;
+  and its body only when the Document is the whole selection;
 - the absence of host replay text from structured content;
 - title and heading text composed only from the subject identity and issued
   properties, a bare payload for a native Document, and no properties in row
