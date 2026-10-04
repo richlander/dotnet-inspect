@@ -23,6 +23,7 @@ public class MemberContextualExplanationTests
             explanation.Content.Kind);
         Assert.Same(resource, explanation.Content.Resource);
         Assert.Null(explanation.Content.Subject);
+        Assert.Null(explanation.Content.DefaultFacet);
         Assert.Equal(
             ["Values", "Fields"],
             explanation.Content.SelectedSections);
@@ -62,6 +63,9 @@ public class MemberContextualExplanationTests
             "System.Text.Json@10.0.0",
             subject.Package);
         Assert.Equal("net10.0", subject.Framework);
+        Assert.Equal(
+            "member.overview",
+            content.DefaultFacet?.Value);
         Assert.Equal(
             MemberRelatedOperationAffordances.All
                 .Select(static operation => operation.Id),
@@ -131,6 +135,11 @@ public class MemberContextualExplanationTests
                 "System.Text.Json.JsonSerializer",
                 null,
                 anchor),
+            InspectionViewFacetCatalog.Registry
+                .GetRequiredDescriptor(
+                    StructuralSubjectKind.Member,
+                    ViewFacetRole.MemberOverview)
+                .Id,
             new InspectionCatalogReference(
                 "ApiMemberDetail",
                 version: 1),

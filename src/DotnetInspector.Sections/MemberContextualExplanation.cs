@@ -22,6 +22,7 @@ public sealed record MemberContextualExplanationDocument(
     MemberContextualExplanationKind Kind,
     ResourceExplanationDocument Resource,
     MemberContextualExplanationSubject? Subject,
+    ViewFacetId? DefaultFacet,
     ImmutableArray<string> SelectedSections,
     ImmutableArray<RelatedOperationAffordance> RelatedOperations);
 
@@ -39,6 +40,7 @@ public static class MemberContextualExplanationOperation
                 MemberContextualExplanationKind.Command,
                 resource,
                 Subject: null,
+                DefaultFacet: null,
                 SelectedSections: [.. defaultSections],
                 RelatedOperations: []));
     }
@@ -69,6 +71,7 @@ public static class MemberContextualExplanationOperation
                 MemberContextualExplanationKind.ExactSubject,
                 resource,
                 subject,
+                basis.DefaultFacet,
                 basis.SemanticDemand.Sections.IsEmpty
                     ? [.. defaultSections]
                     : basis.SemanticDemand.Sections,

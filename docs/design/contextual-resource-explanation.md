@@ -301,8 +301,11 @@ ordinary section plan merely because ordinary inspection would have done so.
 
 The handoff retains the command owner's exact package or platform source,
 version, TFM, Library, Type, overload, generic, and occurrence associations
-when those values participate in subject identity or explainability. The
-composition does not rebuild them from positional arguments.
+when those values participate in subject identity or explainability. It also
+retains the owner-issued default view facet separately from explicit semantic
+Content demand, so explanation can distinguish the subject's default view from
+the sections selected for this invocation. The composition does not rebuild
+either from positional arguments or presentation defaults.
 
 The subject-reference owner decides what explanation means for a reusable
 subject, including its accepted operations and other affordances. This

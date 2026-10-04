@@ -49,6 +49,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("Context: Exact Member", output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+        Assert.Contains("Default View: member.overview", output);
         Assert.Contains("Selected Content: Signature", output);
         Assert.Contains("member.inspect", output);
         Assert.Contains("type.hierarchy", output);

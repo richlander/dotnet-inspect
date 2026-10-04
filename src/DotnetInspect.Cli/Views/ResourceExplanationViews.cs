@@ -140,6 +140,14 @@ public sealed class ResourceExplanationView
             : LibraryViewText.Contain(value);
     }
 
+    public string? DefaultView
+    {
+        get;
+        init => field = value is null
+            ? null
+            : LibraryViewText.Contain(value);
+    }
+
     [MarkoutJoin(", ")]
     public List<string> SelectedContent { get; init; } = [];
 
@@ -209,6 +217,7 @@ public sealed class ResourceExplanationView
                     : "Exact Member",
                 subject?.CanonicalSignature,
                 source,
+                document.DefaultFacet?.Value,
                 [
                     .. document.SelectedSections.Select(
                         section =>
@@ -263,6 +272,7 @@ public sealed class ResourceExplanationView
             Context = context?.Context,
             Subject = context?.Subject,
             Source = context?.Source,
+            DefaultView = context?.DefaultView,
             SelectedContent = context?.SelectedContent ?? [],
             RelatedOperations = context?.RelatedOperations ?? [],
             ExpandedResources =
@@ -300,6 +310,7 @@ public sealed class ResourceExplanationView
         string Context,
         string? Subject,
         string? Source,
+        string? DefaultView,
         List<string> SelectedContent,
         List<MemberExplanationOperationRow> RelatedOperations);
 
