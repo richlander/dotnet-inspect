@@ -6,7 +6,7 @@ namespace DotnetInspector.ResearchSections;
 public enum DiffAnalysisViewRejectionReason
 {
     ChangesRequireApi,
-    TransitionsRequireTypeOrMember,
+    TransitionsRequireSupportedSurface,
 }
 
 /// <summary>Validates semantic combinations of one accepted Diff analysis set and its views.</summary>
@@ -23,10 +23,16 @@ public static class DiffAnalysisViewAdmission
             return DiffAnalysisViewRejectionReason.ChangesRequireApi;
         }
         if (views.HasFlag(DiffAnalysisDocumentViews.Transitions)
-            && selection.Surface == AnalysisReportSurfaceKind.Library)
+            && !selection.Analyses.Any(analysis =>
+                analysis.ParticipationFor(selection.Operation)
+                    ?.For(selection.Surface)
+                    ?.Projections.Any(projection =>
+                        projection.Id
+                            == DiffAnalysisCatalog.TransitionsProjection.Id)
+                == true))
         {
             return DiffAnalysisViewRejectionReason
-                .TransitionsRequireTypeOrMember;
+                .TransitionsRequireSupportedSurface;
         }
         return null;
     }

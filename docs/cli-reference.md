@@ -1712,17 +1712,30 @@ not compose with those comparison views.
 It takes one or more analysis identities, comma-separated or repeated, and
 `-S` then selects views of their result. `diff -D`, `--help`, and
 `explain analyses` list the identities: `api`, `api-attribute`,
-`allocation`, `call-site`, `unsafety`, `csharp`, and `il`. The request's
-surface comes from its filters: any `--member` is Member, otherwise `--type`
-is Type, otherwise Library. The body analyses (`allocation`, `call-site`,
-`unsafety`, `csharp`, `il`) take exactly one `--member`; `api-attribute`
-takes `--type`.
+`allocation`, `call-site`, `unsafety`, `csharp`, `il`, and
+`string-literals`. The request's surface comes from its filters: any
+`--member` is Member, otherwise `--type` is Type, otherwise Library. The body
+analyses (`allocation`, `call-site`, `unsafety`, `csharp`, `il`) take exactly
+one `--member`; `api-attribute` takes `--type`; `string-literals` takes the
+Library surface and exactly one `--where` predicate.
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --member "Serialize:1" \
   --analysis api,call-site,allocation
+
+dotnet-inspect diff --package Microsoft.Identity.Client@4.89.0..4.90.0 \
+  --analysis string-literals --where "Literal contains https://"
+
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
+  --analysis string-literals --where "Literal starts-with https://" --json
 ```
+
+String-literal predicates use exact ordinal UTF-16 matching. The key is
+case-sensitive `Literal`; the supported operators are `contains` and
+`starts-with`. Each Transition row retains the complete decoded literal. Two
+matching positions within one literal still produce one row, while separate
+physical `ldstr` instructions remain separate occurrences.
 
 Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to
@@ -1731,7 +1744,9 @@ with its outcome (`Compared`, `Unavailable`, or `Failed`) and its `Added`,
 `Removed`, `Changed`, and `Present` counts. `-S Transitions` lists each
 selected analysis's per-Finding transitions in selection order; at the Type
 surface `api` shows its `api.type` rows and then its `api.member` rows.
-`Changes` requires `api`, and `Transitions` requires `--type` or `--member`.
+`Changes` requires `api`. `Transitions` requires a selected analysis that
+declares it at the request surface: Type and Member analyses do so at their
+surfaces, while `string-literals` declares Library Transitions.
 `--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
 only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
 entries are all reported before acquisition.
@@ -1740,8 +1755,10 @@ Pairwise `--finding` and `-S "Finding Transitions"` are retired: they fail
 with guidance naming the `--analysis` identity and `-S Transitions`.
 `--history` keeps `--finding` and does not accept `--analysis` yet.
 `--analysis` does not combine with `Analysis Diff`, `Implementation Diff`,
-`Complexity Context`, or `Structural Context`, and `--json` and `--envelope`
-are rejected with it until the result's JSON transport lands.
+`Complexity Context`, or `Structural Context`. `--json` emits the shared
+`DiffAnalysisDocument`; `--envelope` emits that same Content plus Share and
+diagnostics. Both retain the exact string-literal predicate in the comparison
+context.
 
 Select `Implementation Diff` directly to inspect body-level C#, IL, and
 normal-flow complexity evidence. Select `Complexity Context` directly for a
