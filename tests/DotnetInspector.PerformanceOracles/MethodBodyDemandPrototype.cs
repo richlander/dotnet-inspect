@@ -38,6 +38,17 @@ public sealed partial class PreparedMethodBodies
         return new(_bodyIl.Length, throws);
     }
 
+    public MethodThrowPresenceSummary PlannedThrowPresence() =>
+        MethodBodyAnalyzerPlans.ThrowPresence.Source switch
+        {
+            MethodBodyInstructionSourceKind.NoRetentionStream =>
+                StreamingThrowPresence(),
+            MethodBodyInstructionSourceKind.LazyRetainedSequence =>
+                LazyShallowThrowPresence(),
+            _ => throw new InvalidOperationException(
+                "Unknown Method-body instruction source."),
+        };
+
     public MethodThrowPresenceSummary LazyShallowThrowPresence()
     {
         int throws = 0;
@@ -152,9 +163,9 @@ public static class MethodBodyDemandPrototype
         MethodThrowPresenceSummary>[] Columns() =>
     [
         new(
-            "No-retention stream",
+            "Planner-selected stream",
             static (closing, bodies) =>
-                Answer(closing, bodies.StreamingThrowPresence())),
+                Answer(closing, bodies.PlannedThrowPresence())),
         new(
             "Lazy shallow cursor",
             static (closing, bodies) =>

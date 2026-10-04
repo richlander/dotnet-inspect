@@ -260,6 +260,106 @@ public sealed class ScorecardTests
         }
     }
 
+    [Fact]
+    public void MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand()
+    {
+        MethodBodyAnalyzerPlan single =
+            MethodBodyAnalyzerPlans.ThrowPresence;
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            single.Source);
+        Assert.Equal(
+            new(
+                MethodBodyInstructionAccess.ForwardOnly,
+                MethodBodyInstructionDetail.OpcodeAndExtent),
+            single.Demand);
+
+        MethodBodyAnalyzerPlan forward =
+            MethodBodyAnalyzerPlans.ForwardShallow;
+        Assert.Equal(3, forward.Analyzers.Length);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            forward.Source);
+
+        MethodBodyAnalyzerPlan selective =
+            MethodBodyAnalyzerPlanner.Plan(
+                MethodBodyAnalyzerDeclarations.StableGetter);
+        Assert.Equal(
+            new(
+                MethodBodyInstructionAccess.ForwardOnly,
+                MethodBodyInstructionDetail.SelectiveOperands),
+            selective.Demand);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            selective.Source);
+
+        MethodBodyAnalyzerPlan mixed = MethodBodyAnalyzerPlans.Mixed;
+        Assert.Equal(5, mixed.Analyzers.Length);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            mixed.Source);
+        Assert.Equal(
+            new(
+                MethodBodyInstructionAccess.RetainedPrefix,
+                MethodBodyInstructionDetail.SelectiveOperands),
+            mixed.Demand);
+    }
+
+    [Fact]
+    public void MethodBodyAnalyzerPlanner_JoinIsOrderIndependent()
+    {
+        MethodBodyAnalyzerPlan first = MethodBodyAnalyzerPlanner.Plan(
+            MethodBodyAnalyzerDeclarations.ThrowPresence,
+            MethodBodyAnalyzerDeclarations.BoundedFlow,
+            MethodBodyAnalyzerDeclarations.StableGetter);
+        MethodBodyAnalyzerPlan second = MethodBodyAnalyzerPlanner.Plan(
+            MethodBodyAnalyzerDeclarations.StableGetter,
+            MethodBodyAnalyzerDeclarations.ThrowPresence,
+            MethodBodyAnalyzerDeclarations.BoundedFlow);
+
+        Assert.Equal(first.Demand, second.Demand);
+        Assert.Equal(first.Source, second.Source);
+
+        Assert.Throws<ArgumentException>(
+            () => MethodBodyAnalyzerPlanner.Plan());
+        Assert.Throws<ArgumentException>(
+            () => MethodBodyAnalyzerPlanner.Plan(
+                MethodBodyAnalyzerDeclarations.ThrowPresence,
+                MethodBodyAnalyzerDeclarations.ThrowPresence));
+    }
+
+    [Fact]
+    public void MethodBodyAnalyzerPlanner_PreservesRealClassifierResults()
+    {
+        IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> assets =
+            PreparedMethodBodies.LoadAssets(
+                [typeof(ScorecardTests).Assembly.Location]);
+        try
+        {
+            Assert.Empty(
+                assets[0].Asset.CheckClassifierQueryAgreement());
+            ScorecardColumn<
+                PreparedMethodBodies,
+                ClassifierQuerySummary>[] columns =
+                    ClassifierQueryPrototype.Columns();
+            ScorecardCheck check = Scorecard.Check(
+                assets,
+                columns[0],
+                columns,
+                ClassifierQueryPrototype.RowText,
+                closings: ClassifierQueryPrototype.Closings);
+
+            Assert.True(
+                check.Agrees,
+                string.Join(Environment.NewLine, check.Mismatches));
+        }
+        finally
+        {
+            foreach (ScorecardAsset<PreparedMethodBodies> asset in assets)
+                asset.Asset.Dispose();
+        }
+    }
+
     struct StaticMethodSelection : IMethodSelection
     {
         public readonly bool IsSelected(MetadataReader reader, TypeDefinition type, MethodDefinition method) =>

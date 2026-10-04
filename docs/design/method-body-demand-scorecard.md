@@ -9,6 +9,12 @@ the demand-driven shallow retained-prefix model owned by
 [Instruction substrate](instruction-substrate.md#layer-0--layer-1). Production
 QuerySpace collapse and Method-source routing remain outside this slice.
 
+The follow-up stack slice adds a resource-free reference planner: real analyzer
+declarations state their minimum instruction Access and Detail, the planner
+joins those facets, and the scorecard executes the selected no-retention or
+retained source. The cross-domain capability specification remains a
+post-merge follow-up.
+
 Accepted NativeAOT performance evidence is **unverified**.
 
 ## Question
@@ -27,6 +33,26 @@ separately on demand. The body suffix remains unscanned once throw presence
 settles, while the shallow prefix stays available for indexed readers or
 another cursor. The first lane is the no-retention performance floor; the
 third shows the cost of eagerly completing the full decoded representation.
+
+The planner-selected first lane is driven by the throw-presence analyzer's
+`ForwardOnly + OpcodeAndExtent` declaration. A separate real multi-analyzer
+query combines throw presence, calls, allocations, stable-getter recognition,
+and bounded allocation-flow probes:
+
+| Analyzer | Access | Detail |
+| --- | --- | --- |
+| Throw presence | ForwardOnly | OpcodeAndExtent |
+| Direct calls | ForwardOnly | OpcodeAndExtent |
+| Allocations | ForwardOnly | OpcodeAndExtent |
+| Stable getter | ForwardOnly | SelectiveOperands |
+| Bounded flow | RetainedPrefix | SelectiveOperands |
+
+The joined multi-analyzer demand is
+`RetainedPrefix + SelectiveOperands`, so its planned lane uses one lazy shallow
+shared sequence. Removing stable getter and bounded flow leaves three shallow
+forward analyzers and selects one no-retention stream. The declaration names
+semantic need rather than `InstructionDecoder` or `InstructionSequence`;
+physical source selection remains the planner's decision.
 
 ## Boundaries
 
@@ -58,7 +84,7 @@ through repeated NativeAOT measurement.
 - If the lazy shallow cursor materially beats eager instruction decode on
   real assets, retained-prefix demand avoids enough suffix work to justify its
   state and replay model.
-- Its ratio to the no-copy cursor sizes the cost of shallow prefix retention
+- Its ratio to the no-retention stream sizes the cost of shallow prefix retention
   for a consumer that also needs indexed access.
 - Production adoption still requires QuerySpace to group compatible requests
   and the Method source to preserve each request's independent settlement,
@@ -66,19 +92,26 @@ through repeated NativeAOT measurement.
 
 ## Local development signal
 
-The corrected `linux-x64` NativeAOT development run used the .NET 11 RC1
+The planner-enabled `linux-x64` NativeAOT development run used the .NET 11 RC1
 runtime assemblies, six rounds, five warmups, and a two-second cell budget.
-All three lanes agreed for every admitted body: eight aggregate comparisons,
-zero aggregate mismatches, and zero per-body mismatches.
+All lanes agreed for every admitted body, including the five-analyzer result
+over 51,626 bodies: zero aggregate mismatches and zero per-body mismatches.
 
-| Lane | Ratio to no-retention stream | Asset range |
+| Single-classifier lane | Ratio to planner-selected stream | Asset range |
 | --- | ---: | ---: |
-| No-retention stream | 1.00x | 1.00-1.00x |
-| Lazy shallow cursor | 2.26x | 2.03-2.38x |
-| Eager decoded instructions | 4.04x | 3.68-4.79x |
+| Planner-selected stream | 1.00x | 1.00-1.00x |
+| Lazy shallow cursor | 2.37x | 2.08-2.72x |
+| Eager decoded instructions | 3.90x | 3.63-4.18x |
 
-The lazy shallow lane therefore costs about 56% of eager full decode in this
-development run while preserving cursor replay, indexed prefix access, and
-on-demand detail resolution. It remains inappropriate for a pure streaming
-consumer that needs none of those capabilities. These numbers are diagnostic,
+| Five-classifier lane | Ratio to eager separate passes | Asset range |
+| --- | ---: | ---: |
+| Eager decoded separate passes | 1.00x | 1.00-1.00x |
+| Eager decoded fused pass | 1.01x | 0.89-1.14x |
+| Planner-selected lazy shared | 0.65x | 0.52-0.72x |
+
+The lazy shallow single-classifier lane costs about 61% of eager full decode
+while preserving cursor replay, indexed prefix access, and on-demand detail
+resolution. The mixed query's declared needs select that retained source and
+run about 35% faster than eager separate passes. A pure shallow forward set
+selects the stream instead and pays no retention. These numbers are diagnostic,
 not accepted evidence; the controlled-host NativeAOT gate remains unverified.

@@ -147,6 +147,45 @@ public class InstructionDecoderTests
     }
 
     [Fact]
+    public void Sequence_offset_lookup_advances_only_until_the_offset_is_covered()
+    {
+        byte[] il =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x06,
+            0x00,
+            0x2A,
+        ];
+        var sequence = new InstructionSequence(il);
+
+        Assert.False(
+            sequence.TryGetAtOffset(
+                2,
+                out int followingIndex,
+                out _));
+        Assert.Equal(1, followingIndex);
+        Assert.Equal(ILOpCode.Nop, sequence[followingIndex].OpCode);
+        Assert.True(
+            sequence.TryGetAtOffset(
+                0,
+                out int callIndex,
+                out InstructionEntry call));
+        Assert.Equal(0, callIndex);
+        Assert.Equal(ILOpCode.Call, call.OpCode);
+        Assert.False(sequence.IsComplete);
+
+        Assert.Equal(3, sequence.IndexAtOrAfter(100));
+        Assert.True(sequence.IsComplete);
+        Assert.False(
+            sequence.TryGetAtOffset(
+                100,
+                out int endIndex,
+                out _));
+        Assert.Equal(3, endIndex);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => sequence.IndexAtOrAfter(-1));
+    }
+
+    [Fact]
     public void Sequence_cursors_share_the_prefix_and_keep_independent_positions()
     {
         byte[] il =

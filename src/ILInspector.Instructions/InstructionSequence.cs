@@ -127,6 +127,51 @@ public sealed class InstructionSequence
                 "The instruction index is beyond the end of the IL stream.");
 
     /// <summary>
+    /// Gets the shallow instruction beginning exactly at
+    /// <paramref name="offset"/>, scanning only until that offset is covered.
+    /// </summary>
+    public bool TryGetAtOffset(
+        int offset,
+        out int index,
+        out InstructionEntry instruction)
+    {
+        index = IndexAtOrAfter(offset);
+        if ((uint)index < (uint)_prefix.Count
+            && _prefix[index].Offset == offset)
+        {
+            instruction = _prefix[index];
+            return true;
+        }
+
+        instruction = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Gets the index of the first instruction beginning at or after
+    /// <paramref name="offset"/>, extending the shared prefix only until that
+    /// result is known.
+    /// </summary>
+    public int IndexAtOrAfter(int offset)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+
+        int index = LowerBound(offset);
+        if (index < _prefix.Count || _isComplete)
+            return index;
+
+        _failure?.Throw();
+        while (TryScanNext(out InstructionEntry instruction))
+        {
+            _prefix.Add(instruction);
+            if (instruction.Offset >= offset)
+                return _prefix.Count - 1;
+        }
+
+        return _prefix.Count;
+    }
+
+    /// <summary>
     /// Resolves full operand and branch detail for one retained instruction.
     /// </summary>
     public DecodedInstruction Resolve(int index)
@@ -205,6 +250,22 @@ public sealed class InstructionSequence
                 break;
             _prefix.Add(instruction);
         }
+    }
+
+    int LowerBound(int offset)
+    {
+        int lo = 0;
+        int hi = _prefix.Count;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (_prefix[mid].Offset < offset)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+
+        return lo;
     }
 
     bool TryScanNext(out InstructionEntry instruction)
