@@ -7,6 +7,7 @@ import {
   type BrowserPackageQueryEngine,
 } from "../src/package-query-source.ts";
 import {
+  createEcosystemQueryRequest,
   createPackageQueryController,
   createQueryRequest,
   initialQueryState,
@@ -1544,6 +1545,40 @@ test("Browser data source counts only exact acknowledged match credit", async ()
   release();
   await running;
   assert.equal(await source.requestMore?.(10), false);
+});
+
+test("Browser source dispatches Ecosystem planning with 24 initial credit", async () => {
+  const received: unknown[][] = [];
+  const engine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run() {
+      throw new Error("Generic Package Query should not run.");
+    },
+    async runEcosystem(...args) {
+      received.push(args);
+      return succeeded(completionEvent);
+    },
+  };
+  const source = createBrowserPackageQueryDataSource(engine, {
+    createOperationId: () => "ecosystem-operation",
+    initialMatchCredit: 24,
+  });
+
+  await source.run(
+    createEcosystemQueryRequest("ecosystem.aspire"),
+    () => {},
+    () => {},
+    () => {},
+    new AbortController().signal);
+
+  assert.deepEqual(received[0]?.slice(0, 6), [
+    "ecosystem-operation",
+    "ecosystem.aspire",
+    200,
+    96,
+    false,
+    24,
+  ]);
 });
 
 test("old-run controls cannot target the replacement operation", async () => {

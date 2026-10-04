@@ -106,7 +106,7 @@ const toolsShard: BrowserLibraryTypeLeverageShard = {
 const document: BrowserLibraryStructuralSalience = {
   schemaVersion: 1,
   outcome: "available",
-  methodologyVersion: "structural-salience.v2",
+  methodologyVersion: "structural-salience.v3",
   evidenceMode: "signature",
   namespaceIndex: index,
   typeLeverageShards: [shard, toolsShard],

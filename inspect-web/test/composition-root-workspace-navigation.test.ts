@@ -1477,6 +1477,33 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /url => workspaceLocation\.replace\(url, history\.state\)/);
 });
 
+test("Ecosystem discovery follows the rendered Overview lifecycle", () => {
+  const visibleDeclaration = functionDeclaration(
+    "ecosystemPackageDiscoveryVisible");
+  const visible = appSource.slice(
+    visibleDeclaration.start,
+    visibleDeclaration.end,
+  );
+  const handoff = appSource.match(
+    /async function openPackageQueryRow\([\s\S]*?\n}\n\nfunction reportPackageQueryNavigationFailure/,
+  )?.[0] ?? "";
+
+  assert.match(visible, /state\.workspaceSubjectOpen/);
+  assert.match(visible, /state\.engineReady/);
+  assert.match(visible, /!state\.packageQueryOpen/);
+  assert.match(visible, /!state\.packageActivityOpen/);
+  assert.match(visible, /!state\.typeExplorerOpen/);
+  assert.match(visible, /!state\.explorer\?\.open/);
+  assert.match(visible, /!state\.error/);
+  assert.match(visible, /!isDiagnosticsPath\(location\.pathname\)/);
+  assert.match(visible, /!isProductEcosystemsPath\(location\.pathname\)/);
+  assert.match(visible, /!isProductHomeDemosPath\(location\.pathname\)/);
+  assert.match(visible, /state\.package === null/);
+  assert.doesNotMatch(
+    handoff,
+    /else ecosystemPackageQueryController\.cancel\(\)/);
+});
+
 test("browser history reuses available identities and publishes only unavailable ones", () => {
   const history =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
