@@ -457,7 +457,11 @@ Applied without waiting for CI; full conditions live in
 
 - **Conflict:** before a usable review result, supersede and retry the pending
   round; afterward, recover in the next numbered round — or take the
-  exact-head trivial-interaction waiver when eligible.
+  exact-head trivial-interaction waiver when eligible. A conflict is never a
+  waiting state: no status budget, review lock, pending CI, or unreadable API
+  defers it, and `waiting` never carries a conflict predicate. Resolve and
+  push the recovery at once; the only pause is a `HELP` to the user when both
+  sides changed the same logic and either choice loses behavior.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
@@ -570,9 +574,20 @@ approves keeping the PR intact. Full checkpoint mechanics:
   `ci-required` unless parallel review is approved or conflict recovery applies.
   Query GitHub status only when the round cadence requires it; follow
   [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
-  instead of polling. During a bounded wait, fetch the live base and locally
-  test each new tip for conflicts; never report budget exhaustion without
-  checking the final tip. If an hour passes without an authored change while
+  instead of polling. Every status attempt — before reviewer dispatch, at each
+  bounded-wait snapshot, at a check-in, and in merge preflight — begins with
+  the local conflict probe: fetch the live base and test-merge the candidate
+  head against any base tip not yet probed, before any GitHub query. A local
+  conflict is decisive, and GitHub's `mergeable` of `null` or `true` never
+  clears it; a GitHub-reported conflict (`mergeable: false`) still counts as
+  one. The API fields can be rate-limited, `null`, or stale, so they never
+  substitute for the probe. Lifecycle outcomes from the same attempt's PR read
+  (merged, closed, draft, head or base-ref mismatch) still outrank conflict
+  recovery; when the API cannot be read, resolve and push the recovery anyway
+  — the agent that pushed the head knows the PR was open and has seen no
+  merge or close — and take the lifecycle read on the next attempt. A conflict
+  is never a waiting state. Never report budget exhaustion without probing the
+  final tip. If an hour passes without an authored change while
   an independent gate hasn't started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate
   (`.github/workflows/ci.yml`): it passes only when the aggregate itself
