@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
 
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
@@ -66,6 +67,305 @@ public sealed partial class CompleteRestorationExecutionTests
                 .ActiveSubject.Kind);
 
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyAspire_RestoresExactEcosystem()
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        Assert.NotNull(registration.Declaration.IntegrationScanner);
+        var request =
+            new CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemInput(
+                    plan,
+                    registration.Declaration.Id,
+                    new ViewFacetId("ecosystem.overview"));
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareEcosystemRestoration(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteRestorationExecutionOptions options =
+            Options(client, []) with
+            {
+                CaptureInventory = true,
+            };
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                options,
+                TestContext.Current.CancellationToken);
+
+        var activated =
+            Assert.IsType<
+                CompleteRestorationResult<InspectionWorkspace>.Activated>(
+                    result);
+        Assert.Same(request, activated.Workspace.Request);
+        Assert.Empty(activated.Workspace.Snapshot.Contexts);
+        Assert.Empty(activated.Workspace.Snapshot.Scope.Packages);
+        Assert.Empty(activated.Workspace.Snapshot.Inventory!.Packages);
+        Assert.Empty(activated.Workspace.Snapshot.Inventory.Platforms);
+        Assert.IsType<CompleteRestorationProjection.NonProjectable>(
+            activated.Workspace.Projection);
+        var resolved =
+            Assert.IsType<
+                CompleteRestorationResolvedState.RegistrationOnlyEcosystem>(
+                    activated.Workspace.Snapshot.Resolved);
+        Assert.Equal(registration.Declaration.Id, resolved.Ecosystem);
+        Assert.IsType<NavigationLensActivationResult.Applied>(
+            resolved.LensResolution);
+
+        NavigationWorkspaceSnapshot snapshot =
+            activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot;
+        var subject =
+            Assert.IsType<StructuralSubjectIdentity.EcosystemSubject>(
+                snapshot.ActiveSubject);
+        Assert.Equal(registration.Declaration.Id, subject.Id);
+        Assert.Equal(
+            "ecosystem.overview",
+            snapshot.LensOutcome.EffectiveLens!.Facet.Value);
+        Assert.Equal(subject, snapshot.Ecosystem);
+        Assert.Same(subject.Occurrence, snapshot.Ecosystem!.Occurrence);
+
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                activated.Activation.GetRegistrationSnapshot()).Revision;
+        Assert.Contains(
+            registrations.EcosystemContributions,
+            contribution => ReferenceEquals(
+                contribution.Ecosystem.Identity,
+                subject.Occurrence));
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyEcosystem_SelectsRequestedNeighbor()
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [
+                EcosystemPackIds.MicrosoftExtensions,
+                EcosystemPackIds.Aspire,
+            ]);
+        WorkspaceRegistration.Ecosystem aspire =
+            plan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Single(registration =>
+                    registration.Declaration.Id.Value
+                        == "ecosystem.aspire");
+        var request =
+            new CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemInput(
+                    plan,
+                    aspire.Declaration.Id,
+                    new ViewFacetId("ecosystem.overview"));
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareEcosystemRestoration(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, []),
+                TestContext.Current.CancellationToken);
+
+        var activated =
+            Assert.IsType<
+                CompleteRestorationResult<InspectionWorkspace>.Activated>(
+                    result);
+        var subject =
+            Assert.IsType<StructuralSubjectIdentity.EcosystemSubject>(
+                activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot
+                    .ActiveSubject);
+        Assert.Equal("ecosystem.aspire", subject.Id.Value);
+        Assert.Contains(
+            plan.Registrations.OfType<WorkspaceRegistration.Ecosystem>(),
+            registration => registration.Declaration.Id.Value
+                == "ecosystem.microsoft-extensions");
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyEcosystem_UnknownFacetFailsBeforeConstruction()
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareEcosystemRestoration(
+                    new CompleteRestorationRequestBasis
+                        .RegistrationOnlyEcosystemInput(
+                            plan,
+                            registration.Declaration.Id,
+                            new ViewFacetId("ecosystem.unknown")),
+                    authority,
+                    TestContext.Current.CancellationToken));
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                new NeverConstructHost(),
+                Options(client, []),
+                TestContext.Current.CancellationToken);
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
+        Assert.IsType<CompleteRestorationFailure.SelectorResolutionFailed>(
+            failed.Failure);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyEcosystem_InapplicableFacetClosesWorkspace()
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareEcosystemRestoration(
+                    new CompleteRestorationRequestBasis
+                        .RegistrationOnlyEcosystemInput(
+                            plan,
+                            registration.Declaration.Id,
+                            new ViewFacetId("ecosystem.overview")),
+                    authority,
+                    TestContext.Current.CancellationToken));
+        ViewFacetDescriptor descriptor = new(
+            new ViewFacetId("ecosystem.overview"),
+            StructuralSubjectKind.Ecosystem,
+            "Overview",
+            "Ecosystem overview",
+            order: 0,
+            ViewFacetRole.EcosystemOverview);
+        var binding = new ViewFacetExecutionBinding(
+            descriptor.Id,
+            new object());
+        var facet = new ViewFacetRegistration.Active(
+            descriptor,
+            descriptor.Summary,
+            applies: _ => false,
+            binding,
+            (_, _) => ViewFacetAvailability.Available.Instance);
+        var registry = new ViewFacetRegistry([facet], [binding]);
+        ViewFacetAvailabilitySnapshot available =
+            NavigationSnapshotTestData.AllAvailable(registry);
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteRestorationExecutionOptions options =
+            Options(client, []) with
+            {
+                Facets = registry,
+                FacetAvailability = (_, _) => available,
+            };
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                options,
+                TestContext.Current.CancellationToken);
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
+        Assert.IsType<CompleteRestorationFailure.SelectorResolutionFailed>(
+            failed.Failure);
+        Assert.True(host.CloseReport!.Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyEcosystem_ReplacementOccurrenceFailsAndCloses()
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareEcosystemRestoration(
+                    new CompleteRestorationRequestBasis
+                        .RegistrationOnlyEcosystemInput(
+                            plan,
+                            registration.Declaration.Id,
+                            new ViewFacetId("ecosystem.overview")),
+                    authority,
+                    TestContext.Current.CancellationToken));
+        TestHost? host = null;
+        host = new TestHost
+        {
+            BeforePreparation = () =>
+            {
+                WorkspaceRegistrationRevision current =
+                    Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                        host!.Workspace!.GetRegistrationSnapshot()).Revision;
+                WorkspaceEcosystemRegistrationDeclaration original =
+                    registration.Declaration;
+                var replacement =
+                    new WorkspaceEcosystemRegistrationDeclaration(
+                        original.Id,
+                        original.NamespaceRoots,
+                        original.CorePackages,
+                        original.Populations,
+                        original.IntegrationScanner);
+                WorkspaceRegistrationOperationResult replaced =
+                    host.Workspace.ReplaceRegistrations(
+                        current,
+                        [
+                            .. current.Registrations.Select(item =>
+                                item is WorkspaceRegistration.Ecosystem ecosystem
+                                    && ReferenceEquals(
+                                        ecosystem.Declaration,
+                                        original)
+                                    ? (WorkspaceRegistration)new
+                                        WorkspaceRegistration.Ecosystem(
+                                            replacement)
+                                    : item),
+                        ]);
+                Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                    replaced);
+            },
+        };
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, []),
+                TestContext.Current.CancellationToken);
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
+        Assert.IsType<
+            CompleteRestorationFailure.EcosystemResolutionFailed>(
+                failed.Failure);
+        Assert.True(host.CloseReport!.Succeeded);
     }
 
     [Fact]
@@ -1226,6 +1526,20 @@ public sealed partial class CompleteRestorationExecutionTests
 
     private static DefinitionMemberCoordinate.PackageCoordinate Package() =>
         new("System.Text.Json", "9.0.4", "net9.0");
+
+    private static WorkspaceRegistration.Ecosystem EcosystemRegistration(
+        WorkspacePlan plan,
+        EcosystemPackId id)
+    {
+        WorkspaceEcosystemRegistrationDeclaration declaration =
+            Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Known>(
+                EcosystemPackCatalog.SelectWorkspaceRegistration(id))
+                .Declaration;
+        return plan.Registrations
+            .OfType<WorkspaceRegistration.Ecosystem>()
+            .Single(registration =>
+                ReferenceEquals(registration.Declaration, declaration));
+    }
 
     private static async Task<PackageFixture> SystemTextJsonPackageAsync()
     {
