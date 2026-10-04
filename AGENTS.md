@@ -97,9 +97,20 @@ development model and rationale. The binding summary:
 
 Every session has a theme: use one supplied by the user or infer a concise
 purpose from the work. State it at the start and after every resume, and carry
-it in session-status templates. After a PR merges, restate the theme in one or
-two sentences and propose the next work within it; if none remains, say so and
-ask whether to find a new theme or take on ad-hoc work. Follow
+it in session-status templates. After a PR merges, replace PR/round history
+with this forward-looking handoff:
+
+```text
+Theme: <stable session theme>
+Tracking issue: #<overall theme issue>
+Next slice: <next independently mergeable work, or none>
+Completed: <merged>/<currently planned> slices
+Focus: [<one or more short domains, such as Web | CLR | Decompiler | Core | Performance>]
+```
+
+Do not replay round reports after merge; they belong only at their round
+boundaries. If no work remains, use `Next slice: none — theme complete` and ask
+whether to find a new theme or take on ad-hoc work. Follow
 [Agent session state](docs/agent-session-state.md) for the full lifecycle.
 
 At the start, after every resume, and after completing each meaningful block of
@@ -458,12 +469,8 @@ Applied without waiting for CI; full conditions live in
 - **Conflict:** before a usable review result, supersede and retry the pending
   round; afterward, recover in the next numbered round — or take the
   exact-head trivial-interaction waiver when eligible. A conflict is never a
-  waiting state: no status budget, review lock, pending CI, or unreadable API
-  defers it, and `waiting` never carries a conflict predicate. Resolve and
-  push the recovery at once. Outside a user decision hold, the only pause is
-  a `HELP` to the user when both sides changed the same logic and either
-  choice loses behavior; a conflict on a head held for a scope-violation or
-  split decision is reported in that pending decision prompt, not resolved.
+  waiting state; resolve and push it immediately unless both sides changed the
+  same logic and either choice loses behavior, which requires `HELP`.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
@@ -490,19 +497,16 @@ merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orches
 
 For a `main`-targeting PR with clean reviews or a pending/approved
 trivial-interaction waiver, base movement alone does not spend that evidence or
-justify integration. Before an agent-driven merge or mutation, classify the
-landed range as no interaction, trivial interaction, significant interaction,
-or conflict; report and apply that outcome before changing labels or
-dispatching reviewers. Upper stack slices follow their parent and must restack.
-The full procedure lives in
+justify integration. Before an agent-driven merge or mutation, classify and
+apply the landed range; upper stack slices follow their parent and must
+restack. The full procedure lives in
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 
 ### How many reviewers, and from which models
 
-Trivial changes need no review; state why. Everything else gets one GPT seat:
-GPT-6 Sol by default, GPT-6 Astra for complex work, or GPT-6 Luna for
-well-bounded work. Selection, substitution, and dispatch rules live in
-[Reviewer roster](docs/round-orchestration.md#reviewer-roster).
+Trivial changes need no review when justified; everything else gets one GPT
+seat. Model selection, substitution, and dispatch rules live in [Reviewer
+roster](docs/round-orchestration.md#reviewer-roster).
 
 ### Running the round
 
@@ -546,20 +550,12 @@ Resolution: <completed changes or accepted next-round resolution plan>.
 The detailed classification and recommendation rules remain in
 [The round report](docs/round-orchestration.md#the-round-report).
 
-### Keep review proportional to the contract
-
-The canonical prompt's finding-admission and trust-boundary rules are binding;
-anything outside them is a scope proposal unless the operator approves it.
-
 ### Stop after six rounds
 
-Review blocks hot-start: clearly planned, authorized rounds continue without
-asking or `HELP`; approval before rounds 7, 13, 19, and so on grants at most six rounds.
-
-At each block boundary, reviewer dispatch waits for approval after fresh green
-current-head CI and positive mergeability; round 12 and later presume splitting
-unless the checkpoint establishes a strong reason and the user explicitly
-approves keeping the PR intact. Full checkpoint mechanics:
+Review hot-starts in blocks of six; approval before rounds 7, 13, 19, and so on
+grants at most six more. Each boundary requires fresh green current-head CI,
+positive mergeability, and approval; round 12 and later presume splitting
+unless the user explicitly approves otherwise. Full mechanics:
 [Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
 
 ## PR and CI discipline
@@ -574,24 +570,11 @@ approves keeping the PR intact. Full checkpoint mechanics:
 - For non-Markdown-only PRs, run the focused gate, push promptly, and start
   eligible local suites and CI concurrently. Reviewer dispatch waits for green
   `ci-required` unless parallel review is approved or conflict recovery applies.
-  Query GitHub status only when the round cadence requires it; follow
-  [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
-  instead of polling. Every status attempt — before reviewer dispatch, at each
-  bounded-wait snapshot, at a check-in, and in merge preflight — begins with
-  the local conflict probe: fetch the live base and test-merge the candidate
-  head against any base tip not yet probed, before any GitHub query. A local
-  conflict is decisive, and GitHub's `mergeable` of `null` or `true` never
-  clears it; a GitHub-reported conflict (`mergeable: false`) still counts as
-  one. The API fields can be rate-limited, `null`, or stale, so they never
-  substitute for the probe. Lifecycle outcomes from the same attempt's PR read
-  (merged, closed, draft, head or base-ref mismatch) still outrank conflict
-  recovery; when the API cannot be read, resolve and push the recovery anyway
-  — the agent that pushed the head knows the PR was open and has seen no
-  merge or close; a driver's last successful read is its knowledge — and
-  take the lifecycle read on the next attempt. A conflict
-  is never a waiting state. Never report budget exhaustion without probing the
-  final tip. If an hour passes without an authored change while
-  an independent gate hasn't started, fix the sequencing or record the blocker.
+  Every status attempt starts by fetching the live base and locally
+  test-merging any unprobed tip; GitHub status never substitutes for that
+  conflict result. Follow
+  [GitHub status queries](docs/github-status-queries.md) for bounded waiting,
+  API failures, lifecycle outcomes, and the required final-tip probe.
 - `ci-required` is this repository's aggregate merge gate
   (`.github/workflows/ci.yml`): it passes only when the aggregate itself
   concludes `success`, and a missing aggregate is not green. Never require a
@@ -609,10 +592,7 @@ approves keeping the PR intact. Full checkpoint mechanics:
 ### Stacked PRs for multi-slice issues
 
 When an issue is too large for one coherent PR, prefer a **stack** — a sequence
-of PRs targeting their predecessors — over one unreviewable PR or parallel PRs
-that race in the same files. Each slice lands independently, branches and
-targets from its parent, and is merged bottom-up; only the bottom open slice
-targets `main`. Restack only your own slices with `--force-with-lease`, publish
-a `range-diff`, and re-review moved heads without retiring findings. Stop when
-another slice would exist only to continue the stack.
-[Stacked PRs](docs/stacked-prs.md) owns all mechanics.
+of independently landable PRs targeting their predecessors. Only the bottom
+open slice targets `main`; merge bottom-up, restack only your own slices, and
+stop when another slice would exist only to continue the stack. [Stacked
+PRs](docs/stacked-prs.md) owns all mechanics.
