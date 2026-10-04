@@ -388,6 +388,8 @@ results differ across its acquired package slice. The census validates every
 selected assembly against the package-sweep manifest's path and SHA-256, then
 invokes the product-owned signature and body shard producers. It does not
 reconstruct relationships, degrees, orders, roles, eligibility, or poles.
+An absent target framework remains valid acquisition provenance when the
+package selector issued a selected assembly without one.
 
 The census may join rows by exact Type address and report:
 
@@ -402,10 +404,15 @@ The census may join rows by exact Type address and report:
 - source disposition, body coverage, package provenance, and diagnostic
   acquisition and projection time.
 
-Every aggregate retains per-assembly and per-Type evidence. Qualified body
+Every aggregate retains per-assembly and per-Type evidence. Rank evidence
+retains the exact Type identity and owner-issued position in each applicable
+signature and body order. The body-use source disposition and the composed
+body-leverage disposition remain distinct: incomplete metadata qualifies the
+composed result even when Analysis completed body acquisition. Qualified body
 results remain qualified; physical-only bodies are reported rather than
-repaired or discarded. Signature and body row populations can differ, so their
-densities have separate denominators and do not define a shared coverage rate.
+repaired or discarded. Signature and body row populations can differ, so
+their densities have separate denominators and do not define a shared coverage
+rate.
 
 The current-package sweep is observational evidence, not a pinned baseline or
 a product decision. Pole overlap does not establish that the modes are

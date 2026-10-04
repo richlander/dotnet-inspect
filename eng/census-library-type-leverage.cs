@@ -92,11 +92,13 @@ string manifestDirectory =
 var assemblies = new List<LeverageAssemblyCensus>(selected.Length);
 foreach (PackageSweepEntry package in selected)
 {
-    if (package.ResolvedPackage is null
-        || package.ResolvedVersion is null
-        || package.Tfm is null
-        || package.AssemblyPath is null
-        || package.Sha256 is null)
+    if (package is not
+        {
+            ResolvedPackage: not null,
+            ResolvedVersion: not null,
+            AssemblyPath: not null,
+            Sha256: not null,
+        })
     {
         Console.Error.WriteLine(
             $"Selected rank {package.Rank} lacks complete provenance.");
@@ -242,8 +244,7 @@ static LeverageAssemblyCensus Measure(
         bodyShards.ToDictionary(
             static shard => shard.Namespace,
             StringComparer.Ordinal);
-    var incomingRankDeltas = new List<int>();
-    var outgoingRankDeltas = new List<int>();
+    var rankRows = new List<LeverageRankComparison>();
     var poleRows = new List<LeveragePoleComparison>();
     int signatureEligibleRows = 0;
     int bodyEligibleRows = 0;
@@ -344,22 +345,28 @@ static LeverageAssemblyCensus Measure(
                     BodyGrace: bodyGrace));
         }
 
-        AddRankDeltas(
+        AddRankComparisons(
+            @namespace,
             signature.SeaLevel.Types,
             body.SeaLevel.Types,
-            incomingRankDeltas);
-        AddRankDeltas(
             signature.MountainPeak.Types,
             body.MountainPeak.Types,
-            outgoingRankDeltas);
+            signatureRows,
+            bodyRows,
+            rankRows);
     }
 
     PoleCounts counts = Counts(poleRows);
+    LibraryStructuralEvidenceDisposition bodyDisposition =
+        BodyLeverageDisposition(
+            bodyUse.Disposition,
+            bodyShards.Select(
+                static shard => shard.RoleDisposition));
     return new(
         Rank: package.Rank,
         Package: package.ResolvedPackage!,
         Version: package.ResolvedVersion!,
-        TargetFramework: package.Tfm!,
+        TargetFramework: package.Tfm,
         Assembly: Path.GetFileName(path),
         AssemblyPath: package.AssemblyPath!,
         Sha256: sha256,
@@ -369,7 +376,8 @@ static LeverageAssemblyCensus Measure(
         TypeCount: bodyUse.Types.Length,
         SignatureDisposition:
             whole.Disposition.ToString(),
-        BodyDisposition: bodyUse.Disposition.ToString(),
+        BodyDisposition: bodyDisposition.ToString(),
+        BodyUseDisposition: bodyUse.Disposition.ToString(),
         BodyCoverage: new(
             bodyUse.Coverage.BodiesConsidered,
             bodyUse.Coverage.BodiesExamined,
@@ -390,13 +398,24 @@ static LeverageAssemblyCensus Measure(
         BodyOnlyPoles: counts.BodyOnlyPoles,
         SignatureGracePoles: signatureGracePoles,
         BodyGracePoles: bodyGracePoles,
-        IncomingRankDelta: RankDelta(incomingRankDeltas),
-        OutgoingRankDelta: RankDelta(outgoingRankDeltas),
+        IncomingRankDelta: RankDelta(
+            rankRows
+                .Where(static row =>
+                    row.IncomingAbsoluteDelta is not null)
+                .Select(static row =>
+                    row.IncomingAbsoluteDelta!.Value)),
+        OutgoingRankDelta: RankDelta(
+            rankRows
+                .Where(static row =>
+                    row.OutgoingAbsoluteDelta is not null)
+                .Select(static row =>
+                    row.OutgoingAbsoluteDelta!.Value)),
         DiagnosticTiming: new(
             signatureMilliseconds,
             bodyAcquireMilliseconds,
             bodyProjectionMilliseconds),
-        PoleComparisons: poleRows);
+        PoleComparisons: poleRows,
+        RankComparisons: rankRows);
 }
 
 static MetadataLibrarySignatureUseResult AvailableSignature(
@@ -481,43 +500,122 @@ static string Relation(
     return "body-only";
 }
 
-static void AddRankDeltas(
-    IReadOnlyList<MetadataTypeDefinitionAddress> signature,
-    IReadOnlyList<MetadataTypeDefinitionAddress> body,
-    List<int> destination)
+static void AddRankComparisons(
+    string @namespace,
+    IReadOnlyList<MetadataTypeDefinitionAddress> signatureIncoming,
+    IReadOnlyList<MetadataTypeDefinitionAddress> bodyIncoming,
+    IReadOnlyList<MetadataTypeDefinitionAddress> signatureOutgoing,
+    IReadOnlyList<MetadataTypeDefinitionAddress> bodyOutgoing,
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionAddress,
+        LibraryStructuralTypeLeverageRow> signatureRows,
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionAddress,
+        LibraryStructuralBodyTypeLeverageRow> bodyRows,
+    List<LeverageRankComparison> destination)
 {
-    var bodyRanks = body
-        .Select((type, rank) => (type, rank))
-        .ToDictionary(
-            static item => item.type,
-            static item => item.rank);
-    for (var signatureRank = 0;
-        signatureRank < signature.Count;
-        signatureRank++)
+    Dictionary<MetadataTypeDefinitionAddress, int>
+        signatureIncomingPositions = Positions(signatureIncoming);
+    Dictionary<MetadataTypeDefinitionAddress, int>
+        bodyIncomingPositions = Positions(bodyIncoming);
+    Dictionary<MetadataTypeDefinitionAddress, int>
+        signatureOutgoingPositions = Positions(signatureOutgoing);
+    Dictionary<MetadataTypeDefinitionAddress, int>
+        bodyOutgoingPositions = Positions(bodyOutgoing);
+    foreach (MetadataTypeDefinitionAddress type
+        in signatureIncomingPositions.Keys
+            .Union(bodyIncomingPositions.Keys)
+            .Union(signatureOutgoingPositions.Keys)
+            .Union(bodyOutgoingPositions.Keys)
+            .OrderBy(static type => type.Definition.Value))
     {
-        if (bodyRanks.TryGetValue(
-                signature[signatureRank],
-                out int bodyRank))
-        {
-            destination.Add(
-                Math.Abs(signatureRank - bodyRank));
-        }
+        int? signatureIncomingPosition =
+            Position(signatureIncomingPositions, type);
+        int? bodyIncomingPosition =
+            Position(bodyIncomingPositions, type);
+        int? signatureOutgoingPosition =
+            Position(signatureOutgoingPositions, type);
+        int? bodyOutgoingPosition =
+            Position(bodyOutgoingPositions, type);
+        MetadataTypeDefinitionName name =
+            bodyRows.TryGetValue(
+                type,
+                out LibraryStructuralBodyTypeLeverageRow? bodyRow)
+                ? bodyRow.Name
+                : signatureRows[type].Name;
+        destination.Add(
+            new(
+                Namespace: @namespace,
+                TypeDefinitionToken: type.Definition.Value,
+                Type: Display(name),
+                SignatureIncomingPosition:
+                    signatureIncomingPosition,
+                BodyIncomingPosition: bodyIncomingPosition,
+                IncomingAbsoluteDelta: AbsoluteDelta(
+                    signatureIncomingPosition,
+                    bodyIncomingPosition),
+                SignatureOutgoingPosition:
+                    signatureOutgoingPosition,
+                BodyOutgoingPosition: bodyOutgoingPosition,
+                OutgoingAbsoluteDelta: AbsoluteDelta(
+                    signatureOutgoingPosition,
+                    bodyOutgoingPosition)));
     }
 }
 
+static Dictionary<MetadataTypeDefinitionAddress, int> Positions(
+    IReadOnlyList<MetadataTypeDefinitionAddress> order) =>
+    order
+        .Select((type, index) => (type, Position: index + 1))
+        .ToDictionary(
+            static item => item.type,
+            static item => item.Position);
+
+static int? Position(
+    IReadOnlyDictionary<MetadataTypeDefinitionAddress, int> positions,
+    MetadataTypeDefinitionAddress type) =>
+    positions.TryGetValue(type, out int position)
+        ? position
+        : null;
+
+static int? AbsoluteDelta(int? first, int? second) =>
+    first is int firstValue && second is int secondValue
+        ? Math.Abs(firstValue - secondValue)
+        : null;
+
 static LeverageRankDelta RankDelta(
-    List<int> values)
+    IEnumerable<int> values)
 {
-    if (values.Count == 0)
+    int[] ordered = [.. values.Order()];
+    if (ordered.Length == 0)
         return new(0, 0, 0, 0);
 
-    values.Sort();
     return new(
-        values.Count,
-        Median(values),
-        Percentile(values, 0.95),
-        values[^1]);
+        ordered.Length,
+        Median(ordered),
+        Percentile(ordered, 0.95),
+        ordered[^1]);
 }
+
+static bool HasRequiredSelectedProvenance(
+    PackageSweepEntry package) =>
+    package.ResolvedPackage is not null
+    && package.ResolvedVersion is not null
+    && package.AssemblyPath is not null
+    && package.Sha256 is not null;
+
+static LibraryStructuralEvidenceDisposition BodyLeverageDisposition(
+    AnalysisLibraryBodyUseDisposition bodyUseDisposition,
+    IEnumerable<LibraryStructuralEvidenceDisposition>
+        shardDispositions) =>
+    bodyUseDisposition
+            == AnalysisLibraryBodyUseDisposition.Complete
+        && shardDispositions.All(
+            static disposition =>
+                disposition
+                    == LibraryStructuralEvidenceDisposition.Complete)
+            ? LibraryStructuralEvidenceDisposition.Complete
+            : LibraryStructuralEvidenceDisposition.Qualified;
 
 static double Median(IReadOnlyList<int> values)
 {
@@ -611,10 +709,20 @@ static LeverageCorpusSummary Summarize(
                 StringComparer.Ordinal.Equals(
                     item.BodyDisposition,
                     "Qualified")),
-        BodyPartialCount: assemblies.Count(
+        BodyUseCompleteCount: assemblies.Count(
             static item =>
                 StringComparer.Ordinal.Equals(
-                    item.BodyDisposition,
+                    item.BodyUseDisposition,
+                    "Complete")),
+        BodyUseQualifiedCount: assemblies.Count(
+            static item =>
+                StringComparer.Ordinal.Equals(
+                    item.BodyUseDisposition,
+                    "Qualified")),
+        BodyUsePartialCount: assemblies.Count(
+            static item =>
+                StringComparer.Ordinal.Equals(
+                    item.BodyUseDisposition,
                     "Partial")),
         BodyPhysicalOnlyCount: assemblies.Sum(
             static item =>
@@ -715,10 +823,14 @@ static string Markdown(LeverageCorpusReport report)
         $"| Body pole density | "
         + $"{Percent(summary.BodyPoleDensity)} |");
     text.AppendLine(
-        $"| Body results complete / qualified / partial | "
+        $"| Body leverage complete / qualified | "
         + $"{summary.BodyCompleteCount} / "
-        + $"{summary.BodyQualifiedCount} / "
-        + $"{summary.BodyPartialCount} |");
+        + $"{summary.BodyQualifiedCount} |");
+    text.AppendLine(
+        $"| Body source complete / qualified / partial | "
+        + $"{summary.BodyUseCompleteCount} / "
+        + $"{summary.BodyUseQualifiedCount} / "
+        + $"{summary.BodyUsePartialCount} |");
     text.AppendLine(
         $"| Physical-only bodies | "
         + $"{summary.BodyPhysicalOnlyCount} |");
@@ -911,7 +1023,7 @@ static void SelfTest()
               "status": "selected",
               "resolvedPackage": "Example",
               "resolvedVersion": "1.0.0",
-              "tfm": "net10.0",
+              "tfm": null,
               "assemblyPath": "packages/Example.dll",
               "sha256": "0123456789abcdef"
             }
@@ -930,8 +1042,22 @@ static void SelfTest()
             SelectedPackageCount: 1,
             Packages.Count: 1,
         }
-        && manifest.Packages[0].ResolvedPackage == "Example",
+        && manifest.Packages[0].ResolvedPackage == "Example"
+        && manifest.Packages[0].Tfm is null
+        && HasRequiredSelectedProvenance(manifest.Packages[0]),
         "package-sweep manifest contract");
+    Require(
+        BodyLeverageDisposition(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            [LibraryStructuralEvidenceDisposition.Qualified])
+            == LibraryStructuralEvidenceDisposition.Qualified,
+        "metadata-qualified body leverage");
+    Require(
+        BodyLeverageDisposition(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            [LibraryStructuralEvidenceDisposition.Complete])
+            == LibraryStructuralEvidenceDisposition.Qualified,
+        "source-qualified body leverage");
 }
 
 static void Require(bool condition, string name)
@@ -978,7 +1104,9 @@ sealed record LeverageCorpusSummary(
     int TypeCount,
     int BodyCompleteCount,
     int BodyQualifiedCount,
-    int BodyPartialCount,
+    int BodyUseCompleteCount,
+    int BodyUseQualifiedCount,
+    int BodyUsePartialCount,
     int BodyPhysicalOnlyCount,
     int SignatureEligibleRows,
     int BodyEligibleRows,
@@ -1001,7 +1129,7 @@ sealed record LeverageAssemblyCensus(
     int Rank,
     string Package,
     string Version,
-    string TargetFramework,
+    string? TargetFramework,
     string Assembly,
     string AssemblyPath,
     string Sha256,
@@ -1010,6 +1138,7 @@ sealed record LeverageAssemblyCensus(
     int TypeCount,
     string SignatureDisposition,
     string BodyDisposition,
+    string BodyUseDisposition,
     LeverageBodyCoverage BodyCoverage,
     int SignatureEligibleRows,
     int BodyEligibleRows,
@@ -1024,7 +1153,8 @@ sealed record LeverageAssemblyCensus(
     LeverageRankDelta IncomingRankDelta,
     LeverageRankDelta OutgoingRankDelta,
     LeverageDiagnosticTiming DiagnosticTiming,
-    IReadOnlyList<LeveragePoleComparison> PoleComparisons);
+    IReadOnlyList<LeveragePoleComparison> PoleComparisons,
+    IReadOnlyList<LeverageRankComparison> RankComparisons);
 
 sealed record LeverageBodyCoverage(
     int BodiesConsidered,
@@ -1056,6 +1186,17 @@ sealed record LeverageRankDelta(
     double MedianAbsoluteDelta,
     int P95AbsoluteDelta,
     int MaximumAbsoluteDelta);
+
+sealed record LeverageRankComparison(
+    string Namespace,
+    int TypeDefinitionToken,
+    string Type,
+    int? SignatureIncomingPosition,
+    int? BodyIncomingPosition,
+    int? IncomingAbsoluteDelta,
+    int? SignatureOutgoingPosition,
+    int? BodyOutgoingPosition,
+    int? OutgoingAbsoluteDelta);
 
 sealed record LeverageDiagnosticTiming(
     double SignatureMilliseconds,
