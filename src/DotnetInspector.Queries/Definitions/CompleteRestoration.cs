@@ -671,9 +671,8 @@ public static class CompleteRestorationPreparation
                 "Registration-only Ecosystem restoration does not accept "
                     + "Workspace contexts.");
         }
-        if (!ReferenceEquals(
-                request.Plan.TraversalTargetPolicy,
-                TraversalTargetFrameworkPolicy.ProductDefault))
+        if (request.Plan.TraversalTargetPolicy
+            != TraversalTargetFrameworkPolicy.ProductDefault)
         {
             return InvalidRegistrationOnlyRequest(
                 authority.Identity,
