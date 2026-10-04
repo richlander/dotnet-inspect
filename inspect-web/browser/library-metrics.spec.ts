@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("complexity cells disclose evidence and activate exact type keys", async ({
   page,
 }) => {
-  await page.goto("/browser/library-metrics.html");
+  await page.goto("/browser/library-metrics.html?view=complexity");
   const first = page.locator('[data-metrics-type-key="Example.A"]');
   const second = page.locator('[data-metrics-type-key="Example.B"]');
   const evidence = page.locator("[data-metrics-treemap-evidence]");
@@ -28,7 +28,7 @@ test("reciprocal relationship evidence remains independently reachable", async (
   page,
 }) => {
   await page.setViewportSize({ width: 1100, height: 700 });
-  await page.goto("/browser/library-metrics.html");
+  await page.goto("/browser/library-metrics.html?view=relationships");
   const edges = page.locator("path.metrics-relationship-edge");
   const visibleEdges = page.locator(
     "path.metrics-relationship-edge:not([hidden])",

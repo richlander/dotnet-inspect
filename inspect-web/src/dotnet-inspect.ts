@@ -344,6 +344,7 @@ import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
+  type LibraryMetricsMode,
 } from "./library-metrics.ts";
 import {
   captureMemberFocus,
@@ -10012,10 +10013,13 @@ function libraryLensBody() {
     case "references": return renderLibraryReferences();
     case "analysis":
       switch (state.analysisMode) {
+        case "complexity":
+          return renderPackageLibraryMetrics("complexity");
+        case "relationships":
+          return renderPackageLibraryMetrics("relationships");
         case "performance": return renderPackagePerformance();
         case "integrations": return renderPackageIntegrations();
         case "opportunities": return renderPackageOpportunities();
-        case "metrics": return renderPackageLibraryMetrics();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
     case "metadata": return renderPackageMetadata();
@@ -10682,7 +10686,7 @@ function renderPackagePerformance() {
   });
 }
 
-function renderPackageLibraryMetrics() {
+function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
   const pkg = currentPackage();
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
@@ -10704,7 +10708,7 @@ function renderPackageLibraryMetrics() {
     error: state.packageLibraryMetricsError,
     data: state.packageLibraryMetrics,
     escapeHtml,
-  });
+  }, mode);
 }
 
 function activateLibraryMetricsType(typeKey: string) {
@@ -10755,7 +10759,8 @@ function loadPackageLibraryMetrics() {
 function maybeAutoLoadPackageLibraryMetrics() {
   if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
   if (aggregateLibrarySubjectIsActive()) return;
-  if (state.analysisMode !== "metrics") return;
+  if (state.analysisMode !== "complexity"
+    && state.analysisMode !== "relationships") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageLibraryMetricsKey !== packageScopeSignature())
     observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
@@ -12748,7 +12753,10 @@ async function openPlatformLensLibrary(
       await loadPackageIntegrations();
     else if (state.analysisMode === "opportunities")
       await loadPackageOpportunities();
-    else await loadPackageLibraryMetrics();
+    else if (state.analysisMode === "complexity"
+      || state.analysisMode === "relationships")
+      await loadPackageLibraryMetrics();
+    else assertNever(state.analysisMode, "analysis mode");
   } else await loadPackageMetadata();
 }
 

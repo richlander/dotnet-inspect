@@ -32,6 +32,8 @@ export interface LibraryMetricsInteractionActions {
   activateType: (typeKey: string) => void;
 }
 
+export type LibraryMetricsMode = "complexity" | "relationships";
+
 function shortTypeName(typeId: string): string {
   const generic = typeId.indexOf("<");
   const head = generic < 0 ? typeId : typeId.slice(0, generic);
@@ -490,6 +492,7 @@ export function bindLibraryMetricsInteractions(
 
 export function renderLibraryMetricsSurface(
   options: LibraryMetricsOptions,
+  mode: LibraryMetricsMode,
 ): string {
   const {
     requireLibrary, fresh, loading, error, data, escapeHtml,
@@ -498,20 +501,22 @@ export function renderLibraryMetricsSurface(
   let content: string;
   if (requireLibrary) {
     status = "Select a library";
-    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Pick a library to measure</h2><p>Choose a .NET platform library above to summarize compiled implementation metrics.</p></section>`;
+    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Pick a library to analyze</h2><p>Choose a .NET platform library above to inspect its compiled implementation evidence.</p></section>`;
   } else if (loading && fresh) {
-    status = "Measuring library\u2026";
-    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Measuring library&hellip;</h2><p>Computing Research-owned structural distributions across this library's method bodies.</p></section>`;
+    status = "Analyzing library\u2026";
+    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing library&hellip;</h2><p>Computing Research-owned structural evidence across this library's method bodies.</p></section>`;
   } else if (fresh && error) {
-    status = "Metrics failed";
-    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Metrics failed</h2><p>${escapeHtml(error)}</p></section>`;
+    status = "Analysis failed";
+    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Analysis failed</h2><p>${escapeHtml(error)}</p></section>`;
   } else {
     const resolved = fresh ? data : null;
     if (!resolved) {
       status = "Loading\u2026";
       content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
     } else if (resolved.outcome !== "available") {
-      status = resolved.outcome === "failed" ? "Metrics failed" : "Metrics unavailable";
+      status = resolved.outcome === "failed"
+        ? "Analysis failed"
+        : "Analysis unavailable";
       content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>${escapeHtml(status)}</h2><p>${escapeHtml(resolved.failure || "The Research document could not be produced.")}</p></section>`;
     } else {
       const population = resolved.population;
@@ -521,7 +526,7 @@ export function renderLibraryMetricsSurface(
           < population.physicalEvidenceBodyCount;
       const incomplete = population && (
         coverageGap || population.incompleteProfileCount > 0)
-        ? `<section class="document-section metadata-warning"><strong>&#x26A0; Metrics are qualified</strong><p>${
+        ? `<section class="document-section metadata-warning"><strong>&#x26A0; Analysis is qualified</strong><p>${
           coverageGap
             ? `${population.profiledPhysicalEvidenceBodyCount.toLocaleString()} of ${population.physicalEvidenceBodyCount.toLocaleString()} physical bodies were profiled.`
             : ""
@@ -537,9 +542,10 @@ export function renderLibraryMetricsSurface(
         }</section>`
         : "";
       content = `${incomplete}
-        ${renderTreemap(resolved, escapeHtml)}
-        ${renderRelationshipCrossing(resolved, escapeHtml)}`;
+        ${mode === "complexity"
+          ? renderTreemap(resolved, escapeHtml)
+          : renderRelationshipCrossing(resolved, escapeHtml)}`;
     }
   }
-  return renderAnalysisInspector(options, "metrics", status, content);
+  return renderAnalysisInspector(options, mode, status, content);
 }

@@ -71,6 +71,9 @@ const app = document.querySelector("#app");
 if (!(app instanceof HTMLElement))
   throw new Error("Library metrics harness root is missing.");
 
+const mode = new URLSearchParams(location.search).get("view") === "relationships"
+  ? "relationships"
+  : "complexity";
 app.innerHTML = renderLibraryMetricsSurface({
   libraryName: "Example",
   assemblyIdentity: "Example, Version=1.0.0.0",
@@ -85,7 +88,7 @@ app.innerHTML = renderLibraryMetricsSurface({
   escapeHtml: value => String(value).replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
-});
+}, mode);
 
 const activation = document.createElement("output");
 activation.id = "metrics-activated-type";

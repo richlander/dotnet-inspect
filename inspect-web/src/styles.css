@@ -2678,7 +2678,7 @@ kbd {
     width: 100%;
     height: 36px;
     justify-content: space-between;
-    gap: 4px;
+    gap: 2px;
   }
   .analysis-mode-tabs button { font-size: 10px; }
 }

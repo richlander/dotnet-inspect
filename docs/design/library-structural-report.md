@@ -490,10 +490,12 @@ Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
 view. Its host-specific lowering serializes the same typed document through
 the existing managed boundary. The Browser DTO carries a module-local exact
 metadata type key separately from human display text, so same-name types with
-different generic arities remain distinct through relationship layout. It
-renders a `Complexity Explorer` treemap
-from type summaries plus a `Relationship Crossing` view from the bounded
-relationship projection, without recomputing any report fact. Area represents
+different generic arities remain distinct through relationship layout. The
+Browser presents dedicated `Complexity` and `Relationships` Analysis tabs from
+one shared Research document and acquisition. `Complexity` renders a
+`Complexity Explorer` treemap from type summaries; `Relationships` renders a
+`Relationship Crossing` view from the bounded relationship projection. Neither
+tab recomputes a report fact. Area represents
 instruction volume, treemap color represents average normal-flow complexity, and
 relationship stroke width represents retained call-site count. Complexity
 Explorer omits zero-body relationship-only summaries because they carry no
