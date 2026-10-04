@@ -22,6 +22,58 @@ public class SlotMaterializationPassTests
         ], HasThis: false, GenericParameterCount: 0), locals, body);
 
     [Fact]
+    public void ProvenReferenceWideningAdmitsSubtypeStoreIntoJoinTypedSlot()
+    {
+        // A diamond stores a derived and a base instance into one slot whose
+        // load is typed at the base (the importer's join merge). Storage
+        // admission knows no hierarchy of its own: without the importer's
+        // proven widening the derived store is unrenderable; with it the web
+        // materializes as one base-typed local.
+        var baseType = TypeRef.Definition("Synthetic", "Samples", "JoinBase");
+        var derived = TypeRef.Definition("Synthetic", "Samples", "JoinDerived");
+        IrFunction Build()
+        {
+            var body = new BlockContainer();
+            var entry = new Block(0);
+            entry.Add(new ConditionalBranch(new LoadArgument(0, "x", Int32), 4));
+            entry.Add(new Branch(8));
+            var first = new Block(4);
+            first.Add(new StoreStackSlot(0, new LoadArgument(1, "d", derived)));
+            first.Add(new Branch(12));
+            var second = new Block(8);
+            second.Add(new StoreStackSlot(0, new LoadArgument(2, "b", baseType)));
+            second.Add(new Branch(12));
+            var join = new Block(12);
+            join.Add(new StoreLocal(0, baseType, new LoadStackSlot(0, baseType)));
+            join.Add(new Return(null));
+            body.Add(entry);
+            body.Add(first);
+            body.Add(second);
+            body.Add(join);
+            var function = Function([baseType], body);
+            function.TypeShapes = ImmutableDictionary<TypeRef, TypeShape>.Empty
+                .Add(baseType, TypeShape.Reference)
+                .Add(derived, TypeShape.Reference);
+            return function;
+        }
+
+        var without = Build();
+        var vetoed = Assert.Single(SlotMaterializationPass.Analyze(without), d => d.Slot == 0);
+        Assert.False(vetoed.WillMaterialize);
+        Assert.True(vetoed.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType), vetoed.Vetoes.ToString());
+
+        var with = Build();
+        with.ProvenReferenceWidenings = ImmutableHashSet.Create(new ReferenceWidening(derived, baseType));
+        var admitted = Assert.Single(SlotMaterializationPass.Analyze(with), d => d.Slot == 0);
+        Assert.True(admitted.WillMaterialize, admitted.Vetoes.ToString());
+        Assert.Equal(baseType, admitted.Type);
+
+        new SlotMaterializationPass().Run(with, PassContext.None);
+        Assert.DoesNotContain(with.Descendants, n => n is StoreStackSlot or LoadStackSlot);
+        with.CheckInvariant();
+    }
+
+    [Fact]
     public void CompilerProducedPropertyConditionalMaterializesBooleanIdentity()
     {
         // Mirrors the retained Boolean property temporary in Newtonsoft.Json

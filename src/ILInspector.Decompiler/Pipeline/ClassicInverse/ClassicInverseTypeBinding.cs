@@ -106,6 +106,9 @@ internal sealed record ClassicInverseTypeBinding(ImmutableArray<TypeRef> Argumen
             UnionTypes = Set(facts.UnionTypes, budget),
             ByRefLikeTypes = Set(facts.ByRefLikeTypes, budget),
             InterfaceTypes = Set(facts.InterfaceTypes, budget),
+            ProvenReferenceWidenings = facts.ProvenReferenceWidenings
+                .Select(widening => new ReferenceWidening(Type(widening.From, budget), Type(widening.To, budget)))
+                .ToImmutableHashSet(),
         };
 
     internal ImmutableArray<TypeRef> Types(ImmutableArray<TypeRef> types, ClassicInverseBudget budget)

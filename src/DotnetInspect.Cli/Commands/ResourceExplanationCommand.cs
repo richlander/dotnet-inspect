@@ -55,6 +55,42 @@ public static class ResourceExplanationCommand
             ResourceExplanationCatalog.CreateStructural(
                 structural.Document,
                 structural.ResourcePaths);
+
+        // Package is the first Section shapes adopter, so its structural
+        // sections are explainable with their declared shape and cardinality.
+        StructuralSchemaProjection packageProjection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.Package,
+                    InspectionCatalogIdentity.Package));
+        DiscoveryDocumentFactory.Projection? packageStructural =
+            DiscoveryDocumentFactory.CreateProjection(
+                StructuralViewRegistry.CatalogPathName(
+                    InspectionCatalogIdentity.Package),
+                discover: null,
+                packageProjection.Schema,
+                packageProjection.SectionCategories,
+                packageProjection.CatalogHiddenSections,
+                packageProjection.ListedCategoryDoors,
+                packageProjection.SectionCostAnnotations,
+                packageProjection.ExactOnlySections,
+                packageProjection.OutputCapabilities
+                ?? throw new InvalidOperationException(
+                    "Package output capabilities are required."),
+                sectionCardinalities:
+                    packageProjection.SectionCardinalities,
+                sectionShapes: packageProjection.SectionShapes);
+        if (packageStructural is null)
+        {
+            CommandError.Write(
+                "The Package structural resource catalog could not be built.");
+            return 1;
+        }
+
+        ResourceExplanationCatalog packageStructuralCatalog =
+            ResourceExplanationCatalog.CreateStructural(
+                packageStructural.Document,
+                packageStructural.ResourcePaths);
         InspectionCapabilityCatalog packageQueryCapabilityCatalog =
             InspectionCapabilityCatalog.Create(
                 [
@@ -90,6 +126,7 @@ public static class ResourceExplanationCommand
         ResourceExplanationCatalog catalog =
             ResourceExplanationCatalog.Combine(
                 structuralCatalog,
+                packageStructuralCatalog,
                 capabilityExplanation,
                 analysisExplanation);
         string normalizedOperand = operand.Trim();

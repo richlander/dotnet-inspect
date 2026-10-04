@@ -5108,6 +5108,69 @@ public class CfgSampleClass
     // raised to a null-conditional invocation node?.Shape().
     public static string NullConditionalCall(JoinBase node) => node?.Shape() ?? "none";
 
+    static readonly System.Text.UTF8Encoding s_strictUtf8 = new(false, true);
+
+    // A reference-type stack join whose arms are both defined in another
+    // assembly: Encoding.UTF8 (Encoding) and a UTF8Encoding field. The merge
+    // must walk UTF8Encoding's base chain through the metadata context to
+    // Encoding and publish the UTF8Encoding -> Encoding widening it proved, so
+    // the slot types Encoding and materializes as one local that both arms
+    // may store to.
+    public static string MergedCrossAssemblyBaseSlot(bool strict, byte[] bytes)
+        => (strict ? s_strictUtf8 : System.Text.Encoding.UTF8).GetString(bytes);
+
+    // A guarded type cascade over a facade-forwarded pair: XmlTextReader derives
+    // from XmlReader, both referenced through System.Xml.ReaderWriter and defined
+    // in System.Private.Xml. A guard-failing XmlTextReader (Depth <= min) must
+    // return -1 and never reach the XmlReader arm, so the disjointness oracle
+    // must keep saying "not provably disjoint" and the cascade must stay an if.
+    public static int GuardedXmlReaderCascade(object o, int min)
+    {
+        object v = o;
+        System.Xml.XmlTextReader? t = v as System.Xml.XmlTextReader;
+        if (t is null)
+        {
+            if (v is System.Xml.XmlReader r) return r.Depth + 100;
+            if (v is string s) return s.Length;
+        }
+        else
+        {
+            if (t.Depth > min) return t.Depth;
+        }
+        return -1;
+    }
+
+    // Sibling arms from another assembly whose common ancestor this module
+    // references (NextNode is declared on XNode, so the callvirt is a TypeRef
+    // row for XNode): the join types XNode under the module's own reference
+    // identity and proves both widenings. NodeType would not do: it is
+    // declared on XObject, which must stay unreferenced for the sample below.
+    public static bool SiblingXNodeJoin(bool c, System.Xml.Linq.XElement element, System.Xml.Linq.XComment comment)
+    {
+        System.Xml.Linq.XNode node = c ? element : comment;
+        return node.NextNode is null;
+    }
+
+    // Sibling arms whose common ancestor (XObject) this module never
+    // references: the join stays an honest unknown rather than entering the
+    // IR under an identity none of the function's rows share.
+    public static string UnreferencedAncestorJoin(bool c, System.Xml.Linq.XAttribute attribute, System.Xml.Linq.XComment comment)
+        => (c ? (object)attribute : comment).ToString()!;
+
+    // A null-literal arm adopts the other arm's type; it proves nothing about
+    // System.Object, so no widening may be published for it. The conditional
+    // feeds a call argument so the ldnull/string join stays on the evaluation
+    // stack: returned directly, Roslyn duplicates the `ret` into both arms and
+    // no join is ever merged.
+    public static bool NullArmJoin(bool c, string s) => string.IsNullOrEmpty(c ? null : s);
+
+    // A ?? join whose arms are a cross-assembly interface and a cross-assembly
+    // class that implements it: IEqualityComparer<string> and
+    // EqualityComparer<string>. The merge resolves to the interface through the
+    // metadata context's implementation walk.
+    public static bool CoalescedCrossAssemblyInterface(IEqualityComparer<string>? comparer, string left, string right)
+        => (comparer ?? EqualityComparer<string>.Default).Equals(left, right);
+
     // A null-conditional property whose result type is a cross-assembly reference
     // type outside the primitive/string stack-family table. The null arm must
     // adopt the property type at the join, not conflict as object vs Type.
