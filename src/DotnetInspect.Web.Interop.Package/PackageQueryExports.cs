@@ -145,6 +145,22 @@ namespace DotnetInspect.Web.Interop.Package
                 ]),
                 targetFramework);
 
+        internal static PackageQueryPlanResult PlanEcosystem(
+            string ecosystemId,
+            int maximumCandidates,
+            int maximumMatches,
+            bool includePrerelease) =>
+            PackageQuery.PlanEcosystemInput(
+                ecosystemId,
+                EcosystemPackCatalog.PackageQueryMemberships,
+                maximumCandidates: maximumCandidates,
+                maximumMatches: maximumMatches,
+                includePrerelease: includePrerelease,
+                rowSelection: RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Head(maximumMatches),
+                ]));
+
         internal static bool TryCreateTerms(
             BrowserPackageQueryTerm[] wireTerms,
             out PortableQueryTerm[] terms,
@@ -1293,6 +1309,59 @@ public static partial class PackageExports
         PackageQueryPlan plan =
             ((PackageQueryPlanResult.Accepted)planResult).Plan;
 
+        BrowserPackageQueryResult result =
+            await RunPackageQueryPlan(
+                operationId,
+                plan,
+                initialMatchCredit,
+                eventSink).ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+    }
+
+    [JSExport]
+    public static async Task<string> RunEcosystemPackageQuery(
+        string operationId,
+        string ecosystemId,
+        int maximumCandidates,
+        int maximumMatches,
+        bool includePrerelease,
+        int initialMatchCredit,
+        JSObject eventSink)
+    {
+        ArgumentNullException.ThrowIfNull(eventSink);
+        PackageQueryPlanResult planResult =
+            BrowserPackageQueryOperations.PlanEcosystem(
+                ecosystemId,
+                maximumCandidates,
+                maximumMatches,
+                includePrerelease);
+        if (planResult is PackageQueryPlanResult.Rejected rejected)
+        {
+            return JsonSerializer.Serialize(
+                BrowserPackageQueryResult.ExpectedFailure(
+                    rejected.Failure.Message),
+                BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+        }
+
+        BrowserPackageQueryResult result =
+            await RunPackageQueryPlan(
+                operationId,
+                ((PackageQueryPlanResult.Accepted)planResult).Plan,
+                initialMatchCredit,
+                eventSink).ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+    }
+
+    private static async Task<BrowserPackageQueryResult> RunPackageQueryPlan(
+        string operationId,
+        PackageQueryPlan plan,
+        int initialMatchCredit,
+        JSObject eventSink)
+    {
         BrowserManagedOperationResult<
             BrowserPackageQueryInspection,
             string,
@@ -1327,9 +1396,7 @@ public static partial class PackageExports
                         BrowserPackageWorkspace.PackageOperationTimeout,
                         token).ConfigureAwait(false);
                 });
-        return JsonSerializer.Serialize(
-            BrowserPackageQueryResult.From(result),
-            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+        return BrowserPackageQueryResult.From(result);
     }
 }
 }

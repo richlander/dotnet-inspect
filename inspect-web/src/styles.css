@@ -4447,6 +4447,7 @@ kbd {
   gap: 12px;
 }
 .query-row-head h2 { margin: 0; font: 600 14px var(--mono); }
+.query-row-head h3 { margin: 0; font: 600 14px var(--mono); }
 .query-row-version { color: var(--dim); font: 11px var(--mono); }
 .query-answers {
   display: flex;
@@ -4496,6 +4497,41 @@ kbd {
   border-radius: 6px;
   color: var(--muted);
   font: 11px var(--mono);
+}
+.ecosystem-package-discovery {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+.ecosystem-package-discovery > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ecosystem-package-discovery > header h2 { margin: 0; }
+.ecosystem-package-discovery > p { margin: 0; color: var(--muted); }
+.ecosystem-package-capacity {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  color: var(--dim);
+  font: 11px var(--mono);
+}
+.ecosystem-package-capacity button {
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  font: inherit;
+}
+.ecosystem-package-capacity button:disabled {
+  color: var(--dim);
+  cursor: wait;
+}
+.query-result-list {
+  display: grid;
+  gap: 10px;
 }
 .query-progress {
   display: grid;

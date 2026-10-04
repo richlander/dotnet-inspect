@@ -65,10 +65,7 @@ import type {
   WorkerRuntimePreparationError,
 } from "./worker-runtime-core.ts";
 import { bindEngineWorkerStartupClient } from "./engine-worker-startup.ts";
-import {
-  PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-  type QueryRequest,
-} from "./package-query.ts";
+import type { QueryRequest } from "./package-query.ts";
 import type { EngineClient } from "./engine-client.ts";
 
 function createEngineWorker(): Worker {
@@ -248,11 +245,8 @@ function packageQueryRequest(
   includePrerelease: boolean,
   initialMatchCredit: number,
 ): QueryRequest {
-  if (initialMatchCredit !== PACKAGE_QUERY_INITIAL_MATCH_CREDIT) {
-    throw new Error(
-      `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
-  }
   return {
+    initialMatchCredit,
     scopeQuery: searchText,
     presets: [],
     terms: terms.map(term => {
@@ -277,6 +271,26 @@ function packageQueryRequest(
     requestedMatchLimit: maximumMatches,
     includePrerelease,
     targetFramework: targetFramework ?? "net10.0",
+  };
+}
+
+function ecosystemPackageQueryRequest(
+  ecosystemId: string,
+  maximumCandidates: number,
+  maximumMatches: number,
+  includePrerelease: boolean,
+  initialMatchCredit: number,
+): QueryRequest {
+  return {
+    ecosystemId,
+    initialMatchCredit,
+    scopeQuery: "",
+    presets: [],
+    terms: [],
+    requestedLimit: maximumCandidates,
+    requestedMatchLimit: maximumMatches,
+    includePrerelease,
+    targetFramework: "net10.0",
   };
 }
 
@@ -589,6 +603,7 @@ export function bindPackageQueryFacade(
   EngineClient["package"],
   | "cancelPackageQuery"
   | "requestPackageQueryMatches"
+  | "runEcosystemPackageQuery"
   | "runPackageQuery"
 > & { readonly dispose: () => void } {
   interface ActivePackageQuery {
@@ -728,6 +743,27 @@ export function bindPackageQueryFacade(
           searchText,
           termsJson,
           targetFramework,
+          maximumCandidates,
+          maximumMatches,
+          includePrerelease,
+          initialMatchCredit,
+        ),
+        eventSink,
+      );
+    },
+    runEcosystemPackageQuery(
+      operationId,
+      ecosystemId,
+      maximumCandidates,
+      maximumMatches,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink,
+    ) {
+      return run(
+        operationId,
+        ecosystemPackageQueryRequest(
+          ecosystemId,
           maximumCandidates,
           maximumMatches,
           includePrerelease,

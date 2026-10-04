@@ -263,6 +263,27 @@ test("Ecosystems is a first-class product catalog destination", async ({
     name: ecosystemTitle,
     exact: true,
   })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query",
+    /"ecosystem\.fixture-[^"]+",200,96,false,24/u,
+  );
+  const discoveredPackages = page.locator(
+    "[data-ecosystem-package-open]");
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
+  await page.locator(
+    '[data-ecosystem-package-capacity="48"]',
+  ).click();
+  await expect(discoveredPackages).toHaveCount(48);
+  await page.locator(
+    '[data-ecosystem-package-capacity="96"]',
+  ).click();
+  await expect(discoveredPackages).toHaveCount(60);
+  await expect(page.locator(
+    '[data-ecosystem-package-capacity="96"]',
+  )).toHaveCount(0);
+  await expect(page.getByText("All matching packages are shown."))
+    .toBeVisible();
   await expect(page.locator(
     "[data-product-package-action],"
       + " [data-workspace-platform],"
