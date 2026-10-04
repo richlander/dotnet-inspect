@@ -385,10 +385,16 @@ internal sealed class
             work,
             AssemblyReferenceResolutionWorkKind.SourceOperation,
             1);
+        PlatformHouseWorkBudget packageWork =
+            AdmitPackageBackedWork(
+                family.PlatformRequest.Work,
+                work,
+                retainAssemblies: false);
         PackagePlatformHouseResult<PackageReferenceRealization>
             packageResult =
                 await _packagePlatform.RealizeReferenceAsync(
                         family.PlatformRequest,
+                        packageWork,
                         _packageRuntime.IssueOperation(
                             family.PlatformRequest.CancellationToken))
                     .ConfigureAwait(false);
@@ -421,12 +427,12 @@ internal sealed class
             bytes += packageBytes;
             Charge(
                 work,
-                AssemblyReferenceResolutionWorkKind.Acquisition,
-                1);
-            Charge(
-                work,
                 AssemblyReferenceResolutionWorkKind.TransferBytes,
                 packageBytes);
+            Charge(
+                work,
+                AssemblyReferenceResolutionWorkKind.RealizedAssembly,
+                packageSuccess.Value.Libraries.Length);
         }
 
         PlatformHouseOutcome<AssemblyBindingDecision> outcome =
@@ -536,11 +542,17 @@ internal sealed class
             work,
             AssemblyReferenceResolutionWorkKind.SourceOperation,
             1);
+        PlatformHouseWorkBudget packageWork =
+            AdmitPackageBackedWork(
+                request.Work,
+                work,
+                retainAssemblies: true);
         long packageStarted = Stopwatch.GetTimestamp();
         PackagePlatformHouseResult<PackageImplementationRealization>
             package =
                 await _packagePlatform.RealizeImplementationAsync(
                         request,
+                        packageWork,
                         RuntimeInformation.RuntimeIdentifier,
                         _packageRuntime.IssueOperation(cancellationToken))
                     .ConfigureAwait(false);
@@ -555,7 +567,7 @@ internal sealed class
             work,
             packageSuccess.Value.Libraries.Length,
             packageSuccess.Value.ConsumedBytes,
-            acquired: true);
+            acquired: false);
         return await PackagePlatformLibraryMaterializer
             .MaterializeImplementationPopulationAsync(
                 request,
@@ -701,6 +713,68 @@ internal sealed class
     {
         if (amount != 0)
             work.Charge(kind, amount);
+    }
+
+    internal static PlatformHouseWorkBudget AdmitPackageBackedWork(
+        PlatformHouseWorkBudget source,
+        AssemblyReferenceResolutionWorkLedger work,
+        bool retainAssemblies)
+    {
+        Charge(
+            work,
+            AssemblyReferenceResolutionWorkKind.Acquisition,
+            1);
+        long transferBytes =
+            work.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.TransferBytes);
+        if (source.MaxBytes != 0 && transferBytes == 0)
+        {
+            work.Charge(
+                AssemblyReferenceResolutionWorkKind.TransferBytes,
+                1);
+        }
+        long bytes = Math.Min(
+            source.MaxBytes,
+            transferBytes);
+        if (retainAssemblies)
+        {
+            long retainedBytes =
+                work.GetRemainingAllowance(
+                    AssemblyReferenceResolutionWorkKind
+                        .RetainedAssemblyBytes);
+            if (source.MaxBytes != 0 && retainedBytes == 0)
+            {
+                work.Charge(
+                    AssemblyReferenceResolutionWorkKind
+                        .RetainedAssemblyBytes,
+                    1);
+            }
+            bytes = Math.Min(
+                bytes,
+                retainedBytes);
+        }
+        long realizedAssemblies =
+            work.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.RealizedAssembly);
+        if (source.MaxAssemblies != 0 && realizedAssemblies == 0)
+        {
+            work.Charge(
+                AssemblyReferenceResolutionWorkKind.RealizedAssembly,
+                1);
+        }
+        long assemblies = Math.Min(
+            source.MaxAssemblies,
+            realizedAssemblies);
+        return new(
+            source.MaxSourceOperations,
+            source.MaxTargetCandidates,
+            checked((int)assemblies),
+            source.MaxXmlDocuments,
+            source.MaxPortablePdbs,
+            source.MaxSourceDocuments,
+            bytes,
+            source.MaxForwardingHops,
+            source.MaxDuration);
     }
 
     static string FamilyName(PlatformFamily family) =>

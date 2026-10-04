@@ -226,6 +226,28 @@ public sealed class AssemblyReferenceResolutionWorkLedger
 
     public AssemblyReferenceResolutionWorkBudget Budget { get; }
 
+    public long GetRemainingAllowance(
+        AssemblyReferenceResolutionWorkKind kind)
+    {
+        if (!Enum.IsDefined(kind)
+            || kind == AssemblyReferenceResolutionWorkKind.Deadline)
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        }
+
+        lock (_gate)
+        {
+            if (_exhaustion is not null
+                || ObserveDeadlineLocked() is not null)
+            {
+                return 0;
+            }
+
+            (long consumed, long maximum) = GetConsumption(kind);
+            return maximum - consumed;
+        }
+    }
+
     public void Charge(
         AssemblyReferenceResolutionWorkKind kind,
         long amount)
@@ -260,35 +282,7 @@ public sealed class AssemblyReferenceResolutionWorkLedger
                 return false;
             }
 
-            (long consumed, long maximum) = kind switch
-            {
-                AssemblyReferenceResolutionWorkKind
-                    .PackageRouteOccurrence =>
-                    (_packageRouteOccurrences,
-                        Budget.MaxPackageRouteOccurrences),
-                AssemblyReferenceResolutionWorkKind
-                    .PackageCandidateOperation =>
-                    (_packageCandidateOperations,
-                        Budget.MaxPackageCandidateOperations),
-                AssemblyReferenceResolutionWorkKind.SourceOperation =>
-                    (_sourceOperations, Budget.MaxSourceOperations),
-                AssemblyReferenceResolutionWorkKind.Acquisition =>
-                    (_acquisitions, Budget.MaxAcquisitions),
-                AssemblyReferenceResolutionWorkKind.RealizedAssembly =>
-                    (_realizedAssemblies, Budget.MaxRealizedAssemblies),
-                AssemblyReferenceResolutionWorkKind.TransferBytes =>
-                    (_transferBytes, Budget.MaxTransferBytes),
-                AssemblyReferenceResolutionWorkKind
-                    .RetainedAssemblyBytes =>
-                    (_retainedAssemblyBytes,
-                        Budget.MaxRetainedAssemblyBytes),
-                AssemblyReferenceResolutionWorkKind
-                    .WorkspaceReplacement =>
-                    (_workspaceReplacements,
-                        Budget.MaxWorkspaceReplacements),
-                _ => throw new InvalidOperationException(
-                    "Unknown assembly-reference resolution work kind."),
-            };
+            (long consumed, long maximum) = GetConsumption(kind);
 
             long next;
             bool overflowed = false;
@@ -352,6 +346,36 @@ public sealed class AssemblyReferenceResolutionWorkLedger
             return true;
         }
     }
+
+    (long Consumed, long Maximum) GetConsumption(
+        AssemblyReferenceResolutionWorkKind kind) =>
+        kind switch
+        {
+            AssemblyReferenceResolutionWorkKind
+                .PackageRouteOccurrence =>
+                (_packageRouteOccurrences,
+                    Budget.MaxPackageRouteOccurrences),
+            AssemblyReferenceResolutionWorkKind
+                .PackageCandidateOperation =>
+                (_packageCandidateOperations,
+                    Budget.MaxPackageCandidateOperations),
+            AssemblyReferenceResolutionWorkKind.SourceOperation =>
+                (_sourceOperations, Budget.MaxSourceOperations),
+            AssemblyReferenceResolutionWorkKind.Acquisition =>
+                (_acquisitions, Budget.MaxAcquisitions),
+            AssemblyReferenceResolutionWorkKind.RealizedAssembly =>
+                (_realizedAssemblies, Budget.MaxRealizedAssemblies),
+            AssemblyReferenceResolutionWorkKind.TransferBytes =>
+                (_transferBytes, Budget.MaxTransferBytes),
+            AssemblyReferenceResolutionWorkKind.RetainedAssemblyBytes =>
+                (_retainedAssemblyBytes,
+                    Budget.MaxRetainedAssemblyBytes),
+            AssemblyReferenceResolutionWorkKind.WorkspaceReplacement =>
+                (_workspaceReplacements,
+                    Budget.MaxWorkspaceReplacements),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly-reference resolution work kind."),
+        };
 
     internal AssemblyReferenceResolutionWorkExhaustion?
         ObserveExhaustion()

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -6,8 +7,10 @@ using System.Text;
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -165,6 +168,46 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             [CallGraphTargetPackage],
             environment.Clients[0].PayloadPackageIds);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        DependencyMemberCallGraphContinuationPreservesInitialWorkspaceFailure()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior([RouteVersion]));
+        PackageHouseOperation realizationOperation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+        PackageDependencyMemberCallGraphInspectionSource source =
+            CreateCallGraphSource(environment);
+        var continuation =
+            new PackageDependencyMemberCallGraphContinuation(
+                new UnexpectedCallGraphContinuationSource(),
+                ContinuationBudget());
+
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                CallGraphInspectionRequest(
+                    realizationOperation,
+                    "RunAcrossBoundary",
+                    workspaceDeadline:
+                        DateTimeOffset.UtcNow.AddMinutes(-1)),
+                source,
+                continuation,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Unavailable>(
+                envelope.Content);
+        Assert.Equal(
+            PackageDependencyMemberCallGraphInspectionUnavailableReason
+                .RootWorkspaceNotCommitted,
+            unavailable.Reason);
         await environment.AssertRootSettledAsync();
     }
 
@@ -1369,6 +1412,104 @@ public sealed partial class PackageHouseExecutionTests
         return PackageRootBinding.CreateFromSource(
             payload,
             "netstandard2.0");
+    }
+
+    private static PackageDependencyMemberCallGraphInspectionSource
+        CreateCallGraphSource(HouseEnvironment environment)
+    {
+        var candidateSource =
+            new AuthorizedPackageDependencyCandidateSource(
+                environment.Authorization,
+                environment.Root);
+        return new(
+            new PackageDependencyTraversalCandidateAdapter(
+                candidateSource),
+            new UnexpectedManifestAcquirer(),
+            environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore()),
+            (operation, cancellationToken) =>
+                environment.Root.IssueOperationLease(
+                    cancellationToken,
+                    operation.RequestTimeout,
+                    operation.OperationTimeout));
+    }
+
+    private static PackageDependencyMemberCallGraphInspectionRequest
+        CallGraphInspectionRequest(
+        PackageHouseOperation realizationOperation,
+        string member,
+        int maximumDependencyDepth = 1,
+        DateTimeOffset? workspaceDeadline = null,
+        params (string PackageId, string Version)[] dependencies) =>
+        new(
+            CallGraphRootBinding(dependencies),
+            new(
+                ModuleVersionId(CallGraphCallerPath),
+                MethodToken(
+                    CallGraphCallerPath,
+                    "Entry",
+                    member)),
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            new(
+                maxDepth: 2,
+                maxNodes: 10),
+            realizationOperation,
+            workspaceDeadline
+                ?? DateTimeOffset.UtcNow.AddMinutes(1),
+            maximumDependencyDepth,
+            new(
+                maxManifestProjections: 3,
+                maxDeclarationResolutions: 3));
+
+    private static AssemblyReferenceResolutionWorkBudget
+        ContinuationBudget(
+        int maxPackageRouteOccurrences = 16) =>
+        new(
+            maxPackageRouteOccurrences,
+            maxPackageCandidateOperations: 16,
+            maxSourceOperations: 16,
+            maxAcquisitions: 16,
+            maxRealizedAssemblies: 16,
+            maxTransferBytes: 16 * 1024 * 1024,
+            maxRetainedAssemblyBytes: 16 * 1024 * 1024,
+            maxWorkspaceReplacements: 4,
+            deadline: DateTimeOffset.UtcNow.AddMinutes(1));
+
+    private sealed class UnexpectedCallGraphContinuationSource :
+        PackageDependencyMemberCallGraphExternalContinuationSource
+    {
+        public override ValueTask<
+            PlatformAssemblyReferenceExternalRoute>
+            FormPlatformRouteAsync(
+            AssemblyBindingRequest request,
+            AssemblyReferenceResolutionGenerationReceipt generation,
+            MemberCallGraphFocalScopeReceipt focalScope,
+            PackageAssemblyReferenceRouteEligibilityReceipt packageRoutes,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede route formation.");
+
+        public override ValueTask<
+            ExternalAssemblyReferenceSupplierOutcome> ResolveAsync(
+            PackageAssemblyReferenceExternalRoute packageRoute,
+            PlatformAssemblyReferenceExternalRoute platformRoute,
+            AssemblyBindingSelection referencingContextSelection,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede supplier resolution.");
+
+        public override ValueTask<ImmutableArray<
+            PackageAssemblyContextPlatformLibrary>>
+            AdmitPlatformPopulationAsync(
+            InspectionWorkspace workspace,
+            WorkspaceRegistrationRevision registrations,
+            PlatformFamilyTarget target,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede Platform population admission.");
     }
 
     private static PackageRootBinding CallGraphRootBindingFromAssembly(

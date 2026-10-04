@@ -262,6 +262,12 @@ public enum PackageDependencyMemberCallGraphInspectionUnavailableReason
     DependencyWorkspaceNotCommitted,
     FocusUnavailable,
     PackageContextCleanupFailed,
+    AssemblyReferenceResolutionUnavailable,
+    AssemblyReferenceResolutionRejected,
+    AssemblyReferenceResolutionIncomplete,
+    AssemblyReferenceContinuationRejected,
+    AssemblyReferenceContinuationIncomplete,
+    AssemblyReferenceContinuationFailed,
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -491,6 +497,13 @@ public static class PackageDependencyMemberCallGraphInspection
                 : []);
     }
 
+    public static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>
+        ProjectUnavailable(
+        PackageDependencyMemberCallGraphInspectionUnavailableReason reason,
+        string detail) =>
+        Envelope(Unavailable(reason, detail));
+
     static ImmutableArray<PackageDependencyEdgeRealizationExecution>
         PrepareExecutions(
             PackageDependencyMemberCallGraphInspectionRequest request,
@@ -681,7 +694,7 @@ public static class PackageDependencyMemberCallGraphInspection
         return diagnostics.ToImmutable();
     }
 
-    static string DescribeScopeOperation(
+    public static string DescribeScopeOperation(
         WorkspaceScopeOperationResult result) =>
         result switch
         {

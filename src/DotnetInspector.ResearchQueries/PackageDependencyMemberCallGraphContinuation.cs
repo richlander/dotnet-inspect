@@ -72,15 +72,26 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             preparation.Request;
         await using var coordinator =
             new WorkspaceReplacementCoordinator();
-        (
-            PackageDependencyMemberCallGraphRequest lowerRequest,
-            PackageDependencyMemberCallGraphPreparation graphPreparation,
-            WorkspaceRealizationOperationLease operation) =
-                await CreateInitialRealizationAsync(
-                        coordinator,
-                        preparation,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+        InitialRealizationOutcome initial =
+            await CreateInitialRealizationAsync(
+                    coordinator,
+                    preparation,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (initial is InitialRealizationOutcome.Unavailable unavailable)
+        {
+            return PackageDependencyMemberCallGraphInspection
+                .ProjectUnavailable(
+                    unavailable.Reason,
+                    unavailable.Detail);
+        }
+        var ready = (InitialRealizationOutcome.Ready)initial;
+        PackageDependencyMemberCallGraphRequest lowerRequest =
+            ready.Request;
+        PackageDependencyMemberCallGraphPreparation graphPreparation =
+            ready.Preparation;
+        WorkspaceRealizationOperationLease operation =
+            ready.Operation;
 
         var work = new AssemblyReferenceResolutionWorkLedger(_budget);
         var additionalAssets =
@@ -90,6 +101,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         var attempted =
             new HashSet<AssemblyReferenceOccurrenceKey>();
         PackageDependencyMemberCallGraphGeneration? generation = null;
+        PackageAssemblyReferenceSupplierAssociation association;
         try
         {
             generation = await CreateGenerationAsync(
@@ -100,6 +112,9 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                     platformLibraries: [],
                     cancellationToken)
                 .ConfigureAwait(false);
+            association = CreateSupplierAssociation(
+                lowerRequest,
+                generation);
 
             while (generation.Outcome
                 is PackageRoleMemberCallGraphOutcome.Available available)
@@ -116,6 +131,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                             lowerRequest,
                             generation,
                             occurrence,
+                            association,
                             work,
                             cancellationToken)
                         .ConfigureAwait(false);
@@ -128,10 +144,9 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                     is not AssemblyReferenceResolutionOutcome
                         .AcquisitionRequired acquisition)
                 {
-                    if (outcome
-                        is AssemblyReferenceResolutionOutcome.Incomplete)
+                    if (ProjectTerminal(outcome) is { } terminal)
                     {
-                        break;
+                        return terminal;
                     }
                     continue;
                 }
@@ -144,6 +159,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                         acquisition.OwnerEvidence;
                 PackageDependencyMemberCallGraphGeneration?
                     successorGeneration = null;
+                PackageAssemblyReferenceSupplierAssociation?
+                    successorAssociation = null;
                 ImmutableArray<
                     PackageAssemblyContextPlatformLibrary>
                     successorPlatformLibraries = [];
@@ -209,6 +226,10 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                             successorPlatformLibraries,
                                             token)
                                         .ConfigureAwait(false);
+                                successorAssociation =
+                                    CreateSupplierAssociation(
+                                        lowerRequest,
+                                        successorGeneration);
                                 PackageAssemblyReferenceBindingEvidence
                                     successorEvidence =
                                         successorGeneration
@@ -218,6 +239,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                         lowerRequest,
                                         successorGeneration,
                                         successorEvidence,
+                                        successorAssociation,
                                         work,
                                         token)
                                     .ConfigureAwait(false);
@@ -235,11 +257,19 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                 continuation,
                                 cancellationToken)
                             .ConfigureAwait(false);
+                InspectionEnvelope<
+                    PackageDependencyMemberCallGraphInspectionOutcome>?
+                    continuationTerminal =
+                        ProjectTerminal(
+                            continuation,
+                            cancellationToken);
                 if (successorOperation is null)
                 {
                     if (successorGeneration is not null)
                         await successorGeneration.DisposeAsync();
-                    break;
+                    return continuationTerminal
+                        ?? throw new InvalidOperationException(
+                            "A non-published continuation did not retain a terminal outcome.");
                 }
 
                 PackageDependencyMemberCallGraphGeneration predecessor =
@@ -250,6 +280,11 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 operation.Dispose();
                 operation = successorOperation;
                 await predecessor.DisposeAsync();
+                association = successorAssociation
+                    ?? throw new InvalidOperationException(
+                        "A published continuation did not retain its successor Package supplier association.");
+                if (continuationTerminal is not null)
+                    return continuationTerminal;
             }
 
             PackageRoleCleanupReport cleanup =
@@ -278,24 +313,23 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         PackageDependencyMemberCallGraphRequest lowerRequest,
         PackageDependencyMemberCallGraphGeneration generation,
         PackageAssemblyReferenceBindingEvidence occurrence,
+        PackageAssemblyReferenceSupplierAssociation association,
         AssemblyReferenceResolutionWorkLedger work,
         CancellationToken cancellationToken)
     {
-        var association =
-            PackageAssemblyReferenceSupplierAssociation.Create(
-                new(
-                    generation.Generation,
-                    generation.FocalScope,
-                    lowerRequest.Traversal,
-                    lowerRequest.Focus.RootOccurrenceIndex,
-                    lowerRequest.EdgeExecutions));
         if (association.RouteProjection
-            is not PackageAssemblyReferenceRouteProjectionOutcome
-                .Completed completed)
+            is PackageAssemblyReferenceRouteProjectionOutcome
+                .Incomplete incomplete)
         {
-            throw new InvalidOperationException(
-                "The package AssemblyRef route projection was incomplete.");
+            return CreateIncompleteResolutionRequest(
+                generation,
+                occurrence,
+                incomplete,
+                work);
         }
+        var completed =
+            (PackageAssemblyReferenceRouteProjectionOutcome.Completed)
+                association.RouteProjection;
 
         var packageRoute = new PackageAssemblyReferenceExternalRoute(
             occurrence.Request,
@@ -356,6 +390,56 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             });
         return new(plan, work);
     }
+
+    static AssemblyReferenceResolutionRequest
+        CreateIncompleteResolutionRequest(
+        PackageDependencyMemberCallGraphGeneration generation,
+        PackageAssemblyReferenceBindingEvidence occurrence,
+        PackageAssemblyReferenceRouteProjectionOutcome.Incomplete
+            incomplete,
+        AssemblyReferenceResolutionWorkLedger work)
+    {
+        var plan = new AssemblyReferenceResolutionRoutePlan(
+            occurrence.Request,
+            generation.Generation,
+            generation.FocalScope,
+            occurrence.BindingPolicyVersion,
+            (_, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return ValueTask.FromResult<
+                    AssemblyReferenceResolutionContextOutcome>(
+                    new AssemblyReferenceResolutionContextOutcome.Selected(
+                        occurrence.Request,
+                        generation.Generation,
+                        occurrence.Context));
+            },
+            (_, _, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                work.Charge(
+                    AssemblyReferenceResolutionWorkKind
+                        .PackageRouteOccurrence,
+                    Math.Max(1, incomplete.Routes.Length));
+                return ValueTask.FromResult<
+                    AssemblyReferenceExternalRouteSetFormationOutcome>(
+                    new AssemblyReferenceExternalRouteSetFormationOutcome
+                        .Incomplete(incomplete));
+            });
+        return new(plan, work);
+    }
+
+    static PackageAssemblyReferenceSupplierAssociation
+        CreateSupplierAssociation(
+        PackageDependencyMemberCallGraphRequest lowerRequest,
+        PackageDependencyMemberCallGraphGeneration generation) =>
+        PackageAssemblyReferenceSupplierAssociation.Create(
+            new(
+                generation.Generation,
+                generation.FocalScope,
+                lowerRequest.Traversal,
+                lowerRequest.Focus.RootOccurrenceIndex,
+                lowerRequest.EdgeExecutions));
 
     static AssemblyReferenceExternalRouteOutcome SupplierOutcome(
         PackageAssemblyReferenceBindingEvidence occurrence,
@@ -420,10 +504,103 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 occurrence.BindingPolicyVersion,
                 selection));
 
-    static async ValueTask<(
-        PackageDependencyMemberCallGraphRequest Request,
-        PackageDependencyMemberCallGraphPreparation Preparation,
-        WorkspaceRealizationOperationLease Operation)>
+    static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>?
+        ProjectTerminal(
+        AssemblyReferenceResolutionOutcome outcome) =>
+        outcome switch
+        {
+            AssemblyReferenceResolutionOutcome.Unavailable unavailable =>
+                PackageDependencyMemberCallGraphInspection
+                    .ProjectUnavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .AssemblyReferenceResolutionUnavailable,
+                        DescribeEvidence(
+                            "Assembly-reference resolution was unavailable",
+                            unavailable.Evidence)),
+            AssemblyReferenceResolutionOutcome.Rejected rejected =>
+                PackageDependencyMemberCallGraphInspection
+                    .ProjectUnavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .AssemblyReferenceResolutionRejected,
+                        DescribeEvidence(
+                            "Assembly-reference resolution was rejected",
+                            rejected.Evidence)),
+            AssemblyReferenceResolutionOutcome.Incomplete incomplete =>
+                PackageDependencyMemberCallGraphInspection
+                    .ProjectUnavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .AssemblyReferenceResolutionIncomplete,
+                        DescribeEvidence(
+                            "Assembly-reference resolution was incomplete",
+                            incomplete.Evidence)),
+            _ => null,
+        };
+
+    static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>?
+        ProjectTerminal(
+        AssemblyReferenceWorkspaceContinuationOutcome outcome,
+        CancellationToken cancellationToken) =>
+        outcome switch
+        {
+            AssemblyReferenceWorkspaceContinuationOutcome.Published =>
+                null,
+            AssemblyReferenceWorkspaceContinuationOutcome.Rejected
+                rejected =>
+                PackageDependencyMemberCallGraphInspection
+                    .ProjectUnavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .AssemblyReferenceContinuationRejected,
+                        $"Assembly-reference Workspace continuation was rejected ({rejected.Reason})."),
+            AssemblyReferenceWorkspaceContinuationOutcome.Incomplete
+                incomplete =>
+                PackageDependencyMemberCallGraphInspection
+                    .ProjectUnavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .AssemblyReferenceContinuationIncomplete,
+                        DescribeEvidence(
+                            "Assembly-reference Workspace continuation was incomplete",
+                            incomplete.Evidence)),
+            AssemblyReferenceWorkspaceContinuationOutcome.Failed failed =>
+                PackageDependencyMemberCallGraphInspection
+                    .ProjectUnavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .AssemblyReferenceContinuationFailed,
+                        $"Assembly-reference Workspace continuation failed ({failed.Failure.Message})."),
+            AssemblyReferenceWorkspaceContinuationOutcome.Cancelled =>
+                ThrowCancellation(cancellationToken),
+            _ => throw new InvalidOperationException(
+                "Unknown AssemblyRef Workspace continuation outcome."),
+        };
+
+    static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>?
+        ThrowCancellation(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new OperationCanceledException(
+            "Assembly-reference Workspace continuation was cancelled.",
+            cancellationToken);
+    }
+
+    static string DescribeEvidence(
+        string prefix,
+        object evidence) =>
+        evidence switch
+        {
+            AssemblyReferenceResolutionWorkExhaustion exhaustion =>
+                exhaustion.Kind
+                    == AssemblyReferenceResolutionWorkKind.Deadline
+                    ? $"{prefix}: the shared deadline {exhaustion.Deadline:O} was reached."
+                    : $"{prefix}: {exhaustion.Kind} requested {exhaustion.Requested} after consuming {exhaustion.Consumed} of {exhaustion.ConfiguredMaximum}.",
+            PackageAssemblyReferenceRouteProjectionOutcome.Incomplete
+                incomplete =>
+                $"{prefix}: {incomplete.Description}",
+            _ => $"{prefix} ({evidence.GetType().Name}).",
+        };
+
+    static async ValueTask<InitialRealizationOutcome>
         CreateInitialRealizationAsync(
         WorkspaceReplacementCoordinator coordinator,
         PackageDependencyMemberCallGraphInspectionPreparation preparation,
@@ -438,27 +615,80 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             is not WorkspaceRealizationCandidateStartResult.Prepared
                 preparedCandidate)
         {
-            throw new InvalidOperationException(
+            return new InitialRealizationOutcome.Unavailable(
+                PackageDependencyMemberCallGraphInspectionUnavailableReason
+                    .RootWorkspaceNotCommitted,
                 $"The initial Workspace candidate was unavailable ({start.GetType().Name}).");
         }
         WorkspaceRealizationCandidate candidate =
             preparedCandidate.Candidate;
-        PackageDependencyMemberCallGraphRequest lowerRequest;
-        PackageDependencyMemberCallGraphPreparation graphPreparation;
+        PackageDependencyMemberCallGraphRequest? lowerRequest = null;
+        PackageDependencyMemberCallGraphPreparation? graphPreparation =
+            null;
+        InitialRealizationOutcome.Unavailable? constructionFailure = null;
         using (WorkspaceRealizationConstructionLease construction =
             candidate.EnterConstruction())
         {
             InspectionWorkspace workspace = construction.Workspace;
+            WorkspaceRegistrationReadResult registrationRead =
+                workspace.GetRegistrationSnapshot();
+            if (registrationRead
+                is not WorkspaceRegistrationReadResult.Available
+                    registration)
+            {
+                var registrationUnavailable =
+                    (WorkspaceRegistrationReadResult.Unavailable)
+                        registrationRead;
+                constructionFailure =
+                    new InitialRealizationOutcome.Unavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .RootWorkspaceNotCommitted,
+                        $"The operation Workspace registrations were unavailable ({registrationUnavailable.RuntimeFailure}).");
+                goto ConstructionComplete;
+            }
             WorkspaceRegistrationRevision registrations =
-                Registration(workspace);
-            WorkspaceScopeSnapshot rootedScope =
-                await AdmitPackagesAsync(
-                        workspace,
-                        registrations,
+                registration.Revision;
+            WorkspaceScopeReadResult initialRead =
+                await workspace.GetScopeSnapshotAsync()
+                    .ConfigureAwait(false);
+            if (initialRead
+                is not WorkspaceScopeReadResult.Available initial)
+            {
+                var scopeUnavailable =
+                    (WorkspaceScopeReadResult.Unavailable)initialRead;
+                constructionFailure =
+                    new InitialRealizationOutcome.Unavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .RootWorkspaceNotCommitted,
+                        $"The operation Workspace was unavailable ({scopeUnavailable.RuntimeFailure}).");
+                goto ConstructionComplete;
+            }
+            WorkspaceScopeOperationResult rootAdmission =
+                await workspace.AddPackagesAsync(
+                        initial.Snapshot.Revision,
+                        initial.Snapshot.PublicationBase,
                         [preparation.Request.Root],
                         preparation.Request.WorkspaceDeadline,
                         cancellationToken)
                     .ConfigureAwait(false);
+            WorkspaceScopeSnapshot? rootedScope = rootAdmission switch
+            {
+                WorkspaceScopeOperationResult.Committed committed =>
+                    committed.Snapshot,
+                WorkspaceScopeOperationResult.NoEffect noEffect =>
+                    noEffect.Snapshot,
+                _ => null,
+            };
+            if (rootedScope is null)
+            {
+                constructionFailure =
+                    new InitialRealizationOutcome.Unavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .RootWorkspaceNotCommitted,
+                        PackageDependencyMemberCallGraphInspection
+                            .DescribeScopeOperation(rootAdmission));
+                goto ConstructionComplete;
+            }
             lowerRequest = new(
                 workspace,
                 rootedScope,
@@ -483,13 +713,29 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                             cancellationToken))
                     .ConfigureAwait(false);
             if (prepared
-                is not PackageDependencyMemberCallGraphPreparationOutcome
-                    .Prepared completedPreparation)
+                is PackageDependencyMemberCallGraphPreparationOutcome
+                    .WorkspaceNotCommitted notCommitted)
             {
-                throw new InvalidOperationException(
-                    "The initial dependency Workspace was not committed.");
+                constructionFailure =
+                    new InitialRealizationOutcome.Unavailable(
+                        PackageDependencyMemberCallGraphInspectionUnavailableReason
+                            .DependencyWorkspaceNotCommitted,
+                        PackageDependencyMemberCallGraphInspection
+                            .DescribeScopeOperation(
+                                notCommitted.ScopeOperation));
+                goto ConstructionComplete;
             }
-            graphPreparation = completedPreparation.Value;
+            graphPreparation =
+                ((PackageDependencyMemberCallGraphPreparationOutcome
+                    .Prepared)prepared).Value;
+
+        ConstructionComplete:
+            ;
+        }
+        if (constructionFailure is not null)
+        {
+            _ = coordinator.CancelCandidate(candidate);
+            return constructionFailure;
         }
 
         WorkspaceRealizationCandidateCompletionResult completion =
@@ -500,14 +746,20 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         if (completion
             is not WorkspaceRealizationCandidateCompletionResult.Ready)
         {
-            throw new InvalidOperationException(
+            _ = coordinator.CancelCandidate(candidate);
+            return new InitialRealizationOutcome.Unavailable(
+                PackageDependencyMemberCallGraphInspectionUnavailableReason
+                    .RootWorkspaceNotCommitted,
                 $"The initial Workspace candidate could not complete ({completion}).");
         }
         WorkspaceRealizationCutoverResult cutover =
             coordinator.CutOver(candidate);
         if (cutover is not WorkspaceRealizationCutoverResult.Activated)
         {
-            throw new InvalidOperationException(
+            _ = coordinator.CancelCandidate(candidate);
+            return new InitialRealizationOutcome.Unavailable(
+                PackageDependencyMemberCallGraphInspectionUnavailableReason
+                    .RootWorkspaceNotCommitted,
                 $"The initial Workspace candidate could not be activated ({cutover}).");
         }
         WorkspaceRealizationOperationAdmission admission =
@@ -516,12 +768,14 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         if (admission
             is not WorkspaceRealizationOperationAdmission.Admitted admitted)
         {
-            throw new InvalidOperationException(
+            return new InitialRealizationOutcome.Unavailable(
+                PackageDependencyMemberCallGraphInspectionUnavailableReason
+                    .RootWorkspaceNotCommitted,
                 $"The initial Workspace operation was unavailable ({admission}).");
         }
-        return (
-            lowerRequest,
-            graphPreparation,
+        return new InitialRealizationOutcome.Ready(
+            lowerRequest!,
+            graphPreparation!,
             admitted.Lease);
     }
 
@@ -688,6 +942,25 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             occurrence.CallSite.OperandToken,
             occurrence.Request.Target,
             occurrence.Request.Scope);
+
+    abstract record InitialRealizationOutcome
+    {
+        private InitialRealizationOutcome()
+        {
+        }
+
+        internal sealed record Ready(
+            PackageDependencyMemberCallGraphRequest Request,
+            PackageDependencyMemberCallGraphPreparation Preparation,
+            WorkspaceRealizationOperationLease Operation)
+            : InitialRealizationOutcome;
+
+        internal sealed record Unavailable(
+            PackageDependencyMemberCallGraphInspectionUnavailableReason
+                Reason,
+            string Detail)
+            : InitialRealizationOutcome;
+    }
 
     readonly record struct AssemblyReferenceOccurrenceKey(
         Guid CallerModuleVersionId,
