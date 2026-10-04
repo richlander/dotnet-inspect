@@ -384,7 +384,8 @@ public partial class PackageCommand
                 new PackageChildrenProjection(
                     PackageChildrenEnvelope(selected),
                     capabilityPlan.SourceCount,
-                    capabilityPlan.SelectedStart));
+                    capabilityPlan.SelectedStart,
+                    DuplicateLibraryNames(document.Libraries)));
         }
 
         PackageLibraryChildCandidate[] candidates =
@@ -406,8 +407,31 @@ public partial class PackageCommand
             new PackageChildrenProjection(
                 inspection,
                 capabilityPlan.SourceCount,
-                capabilityPlan.SelectedStart));
+                capabilityPlan.SelectedStart,
+                DuplicateLibraryNames(plan.Candidates)));
     }
+
+    private static HashSet<string> DuplicateLibraryNames(
+        IEnumerable<PackageLibraryChild> libraries) =>
+    [
+        .. libraries
+            .GroupBy(
+                static library => library.AssemblyName.ToString(),
+                StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key),
+    ];
+
+    private static HashSet<string> DuplicateLibraryNames(
+        IEnumerable<PackageChildCandidate> candidates) =>
+    [
+        .. candidates
+            .GroupBy(
+                static candidate => candidate.AssemblyName,
+                StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key),
+    ];
 
     private static PackageChildrenDocument SelectPackageChildren(
         PackageChildrenDocument document,
@@ -572,6 +596,7 @@ public partial class PackageCommand
                 outputDocument,
                 allRows,
                 projection.TotalCount,
+                projection.DuplicateLibraryNames,
                 options));
         return true;
     }
@@ -583,6 +608,7 @@ public partial class PackageCommand
         PackageChildrenOutputDocument outputDocument,
         IReadOnlyList<PackageChildOutputRow> selectedRows,
         int totalCount,
+        IReadOnlySet<string> duplicateLibraryNames,
         InspectionOptions options)
     {
         switch (options.Format)
@@ -627,6 +653,7 @@ public partial class PackageCommand
                     content,
                     selectedRows,
                     totalCount,
+                    duplicateLibraryNames,
                     options,
                     new MermaidFormatter());
                 return;
@@ -648,6 +675,7 @@ public partial class PackageCommand
                     content,
                     selectedRows,
                     totalCount,
+                    duplicateLibraryNames,
                     options,
                     new PlainTextFormatter());
                 return;
@@ -669,6 +697,7 @@ public partial class PackageCommand
                     content,
                     selectedRows,
                     totalCount,
+                    duplicateLibraryNames,
                     options,
                     new MarkdownFormatter());
                 return;
@@ -681,6 +710,7 @@ public partial class PackageCommand
         PackageChildrenDocument document,
         IReadOnlyList<PackageChildOutputRow> selectedRows,
         int totalCount,
+        IReadOnlySet<string> duplicateLibraryNames,
         InspectionOptions options,
         IMarkoutFormatter formatter)
     {
@@ -701,7 +731,9 @@ public partial class PackageCommand
                 options.Verbosity,
                 allowMinimalCollapse:
                     !options.FormatFlagExplicitlySet
-                    && options.Rows is null);
+                    && options.Rows is null,
+                duplicateLibraryNames:
+                    duplicateLibraryNames);
         if (formatter is MermaidFormatter)
         {
             writer.WriteTree(
@@ -1045,14 +1077,16 @@ public partial class PackageCommand
     private static List<TreeNode> PackageChildrenNodes(
         PackageChildrenDocument document,
         Verbosity verbosity,
-        bool allowMinimalCollapse) =>
+        bool allowMinimalCollapse,
+        IReadOnlySet<string> duplicateLibraryNames) =>
         document.Kind switch
         {
             PackageChildrenKind.Libraries =>
                 LibraryNodes(
                     document,
                     verbosity,
-                    allowMinimalCollapse),
+                    allowMinimalCollapse,
+                    duplicateLibraryNames),
             PackageChildrenKind.RuntimeIdentifierPackages =>
             [
                 new(
@@ -1084,7 +1118,8 @@ public partial class PackageCommand
     private static List<TreeNode> LibraryNodes(
         PackageChildrenDocument document,
         Verbosity verbosity,
-        bool allowMinimalCollapse)
+        bool allowMinimalCollapse,
+        IReadOnlySet<string> duplicateNames)
     {
         if (document.Libraries.IsEmpty)
         {
@@ -1111,16 +1146,6 @@ public partial class PackageCommand
             ];
         }
 
-        HashSet<string> duplicateNames =
-        [
-            .. document.Libraries
-                .GroupBy(
-                    static library =>
-                        library.AssemblyName.ToString(),
-                    StringComparer.OrdinalIgnoreCase)
-                .Where(static group => group.Count() > 1)
-                .Select(static group => group.Key),
-        ];
         PackageLibraryChild[] entryPoints =
         [
             .. document.Libraries.Where(
@@ -1218,7 +1243,8 @@ public partial class PackageCommand
     private sealed record PackageChildrenProjection(
         InspectionEnvelope<PackageChildrenDocument> Inspection,
         int TotalCount,
-        int OrdinalOffset);
+        int OrdinalOffset,
+        IReadOnlySet<string> DuplicateLibraryNames);
 
     private sealed record PackageChildSelectorContext(
         string LibraryCommand,

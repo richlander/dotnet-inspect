@@ -248,6 +248,55 @@ test("Package Overview opens an owner-issued tool Library child", async ({
     .toHaveText("Type Count unavailable · Member Count unavailable");
 });
 
+test("Package Overview disambiguates duplicate Library names", async ({
+  page,
+}) => {
+  const firstAsset = "tools/net10.0/any/first/Shared.dll";
+  const secondAsset = "tools/net10.0/any/second/Shared.dll";
+  await installPackageLoadingFacades(page, {
+    deferChanges: false,
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: "System.Text.Json",
+        packageVersion: "10.0.0",
+        targetFramework: "net10.0",
+        libraries: [{
+          assetId: firstAsset,
+          assetPath: firstAsset,
+          assemblyName: "Shared",
+          role: "Compile",
+        }, {
+          assetId: secondAsset,
+          assetPath: secondAsset,
+          assemblyName: "Shared",
+          role: "Compile",
+        }],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+  });
+  await page.goto(frameworkRoot);
+
+  await expect(
+    page.locator(`[data-package-child-library="${firstAsset}"]`),
+  ).toContainText(firstAsset);
+  await expect(
+    page.locator(`[data-package-child-library="${secondAsset}"]`),
+  ).toContainText(secondAsset);
+});
+
 test("lazy Library acquisition keeps partial Package totals unavailable", async ({
   page,
 }) => {

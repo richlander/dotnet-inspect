@@ -2408,6 +2408,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_WindowPreservesDuplicateLibraryDisambiguation()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalDuplicateNamedToolPackage();
+        try
+        {
+            var first = await RunAppAsync(
+                "package",
+                packagePath,
+                "--rows",
+                "2..2");
+            var second = await RunAppAsync(
+                "package",
+                packagePath,
+                "--rows",
+                "3..3");
+
+            Assert.Equal(0, first.Exit);
+            Assert.Equal(0, second.Exit);
+            Assert.Empty(first.Error);
+            Assert.Empty(second.Error);
+            Assert.Contains(
+                "tools/net10.0/any/first/Shared.dll",
+                first.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "tools/net10.0/any/second/Shared.dll",
+                second.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_ToolChildrenPreserveSelectedEmptyHigherTarget()
     {
         var (packagePath, tempDir) =
@@ -4985,6 +5022,47 @@ public partial class CommandExecutionTests
         var packagePath = Path.Combine(
             tempDir,
             "Test.LargeTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalDuplicateNamedToolPackage()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"duplicate-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string toolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(toolsDir);
+        File.WriteAllText(
+            Path.Combine(toolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="test-tool" EntryPoint="Test.Tool.dll" Runner="dotnet" />
+              </Commands>
+            </DotNetCliTool>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(toolsDir, "Test.Tool.dll"));
+        foreach (string directory in new[] { "first", "second" })
+        {
+            string dependencyDir = Path.Combine(toolsDir, directory);
+            Directory.CreateDirectory(dependencyDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(dependencyDir, "Shared.dll"));
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.DuplicateTool.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
     }

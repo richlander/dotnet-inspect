@@ -11564,6 +11564,11 @@ function renderPackageChildren(pkg: AppPackage) {
   }
 
   if (children.libraries.length) {
+    const libraryNameCounts = new Map<string, number>();
+    for (const library of children.libraries) {
+      const key = library.assemblyName.toLowerCase();
+      libraryNameCounts.set(key, (libraryNameCounts.get(key) ?? 0) + 1);
+    }
     return `<section class="document-section package-children">
       <div class="section-title"><h2>Libraries</h2><span>${children.libraries.length}</span></div>
       <ol class="package-child-tree" role="tree" aria-label="Libraries">
@@ -11571,9 +11576,13 @@ function renderPackageChildren(pkg: AppPackage) {
           const entryPoint = library.role === "ToolEntryPoint"
             ? "<small>entry point</small>"
             : "";
+          const displayName =
+            (libraryNameCounts.get(library.assemblyName.toLowerCase()) ?? 0) > 1
+              ? library.assetPath
+              : library.assemblyName;
           return `<li role="none"><button type="button" class="package-child-row" role="treeitem" data-package-child-library="${escapeHtml(library.assetId)}">
             <span class="kind-icon">L</span>
-            <span class="package-child-name">${escapeHtml(library.assemblyName)}</span>
+            <span class="package-child-name">${escapeHtml(displayName)}</span>
             ${entryPoint}
           </button></li>`;
         }).join("")}
