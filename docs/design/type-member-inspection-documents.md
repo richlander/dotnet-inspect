@@ -1370,8 +1370,13 @@ Sections QuerySpace route now carries producer-directed spelling,
 accessibility, receiver, and hidden-admission terms through a Library lease
 adapter, with portable parent and row bindings, bounded Rows continuation,
 nested exact-member Counts, Composition Count, selector Counts, and typed
-incomplete or failed outcomes. `TypeDocument` and CLI or Browser adoption
-remain steps 8 and 9; no production host uses this route yet.
+incomplete or failed outcomes.
+
+Step 8's host-neutral `TypeDocumentInspectionOperation` now composes the exact
+Type subject and requested Member-group result without reconstructing
+population semantics. It preserves the shared population envelope's Share,
+diagnostics, and typed non-success. CLI and Browser adoption remains step 9;
+no production host uses this route yet.
 
 ## Required evidence
 
