@@ -52,6 +52,8 @@ public sealed class MethodDefinitionExecution
         new(
             MethodDefinitionHandleCoverage.Empty,
             MethodDefinitionHandleCoverage.Empty,
+            MethodDefinitionHandleCoverage.Empty,
+            MethodDefinitionHandleCoverage.Empty,
             MethodDefinitionHandleCoverage.Empty);
 
     internal MethodDefinitionSourceCoverageBuilder SourceCoverageBuilder =>
@@ -476,6 +478,8 @@ public sealed class MethodDefinitionExecution
 
     static MethodDefinitionSourceCoverage EmptySourceCoverage() =>
         new(
+            MethodDefinitionHandleCoverage.Empty,
+            MethodDefinitionHandleCoverage.Empty,
             MethodDefinitionHandleCoverage.Empty,
             MethodDefinitionHandleCoverage.Empty,
             MethodDefinitionHandleCoverage.Empty);

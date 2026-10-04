@@ -13,6 +13,87 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
 {
     [Fact]
     [Trait("Speed", "Slow")]
+    public void SystemTextJsonTypeLeverageMatchesSignatureAndBodyPilot()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "packages",
+            "System.Text.Json.10.0.0.dll");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        MetadataLibrarySignatureUseResult inventory =
+            Signature(
+                path,
+                "System.Text.Json",
+                cancellationToken);
+        LibraryStructuralTypeLeverageShard signatureShard =
+            LibraryStructuralReport.CreateTypeLeverageShard(
+                inventory);
+
+        LibraryStructuralTypeLeverageRow signatureThrowHelper =
+            SignatureRow(signatureShard, "ThrowHelper");
+        Assert.Equal(12, signatureThrowHelper.SignatureOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            signatureThrowHelper.Pole);
+
+        LibraryStructuralTypeLeverageRow signatureJsonDocument =
+            SignatureRow(signatureShard, "JsonDocument");
+        Assert.Equal(11, signatureJsonDocument.SignatureOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            signatureJsonDocument.Pole);
+
+        LibraryStructuralTypeLeverageRow signatureJsonSerializer =
+            SignatureRow(signatureShard, "JsonSerializer");
+        Assert.Equal(10, signatureJsonSerializer.SignatureOutgoingDegree);
+        Assert.Null(signatureJsonSerializer.Pole);
+
+        AnalysisLibraryBodyUseOutcome outcome =
+            AnalysisLibraryBodyUseService.ExecutePath(
+                path,
+                new(),
+                cancellationToken);
+        AnalysisLibraryBodyUseResult bodyUse =
+            Assert.IsType<AnalysisLibraryBodyUseOutcome.Available>(
+                outcome).Result;
+
+        LibraryStructuralBodyTypeLeverageShard shard =
+            LibraryStructuralReport.CreateBodyTypeLeverageShard(
+                inventory,
+                bodyUse);
+
+        LibraryStructuralBodyTypeLeverageRow throwHelper =
+            BodyRow(shard, "ThrowHelper");
+        Assert.Equal(16, throwHelper.BodyIncomingDegree);
+        Assert.Equal(15, throwHelper.BodyOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            throwHelper.Pole);
+
+        LibraryStructuralBodyTypeLeverageRow jsonDocument =
+            BodyRow(shard, "JsonDocument");
+        Assert.Equal(5, jsonDocument.BodyIncomingDegree);
+        Assert.Equal(23, jsonDocument.BodyOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            jsonDocument.Pole);
+
+        LibraryStructuralBodyTypeLeverageRow jsonSerializer =
+            BodyRow(shard, "JsonSerializer");
+        Assert.Equal(2, jsonSerializer.BodyIncomingDegree);
+        Assert.Equal(21, jsonSerializer.BodyOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            jsonSerializer.Pole);
+        Assert.Equal(
+            LibraryStructuralEvidenceDisposition.Qualified,
+            shard.RoleDisposition);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void NamespaceIndexShardAndExhaustiveCompositionHaveMeasuredCost()
     {
         string artifacts = Path.Combine(
@@ -156,6 +237,20 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                 path,
                 exactNamespace,
                 cancellationToken));
+
+    private static LibraryStructuralBodyTypeLeverageRow BodyRow(
+        LibraryStructuralBodyTypeLeverageShard shard,
+        string name) =>
+        Assert.Single(
+            shard.Rows,
+            row => row.Name.Segments.AsSpan().SequenceEqual([name]));
+
+    private static LibraryStructuralTypeLeverageRow SignatureRow(
+        LibraryStructuralTypeLeverageShard shard,
+        string name) =>
+        Assert.Single(
+            shard.Rows,
+            row => row.Name.Segments.AsSpan().SequenceEqual([name]));
 
     private static LibraryStructuralSalienceDocument Exhaustive(
         string path,

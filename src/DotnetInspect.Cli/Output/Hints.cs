@@ -25,37 +25,46 @@ public static class Hints
 
         Console.Out.Flush();
 
-        Tip[] tips = createTips();
-        if (tips.Length == 0) return;
-
-        var visible = tips.Take(3).ToList();
-
-        var view = new TipsView
-        {
-            // A tip echoes type and member names that came from untrusted
-            // metadata. Containing at this single choke point covers every
-            // command's tips, so a new tip cannot reopen the hole (issue #3319).
-            // Both fields, not just the one that carries untrusted text today.
-            // Every dynamic value currently reaches CommandText and every
-            // comment is a literal, but that is a fact about the seven current
-            // tips rather than a property of the type, and containing a literal
-            // costs nothing.
-            //
-            // This write hands the stream to a serializer, which no rule can
-            // inspect, so the site itself is accounted for: it carries a
-            // justified RS0030 suppression, and
-            // CommandErrorOwnershipTests.CompiledIl_ReachesStderrOnlyWhereAccountedFor
-            // counts it in the shipped assembly. A second sink here fails that
-            // count.
-            Commands = visible.Select(t => new TipRow(
-                CSharpIdentifier.ContainRenderedText(t.CommandText),
-                CSharpIdentifier.ContainRenderedText(t.Comment))).ToList()
-        };
+        TipsView? view = CreateTipsView(createTips());
+        if (view is null) return;
 
         CommandError.WriteBlankLine();
         #pragma warning disable RS0030 // An accounted stderr sink: every field of the view was contained above (issue #3319).
         MarkoutSerializer.Serialize(view, Console.Error, new PlainTextFormatter(), TipsViewContext.Default);
         #pragma warning restore RS0030
+    }
+
+    public static int WritePrimaryTips(Func<Tip[]> createTips)
+    {
+        TipsView? view = CreateTipsView(createTips());
+        if (view is null)
+        {
+            CommandError.Write(
+                "No contextual tips are available for this request.");
+            return 1;
+        }
+
+        MarkoutSerializer.Serialize(
+            view,
+            Console.Out,
+            new PlainTextFormatter(),
+            TipsViewContext.Default);
+        return 0;
+    }
+
+    private static TipsView? CreateTipsView(Tip[] tips)
+    {
+        if (tips.Length == 0) return null;
+
+        return new()
+        {
+            // A tip echoes type and member names that came from untrusted
+            // metadata. Containing at this single choke point covers every
+            // command's tips, so a new tip cannot reopen the hole (issue #3319).
+            Commands = tips.Take(3).Select(t => new TipRow(
+                CSharpIdentifier.ContainRenderedText(t.CommandText),
+                CSharpIdentifier.ContainRenderedText(t.Comment))).ToList()
+        };
     }
 
     public static void WriteLegend(params LegendEntry[] entries)

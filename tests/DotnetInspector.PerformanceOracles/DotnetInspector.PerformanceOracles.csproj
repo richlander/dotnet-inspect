@@ -18,6 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\ILInspector.Instructions\ILInspector.Instructions.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\NLinq.Oracle\NLinq.Oracle.csproj" />
   </ItemGroup>

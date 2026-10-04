@@ -277,6 +277,7 @@ public static class InspectionDefinitionJson
                 EnsureUtf16(view.MemberSignature, "memberSignature");
                 EnsureUtf16(view.MemberKey, "memberKey");
                 EnsureUtf16(view.Section, "section");
+                EnsureUtf16(view.SourceView, "sourceView");
                 foreach (string library in view.Libraries)
                     EnsureUtf16(library, "libraries");
                 break;
@@ -1556,7 +1557,8 @@ public static class InspectionDefinitionJson
             query: true,
             view: true,
             navigation: true,
-            states: true);
+            states: true,
+            sourceView: false);
         if (dto.Library is null && dto.Libraries is { Count: < 2 })
         {
             throw new InspectionDefinitionException(
@@ -1573,7 +1575,8 @@ public static class InspectionDefinitionJson
             dto.MemberKey,
             dto.Section,
             dto.Library,
-            dto.Libraries);
+            dto.Libraries,
+            dto.SourceView);
     }
 
     private static NavigationDefinition CreateNavigation(InspectionDefinitionDto dto, ref int coordinateCount)
@@ -1730,6 +1733,7 @@ public static class InspectionDefinitionJson
         bool memberSignature = false,
         bool memberKey = false,
         bool section = false,
+        bool sourceView = true,
         bool library = false,
         bool libraries = false,
         bool tabs = false,
@@ -1765,6 +1769,7 @@ public static class InspectionDefinitionJson
         Check(memberSignature, "memberSignature", dto.MemberSignature);
         Check(memberKey, "memberKey", dto.MemberKey);
         Check(section, "section", dto.Section);
+        Check(sourceView, "sourceView", dto.SourceView);
         Check(library, "library", dto.Library);
         Check(libraries, "libraries", dto.Libraries);
         Check(tabs, "tabs", dto.Tabs);
@@ -1840,6 +1845,7 @@ public static class InspectionDefinitionJson
                 MemberSignature = view.MemberSignature,
                 MemberKey = view.MemberKey,
                 Section = view.Section,
+                SourceView = view.SourceView,
                 Library = view.Libraries.Count == 1 ? view.Libraries[0] : null,
                 Libraries = view.Libraries.Count > 1 ? view.Libraries.ToList() : null,
             },
@@ -2930,6 +2936,8 @@ internal sealed class InspectionDefinitionDto
     public string? MemberKey { get; set; }
 
     public string? Section { get; set; }
+
+    public string? SourceView { get; set; }
 
     public string? Library { get; set; }
 

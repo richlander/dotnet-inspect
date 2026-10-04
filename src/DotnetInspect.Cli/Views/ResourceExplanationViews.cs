@@ -116,6 +116,48 @@ public sealed class ResourceExplanationView
 
     public int? Members { get; init; }
 
+    public string? Context
+    {
+        get;
+        init => field = value is null
+            ? null
+            : LibraryViewText.Contain(value);
+    }
+
+    public string? Subject
+    {
+        get;
+        init => field = value is null
+            ? null
+            : LibraryViewText.Contain(value);
+    }
+
+    public string? Source
+    {
+        get;
+        init => field = value is null
+            ? null
+            : LibraryViewText.Contain(value);
+    }
+
+    public string? DefaultView
+    {
+        get;
+        init => field = value is null
+            ? null
+            : LibraryViewText.Contain(value);
+    }
+
+    [MarkoutJoin(", ")]
+    public List<string> SelectedContent { get; init; } = [];
+
+    [MarkoutSection(Name = "Related Operations")]
+    public List<MemberExplanationOperationRow> RelatedOperations
+    {
+        get;
+        init;
+    } = [];
+
     [MarkoutSection(Name = "Expanded Resources")]
     [MarkoutIgnoreColumnWhen(
         nameof(ItemKindsEmpty),
@@ -143,8 +185,57 @@ public sealed class ResourceExplanationView
     public List<ResourceExplanationTraversalRow> Traversal { get; init; } = [];
 
     public static ResourceExplanationView Create(
-        ResourceExplanationDocument document)
+        ResourceExplanationDocument document) =>
+        Create(document, context: null);
+
+    public static ResourceExplanationView Create(
+        MemberContextualExplanationDocument document)
     {
+        ArgumentNullException.ThrowIfNull(document);
+        MemberContextualExplanationSubject? subject = document.Subject;
+        string? source = subject is null
+            ? null
+            : string.Join(
+                " / ",
+                new[]
+                {
+                    subject.Package,
+                    subject.Library,
+                    subject.Framework,
+                }.Where(static value =>
+                    !string.IsNullOrWhiteSpace(value)));
+        return Create(
+            document.Resource,
+            new(
+                document.Kind
+                    == MemberContextualExplanationKind.Command
+                    ? "Explain member"
+                    : $"Explain {subject!.TypeName}.{subject.StableSelector}",
+                document.Kind
+                    == MemberContextualExplanationKind.Command
+                    ? "Member command"
+                    : "Exact Member",
+                subject?.CanonicalSignature,
+                source,
+                document.DefaultFacet?.Value,
+                [
+                    .. document.SelectedSections.Select(
+                        section =>
+                            LibraryViewText.Contain(section)!),
+                ],
+                [
+                    .. document.RelatedOperations.Select(operation =>
+                        new MemberExplanationOperationRow(
+                            operation.Id.Value,
+                            operation.Summary)),
+                ]));
+    }
+
+    private static ResourceExplanationView Create(
+        ResourceExplanationDocument document,
+        ContextualDetails? context)
+    {
+        ArgumentNullException.ThrowIfNull(document);
         var pathsByIdentity =
             document.Resources.ToDictionary(
                 static resource => resource.Identity,
@@ -155,7 +246,9 @@ public sealed class ResourceExplanationView
         RootDetails details = RootDetails.Create(root.Details);
         return new ResourceExplanationView
         {
-            Title = $"Explain {document.RequestedPath.Value}",
+            Title =
+                context?.Title
+                ?? $"Explain {document.RequestedPath.Value}",
             Kind = rootRow.Kind,
             Name = rootRow.Name,
             Owner = rootRow.Owner,
@@ -176,23 +269,33 @@ public sealed class ResourceExplanationView
             ItemKind = rootRow.ItemKind,
             Formats = rootRow.Formats,
             Members = rootRow.Members,
+            Context = context?.Context,
+            Subject = context?.Subject,
+            Source = context?.Source,
+            DefaultView = context?.DefaultView,
+            SelectedContent = context?.SelectedContent ?? [],
+            RelatedOperations = context?.RelatedOperations ?? [],
             ExpandedResources =
             [
                 .. document.Resources.Skip(1).Select(
                     ResourceExplanationResourceRow.Create),
             ],
             Relationships =
-            [
-                .. document.Relationships.Select(relationship =>
-                    ResourceExplanationRelationshipRow.Create(
-                        relationship,
-                        pathsByIdentity.GetValueOrDefault(
-                            relationship.Source))),
-            ],
+                context is not null
+                    ? []
+                    :
+                    [
+                        .. document.Relationships.Select(relationship =>
+                            ResourceExplanationRelationshipRow.Create(
+                                relationship,
+                                pathsByIdentity.GetValueOrDefault(
+                                    relationship.Source))),
+                    ],
             Traversal =
-                document.Traversal.RequestedDepth == 0
-                && document.Traversal.Completeness
-                    == ResourceExplanationCompleteness.Complete
+                context is not null
+                || (document.Traversal.RequestedDepth == 0
+                    && document.Traversal.Completeness
+                        == ResourceExplanationCompleteness.Complete)
                     ? []
                     :
                     [
@@ -201,6 +304,15 @@ public sealed class ResourceExplanationView
                     ],
         };
     }
+
+    private sealed record ContextualDetails(
+        string Title,
+        string Context,
+        string? Subject,
+        string? Source,
+        string? DefaultView,
+        List<string> SelectedContent,
+        List<MemberExplanationOperationRow> RelatedOperations);
 
     public static bool ItemKindsEmpty(
         List<ResourceExplanationResourceRow>? rows) =>
@@ -314,6 +426,23 @@ public sealed class ResourceExplanationView
             where T : struct, Enum =>
             value.ToString();
     }
+
+}
+
+[MarkoutSerializable]
+public sealed record MemberExplanationOperationRow
+{
+    public MemberExplanationOperationRow(
+        string identity,
+        string summary)
+    {
+        Identity = LibraryViewText.Contain(identity);
+        Summary = LibraryViewText.Contain(summary);
+    }
+
+    public string Identity { get; }
+
+    public string Summary { get; }
 }
 
 [MarkoutSerializable]
@@ -587,5 +716,6 @@ public sealed record ResourceExplanationTraversalRow(
 [MarkoutContext(typeof(ResourceExplanationResourceRow))]
 [MarkoutContext(typeof(ResourceExplanationRelationshipRow))]
 [MarkoutContext(typeof(ResourceExplanationTraversalRow))]
+[MarkoutContext(typeof(MemberExplanationOperationRow))]
 public partial class ResourceExplanationViewContext :
     MarkoutSerializerContext;

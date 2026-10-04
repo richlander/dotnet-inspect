@@ -234,6 +234,12 @@ public sealed class MethodDefinitionRequestSetTests
             MethodDefinitionSourceCompletion.ProducerFailed,
             result.SourceReceipt.Completion);
         Assert.Null(result.SourceReceipt.SourceFailure);
+        Assert.Equal(
+            1,
+            result.SourceReceipt.Coverage.BodiesAttempted.Count);
+        Assert.True(
+            result.SourceReceipt.Coverage.BodiesAttempted.Contains(
+                MetadataTokens.MethodDefinitionHandle(1)));
         Assert.Equal(0, result.SourceReceipt.BodiesAcquired);
         Assert.Equal(
             0,
@@ -244,6 +250,10 @@ public sealed class MethodDefinitionRequestSetTests
                         layer.Layer
                             == nameof(MethodDefinitionLayers.Body))
                 .Acquired);
+        Assert.Equal(
+            1,
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.BodiesAttempted.Count);
         Assert.Equal(
             0,
             Assert.Single(execution.GroupReceipts)
@@ -263,7 +273,7 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation pinvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution execution =
@@ -314,7 +324,7 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation pinvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution execution =
@@ -362,7 +372,7 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation pinvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution execution =
@@ -464,11 +474,11 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation sharedPInvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
         MethodDefinitionSourceAssociation independentPInvoke =
             Association(
-                PInvokeAnalyzer.Instance,
+                PInvokeClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution shared =
@@ -497,6 +507,14 @@ public sealed class MethodDefinitionRequestSetTests
             independentResult.Value!.Rows.ToArray(),
             sharedResult.Value!.Rows.ToArray());
         Assert.Single(sharedResult.Value.Rows);
+        MethodDefinitionHandleCoverage lookupMethods =
+            shared.ResultOf(sharedUnsafe)
+                .SourceReceipt.Coverage.ModuleLookupMethods;
+        Assert.True(lookupMethods.Count > 0);
+        Assert.Equal(
+            lookupMethods.Count,
+            Assert.Single(shared.GroupReceipts)
+                .PhysicalCoverage.ModuleLookupMethods.Count);
     }
 
     [Fact]
@@ -512,7 +530,7 @@ public sealed class MethodDefinitionRequestSetTests
                 ProducerTerminal.Exists);
         MethodDefinitionSourceAssociation pointer =
             Association(
-                PointerSignatureAnalyzer.Instance,
+                PointerSignatureClassificationProducer.Instance,
                 ProducerTerminal.Rows);
 
         MethodDefinitionSourceRequestSetExecution shared =

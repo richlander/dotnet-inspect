@@ -12,9 +12,9 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void ReorderedMethodDefs_SelectExactTargetInsteadOfReusingSourceRid()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
-        MethodIdentity expected = Method(pair.TargetIndex, "Transform");
-        MethodIdentity rawRidTarget = pair.TargetIndex.DeclaredMethods.Single(
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
+        MethodIdentity expected = Method(pair.TargetCallGraph, "Transform");
+        MethodIdentity rawRidTarget = pair.TargetCallGraph.DeclaredMethods.Single(
             method => method.MetadataToken == source.MetadataToken);
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
@@ -23,7 +23,7 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
                 source,
                 pair.TargetAssembly,
                 pair.TargetSnapshot,
-                pair.TargetIndex.DeclaredMethods);
+                pair.TargetCallGraph.DeclaredMethods);
 
         CatalogMethodDefinitionCorrespondenceOutcome outcome =
             Project(pair, plan);
@@ -52,8 +52,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void NeighboringSignatures_SelectTheirOwnTarget(string methodName)
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, methodName);
-        MethodIdentity expected = Method(pair.TargetIndex, methodName);
+        MethodIdentity source = Method(pair.SourceCallGraph, methodName);
+        MethodIdentity expected = Method(pair.TargetCallGraph, methodName);
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -61,7 +61,7 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
                 source,
                 pair.TargetAssembly,
                 pair.TargetSnapshot,
-                pair.TargetIndex.DeclaredMethods);
+                pair.TargetCallGraph.DeclaredMethods);
 
         CatalogMethodDefinitionCorrespondenceOutcome.Exact exact =
             Assert.IsType<CatalogMethodDefinitionCorrespondenceOutcome.Exact>(
@@ -74,7 +74,7 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void MissingSameNameTarget_DoesNotFallBackToTokenOrOrdinal()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -82,7 +82,7 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
                 source,
                 pair.TargetAssembly,
                 pair.TargetSnapshot,
-                pair.TargetIndex.DeclaredMethods.Where(
+                pair.TargetCallGraph.DeclaredMethods.Where(
                     method => method.Name != source.Name));
 
         Assert.IsType<CatalogMethodDefinitionCorrespondenceOutcome.Missing>(
@@ -93,11 +93,11 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void SameNameSignatureNearMiss_DoesNotCorrespond()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
-        MethodIdentity target = Method(pair.TargetIndex, "Transform") with
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
+        MethodIdentity target = Method(pair.TargetCallGraph, "Transform") with
         {
             ParameterTypes =
-                Method(pair.TargetIndex, "Neighbor").ParameterTypes,
+                Method(pair.TargetCallGraph, "Neighbor").ParameterTypes,
         };
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
@@ -116,8 +116,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void FunctionPointerCallingConvention_IsIdentityBearing()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Invoke");
-        MethodIdentity target = Method(pair.TargetIndex, "Invoke");
+        MethodIdentity source = Method(pair.SourceCallGraph, "Invoke");
+        MethodIdentity target = Method(pair.TargetCallGraph, "Invoke");
         MethodSignature<TypeRef> signature =
             target.ParameterTypes[0].FunctionPointerSignature!.Value;
         var changedSignature = new MethodSignature<TypeRef>(
@@ -154,10 +154,10 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void TypeDefAndTypeRefAddressing_ResolveThroughSelectedRoots()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
         MethodIdentity target = WithReferencedDeclaringType(
             pair,
-            Method(pair.TargetIndex, "Transform"));
+            Method(pair.TargetCallGraph, "Transform"));
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -178,8 +178,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void RecursiveSameNameDefinitions_AreNotSelectedRootCorrespondence()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "UseHelper");
-        MethodIdentity target = Method(pair.TargetIndex, "UseHelper");
+        MethodIdentity source = Method(pair.SourceCallGraph, "UseHelper");
+        MethodIdentity target = Method(pair.TargetCallGraph, "UseHelper");
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -198,11 +198,11 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     {
         FixturePair pair = OpenFixtures();
         MethodIdentity source = Method(
-            pair.SourceIndex,
+            pair.SourceCallGraph,
             "TransformKind",
             declaringType: "KindShape");
         MethodIdentity target = Method(
-            pair.TargetIndex,
+            pair.TargetCallGraph,
             "TransformKind",
             declaringType: "KindShape");
         CatalogMethodDefinitionCorrespondencePlan plan =
@@ -223,10 +223,10 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     {
         FixturePair pair = OpenFixtures();
         MethodIdentity source = WithParameterRawType(
-            Method(pair.SourceIndex, "Transform"),
+            Method(pair.SourceCallGraph, "Transform"),
             rawTypeKind: 0);
         MethodIdentity target = WithParameterRawType(
-            Method(pair.TargetIndex, "Transform"),
+            Method(pair.TargetCallGraph, "Transform"),
             rawTypeKind: 0x12);
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
@@ -245,8 +245,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void MalformedArrayBounds_AreUnavailable()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
-        MethodIdentity target = Method(pair.TargetIndex, "Transform");
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
+        MethodIdentity target = Method(pair.TargetCallGraph, "Transform");
         source = source with
         {
             ParameterTypes =
@@ -293,9 +293,9 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void DuplicateExactTargetCandidates_ReportAmbiguous()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
-        MethodIdentity target = Method(pair.TargetIndex, "Transform");
-        MethodIdentity other = Method(pair.TargetIndex, "Other");
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
+        MethodIdentity target = Method(pair.TargetCallGraph, "Transform");
+        MethodIdentity other = Method(pair.TargetCallGraph, "Other");
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -321,8 +321,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void TargetGenerationMismatch_IsUnavailable()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
-        MethodIdentity target = Method(pair.TargetIndex, "Transform") with
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
+        MethodIdentity target = Method(pair.TargetCallGraph, "Transform") with
         {
             ModuleVersionId = source.ModuleVersionId,
         };
@@ -356,7 +356,7 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void SnapshotFromAnotherRegistration_IsUnavailable()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -364,7 +364,7 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
                 source,
                 pair.TargetAssembly,
                 pair.TargetSnapshot,
-                [Method(pair.TargetIndex, "Transform")]);
+                [Method(pair.TargetCallGraph, "Transform")]);
 
         var unavailable = Assert.IsType<
             CatalogMethodDefinitionCorrespondenceOutcome.Unavailable>(
@@ -385,7 +385,7 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void InvalidSourceMethodDefToken_IsUnavailable()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform") with
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform") with
         {
             MetadataToken = 0x0600FFFF,
         };
@@ -396,7 +396,7 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
                 source,
                 pair.TargetAssembly,
                 pair.TargetSnapshot,
-                [Method(pair.TargetIndex, "Transform")]);
+                [Method(pair.TargetCallGraph, "Transform")]);
 
         var unavailable = Assert.IsType<
             CatalogMethodDefinitionCorrespondenceOutcome.Unavailable>(
@@ -417,10 +417,10 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void ContextWithDifferentTargetGeneration_IsUnavailable()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
         MethodIdentity target = WithReferencedDeclaringType(
             pair,
-            Method(pair.TargetIndex, "Transform"));
+            Method(pair.TargetCallGraph, "Transform"));
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -456,8 +456,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     public void SameNameCandidateLimit_FailsClosed()
     {
         FixturePair pair = OpenFixtures();
-        MethodIdentity source = Method(pair.SourceIndex, "Transform");
-        MethodIdentity target = Method(pair.TargetIndex, "Transform");
+        MethodIdentity source = Method(pair.SourceCallGraph, "Transform");
+        MethodIdentity target = Method(pair.TargetCallGraph, "Transform");
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -490,9 +490,9 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     {
         FixturePair pair = OpenFixtures();
         MethodIdentity source = WithMissingParameter(
-            Method(pair.SourceIndex, "Transform"));
+            Method(pair.SourceCallGraph, "Transform"));
         MethodIdentity target = WithMissingParameter(
-            Method(pair.TargetIndex, "Transform"));
+            Method(pair.TargetCallGraph, "Transform"));
         CatalogMethodDefinitionCorrespondencePlan plan =
             CatalogMethodDefinitionCorrespondencePlan.Create(
                 pair.SourceAssembly,
@@ -541,27 +541,27 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     {
         (ResolvedAssemblyReference sourceAssembly,
             AssemblyImageSnapshot sourceSnapshot,
-            LibraryBodyIndex sourceIndex) = Open(
+            LibraryCallGraphAnalysisResult sourceCallGraph) = Open(
                 FixtureCatalog.AnalysisMethodCorrespondenceSurface
                     .AssemblyPath());
         (ResolvedAssemblyReference targetAssembly,
             AssemblyImageSnapshot targetSnapshot,
-            LibraryBodyIndex targetIndex) = Open(
+            LibraryCallGraphAnalysisResult targetCallGraph) = Open(
                 FixtureCatalog.AnalysisMethodCorrespondenceRuntime
                     .AssemblyPath());
         return new(
             sourceAssembly,
             sourceSnapshot,
-            sourceIndex,
+            sourceCallGraph,
             targetAssembly,
             targetSnapshot,
-            targetIndex);
+            targetCallGraph);
     }
 
     static (
         ResolvedAssemblyReference Assembly,
         AssemblyImageSnapshot Snapshot,
-        LibraryBodyIndex Index) Open(string path)
+        LibraryCallGraphAnalysisResult CallGraph) Open(string path)
     {
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromPath(
@@ -574,18 +574,19 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
                     assembly,
                     static _ => true,
                     static _ => { })).Snapshot;
-        LibraryBodyIndex index = LibraryBodyIndex.OpenFromPrefetchedImage(
-            path,
-            snapshot.Content,
-            LibraryBodyAnalysisFeatures.MethodEvidence);
-        return (assembly, snapshot, index);
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+                path,
+                snapshot.Content,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        return (assembly, snapshot, analysis.CallGraph);
     }
 
     static MethodIdentity Method(
-        LibraryBodyIndex index,
+        LibraryCallGraphAnalysisResult callGraph,
         string name,
         string declaringType = "Widget") =>
-        index.DeclaredMethods.Single(
+        callGraph.DeclaredMethods.Single(
             method => method.DeclaringType.Name == declaringType
                 && method.Name == name);
 
@@ -679,10 +680,10 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     sealed record FixturePair(
         ResolvedAssemblyReference SourceAssembly,
         AssemblyImageSnapshot SourceSnapshot,
-        LibraryBodyIndex SourceIndex,
+        LibraryCallGraphAnalysisResult SourceCallGraph,
         ResolvedAssemblyReference TargetAssembly,
         AssemblyImageSnapshot TargetSnapshot,
-        LibraryBodyIndex TargetIndex);
+        LibraryCallGraphAnalysisResult TargetCallGraph);
 
     sealed class FixtureBindingPolicy(
         ResolvedAssemblyReference target,

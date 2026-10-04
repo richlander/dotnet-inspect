@@ -17,15 +17,18 @@ public sealed class AllocationLifetimeAnalysisTests
     [Fact]
     public void CompiledFixture_UsesOneLifetimeVerdictForFactsAndTriage()
     {
-        var index = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisAllocationLifetime
-                .AssemblyPath());
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.Open(
+                FixtureCatalog.AnalysisAllocationLifetime
+                    .AssemblyPath());
 
         AllocationOccurrence local = Allocation(
-            index,
+            analysis.CallGraph,
+            analysis.Allocations,
             "ConstructFromLocalChars");
         AllocationOccurrence returned = Allocation(
-            index,
+            analysis.CallGraph,
+            analysis.Allocations,
             "ReturnLocalChars");
 
         Assert.Equal(AllocationEscape.LocalOnly, local.Escape);
@@ -50,7 +53,7 @@ public sealed class AllocationLifetimeAnalysisTests
                 == AllocationLifetimeUseKind.Return);
         Assert.Empty(returned.LifetimeEvidence.Limitations);
         Assert.Contains(
-            index.OptimizationOpportunities,
+            analysis.Optimization.Opportunities,
             candidate =>
                 candidate.Method.Name
                     == "ConstructFromLocalChars"
@@ -58,14 +61,14 @@ public sealed class AllocationLifetimeAnalysisTests
                     == "stackalloc-candidate"
                 && candidate.ILOffset == local.ILOffset);
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            analysis.Optimization.Opportunities,
             candidate =>
                 candidate.Method.Name == "ReturnLocalChars"
                 && candidate.Shape
                     == "stackalloc-candidate");
 
         OptimizationOpportunity inLoop = Assert.Single(
-            index.OptimizationOpportunities,
+            analysis.Optimization.Opportunities,
             candidate =>
                 candidate.Method.Name
                     == "AllocateInsideLoop"
@@ -82,21 +85,24 @@ public sealed class AllocationLifetimeAnalysisTests
     [Fact]
     public void CompiledFixture_RequiresCoreLibraryPrimitiveIdentity()
     {
-        var index = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisAllocationLifetime
-                .AssemblyPath());
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.Open(
+                FixtureCatalog.AnalysisAllocationLifetime
+                    .AssemblyPath());
 
         AllocationOccurrence primitive = Allocation(
-            index,
+            analysis.CallGraph,
+            analysis.Allocations,
             "GenuinePrimitiveStaysLocal");
         AllocationOccurrence lookalike = Allocation(
-            index,
+            analysis.CallGraph,
+            analysis.Allocations,
             "PrimitiveLookalikeStaysLocal");
 
         Assert.Equal(AllocationEscape.LocalOnly, primitive.Escape);
         Assert.Equal(AllocationEscape.LocalOnly, lookalike.Escape);
         Assert.Contains(
-            index.OptimizationOpportunities,
+            analysis.Optimization.Opportunities,
             candidate =>
                 candidate.Method.Name
                     == "GenuinePrimitiveStaysLocal"
@@ -105,7 +111,7 @@ public sealed class AllocationLifetimeAnalysisTests
                 && candidate.ILOffset
                     == primitive.ILOffset);
         OptimizationOpportunity rejected = Assert.Single(
-            index.OptimizationOpportunities,
+            analysis.Optimization.Opportunities,
             candidate =>
                 candidate.Method.Name
                     == "PrimitiveLookalikeStaysLocal"
@@ -121,15 +127,19 @@ public sealed class AllocationLifetimeAnalysisTests
     [Fact]
     public void CompiledFixture_TracksByReferenceConsumer()
     {
-        var index = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisAllocationLifetime
-                .AssemblyPath());
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.Open(
+                FixtureCatalog.AnalysisAllocationLifetime
+                    .AssemblyPath(),
+                includeOpportunities: false);
 
         AllocationOccurrence local = Allocation(
-            index,
+            analysis.CallGraph,
+            analysis.Allocations,
             "ReadThroughRefLocal");
         AllocationOccurrence transferred = Allocation(
-            index,
+            analysis.CallGraph,
+            analysis.Allocations,
             "PassArrayByReference");
 
         Assert.Equal(AllocationEscape.LocalOnly, local.Escape);
@@ -157,15 +167,16 @@ public sealed class AllocationLifetimeAnalysisTests
     {
         ImmutableArray<byte> image =
             ManagedObjectReadImage(valueType);
-        var index = LibraryBodyIndex.OpenFromPrefetchedImage(
-            "ManagedObjectRead.dll",
-            image,
-            LibraryBodyAnalysisFeatures.Allocations);
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+                "ManagedObjectRead.dll",
+                image,
+                LibraryBodyAnalysisFeatures.Allocations);
         MethodIdentity method = Assert.Single(
-            index.Methods,
+            analysis.CallGraph.Methods,
             candidate => candidate.Name == "ReadLength");
         AllocationOccurrence allocation = Assert.Single(
-            index.GetAllocationOccurrences()[
+            analysis.Allocations.Occurrences[
                 method.MetadataToken],
             occurrence =>
                 occurrence.Kind == AllocationKind.Array);
@@ -199,9 +210,10 @@ public sealed class AllocationLifetimeAnalysisTests
                 Convert.ToHexStringLower(SHA256.HashData(stream)));
         }
 
-        var index = LibraryBodyIndex.Open(path);
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.Open(path);
         MethodIdentity method = Assert.Single(
-            index.Methods,
+            analysis.CallGraph.Methods,
             candidate =>
                 candidate.DeclaringType
                     .ToQualifiedDisplayString()
@@ -209,7 +221,7 @@ public sealed class AllocationLifetimeAnalysisTests
                 && candidate.Name
                     == "ReadExtendedUnicodeSequence");
         AllocationOccurrence allocation = Assert.Single(
-            index.GetAllocationOccurrences()[
+            analysis.Allocations.Occurrences[
                 method.MetadataToken],
             occurrence =>
                 occurrence.Kind == AllocationKind.Array
@@ -224,7 +236,7 @@ public sealed class AllocationLifetimeAnalysisTests
             allocation.LifetimeEvidence.Uses);
         Assert.Empty(allocation.LifetimeEvidence.Limitations);
         OptimizationOpportunity opportunity = Assert.Single(
-            index.OptimizationOpportunities,
+            analysis.Optimization.Opportunities,
             candidate =>
                 candidate.Method.MetadataToken
                     == method.MetadataToken
@@ -241,17 +253,18 @@ public sealed class AllocationLifetimeAnalysisTests
     }
 
     static AllocationOccurrence Allocation(
-        LibraryBodyIndex index,
+        LibraryCallGraphAnalysisResult callGraph,
+        LibraryAllocationAnalysisResult allocations,
         string methodName)
     {
         MethodIdentity method = Assert.Single(
-            index.Methods,
+            callGraph.Methods,
             candidate =>
                 candidate.DeclaringType.Name
                     == "AllocationLifetimeSamples"
                 && candidate.Name == methodName);
         return Assert.Single(
-            index.GetAllocationOccurrences()[
+            allocations.Occurrences[
                 method.MetadataToken],
             occurrence =>
                 occurrence.Kind == AllocationKind.Array);

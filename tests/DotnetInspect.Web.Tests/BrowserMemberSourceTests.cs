@@ -296,17 +296,38 @@ public sealed class BrowserMemberSourceTests
     }
 
     [Fact]
-    public void DecompiledMemberSource_HasNoAuthoredPartCatalog()
+    public void DecompiledMemberSource_UsesTheSharedAvailablePartCatalog()
     {
+        const string document =
+            "    [System.Diagnostics.DebuggerStepThrough]\n"
+            + "    public string Value\n"
+            + "    {\n"
+            + "        get => \"decompiled\";\n"
+            + "    }";
         BrowserMemberSource browser = new(
             BrowserSource(
-                "public string Value => \"decompiled\";",
+                document,
                 provider: "decompiled"),
-            [],
+            SourceExports.ProjectDecompiledMemberParts(document),
             []);
 
         Assert.Equal("decompiled", browser.Source.Provider);
-        Assert.Empty(browser.Parts);
+        Assert.DoesNotContain(
+            browser.Parts,
+            part => part.Kind
+                is BrowserMemberSourcePartKind.XmlDocumentation
+                or BrowserMemberSourcePartKind.Declaration);
+        Assert.Equal(
+            [
+                BrowserMemberSourcePartKind.Member,
+                BrowserMemberSourcePartKind.Attributes,
+                BrowserMemberSourcePartKind.Signature,
+                BrowserMemberSourcePartKind.Body,
+            ],
+            browser.Parts.Select(part => part.Kind));
+        Assert.All(
+            browser.Parts.SelectMany(part => part.Spans),
+            span => Assert.InRange(span.End, 1, document.Length));
     }
 
     [Fact]

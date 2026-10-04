@@ -328,14 +328,14 @@ public sealed class PortableQueryOrderOperation
 /// <para>
 /// The model's fifth part, the vocabulary these terms resolve against, is not a
 /// property here. It travels beside the intent — see
-/// <see cref="PortableQueryIdentity"/> — so it appears exactly once and cannot
+/// <c>PortableQueryIdentity</c> — so it appears exactly once and cannot
 /// disagree with itself.
 /// </para>
 /// <para>
 /// This type holds a request, never an outcome, a resolved binding, or any
 /// presentation text. Declared limits belong to the codec, not to construction: an
 /// intent may be built with more parts than a payload admits, and
-/// <see cref="PortableQueryPayloadCodec.Encode"/> refuses it.
+/// <c>PortableQueryPayloadCodec.Encode</c> refuses it.
 /// </para>
 /// <para>Owner: <c>docs/design/portable-query-intent.md</c>.</para>
 /// </remarks>

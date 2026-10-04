@@ -14,10 +14,9 @@ import type {
   OperationSession,
 } from "./operation-authority.ts";
 
-export type TypeLeverageFilter = "" | "sea-level" | "mountain-peak";
-type TypeLeveragePole = Exclude<TypeLeverageFilter, "">;
+type TypeLeveragePole = "sea-level" | "mountain-peak";
 
-export interface TypeLeverageCue {
+interface TypeLeverageCue {
   readonly pole: TypeLeveragePole;
   readonly description: string;
 }
@@ -264,21 +263,6 @@ export function projectTypeLeverage(
     coverage: sumCoverage(coverages),
     diagnostics,
   };
-}
-
-export function typeLeverageMatchesFilter(
-  cue: TypeLeverageCue | undefined,
-  filter: TypeLeverageFilter,
-): boolean {
-  switch (filter) {
-    case "":
-      return true;
-    case "sea-level":
-      return cue?.pole === "sea-level";
-    case "mountain-peak":
-      return cue?.pole === "mountain-peak";
-  }
-  return false;
 }
 
 export function createTypeLeverageCoordinator<TRequest>(

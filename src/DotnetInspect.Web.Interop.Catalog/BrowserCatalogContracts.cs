@@ -517,7 +517,8 @@ public sealed record BrowserWorkspaceShareView(
     string? MemberAnchor,
     string? MemberSignature,
     string? Section,
-    string[] Libraries);
+    string[] Libraries,
+    string? SourceView);
 
 /// <summary>
 /// Long-form Browser transport for one canonical packet-local scenario.

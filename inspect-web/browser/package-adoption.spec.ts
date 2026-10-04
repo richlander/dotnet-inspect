@@ -1021,9 +1021,9 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     packet: null,
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     request: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: input.packageId,
       currentVersion: input.currentVersion,
       targetVersion: input.targetVersion,
@@ -1034,6 +1034,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
     kind: "Succeeded",
     value: {
@@ -1067,6 +1068,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
           surface: "Library",
           views: "Changes",
           analyses: ["api"],
+          predicates: [],
         },
         outcomes: [{
           analysis: "api",
@@ -2705,7 +2707,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       library.id,
     );
     expect(salience.outcome).toBe("available");
-    expect(salience.methodologyVersion).toBe("structural-salience.v2");
+    expect(salience.methodologyVersion).toBe("structural-salience.v3");
     expect(salience.evidenceMode).toBe("signature");
     expect(salience.failure).toBeNull();
     expect(salience.namespaceIndex).not.toBeNull();
@@ -3601,6 +3603,7 @@ test.describe("bounded network-backed Worker smoke", () => {
         lens: "library:overview", type: null,
         memberAnchor: null, memberSignature: null, section: null,
         libraries: ['["netcore.app","System.Xml.dll"]'],
+        sourceView: null,
       },
     }));
     expect(encoded.succeeded, encoded.failure?.message).toBe(true);
@@ -3855,26 +3858,25 @@ test.describe("bounded network-backed Worker smoke", () => {
       { waitUntil: "domcontentloaded" },
     );
     await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("[data-package-child-library]").filter({
+      hasText: "System.Text.Json",
+    }).click();
     await page.locator("button").filter({
       hasText: /^20System\.Text\.Json$/,
     }).click();
     await page.locator("[data-type]").filter({
       hasText: "JsonSerializerOptions",
     }).first().click();
-    await page.getByRole("button", {
+    await expect(page.getByRole("button", {
       name: "Show Top Leverage",
       exact: true,
-    }).click();
-
-    const control = page.locator(".member-leverage-control");
-    await expect(control).toContainText(
-      "1 browsable Top Leverage member",
-      { timeout: 180_000 },
+    })).toHaveCount(0);
+    await expect(page.locator("[data-method-leverage-filter]")).toHaveCount(0);
+    const runnerUp = page.locator(
+      '.api-row[data-member="property:AllowDuplicateProperties"]',
     );
-    const runnerUp = page.locator(".api-row[data-member]").filter({
-      hasText: "AllowDuplicateProperties",
-    });
     await expect(runnerUp).toBeVisible();
+    await expect(runnerUp.locator(".item-achievement-rail")).toHaveCount(1);
     await expect(
       runnerUp.locator(".item-achievement-glyph.top-leverage"),
     ).toHaveCount(0);
@@ -3890,17 +3892,15 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(winner).toBeVisible({ timeout: 180_000 });
     await expect(
       winner.locator(".item-achievement-glyph.top-leverage"),
-    ).toHaveCount(1);
+    ).toHaveCount(1, { timeout: 180_000 });
     await expect(
       winner.locator(".item-achievement-rail"),
     ).toHaveAttribute("aria-label", /Top Leverage; 31 direct callers/);
 
-    await page.locator("[data-method-leverage-filter]")
-      .selectOption("top-leverage");
     await expect(winner).toBeVisible();
-    await expect(runnerUp).toHaveCount(0);
+    await expect(runnerUp).toBeVisible();
     await page.locator("#subject-panel").screenshot({
-      path: testInfo.outputPath("method-leverage-filtered.png"),
+      path: testInfo.outputPath("method-leverage-achievement.png"),
     });
   });
 

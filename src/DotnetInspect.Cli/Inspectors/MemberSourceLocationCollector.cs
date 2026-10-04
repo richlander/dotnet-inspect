@@ -1,5 +1,8 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Services;
+using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using Inspector.Findings;
@@ -28,12 +31,58 @@ internal static class MemberSourceLocationCollector
         var collected = new Dictionary<ApiMember, MemberSourceObservation>(ReferenceEqualityComparer.Instance);
         try
         {
-            using var service = SourceLinkService.Open(assemblyPath, logger.Log);
+            bool usePlatformSettlement =
+                sourceAssembly?.Provenance
+                    is AssemblyResolutionProvenance.PlatformAsset;
+            using var service = usePlatformSettlement
+                ? SourceLinkService.OpenEmbeddedPdbOnly(
+                    sourceAssembly!,
+                    logger.Log)
+                : SourceLinkService.Open(assemblyPath, logger.Log);
             var context = service.Context;
             if (!context.HasMetadata)
                 return new(null, collected);
 
-            if (context.NeedsPdb)
+            if (usePlatformSettlement)
+            {
+                logger.Log(
+                    "Settling platform Portable PDB for: "
+                    + (sourceAssembly!.Path
+                        ?? sourceAssembly.Identity.Name));
+                var request =
+                    new PortablePdbSettlementRequest(
+                        context,
+                        sourceAssembly!,
+                        httpClient,
+                        FileSystemPdbStore.CreateDefault(),
+                        new SourcePolicyPackageSourceAuthorization(
+                            options.SourceOptions))
+                    {
+                        NuGetSourceOptions = options.SourceOptions,
+                        Timeout = TimeSpan.FromMinutes(5),
+                        Log = logger.Log,
+                    };
+                PortablePdbSettlementResult settlement =
+                    await PortablePdbSettlement.SettleAsync(request);
+                if (settlement
+                    is PortablePdbSettlementResult.Acquired acquired)
+                {
+                    await acquired.LoadIntoAsync(context);
+                }
+                else if (settlement
+                    is PortablePdbSettlementResult.Failed failed)
+                {
+                    CommandError.WriteWarning(
+                        $"Portable PDB settlement failed: {failed.Failure}");
+                }
+                else if (settlement
+                    is PortablePdbSettlementResult.Incomplete)
+                {
+                    CommandError.WriteWarning(
+                        "Portable PDB settlement was incomplete.");
+                }
+            }
+            else if (context.NeedsPdb)
             {
                 if (sourceAssembly is null)
                 {

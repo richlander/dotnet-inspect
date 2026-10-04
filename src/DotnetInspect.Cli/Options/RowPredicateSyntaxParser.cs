@@ -8,6 +8,7 @@ internal enum RowPredicateOperator
 {
     Equals,
     NotEquals,
+    Contains,
     StartsWith,
     GreaterOrEqual,
     LessOrEqual,
@@ -30,6 +31,12 @@ internal static class RowPredicateSyntaxParser
 
     private static readonly OperatorSyntax[] Operators =
     [
+        new(
+            " contains ",
+            "contains",
+            RowPredicateOperator.Contains,
+            PortableQueryOperator.Contains,
+            null),
         new(
             " starts-with ",
             "starts-with",
@@ -79,7 +86,8 @@ internal static class RowPredicateSyntaxParser
             error =
                 $"Invalid --where predicate '{Contain(expression)}'. "
                 + "Use forms like 'Field=value', 'Field!=value', "
-                + "'Field starts-with value', 'RootReach>=10', "
+                + "'Field contains value', 'Field starts-with value', "
+                + "'RootReach>=10', "
                 + "or 'Confidence>=medium'.";
             return false;
         }

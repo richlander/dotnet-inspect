@@ -54,6 +54,7 @@ type PackageOperationName =
   | "prefetchPlatformPacks"
   | "queryPackage"
   | "queryPackageRoot"
+  | "queryPackageSummary"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
@@ -152,6 +153,7 @@ type CatalogOperationName =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
@@ -1094,6 +1096,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageRoot"]>
       ) => facades.package.queryPackageRoot(...args),
     ),
+    queryPackageSummary: valueOperation(
+      "ordinary-package-query-package-summary",
+      3,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageSummary"]>
+      ) => facades.package.queryPackageSummary(...args),
+    ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
       2,
@@ -1941,6 +1951,29 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
     ),
+    prepareEcosystemWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-ecosystem-workspace-definition",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareEcosystemWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareEcosystemWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected Ecosystem Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
+    ),
     preparePackageQueryWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-package-query-workspace-definition",
       5,
@@ -2164,6 +2197,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageRoot: bind(
         engineWorkerOrdinaryOperations.package.queryPackageRoot,
+      ),
+      queryPackageSummary: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageSummary,
       ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,
@@ -2488,6 +2524,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      prepareEcosystemWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareEcosystemWorkspaceDefinition,
       ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

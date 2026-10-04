@@ -105,13 +105,21 @@ public abstract record PackageAssemblyReferenceSupplierOutcome
         internal Missing(
             AssemblyBindingRequest request,
             AssemblyBindingMissDisposition disposition,
+            PackageAssemblyReferenceRouteEligibilityReceipt route,
             ImmutableArray<
                 PackageAssemblyReferenceSupplierCandidateEvidence>
                 evaluatedCandidates)
-            : base(request, evaluatedCandidates) =>
+            : base(request, evaluatedCandidates)
+        {
+            Route = route
+                ?? throw new ArgumentNullException(nameof(route));
             Disposition = disposition;
+        }
 
         public AssemblyBindingMissDisposition Disposition { get; }
+
+        public PackageAssemblyReferenceRouteEligibilityReceipt Route
+        { get; }
     }
 
     public sealed record Ambiguous :
@@ -583,8 +591,17 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
             observedNameOwnedMiss
                 ? AssemblyBindingMissDisposition.NameOwnedNoMatch
                 : AssemblyBindingMissDisposition.NoNameOwner,
+            RequireCompleteRoute(),
             evaluated.ToImmutable());
     }
+
+    PackageAssemblyReferenceRouteEligibilityReceipt RequireCompleteRoute() =>
+        RouteProjection
+            is PackageAssemblyReferenceRouteProjectionOutcome.Completed
+                completed
+            ? completed.Receipt
+            : throw new InvalidOperationException(
+                "A missing Package supplier outcome requires complete route evidence.");
 
     async ValueTask<TierResult> EvaluateTierAsync(
         IEnumerable<CandidateState> states,

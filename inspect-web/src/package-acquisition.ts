@@ -14,8 +14,10 @@ import type {
   BrowserMemberSurface as MemberSurfaceFromPackageFacade,
   BrowserPackageDocument as PackageDocumentFromPackageFacade,
   BrowserPackageIcon as PackageIconFromPackageFacade,
+  BrowserPackageChildrenInspection,
   BrowserPackageInfoMeasurementInspection,
   BrowserPackageLoadResult,
+  BrowserPackageRootLoadResult,
   BrowserPackageSurface as PackageSurfaceFromPackageFacade,
   BrowserPackageVersionSettlementInspection,
   BrowserParameterSurface as ParameterSurfaceFromPackageFacade,
@@ -170,31 +172,156 @@ export interface AppPackage {
   typeKinds: InspectedApiFacetDescriptor[];
   typeTraits: InspectedApiFacetDescriptor[];
   accessibility: InspectedAccessibilityDescriptor[];
-  totalTypes: number;
-  totalMembers: number;
+  totalTypes: number | null;
+  totalMembers: number | null;
   documents: InspectedPackageDocument[];
   icon: InspectedPackageIcon | null;
   inspectionErrors?: string[];
   inspectionError?: string;
   versionSettlement?: BrowserPackageVersionSettlementInspection;
   packageInfo?: BrowserPackageInfoMeasurementInspection;
+  packageChildren?: BrowserPackageChildrenInspection;
   isRuntimePack: boolean;
   platformContextId?: string | null;
   surfaceRevision?: number;
 }
 
+export interface AppPackageLibrary {
+  id: string;
+  name: string;
+  asset: string;
+  version: string;
+  culture: string | null;
+  publicKeyToken: string | null;
+  types: number | null;
+  members: number | null;
+  platformPack: string | null;
+  surfaceAvailable: boolean;
+  unavailableDetail: string | null;
+}
+
+export function aggregateKnownPackageLibraryCount(
+  libraries: readonly AppPackageLibrary[],
+  isComplete: boolean,
+  selector: (library: AppPackageLibrary) => number | null,
+): number | null {
+  if (!isComplete) return null;
+  let total = 0;
+  for (const library of libraries) {
+    const value = selector(library);
+    if (value === null) return null;
+    total += value;
+  }
+  return total;
+}
+
+export function createNuGetPackageSummaryModel(
+  packageChildren: BrowserPackageChildrenInspection,
+  versionSettlement?: BrowserPackageVersionSettlementInspection,
+  packageInfo?: BrowserPackageInfoMeasurementInspection,
+): AppPackage {
+  const content = packageChildren.content;
+  const firstLibrary = content.libraries[0];
+  const activeFramework = content.targetFramework
+    ?? packageInfo?.content.selectedTargetFramework
+    ?? "";
+  const frameworks = packageInfo?.content.availableTargetFrameworks
+    ? [...packageInfo.content.availableTargetFrameworks]
+    : activeFramework
+      ? [activeFramework]
+      : [];
+  const hasNoManagedLibraries =
+    content.isComplete && content.libraries.length === 0;
+  const inspectionError = content.status === "Available"
+    ? undefined
+    : content.detail ?? `Package children are ${content.status}.`;
+  return {
+    id: content.packageId,
+    version: content.packageVersion,
+    frameworks,
+    activeFramework,
+    assembly: firstLibrary?.assemblyName ?? "",
+    assemblyId: firstLibrary?.assetId ?? "",
+    assemblyAsset: firstLibrary?.assetPath ?? "",
+    source: { kind: "nuget.org" },
+    producerLabel: "NuGet.org",
+    assemblies: [],
+    types: [],
+    typeKinds: [],
+    typeTraits: [],
+    accessibility: [],
+    totalTypes: hasNoManagedLibraries ? 0 : null,
+    totalMembers: hasNoManagedLibraries ? 0 : null,
+    documents: [],
+    icon: null,
+    inspectionErrors: inspectionError ? [inspectionError] : [],
+    ...(inspectionError ? { inspectionError } : {}),
+    ...(versionSettlement ? { versionSettlement } : {}),
+    ...(packageInfo ? { packageInfo } : {}),
+    packageChildren,
+    isRuntimePack: false,
+    surfaceRevision: 0,
+  };
+}
+
 const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
 
-export function resolvePackageLibrary(
-  assemblies: readonly InspectedAssemblySurface[],
+export function resolvePackageLibrary<
+  TAssembly extends Pick<InspectedAssemblySurface, "id" | "name">,
+>(
+  assemblies: readonly TAssembly[],
   key: string,
-): InspectedAssemblySurface | null {
+): TAssembly | null {
   const exact = assemblies.find(assembly => assembly.id === key);
   if (exact) return exact;
   const name = key.replace(/\.dll$/i, "").toLowerCase();
   const matches = assemblies.filter(assembly =>
     assembly.name.replace(/\.dll$/i, "").toLowerCase() === name);
   return matches.length === 1 ? matches[0]! : null;
+}
+
+export function packageLibrariesForModel(
+  packageModel: AppPackage,
+): AppPackageLibrary[] {
+  const descriptors = new Map(
+    packageModel.assemblies.map(descriptor =>
+      [descriptor.id, descriptor] as const),
+  );
+  const ownerLibraries =
+    packageModel.packageChildren?.content.libraries;
+  if (ownerLibraries) {
+    return ownerLibraries.map(library => {
+      const descriptor = descriptors.get(library.assetId);
+      return {
+        id: library.assetId,
+        name: library.assemblyName,
+        asset: library.assetPath,
+        version: descriptor?.version ?? "",
+        culture: descriptor?.culture ?? null,
+        publicKeyToken: descriptor?.publicKeyToken ?? null,
+        types: descriptor?.publicTypes ?? null,
+        members: descriptor?.publicMembers ?? null,
+        platformPack: descriptor?.platformPack ?? null,
+        surfaceAvailable: descriptor !== undefined,
+        unavailableDetail: descriptor
+          ? null
+          : "Library surface details are unavailable.",
+      };
+    });
+  }
+  return packageModel.assemblies.map(descriptor => ({
+    id: descriptor.id,
+    name: descriptor.name,
+    asset: descriptor.asset,
+    version: descriptor.version,
+    culture: descriptor.culture,
+    publicKeyToken: descriptor.publicKeyToken,
+    types: descriptor.publicTypes,
+    members: descriptor.publicMembers,
+    platformPack: descriptor.platformPack,
+    surfaceAvailable: true,
+    unavailableDetail: null,
+  }));
 }
 
 export interface PackageLibrarySelectionIdentity {
@@ -218,10 +345,12 @@ function compileAssetCorrespondenceKey(asset: string): string | null {
     : null;
 }
 
-export function resolveReplacementPackageLibrary(
-  assemblies: readonly InspectedAssemblySurface[],
+export function resolveReplacementPackageLibrary<
+  TAssembly extends Pick<InspectedAssemblySurface, "id" | "name" | "asset">,
+>(
+  assemblies: readonly TAssembly[],
   selection: PackageLibrarySelectionIdentity,
-): InspectedAssemblySurface | null {
+): TAssembly | null {
   const exactId = selection.id
     ? assemblies.find(assembly => assembly.id === selection.id) ?? null
     : null;
@@ -323,6 +452,12 @@ function packageTypes(result: InspectedPackageSurface): AppTypeSurface[] {
   return (result.types ?? []).map(createAppTypeSurface);
 }
 
+function packageAssemblies(
+  result: InspectedPackageSurface,
+): InspectedAssemblySurface[] {
+  return [...(result.assemblies ?? [])];
+}
+
 function mergeTypeFacetDescriptors(
   existing: readonly InspectedApiFacetDescriptor[],
   incoming: readonly InspectedApiFacetDescriptor[],
@@ -413,8 +548,35 @@ export function packageQueryAssemblyId(
   return packageModel.assemblyId || packageModel.selectedCompileAssetId || "";
 }
 
+function isPackageChildrenInspection(
+  value: unknown,
+): value is BrowserPackageChildrenInspection {
+  if (typeof value !== "object" || value === null || !("content" in value))
+    return false;
+  const content = value.content;
+  return typeof content === "object"
+    && content !== null
+    && "libraries" in content;
+}
+
+function isPackageVersionSettlementInspection(
+  value: unknown,
+): value is BrowserPackageVersionSettlementInspection {
+  if (typeof value !== "object" || value === null || !("content" in value))
+    return false;
+  const content = value.content;
+  return typeof content === "object"
+    && content !== null
+    && "kind" in content
+    && !("libraries" in content);
+}
+
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
+): AppPackage;
+export function createNuGetPackageModel(
+  result: InspectedPackageSurface,
+  packageChildren: BrowserPackageChildrenInspection,
 ): AppPackage;
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
@@ -423,9 +585,28 @@ export function createNuGetPackageModel(
 ): AppPackage;
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
-  versionSettlement?: BrowserPackageVersionSettlementInspection,
+  versionSettlement: BrowserPackageVersionSettlementInspection,
+  packageInfo: BrowserPackageInfoMeasurementInspection,
+  packageChildren: BrowserPackageChildrenInspection,
+): AppPackage;
+export function createNuGetPackageModel(
+  result: InspectedPackageSurface,
+  versionSettlementOrChildren?:
+    BrowserPackageVersionSettlementInspection
+    | BrowserPackageChildrenInspection,
   packageInfo?: BrowserPackageInfoMeasurementInspection,
+  settledPackageChildren?: BrowserPackageChildrenInspection,
 ): AppPackage {
+  const rootPackageChildren =
+    isPackageChildrenInspection(versionSettlementOrChildren)
+      ? versionSettlementOrChildren
+      : undefined;
+  const versionSettlement =
+    isPackageVersionSettlementInspection(versionSettlementOrChildren)
+      ? versionSettlementOrChildren
+      : undefined;
+  const packageChildren =
+    rootPackageChildren ?? settledPackageChildren;
   const rootOnly = result.compileLibrary.status === "NoCompileAssets"
     || result.compileLibrary.status === "EmptyCompileGroup"
     || result.compileLibrary.status === "NoMatchingTargetFramework";
@@ -456,7 +637,12 @@ export function createNuGetPackageModel(
     inspectionErrors.push(result.compileLibrary.message
       || `No compile Library is available (${result.compileLibrary.status}).`);
   }
-  return {
+  const assemblies = packageAssemblies(result);
+  const provisionalTotalTypes = assemblies.reduce(
+    (count, candidate) =>
+      count + (candidate.publicTypes ?? 0),
+    0);
+  const model: AppPackage = {
     id: result.package,
     version: result.version,
     frameworks: [...(result.frameworks ?? [])],
@@ -467,13 +653,12 @@ export function createNuGetPackageModel(
     ...(selectedCompileAssetId ? { selectedCompileAssetId } : {}),
     source: { kind: "nuget.org" },
     producerLabel: "NuGet.org",
-    assemblies: [...(result.assemblies ?? [])],
+    assemblies,
     types: packageTypes(result),
     typeKinds: [...(result.typeKinds ?? [])],
     typeTraits: [...(result.typeTraits ?? [])],
     accessibility: [...(result.accessibility ?? [])],
-    totalTypes: (result.assemblies ?? [])
-      .reduce((count, candidate) => count + (candidate.publicTypes ?? 0), 0),
+    totalTypes: provisionalTotalTypes,
     totalMembers: result.totalMembers,
     documents: [...(result.documents ?? [])],
     icon: result.icon,
@@ -485,8 +670,25 @@ export function createNuGetPackageModel(
     ...(packageInfo
       ? { packageInfo }
       : {}),
+    ...(packageChildren
+      ? { packageChildren }
+      : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
+  };
+  if (!packageChildren) return model;
+
+  const libraries = packageLibrariesForModel(model);
+  return {
+    ...model,
+    totalTypes: aggregateKnownPackageLibraryCount(
+      libraries,
+      packageChildren.content.isComplete,
+      library => library.types),
+    totalMembers: aggregateKnownPackageLibraryCount(
+      libraries,
+      packageChildren.content.isComplete,
+      library => library.members),
   };
 }
 
@@ -505,13 +707,19 @@ export function createWorkspaceOccurrencePackageModel(
     ? activePackage
     : retainedPackages.find(
         candidate => packageIdentityKey(candidate) === identity);
+  const model = retained?.packageChildren
+    ? createNuGetPackageModel(result, retained.packageChildren)
+    : createNuGetPackageModel(result);
   return {
-    ...createNuGetPackageModel(result),
+    ...model,
     ...(retained?.versionSettlement
       ? { versionSettlement: retained.versionSettlement }
       : {}),
     ...(retained?.packageInfo
       ? { packageInfo: retained.packageInfo }
+      : {}),
+    ...(retained?.packageChildren
+      ? { packageChildren: retained.packageChildren }
       : {}),
   };
 }
@@ -682,7 +890,7 @@ export function mergeRuntimePackageSurface(
     }));
     existing.totalMembers = Math.max(
       0,
-      existing.totalMembers - removedTypes
+      (existing.totalMembers ?? 0) - removedTypes
         .filter(type => defaultAccessibility.has(type.accessibilityId))
         .reduce((total, type) => total + type.members, 0));
   }
@@ -787,8 +995,8 @@ function promoteRuntimePackagePrimary(
 }
 
 export interface PackageAcquisitionDependencies {
-  queryPackageRoot?(rootRequest: string): Promise<InspectedPackageSurface>;
-  queryPackage(
+  queryPackageRoot?(rootRequest: string): Promise<BrowserPackageRootLoadResult>;
+  queryPackageSummary(
     packageId: string,
     version: string,
     framework: string,
@@ -906,23 +1114,27 @@ export function createPackageAcquisition(
 
   return {
     async loadPackage(request) {
-      let result: InspectedPackageSurface;
+      let result: InspectedPackageSurface | undefined;
       let versionSettlement:
         BrowserPackageVersionSettlementInspection | undefined;
       let packageInfo:
         BrowserPackageInfoMeasurementInspection | undefined;
+      let packageChildren:
+        BrowserPackageChildrenInspection | undefined;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
         }
-        result = await dependencies.queryPackageRoot(request.rootRequest);
+        const rootLoad =
+          await dependencies.queryPackageRoot(request.rootRequest);
+        packageChildren = rootLoad.packageChildren;
       } else {
-        const loadResult = await dependencies.queryPackage(
+        const loadResult = await dependencies.queryPackageSummary(
           request.packageId,
           request.version,
           request.framework);
         versionSettlement = loadResult.versionSettlement;
-        if (loadResult.surface === null) {
+        if (loadResult.versionSettlement.content.kind === "NotSettled") {
           throw new PackageVersionSettlementError(
             loadResult.versionSettlement);
         }
@@ -936,18 +1148,39 @@ export function createPackageAcquisition(
             "A settled package surface must carry Package Info measurements.");
         }
         packageInfo = loadResult.packageInfo;
-        result = loadResult.surface;
+        if (loadResult.packageChildren === null) {
+          throw new Error(
+            "A settled package surface must carry Package children.");
+        }
+        packageChildren = loadResult.packageChildren;
+        result = loadResult.surface ?? undefined;
       }
       if (request.isCurrent && !request.isCurrent()) return null;
       dependencies.refreshPackageStats();
-      if (versionSettlement && !packageInfo) {
+      if (versionSettlement && (!packageInfo || !packageChildren)) {
         throw new Error(
-          "A settled package model requires Package Info measurements.");
+          "A settled package model requires Package Info and children.");
       }
-      const packageModel =
-        versionSettlement && packageInfo
-          ? createNuGetPackageModel(result, versionSettlement, packageInfo)
-          : createNuGetPackageModel(result);
+      let packageModel: AppPackage;
+      if (result && versionSettlement && packageInfo && packageChildren) {
+        packageModel = createNuGetPackageModel(
+            result,
+            versionSettlement,
+            packageInfo,
+            packageChildren);
+      } else if (result && packageChildren) {
+        packageModel = createNuGetPackageModel(result, packageChildren);
+      } else if (result) {
+        packageModel = createNuGetPackageModel(result);
+      } else if (packageChildren) {
+        packageModel = createNuGetPackageSummaryModel(
+          packageChildren,
+          versionSettlement,
+          packageInfo);
+      } else {
+        throw new Error(
+          "A Package load requires either a surface or Package children.");
+      }
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(
         packageModel.id,

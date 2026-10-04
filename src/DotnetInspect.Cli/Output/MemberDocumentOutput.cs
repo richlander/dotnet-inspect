@@ -117,7 +117,8 @@ internal static class MemberDocumentOutput
         string? packageName,
         string? packageVersion,
         HttpClient symbolClient,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        MemberTargetResolution? resolvedTarget = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
@@ -134,13 +135,15 @@ internal static class MemberDocumentOutput
             ?? throw new InvalidOperationException(
                 "The native Member route requires one unambiguous ordinary "
                     + "method name.");
-        var resolution = MemberTargetResolver.Resolve(
-            type,
-            new MemberTargetSelector(
-                memberName,
-                memberName,
-                options.OverloadIndex,
-                options.MemberDigest));
+        MemberTargetResolution resolution =
+            resolvedTarget
+            ?? MemberTargetResolver.Resolve(
+                type,
+                new MemberTargetSelector(
+                    memberName,
+                    memberName,
+                    options.OverloadIndex,
+                    options.MemberDigest));
         if (resolution.Diagnostic is { } selectionDiagnostic)
         {
             CommandError.Write(

@@ -9,7 +9,6 @@ import type {
 import {
   createTypeLeverageCoordinator,
   projectTypeLeverage,
-  typeLeverageMatchesFilter,
 } from "../src/type-leverage.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 import type { TypeLeverageLoadState } from "../src/type-leverage.ts";
@@ -107,7 +106,7 @@ const toolsShard: BrowserLibraryTypeLeverageShard = {
 const document: BrowserLibraryStructuralSalience = {
   schemaVersion: 1,
   outcome: "available",
-  methodologyVersion: "structural-salience.v2",
+  methodologyVersion: "structural-salience.v3",
   evidenceMode: "signature",
   namespaceIndex: index,
   typeLeverageShards: [shard, toolsShard],
@@ -141,9 +140,6 @@ test("owner-issued namespace and Type designations drive presentation", () => {
   assert.equal(sea?.pole, "sea-level");
   assert.equal(peak?.pole, "mountain-peak");
   assert.equal(projection.byType.has("Example.Core.Tie"), false);
-  assert.equal(typeLeverageMatchesFilter(peak, "sea-level"), false);
-  assert.equal(typeLeverageMatchesFilter(peak, "mountain-peak"), true);
-  assert.equal(typeLeverageMatchesFilter(sea, "mountain-peak"), false);
 });
 
 test("the Browser does not derive relative categories from scores", () => {

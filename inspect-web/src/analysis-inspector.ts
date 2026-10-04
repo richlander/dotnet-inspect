@@ -22,10 +22,10 @@ export interface AnalysisInspectorContext {
 }
 
 const modes = [
+  ["metrics", "Metrics"],
   ["performance", "Performance"],
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
-  ["metrics", "Metrics"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 
 export function renderAnalysisInspector(
