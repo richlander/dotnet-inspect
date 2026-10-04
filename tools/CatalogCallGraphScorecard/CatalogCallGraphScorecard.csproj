@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NativeAOT scorecard for CatalogCallGraphScope physical graph construction
+    and bidirectional traversal. Library-body Analysis is prepared outside
+    timing; measured operations exercise the product-owned catalog graph.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>true</IsPublishable>
+    <PublishAot>true</PublishAot>
+    <AssemblyName>catalog-callgraph-scorecard</AssemblyName>
+    <RootNamespace>CatalogCallGraphScorecard</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+  </ItemGroup>
+
+</Project>
