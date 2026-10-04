@@ -496,8 +496,9 @@ instruction volume, treemap color represents average normal-flow complexity, and
 relationship stroke width represents retained call-site count. Complexity
 Explorer omits zero-body relationship-only summaries because they carry no
 implementation volume. Relationship Crossing renders every endpoint and edge
-in Research's bounded relationship projection; the Browser performs no second
-topology selection.
+in Research's bounded relationship projection; selecting an arc exposes its
+exact source and target Types as traversable actions plus its retained call-site
+count as relationship depth. The Browser performs no second topology selection.
 
 The ordinary Type Browser automatically requests the exhaustive structural-
 salience document for every exact Library represented in its current Type
