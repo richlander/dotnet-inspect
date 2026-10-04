@@ -641,8 +641,10 @@ import {
   renderCreditsPage,
 } from "./credits-panel.ts";
 import {
+  createEcosystemQueryRequest,
   createPackageQueryController,
   createQueryRequest,
+  ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
   shouldExecuteQuery,
   togglePreset,
@@ -658,6 +660,11 @@ import {
   type QuerySourceSelection,
   type QueryTermDescriptor,
 } from "./package-query.ts";
+import {
+  bindEcosystemPackageDiscovery,
+  renderEcosystemPackageDiscovery,
+  type EcosystemPackageCapacity,
+} from "./ecosystem-package-discovery.ts";
 import {
   createPackageQueryLiveAnnouncer,
   createPackageQueryAnnouncementTracker,
@@ -849,6 +856,8 @@ let resolveDependencyVersion:
 let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
+let inspectRunEcosystemPackageQuery:
+  EngineClient["package"]["runEcosystemPackageQuery"];
 let inspectRunPackageActivity: EngineClient["package"]["runPackageActivity"];
 let inspectSearchCapabilities: EngineClient["package"]["searchCapabilities"];
 let inspectSearchTypes: EngineClient["package"]["searchTypes"];
@@ -1056,6 +1065,7 @@ async function loadEngineModule() {
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageActivity: inspectRunPackageActivity,
+      runEcosystemPackageQuery: inspectRunEcosystemPackageQuery,
       runPackageQuery: inspectRunPackageQuery,
       searchCapabilities: inspectSearchCapabilities,
       searchTypes: inspectSearchTypes,
@@ -3544,6 +3554,32 @@ const sourceInspection = createSourceInspectionCoordinator({
   render,
   renderPreservingMemberFocus,
 });
+interface EcosystemPackageDiscoveryState {
+  ecosystemId: string | null;
+  capacity: EcosystemPackageCapacity;
+  pendingCapacity: EcosystemPackageCapacity | null;
+  navigationError: string;
+  query: PackageQueryState;
+}
+
+const ecosystemPackageDiscovery: EcosystemPackageDiscoveryState = {
+  ecosystemId: null,
+  capacity: 24,
+  pendingCapacity: null,
+  navigationError: "",
+  query: initialQueryState(),
+};
+let ecosystemPackageQueryRenderFrame: number | null = null;
+
+function scheduleEcosystemPackageQueryRender(): void {
+  if (!ecosystemPackageDiscoveryVisible()
+    || ecosystemPackageQueryRenderFrame !== null) return;
+  ecosystemPackageQueryRenderFrame = requestAnimationFrame(() => {
+    ecosystemPackageQueryRenderFrame = null;
+    if (ecosystemPackageDiscoveryVisible()) render();
+  });
+}
+
 const packageQueryController = createPackageQueryController(
   state.packageQueryState,
   createBrowserPackageQueryDataSource({
@@ -3592,6 +3628,59 @@ const packageQueryController = createPackageQueryController(
     if (!state.packageQueryOpen) return;
     schedulePackageQueryStreamRender();
   },
+);
+const ecosystemPackageQueryController = createPackageQueryController(
+  ecosystemPackageDiscovery.query,
+  createBrowserPackageQueryDataSource({
+    cancel: (operationId, reason) =>
+      cancelPackageQuery(operationId, reason),
+    requestMatches: (operationId, additionalMatchCredit) =>
+      inspectRequestPackageQueryMatches(operationId, additionalMatchCredit),
+    run: (
+      operationId,
+      prefix,
+      termsJson,
+      targetFramework,
+      maximumCandidates,
+      maximumMatches,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink,
+    ) => inspectRunPackageQuery(
+      operationId,
+      prefix,
+      termsJson,
+      targetFramework,
+      maximumCandidates,
+      maximumMatches,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink),
+    runEcosystem: (
+      operationId,
+      ecosystemId,
+      maximumCandidates,
+      maximumMatches,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink,
+    ) => inspectRunEcosystemPackageQuery(
+      operationId,
+      ecosystemId,
+      maximumCandidates,
+      maximumMatches,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink),
+  }, {
+    initialMatchCredit: ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+    reportUnexpectedFailure: (operationId, error, diagnostic) => {
+      console.error(
+        `Ecosystem Package Query managed operation '${operationId}' failed unexpectedly.`,
+        diagnostic ?? error);
+    },
+  }),
+  () => scheduleEcosystemPackageQueryRender(),
 );
 const packageChangesController = createPackageChangesController(
   state.packageChangesState,
@@ -8640,6 +8729,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
 function renderCore(options: { synchronizeUrl?: boolean }) {
   sourceInspection.cancelHiddenRequest();
+  reconcileEcosystemPackageDiscovery();
   reconcileTypeAccessibilityVocabulary();
   reconcilePlatformForwarderView();
   libraryApiDiff.reconcile(currentLibraryApiDiffSelection());
@@ -9286,6 +9376,80 @@ function renderWorkspaceCatalogView() {
   bindWorkspaceCatalogViewEvents();
 }
 
+function activeRetainedEcosystemId(): string | null {
+  const posting = activeRetainedWorkspacePosting;
+  if (posting?.navigation.snapshot.activeSubject.kind.toLowerCase()
+    !== "ecosystem") return null;
+  const controller = retainedWorkspaceActivation;
+  const definition = controller?.state.definitions.find(
+    candidate => candidate.id === posting.retainedDefinitionId);
+  return definition !== undefined && "ecosystem" in definition
+    ? definition.ecosystem.id
+    : null;
+}
+
+function ecosystemPackageDiscoveryVisible(): boolean {
+  return state.workspaceSubjectOpen
+    && state.engineReady
+    && !state.home
+    && !state.credits
+    && !state.packageQueryOpen
+    && !state.packageActivityOpen
+    && !state.typeExplorerOpen
+    && !state.explorer?.open
+    && !state.error
+    && !isDiagnosticsPath(location.pathname)
+    && !isProductEcosystemsPath(location.pathname)
+    && !isProductHomeDemosPath(location.pathname)
+    && state.package === null
+    && activeRetainedEcosystemId() !== null;
+}
+
+function resetEcosystemPackageDiscovery(): void {
+  ecosystemPackageQueryController.cancel();
+  ecosystemPackageDiscovery.ecosystemId = null;
+  ecosystemPackageDiscovery.capacity = 24;
+  ecosystemPackageDiscovery.pendingCapacity = null;
+  ecosystemPackageDiscovery.navigationError = "";
+  const initial = initialQueryState();
+  ecosystemPackageDiscovery.query.request = initial.request;
+  ecosystemPackageDiscovery.query.outcome = initial.outcome;
+  ecosystemPackageDiscovery.query.termDraft = null;
+  ecosystemPackageDiscovery.query.termEdits = [];
+}
+
+function reconcileEcosystemPackageDiscovery(): void {
+  const ecosystemId = ecosystemPackageDiscoveryVisible()
+    ? activeRetainedEcosystemId()
+    : null;
+  if (ecosystemId === ecosystemPackageDiscovery.ecosystemId) return;
+  resetEcosystemPackageDiscovery();
+  if (ecosystemId === null) return;
+  ecosystemPackageDiscovery.ecosystemId = ecosystemId;
+  void ecosystemPackageQueryController.run(
+    createEcosystemQueryRequest(ecosystemId));
+}
+
+async function raiseEcosystemPackageCapacity(
+  capacity: EcosystemPackageCapacity,
+): Promise<void> {
+  const ecosystemId = ecosystemPackageDiscovery.ecosystemId;
+  if (ecosystemId === null
+    || capacity <= ecosystemPackageDiscovery.capacity
+    || ecosystemPackageDiscovery.pendingCapacity !== null) return;
+  const previous = ecosystemPackageDiscovery.capacity;
+  ecosystemPackageDiscovery.capacity = capacity;
+  ecosystemPackageDiscovery.pendingCapacity = capacity;
+  render();
+  const granted =
+    await ecosystemPackageQueryController.requestAdditionalMatchCredit(
+      capacity - previous);
+  if (ecosystemPackageDiscovery.ecosystemId !== ecosystemId) return;
+  ecosystemPackageDiscovery.pendingCapacity = null;
+  if (!granted) ecosystemPackageDiscovery.capacity = previous;
+  render();
+}
+
 function renderRetainedEcosystemView(
   presentation: NavigationDescriptorPresentation,
 ): void {
@@ -9331,10 +9495,9 @@ function renderRetainedEcosystemView(
                 <h1>${escapeHtml(title)}</h1>
               </div>
             </header>
-            <div class="empty-state">
-              <h2>No packages are loaded.</h2>
-              <p>This Ecosystem is ready for package discovery.</p>
-            </div>
+            ${renderEcosystemPackageDiscovery(
+              ecosystemPackageDiscovery,
+              escapeHtml)}
           </article>
         </section>
       </main>
@@ -9354,6 +9517,22 @@ function renderRetainedEcosystemView(
       error: state.libraryOpenError,
     }, escapeHtml)}`);
   bindWorkspaceCatalogViewEvents();
+  bindEcosystemPackageDiscovery(document, {
+    onCapacity: capacity => {
+      observeAsync(
+        raiseEcosystemPackageCapacity(capacity),
+        "Increasing Ecosystem package capacity");
+    },
+    onPackageOpen: (packageId, version) => {
+      observeAsync(
+        openPackageQueryRow(
+          packageId,
+          version,
+          undefined,
+          "ecosystem"),
+        "Opening an Ecosystem package");
+    },
+  });
 }
 
 function bindWorkspaceCatalogViewEvents(): void {
@@ -19534,26 +19713,40 @@ async function openPackageQueryRow(
   packageId: string,
   version: string,
   rootRequest?: string,
+  origin: "query" | "ecosystem" = "query",
 ) {
   if (rootRequest !== undefined) {
     await openExactPackageQueryRow(packageId, version, rootRequest);
     return;
   }
-  packageQueryViewport =
-    capturePackageQueryViewport(document) ?? packageQueryViewport;
+  if (origin === "query") {
+    packageQueryViewport =
+      capturePackageQueryViewport(document) ?? packageQueryViewport;
+  }
   if (!canPublishRetainedWorkspace()) {
-    state.packageQueryNavigationError = retainedWorkspaceCapacityMessage();
+    if (origin === "query") {
+      state.packageQueryNavigationError = retainedWorkspaceCapacityMessage();
+    } else {
+      ecosystemPackageDiscovery.navigationError =
+        retainedWorkspaceCapacityMessage();
+    }
     render();
     return;
   }
-  packageQueryController.cancel();
+  if (origin === "query") packageQueryController.cancel();
   packageChangesController.cancel("disposed");
-  discardPackageQueryTermEditors();
-  state.packageQueryOpen = false;
+  if (origin === "query") {
+    discardPackageQueryTermEditors();
+    state.packageQueryOpen = false;
+  }
   const navigationSeq = navigationSequence.begin();
   packageQueryHandoffNavigationSeq = navigationSeq;
-  state.packageQueryNavigationError = "";
-  packageQueryAnnouncements.beginNavigationAttempt();
+  if (origin === "query") {
+    state.packageQueryNavigationError = "";
+    packageQueryAnnouncements.beginNavigationAttempt();
+  } else {
+    ecosystemPackageDiscovery.navigationError = "";
+  }
   const controller = requireRetainedWorkspaceActivation();
   if (controller.state.activeDefinitionId === null
     && retainedWorkspaces.activeWorkspaceId !== null) {
@@ -19603,7 +19796,8 @@ async function openPackageQueryRow(
       packageId,
       version,
       errorMessage(error)
-        || `Couldn’t open ${packageId}@${version} in the workspace.`);
+        || `Couldn’t open ${packageId}@${version} in the workspace.`,
+      origin);
     return;
   }
   if (packageQueryHandoffNavigationSeq === navigationSeq)
@@ -19616,7 +19810,8 @@ async function openPackageQueryRow(
       packageId,
       version,
       result.failure?.message
-        ?? `Couldn’t open ${packageId}@${version} in the workspace.`);
+        ?? `Couldn’t open ${packageId}@${version} in the workspace.`,
+      origin);
     return;
   }
   if (result.status === "activated" || result.status === "noEffect") {
@@ -19634,13 +19829,15 @@ async function openPackageQueryRow(
   reportPackageQueryNavigationFailure(
     packageId,
     version,
-    `Opening ${packageId}@${version} was superseded before the Workspace could be activated.`);
+    `Opening ${packageId}@${version} was superseded before the Workspace could be activated.`,
+    origin);
 }
 
 function reportPackageQueryNavigationFailure(
   packageId: string,
   version: string,
   failure: string,
+  origin: "query" | "ecosystem" = "query",
 ): void {
   state.loading = false;
   state.error = "";
@@ -19649,12 +19846,18 @@ function reportPackageQueryNavigationFailure(
   state.retryAction = null;
   state.queryNotice = "";
   state.queryNoticeRetryAction = null;
-  state.packageQueryOpen = true;
-  state.packageQueryNavigationError = failure;
+  if (origin === "query") {
+    state.packageQueryOpen = true;
+    state.packageQueryNavigationError = failure;
+  } else {
+    ecosystemPackageDiscovery.navigationError = failure;
+  }
   render();
   afterCurrentNavigationFrame(() =>
     document.querySelector<HTMLElement>(
-      `[data-query-row-open="${cssEscape(packageId)}"][data-query-row-version="${cssEscape(version)}"]`)
+      origin === "query"
+        ? `[data-query-row-open="${cssEscape(packageId)}"][data-query-row-version="${cssEscape(version)}"]`
+        : `[data-ecosystem-package-open="${cssEscape(packageId)}"][data-ecosystem-package-version="${cssEscape(version)}"]`)
       ?.focus());
 }
 

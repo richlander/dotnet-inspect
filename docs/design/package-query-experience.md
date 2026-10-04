@@ -21,7 +21,8 @@ exact package and terminal-star prefix input, product-issued inspection terms,
 streaming Browser engine source,
 explicitly bounded package-content acquisition, cancellation, honest partial
 and bounded completion states, package-grain decoded library-literal
-qualification, and typed Workspace handoff. The controller,
+qualification, typed Workspace handoff, and the active Ecosystem Overview's
+curated 24/48/96 package-discovery consumer. The controller,
 adapter, route, renderer, and engine projection are enforced by the
 package-query frontend and Browser engine test suites. Visualization,
 persistence, sharing, outcome caching, and additional assembly-pattern
@@ -418,6 +419,35 @@ operation deadlines are unchanged. A request containing `library-literal`
 uses a 25-second source-and-semantic deadline inside the Browser's 30-second
 package-operation deadline, leaving time to serialize a typed deadline-expired
 Package Query Document.
+
+### Active Ecosystem Overview consumer
+
+An exact active Ecosystem Overview is a curated Package Query consumer, not a
+second query surface. It submits the active catalog-issued Ecosystem identity
+through `PackageQuery.PlanEcosystemInput`, keeps the resulting Portable Query
+Intent and managed operation identity stable, and requests at most 96 matches.
+The Browser initially grants 24 durable-match credits and presents cumulative
+capacity as **Show: 24 | 48 | 96**. Selecting 48 grants only the missing 24
+credits; selecting 96 after 48 grants 48, while selecting 96 directly from 24
+grants 72. A repeated selection, rerender, viewport change, or scroll pressure
+grants no credit.
+
+The active capacity is text and only larger available capacities are actions.
+When the producer completes below the active capacity, the Overview reports the
+exact observed package count and removes larger capacities because they cannot
+reveal another row. Leaving the active Ecosystem cancels that operation;
+returning starts a new operation for the newly selected Browser entry rather
+than reviving hidden work. Selecting a row uses the existing exact
+package-ID/version Workspace handoff.
+
+The generic `/query` surface retains its 20-initial/10-near-end-scroll policy.
+The Ecosystem consumer changes only work authorization and presentation: it
+does not alter result order, admission evidence, progress, partial failure,
+cancellation, or completion semantics. By operator choice, the composition
+claim that this Overview performs no package-archive or Library acquisition has
+no dedicated gate and remains unverified here; Package Query's owner-level
+acquisition tests remain unchanged.
+
 The shared profile now consumes
 [incremental prefix pages](package-prefix-candidate-stream.md):
 each page's manifests are evaluated before
