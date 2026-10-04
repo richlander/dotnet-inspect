@@ -215,10 +215,13 @@ public sealed class StringMaterializationAnalysisTests
     [Fact]
     public void OptimizationOpportunities_ProjectCompiledOperations()
     {
-        var index = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisStringMaterialization
-                .AssemblyPath());
-        var opportunities = index.OptimizationOpportunities
+        LibraryBodyAnalysisExecution analysis =
+            BodyAnalysisTestExecution.Open(
+                FixtureCatalog.AnalysisStringMaterialization
+                    .AssemblyPath(),
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+        var opportunities = analysis.Optimization.Opportunities
             .Where(candidate =>
                 candidate.Method.DeclaringType.Name
                 == "StringMaterializationSamples"

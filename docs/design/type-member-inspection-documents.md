@@ -1144,6 +1144,63 @@ Share projects the subject and portable semantic request under its owner. It
 does not serialize acquired source, House receipts, live Workspace state,
 credentials, or source continuations.
 
+## QuerySpace host boundary
+
+[Query Space Composition](query-space-composition.md#owner-and-exact-claim)
+owns the closed host-neutral query space, structural request lowering,
+owner-issued plans, terminal semantics, and optional generated consumer API.
+[Inspection operation
+composition](inspection-operation-composition.md#host-agreement-and-divergence)
+owns the sequence from host gesture through one subject-specific semantic
+request to a completed typed result. This design adopts those contracts for the
+Type/Member document family; it does not redefine them.
+
+QuerySpace reaches each host as a typed capability and request boundary, not as
+host-owned query logic:
+
+```text
+CLI option / Browser gesture
+  -> host-owned syntax, disclosure, and normalization
+  -> owner-issued Type or Member request construction
+  -> QuerySpace-backed host-neutral document operation
+  -> InspectionEnvelope<TContent>
+  -> host-owned interaction and presentation
+```
+
+The host may choose which admitted controls to expose and which explicit values
+to request. Omission of a Browser control lowers through the same owner-issued
+factory to the declared empty or default semantic intent; it does not create a
+Browser-specific population. CLI aliases, implicit routing, and display
+defaults likewise settle before execution as explicit semantic request values.
+
+The host-neutral operation owns:
+
+- QuerySpace identities, row-set identities, facets, operators, result
+  contracts, and request validation;
+- Rows, Count, ordering, semantic row selection, continuation, and completion;
+- nested composition such as Type Member-group Rows carrying requested
+  exact-overload Counts without constructing exact-overload Rows;
+- delegation or specialization that lets the question reach acquisition and
+  producer work; and
+- the typed Content, Share, diagnostics, and failure states returned in the
+  completed envelope.
+
+CLI and Browser adapters own Workspace lifetime, capability binding, transport
+mechanics, scheduling, navigation, and rendering. They do not independently
+enumerate, filter, order, count, limit, or regroup a declaration population
+that the shared request assigns to QuerySpace. Browser DTOs may mechanically
+carry admitted request values and completed results, but TypeScript does not
+resolve QuerySpace vocabulary or reconstruct a semantic plan. A rendered-line
+or host-chrome limit remains presentation after the typed result; it is not a
+QuerySpace row limit.
+
+The preferred production surface is subject-specific rather than a raw
+general-purpose QuerySpace API. A Type or Member request exposes the admitted
+semantic controls and lowers them through owner-issued factories or generated
+wiring. Both hosts call the same operation and consume the same envelope. The
+underlying descriptor remains available for discovery and explanation without
+requiring either host to duplicate its vocabulary.
+
 ## Sections and presentation
 
 Sections project completed documents; they do not invoke another House,
@@ -1276,8 +1333,9 @@ owns the revised counted path:
    exact-row DocumentationHouse attachments.
 6. Compose exact Member SourceHouse attachments.
 7. Add the compact declared Type Member-group population and terminal-specific
-   QuerySpace execution, including nested exact-overload Count, the
-   `accessibility` projection, and Composition Count.
+   QuerySpace execution under the [QuerySpace host
+   boundary](#queryspace-host-boundary), including nested exact-overload Count,
+   the `accessibility` projection, and Composition Count.
 8. Implement `TypeDocument` over that population without the eager rich
    exact-Type/API-surface path.
 9. Bind the native Type Tree and section inventories to the shared route in
@@ -1320,6 +1378,15 @@ The implementation sequence must add Release gates proving:
   retaining continuation and binding;
 - Count executes a compact producer-owned kernel and allocates materially less
   than the superseded eager exact-Type path;
+- CLI and Browser Type population call sites lower through the same
+  subject-specific host-neutral request construction and consume the same
+  envelope contract, while Browser transport remains mechanical;
+- a host with no control for one admitted QuerySpace dimension forms the
+  owner-issued empty or default intent and observes the same population result
+  as an explicit equivalent request from the other host;
+- Type Member-group filtering, ordering, bounded Rows, nested overload Count,
+  and Composition Count reach shared QuerySpace execution rather than
+  post-materialization host processing;
 - NativeAOT production before/after measurement is performed only after a
   production caller adopts the route, following #8411's interleaved,
   output-guarded method;
