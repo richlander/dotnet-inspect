@@ -271,6 +271,7 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
         bool malformedPublicType = false,
         bool includeModuleExport = false,
         bool includeGlobalType = false,
+        bool duplicatePublicType = false,
         string metadataVersion = "v4.0.30319",
         bool undecodableCompany = false)
     {
@@ -341,6 +342,19 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        }
+        if (duplicatePublicType)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("C"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            }
         }
         if (malformedPublicType)
         {
