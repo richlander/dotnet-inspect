@@ -209,11 +209,15 @@ public readonly ref struct AssemblyImageSpanResult
 /// <c>DisposalInsideCallback_DoesNotRevokeActiveView</c>, and
 /// <c>GroupRejectsMixedBindingPolicySnapshots</c>. Derived-resource ordering
 /// is gated by
-/// <c>OwnedResources_AreDisposedBeforeSnapshots</c>.
+/// <c>OwnedResources_AreDisposedBeforeSnapshots</c>. Participant-resource
+/// admission and retirement are gated by
+/// <c>ParticipantResourceLease_RequiresExactRegisteredPair</c>,
+/// <c>ParticipantResourceRelease_WaitsForFinalLease</c>, and
+/// <c>ParticipantResourceCleanup_DoesNotHoldGroupLifetimeGate</c>.
 /// </remarks>
-internal interface IAssemblyContextParticipantOwnedResource
+internal interface IAssemblyContextParticipantOwnedResource : IDisposable
 {
-    bool TryReleaseParticipant(
+    void ReleaseParticipant(
         AssemblyAcquisitionRegistration registration);
 }
 
@@ -776,24 +780,44 @@ public sealed class AssemblyContextGroup : IDisposable
         }
     }
 
-    internal AssemblyContextGroupResourceBorrow BorrowOwnedResource<
-        TResource>(
-        TResource resource)
-        where TResource : class, IDisposable
+    internal AssemblyContextGroupResourceBorrow BorrowOwnedResource(
+        IAssemblyContextParticipantOwnedResource resource,
+        AssemblyAcquisitionRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(resource);
-        lock (_lifetimeGate)
+        ArgumentNullException.ThrowIfNull(registration);
+        if (!_participantByRegistration.TryGetValue(
+                registration,
+                out ParticipantState? participant))
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!_ownedResources.Contains(resource))
-            {
-                throw new ArgumentException(
-                    "The resource is not owned by this assembly context group.",
-                    nameof(resource));
-            }
-            _activeCallbacks++;
+            throw new ArgumentException(
+                "The participant does not belong to this context group.",
+                nameof(registration));
         }
-        return new AssemblyContextGroupResourceBorrow(this);
+
+        lock (participant.ImageLoadGate)
+        {
+            lock (_lifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                ObjectDisposedException.ThrowIf(
+                    participant.ReleaseRequested || participant.Released,
+                    participant);
+                if (!_ownedResources.Contains(resource))
+                {
+                    throw new ArgumentException(
+                        "The resource is not owned by this assembly context group.",
+                        nameof(resource));
+                }
+
+                participant.BeginResourceLease(resource);
+                _activeCallbacks++;
+            }
+        }
+        return new AssemblyContextGroupResourceBorrow(
+            this,
+            participant,
+            resource);
     }
 
     internal void UnregisterOwnedResource(IDisposable resource)
@@ -932,13 +956,9 @@ public sealed class AssemblyContextGroup : IDisposable
         ParticipantState participant,
         Exception? operationFailure)
     {
-        lock (participant.ImageLoadGate)
-            participant.RequestRelease();
-        (
-            bool participantResourcesReleased,
-            Exception? participantReleaseFailure) =
-                TryReleaseParticipantOwnedResources(
-                    participant.Participant.Assembly.Registration);
+        RequestParticipantRelease(participant);
+        Exception? participantReleaseFailure =
+            TryRetireParticipantOwnedResources(participant);
 
         bool release;
         bool captureReleaseFailure;
@@ -956,7 +976,8 @@ public sealed class AssemblyContextGroup : IDisposable
                     _released = true;
                 }
                 else if (!_disposed
-                    && participantResourcesReleased)
+                    && participantReleaseFailure is null
+                    && participant.CanReleaseSnapshot())
                 {
                     _retainedImageBytes -= participant.Release();
                 }
@@ -976,100 +997,135 @@ public sealed class AssemblyContextGroup : IDisposable
         CompleteCallbackRelease(
             release,
             captureReleaseFailure,
-            combinedOperationFailure);
-        if (!release
-            && participantReleaseFailure is not null)
-        {
+            release
+                ? operationFailure
+                : combinedOperationFailure);
+        if (participantReleaseFailure is not null)
             throw combinedOperationFailure!;
-        }
     }
 
-    (
-        bool Released,
-        Exception? Failure)
-        TryReleaseParticipantOwnedResources(
-            AssemblyAcquisitionRegistration registration)
+    void RequestParticipantRelease(ParticipantState participant)
     {
-        IDisposable[] resources;
-        lock (_lifetimeGate)
-            resources = [.. _ownedResources];
-
-        bool released = true;
-        List<Exception>? failures = null;
-        foreach (IDisposable resource in resources)
-        {
-            if (resource
-                is not IAssemblyContextParticipantOwnedResource
-                    participantResource)
-            {
-                continue;
-            }
-
-            try
-            {
-                released &=
-                    participantResource.TryReleaseParticipant(
-                        registration);
-            }
-            catch (Exception ex)
-            {
-                released = false;
-                (failures ??= []).Add(ex);
-            }
-        }
-
-        return (
-            released,
-            failures is null
-                ? null
-                : new AggregateException(failures));
-    }
-
-    internal void TryCompleteParticipantRelease(
-        AssemblyAcquisitionRegistration registration)
-    {
-        ParticipantState participant;
-        lock (_lifetimeGate)
-        {
-            if (_disposed
-                || !_participantByRegistration.TryGetValue(
-                    registration,
-                    out participant!))
-            {
-                return;
-            }
-        }
-
-        lock (participant.ImageLoadGate)
-        {
-            if (!participant.ReleaseRequested
-                || participant.Released)
-            {
-                return;
-            }
-        }
-
-        (bool released, Exception? failure) =
-            TryReleaseParticipantOwnedResources(registration);
-        if (failure is not null)
-            throw failure;
-        if (!released)
-            return;
-
         lock (participant.ImageLoadGate)
         {
             lock (_lifetimeGate)
             {
-                if (_disposed
-                    || !participant.ReleaseRequested
-                    || participant.Released)
-                {
+                if (!participant.RequestRelease())
                     return;
-                }
 
-                _retainedImageBytes -= participant.Release();
+                foreach (IDisposable resource in _ownedResources)
+                {
+                    if (resource
+                        is IAssemblyContextParticipantOwnedResource
+                            participantResource)
+                    {
+                        participant.RequireResource(
+                            participantResource);
+                    }
+                }
             }
         }
+    }
+
+    Exception? TryRetireParticipantOwnedResources(
+        ParticipantState participant)
+    {
+        IAssemblyContextParticipantOwnedResource[] resources;
+        lock (participant.ImageLoadGate)
+        {
+            lock (_lifetimeGate)
+            {
+                if (!participant.ReleaseRequested
+                    || participant.Released)
+                {
+                    return null;
+                }
+
+                resources =
+                    participant.BeginResourceRetirement();
+            }
+        }
+
+        List<Exception>? failures = null;
+        foreach (IAssemblyContextParticipantOwnedResource resource
+            in resources)
+        {
+            Exception? failure = null;
+            try
+            {
+                resource.ReleaseParticipant(
+                    participant.Participant.Assembly.Registration);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+                (failures ??= []).Add(ex);
+            }
+
+            lock (participant.ImageLoadGate)
+            {
+                lock (_lifetimeGate)
+                {
+                    participant.CompleteResourceRetirement(
+                        resource,
+                        failure);
+                }
+            }
+        }
+
+        return failures is null
+            ? null
+            : new AggregateException(failures);
+    }
+
+    void EndParticipantResourceBorrow(
+        ParticipantState participant,
+        IAssemblyContextParticipantOwnedResource resource)
+    {
+        lock (participant.ImageLoadGate)
+        {
+            lock (_lifetimeGate)
+            {
+                participant.EndResourceLease(resource);
+            }
+        }
+
+        Exception? participantReleaseFailure =
+            TryRetireParticipantOwnedResources(participant);
+        bool release;
+        bool captureReleaseFailure;
+        lock (participant.ImageLoadGate)
+        {
+            lock (_lifetimeGate)
+            {
+                _activeCallbacks--;
+                release =
+                    _releaseRequested
+                    && _activeCallbacks == 0
+                    && !_released;
+                if (release)
+                {
+                    _released = true;
+                }
+                else if (!_disposed
+                    && participantReleaseFailure is null
+                    && participant.CanReleaseSnapshot())
+                {
+                    _retainedImageBytes -= participant.Release();
+                }
+
+                captureReleaseFailure = _captureReleaseFailure;
+            }
+        }
+
+        CompleteCallbackRelease(
+            release,
+            captureReleaseFailure,
+            release
+                ? null
+                : participantReleaseFailure);
+        if (participantReleaseFailure is not null)
+            throw participantReleaseFailure;
     }
 
     void ReleaseSnapshotCore(ParticipantState participant)
@@ -1137,18 +1193,26 @@ public sealed class AssemblyContextGroup : IDisposable
         : IDisposable
     {
         private AssemblyContextGroup? _owner;
+        private readonly ParticipantState _participant;
+        private readonly IAssemblyContextParticipantOwnedResource _resource;
 
         internal AssemblyContextGroupResourceBorrow(
-            AssemblyContextGroup owner)
+            AssemblyContextGroup owner,
+            ParticipantState participant,
+            IAssemblyContextParticipantOwnedResource resource)
         {
             _owner = owner;
+            _participant = participant;
+            _resource = resource;
         }
 
         public void Dispose()
         {
             AssemblyContextGroup? owner =
                 Interlocked.Exchange(ref _owner, null);
-            owner?.EndCallback(operationFailure: null);
+            owner?.EndParticipantResourceBorrow(
+                _participant,
+                _resource);
         }
     }
 
@@ -1266,6 +1330,11 @@ public sealed class AssemblyContextGroup : IDisposable
         foreach (ParticipantState participant
             in _participantByRegistration.Values)
         {
+            foreach (Exception failure
+                in participant.ResourceReleaseFailures())
+            {
+                (failures ??= []).Add(failure);
+            }
             ReleaseSnapshotCore(participant);
         }
 
@@ -1274,7 +1343,7 @@ public sealed class AssemblyContextGroup : IDisposable
             : new AggregateException(failures);
     }
 
-    sealed class ParticipantState
+    internal sealed class ParticipantState
     {
         internal ParticipantState(
             AssemblyContextParticipant participant,
@@ -1302,9 +1371,129 @@ public sealed class AssemblyContextGroup : IDisposable
         internal bool ReleaseRequested { get; private set; }
         internal bool Released { get; private set; }
         internal SnapshotAccess Access { get; set; }
+        internal int ActiveResourceLeases { get; set; }
+        private Dictionary<
+            IAssemblyContextParticipantOwnedResource,
+            ParticipantResourceState> ResourceStates { get; } =
+                new(ReferenceEqualityComparer.Instance);
+        private HashSet<
+            IAssemblyContextParticipantOwnedResource> RequiredResources
+                { get; } =
+                    new(ReferenceEqualityComparer.Instance);
 
-        internal void RequestRelease() =>
+        private ParticipantResourceState GetOrCreateResourceState(
+            IAssemblyContextParticipantOwnedResource resource)
+        {
+            if (!ResourceStates.TryGetValue(
+                    resource,
+                    out ParticipantResourceState? state))
+            {
+                state = new();
+                ResourceStates.Add(resource, state);
+            }
+            return state;
+        }
+
+        internal void BeginResourceLease(
+            IAssemblyContextParticipantOwnedResource resource)
+        {
+            GetOrCreateResourceState(resource).ActiveLeases++;
+            ActiveResourceLeases++;
+        }
+
+        internal void RequireResource(
+            IAssemblyContextParticipantOwnedResource resource)
+        {
+            RequiredResources.Add(resource);
+            _ = GetOrCreateResourceState(resource);
+        }
+
+        internal bool RequestRelease()
+        {
+            if (ReleaseRequested)
+                return false;
+
             ReleaseRequested = true;
+            return true;
+        }
+
+        internal IAssemblyContextParticipantOwnedResource[]
+            BeginResourceRetirement()
+        {
+            var resources =
+                new List<IAssemblyContextParticipantOwnedResource>();
+            foreach (IAssemblyContextParticipantOwnedResource resource
+                in RequiredResources)
+            {
+                ParticipantResourceState state =
+                    ResourceStates[resource];
+                if (state.ActiveLeases == 0
+                    && state.ReleaseState
+                        == ParticipantResourceReleaseState.Live)
+                {
+                    state.ReleaseState =
+                        ParticipantResourceReleaseState.Releasing;
+                    resources.Add(resource);
+                }
+            }
+            return [.. resources];
+        }
+
+        internal void CompleteResourceRetirement(
+            IAssemblyContextParticipantOwnedResource resource,
+            Exception? failure)
+        {
+            ParticipantResourceState state = ResourceStates[resource];
+            state.ReleaseState =
+                failure is null
+                    ? ParticipantResourceReleaseState.Released
+                    : ParticipantResourceReleaseState.Failed;
+            state.Failure = failure;
+        }
+
+        internal void EndResourceLease(
+            IAssemblyContextParticipantOwnedResource resource)
+        {
+            ParticipantResourceState state = ResourceStates[resource];
+            state.ActiveLeases--;
+            ActiveResourceLeases--;
+            if (state.ActiveLeases < 0 || ActiveResourceLeases < 0)
+            {
+                throw new InvalidOperationException(
+                    "Participant resource lease accounting became negative.");
+            }
+        }
+
+        internal bool CanReleaseSnapshot()
+        {
+            if (!ReleaseRequested
+                || Released
+                || ActiveResourceLeases != 0)
+            {
+                return false;
+            }
+
+            foreach (IAssemblyContextParticipantOwnedResource resource
+                in RequiredResources)
+            {
+                if (ResourceStates[resource].ReleaseState
+                    != ParticipantResourceReleaseState.Released)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        internal IEnumerable<Exception> ResourceReleaseFailures()
+        {
+            foreach (ParticipantResourceState state
+                in ResourceStates.Values)
+            {
+                if (state.Failure is { } failure)
+                    yield return failure;
+            }
+        }
 
         internal long Release()
         {
@@ -1320,7 +1509,22 @@ public sealed class AssemblyContextGroup : IDisposable
         }
     }
 
-    readonly record struct SnapshotAccess(
+    sealed class ParticipantResourceState
+    {
+        internal int ActiveLeases { get; set; }
+        internal ParticipantResourceReleaseState ReleaseState { get; set; }
+        internal Exception? Failure { get; set; }
+    }
+
+    enum ParticipantResourceReleaseState
+    {
+        Live,
+        Releasing,
+        Released,
+        Failed,
+    }
+
+    internal readonly record struct SnapshotAccess(
         AssemblyImageSnapshot? Snapshot,
         CandidateOpenFailure? Failure);
 }

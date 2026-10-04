@@ -218,7 +218,7 @@ public sealed class AssemblyContextDeclaredMethodPopulationQueryTests
     }
 
     [Fact]
-    public async Task StreamingReleaseWaitsForPreparedExecution()
+    public async Task StreamingReleaseWaitsForFinalPreparedExecution()
     {
         string path = typeof(System.Text.Json.JsonSerializer)
             .Assembly.Location;
@@ -228,7 +228,9 @@ public sealed class AssemblyContextDeclaredMethodPopulationQueryTests
         AssemblyContextParticipant participant = group.Participants[0];
         AssemblyContextDeclaredMethodPopulationPreparation.Ready? ready =
             null;
-        AssemblyContextDeclaredMethodPopulationExecution? execution =
+        AssemblyContextDeclaredMethodPopulationExecution? firstExecution =
+            null;
+        AssemblyContextDeclaredMethodPopulationExecution? secondExecution =
             null;
 
         AssemblyImageAccessResult<int> result =
@@ -245,23 +247,38 @@ public sealed class AssemblyContextDeclaredMethodPopulationQueryTests
                                     participant,
                                     binding,
                                     TestContext.Current.CancellationToken));
-                    execution = ready.OpenExecution();
+                    firstExecution = ready.OpenExecution();
+                    secondExecution = ready.OpenExecution();
                     return Task.FromResult(1);
                 });
 
         Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
         Assert.NotNull(ready);
-        Assert.NotNull(execution);
+        Assert.NotNull(firstExecution);
+        Assert.NotNull(secondExecution);
         Assert.True(group.RetainedImageBytes > 0);
         Assert.Equal(
             MetadataDeclaredMethodPopulationResultKind.Counted,
-            execution.Count().Kind);
+            firstExecution.Count().Kind);
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationResultKind.Counted,
+            secondExecution.Count().Kind);
         Assert.Throws<ObjectDisposedException>(() => ready.Count());
 
-        execution.Dispose();
+        firstExecution.Dispose();
+
+        Assert.True(group.RetainedImageBytes > 0);
+        Assert.Throws<ObjectDisposedException>(
+            () => firstExecution.Count());
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationResultKind.Counted,
+            secondExecution.Count().Kind);
+
+        secondExecution.Dispose();
 
         Assert.Equal(0, group.RetainedImageBytes);
-        Assert.Throws<ObjectDisposedException>(() => execution.Count());
+        Assert.Throws<ObjectDisposedException>(
+            () => secondExecution.Count());
     }
 
     [Fact]
