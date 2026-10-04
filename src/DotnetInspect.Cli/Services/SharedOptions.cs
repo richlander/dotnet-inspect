@@ -307,11 +307,12 @@ public class SharedOptions
     public void AddOutputOptionsTo(
         Command command,
         bool supportsRowWindows = true,
-        Func<CommandResult, bool>? validateLegacyRowWindow = null)
+        Func<CommandResult, bool>? validateLegacyRowWindow = null,
+        Option<string?>? companion = null)
     {
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
-        command.Options.Add(Companion);
+        command.Options.Add(companion ?? Companion);
         command.Options.Add(Rows);
         AddLineSelectionOptionsTo(command);
 
@@ -769,22 +770,29 @@ public class SharedOptions
     /// <summary>
     /// Creates the CLI companion-output option.
     /// </summary>
-    public static Option<string?> CreateCompanionOption()
+    public static Option<string?> CreateCompanionOption(
+        bool allowBareExplanation = false)
     {
         var option = new Option<string?>("-E")
         {
             Description =
-                "Write companion output to stderr (.tips is available; "
-                + "bare explanation and .references are reserved)",
+                allowBareExplanation
+                    ? "Write companion output to stderr "
+                        + "(bare explanation or .tips)"
+                    : "Write companion output to stderr (.tips is available; "
+                        + "bare explanation and .references are reserved)",
             Arity = ArgumentArity.ZeroOrOne,
         };
         option.Validators.Add(result =>
         {
             if (result.Tokens.Count == 0)
             {
-                result.AddError(
-                    "Bare '-E' is reserved for complete contextual explanation, "
-                    + "which is not available yet. Use '-E .tips' for contextual tips.");
+                if (!allowBareExplanation)
+                {
+                    result.AddError(
+                        "Bare '-E' is reserved for complete contextual explanation, "
+                        + "which is not available yet. Use '-E .tips' for contextual tips.");
+                }
                 return;
             }
 
@@ -805,10 +813,20 @@ public class SharedOptions
     /// <summary>
     /// Resolves the requested companion projection.
     /// </summary>
-    public CompanionOutput ParseCompanionOutput(ParseResult parseResult)
-        => parseResult.GetValue(Companion) == ".tips"
+    public CompanionOutput ParseCompanionOutput(
+        ParseResult parseResult,
+        Option<string?>? companion = null)
+    {
+        companion ??= Companion;
+        OptionResult? result = parseResult.GetResult(companion);
+        if (result is null)
+            return CompanionOutput.None;
+        if (result.Tokens.Count == 0)
+            return CompanionOutput.Explanation;
+        return parseResult.GetValue(companion) == ".tips"
             ? CompanionOutput.Tips
             : CompanionOutput.None;
+    }
 
     /// <summary>
     /// Resolves the output format from parse result.

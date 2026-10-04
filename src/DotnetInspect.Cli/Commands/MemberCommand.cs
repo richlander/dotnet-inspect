@@ -61,6 +61,8 @@ public static class MemberCommand
                 nameof(plan));
         ResolvedMemberInspectionPlan executionPlan = plan;
         MemberInspectionTerminalPlan? terminalPlan = null;
+        ResolvedMemberInspectionBasis? companionExplanationBasis = null;
+        MemberTargetResolution? contextualExplanationResolution = null;
         if ((options.SourceParts || options.SourcePart is not null)
             && options.Select is null && options.IncludeSections is null)
         {
@@ -192,6 +194,10 @@ public static class MemberCommand
 
         try
         {
+            bool requiresExactExplanation =
+                options.Explain
+                || options.CompanionOutput
+                    == CompanionOutput.Explanation;
             if (loadedSurface is null
                 && ApiCommand.TryWriteCallSiteCount(
                     source,
@@ -221,7 +227,8 @@ public static class MemberCommand
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
             {
-                if (options.RouterDeferredTypeOrMember)
+                if (options.RouterDeferredTypeOrMember
+                    && !requiresExactExplanation)
                 {
                     return await ExecuteDeferredTypeAsync(
                         unresolvedOptions,
@@ -243,6 +250,7 @@ public static class MemberCommand
             ResolvedAssemblyReference? sourceAssembly =
                 loaded.TryGetSourceAssembly(apiType);
             if (options.RouterDeferredTypeOrMember
+                && !requiresExactExplanation
                 && lookupResult.ImpliedMember is null
                 && DeferredExactTargetUsesTypePipeline(
                     apiType,
@@ -457,6 +465,15 @@ public static class MemberCommand
                 }
             }
 
+            if (requiresExactExplanation
+                && options.MemberFilter.Count != 1)
+            {
+                CommandError.Write(
+                    "Contextual Member explanation requires one exact "
+                        + "Member selector.");
+                return 1;
+            }
+
             var acquisition = new ApiCommand.TypeAcquisitionContext(
                 loaded.GetLibraryAssetPath(source.PackageExtractPath),
                 packageName, packageVersion ?? source.ApiVersion, apiSource,
@@ -562,6 +579,113 @@ public static class MemberCommand
                 return 1;
             }
 
+            if (requiresExactExplanation)
+            {
+                string memberName =
+                    effectiveOptions.MemberFilter.First();
+                var selector = new MemberTargetSelector(
+                    memberName,
+                    memberName,
+                    effectiveOptions.OverloadIndex,
+                    effectiveOptions.MemberDigest,
+                    GenericArity:
+                        effectiveOptions.MemberGenericArity);
+                contextualExplanationResolution =
+                    MemberTargetResolver.Resolve(
+                        apiType,
+                        selector,
+                        effectiveOptions.KindFilter);
+                if (contextualExplanationResolution.Diagnostic
+                    is { } explanationDiagnostic)
+                {
+                    CommandError.Write(
+                        explanationDiagnostic.Message,
+                        [.. explanationDiagnostic.CandidateDetails()]);
+                    return 1;
+                }
+
+                ResolvedMemberTarget target =
+                    contextualExplanationResolution.Target!;
+                ApiMember selected = target.ApiMember.Member;
+                string? detailDllPath =
+                    apiType.SourceAssemblyPath
+                    ?? apiDllPath;
+                if (detailDllPath is null)
+                {
+                    CommandError.Write(
+                        "The exact Member's defining Library has no local "
+                            + "inspection path.");
+                    return 1;
+                }
+
+                MemberOptions explanationOptions =
+                    effectiveOptions with
+                    {
+                        DllPath = detailDllPath,
+                        OverloadIndex =
+                            target.Body?.DeclaringOverloadIndex
+                            ?? target.DeclaringOverloadIndex,
+                        SelectedBodyMethodToken =
+                            target.Body?.MetadataToken,
+                    };
+                ResolvedMemberInspectionPlan explanationPlan =
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(
+                            explanationOptions);
+                var (explanationPreamble, explanationError) =
+                    ApiCommand.RunPreamble(
+                        explanationOptions,
+                        explanationPlan);
+                if (explanationError.HasValue)
+                    return explanationError.Value;
+                explanationOptions =
+                    (MemberOptions)explanationPreamble.Options;
+                MemberInspectionTerminalPlan explanationTerminalPlan =
+                    MemberInspectionPlanBuilder.Create(
+                        sourceAssembly,
+                        detailDllPath,
+                        selectedTfm,
+                        apiType.FullName,
+                        apiType.DefinitionName,
+                        ApiMemberIdentity.GetMemberAnchor(
+                            apiType,
+                            selected),
+                        explanationPlan,
+                        explanationOptions,
+                        ResolvedPackageSource(
+                            source,
+                            sourceAssembly,
+                            selectedTfm));
+                companionExplanationBasis =
+                    explanationTerminalPlan.Basis;
+
+                if (effectiveOptions.Explain)
+                {
+                    apiType.Members = [selected];
+                    int explanationExitCode =
+                        MemberExplanationOutput.WritePrimary(
+                            MemberExplanationBindings
+                                .ExplainExactSubject(
+                                    explanationTerminalPlan.Basis),
+                            effectiveOptions.Format);
+                    if (explanationExitCode == 0
+                        && effectiveOptions.CompanionOutput
+                            == CompanionOutput.Tips)
+                    {
+                        Hints.WriteTips(
+                            effectiveOptions.CompanionOutput,
+                            () => MemberTipBindings.Resolve(
+                                apiType,
+                                options.PlatformAssembly,
+                                options.PackagePath,
+                                options.AssemblyPath,
+                                packageName,
+                                packageVersion));
+                    }
+                    return explanationExitCode;
+                }
+            }
+
             if (MemberDocumentOutput.IsSelected(
                         apiType,
                         effectiveOptions,
@@ -581,7 +705,8 @@ public static class MemberCommand
                             + "inspection path.");
                     return 1;
                 }
-                return await MemberDocumentOutput.WriteAsync(
+                int memberDocumentExitCode =
+                    await MemberDocumentOutput.WriteAsync(
                     apiType,
                     effectiveOptions,
                     memberAssemblyPath,
@@ -589,7 +714,21 @@ public static class MemberCommand
                     packageName,
                     packageVersion,
                     context.HttpClient,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    contextualExplanationResolution);
+                if (memberDocumentExitCode == 0
+                    && effectiveOptions.CompanionOutput
+                        == CompanionOutput.Explanation)
+                {
+                    MemberExplanationOutput.WriteCompanion(
+                        MemberExplanationBindings
+                            .ExplainExactSubject(
+                                companionExplanationBasis
+                                ?? throw new InvalidOperationException(
+                                    "Exact Member explanation completed "
+                                        + "without a resolved subject.")));
+                }
+                return memberDocumentExitCode;
             }
 
             if (effectiveOptions.OverloadIndex.HasValue
@@ -610,7 +749,12 @@ public static class MemberCommand
                     effectiveOptions.OverloadIndex,
                     effectiveOptions.MemberDigest,
                     GenericArity: effectiveOptions.MemberGenericArity);
-                var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
+                var memberResolution =
+                    contextualExplanationResolution
+                    ?? MemberTargetResolver.Resolve(
+                        apiType,
+                        selector,
+                        effectiveOptions.KindFilter);
                 if (memberResolution.Diagnostic is { } diagnostic)
                 {
                     CommandError.Write(diagnostic.Message, [.. diagnostic.CandidateDetails()]);
@@ -789,17 +933,22 @@ public static class MemberCommand
                         clonePath,
                         AssemblyResolutionProvenance.Local(
                             "member Clone Candidates"));
-                return await CloneCandidatesCommand.ExecuteAsync(
-                    cloneAssembly,
-                    clonePath,
-                    seed!,
-                    effectiveOptions.CloneCandidateQuery,
-                    CloneCandidateOutputOptions.From(effectiveOptions),
-                    new CloneCandidateWorkspaceOptions(
-                        source.PackageExtractPath,
-                        effectiveOptions.ProjectAssetsPath,
-                        effectiveOptions.Tfm,
-                        effectiveOptions.SourceOptions));
+                int cloneCandidatesExitCode =
+                    await CloneCandidatesCommand.ExecuteAsync(
+                        cloneAssembly,
+                        clonePath,
+                        seed!,
+                        effectiveOptions.CloneCandidateQuery,
+                        CloneCandidateOutputOptions.From(effectiveOptions),
+                        new CloneCandidateWorkspaceOptions(
+                            source.PackageExtractPath,
+                            effectiveOptions.ProjectAssetsPath,
+                            effectiveOptions.Tfm,
+                            effectiveOptions.SourceOptions));
+                return WriteExplanationCompanion(
+                    cloneCandidatesExitCode,
+                    effectiveOptions,
+                    companionExplanationBasis);
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -863,11 +1012,16 @@ public static class MemberCommand
                         "The exact member group's defining Library has no local inspection path.");
                     return 1;
                 }
-                return await MemberGroupDocumentOutput.WriteAsync(
-                    apiType,
+                int memberGroupExitCode =
+                    await MemberGroupDocumentOutput.WriteAsync(
+                        apiType,
+                        effectiveOptions,
+                        memberGroupAssemblyPath,
+                        CancellationToken.None);
+                return WriteExplanationCompanion(
+                    memberGroupExitCode,
                     effectiveOptions,
-                    memberGroupAssemblyPath,
-                    CancellationToken.None);
+                    companionExplanationBasis);
             }
             if (effectiveOptions.Tree
                 && !(effectiveOptions.Count
@@ -1408,7 +1562,18 @@ public static class MemberCommand
             if (selectedSurfaceExitCode != 0)
                 return selectedSurfaceExitCode;
 
-            if (effectiveOptions.CompanionOutput != CompanionOutput.None
+            if (effectiveOptions.CompanionOutput
+                == CompanionOutput.Explanation)
+            {
+                MemberExplanationOutput.WriteCompanion(
+                    MemberExplanationBindings.ExplainExactSubject(
+                        companionExplanationBasis
+                        ?? throw new InvalidOperationException(
+                            "Exact Member explanation completed without "
+                                + "a resolved subject.")));
+            }
+            else if (effectiveOptions.CompanionOutput
+                    == CompanionOutput.Tips
                 && effectiveOptions.OverloadIndex == null)
             {
                 Hints.WriteTips(
@@ -1438,6 +1603,26 @@ public static class MemberCommand
 
             callerScopeAssemblySet?.Dispose();
         }
+    }
+
+    private static int WriteExplanationCompanion(
+        int exitCode,
+        MemberOptions options,
+        ResolvedMemberInspectionBasis? basis)
+    {
+        if (exitCode == 0
+            && options.CompanionOutput
+                == CompanionOutput.Explanation)
+        {
+            MemberExplanationOutput.WriteCompanion(
+                MemberExplanationBindings.ExplainExactSubject(
+                    basis
+                    ?? throw new InvalidOperationException(
+                        "Exact Member explanation completed without "
+                            + "a resolved subject.")));
+        }
+
+        return exitCode;
     }
 
     private static bool DeferredExactTargetUsesTypePipeline(
