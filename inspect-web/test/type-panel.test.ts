@@ -2553,9 +2553,13 @@ test("member rows say what a member is rather than which kind it is", () => {
     }),
     memberAchievements: (group, index) =>
       (group.key === "method:WriteTo" && index === 0)
-      || (group.key === "method:Parse" && index === 1)
         ? [{ kind: "top-leverage", description: "Top Leverage" }]
-        : [],
+        : group.key === "method:Parse" && index === 1
+          ? [
+              { kind: "top-leverage", description: "Top Leverage" },
+              { kind: "api-diff", description: "API differences" },
+            ]
+          : [],
   });
 
   // A single method shows its compact parameter list; a property its type.
@@ -2576,11 +2580,15 @@ test("member rows say what a member is rather than which kind it is", () => {
   );
   assert.match(
     html,
+    /item-achievement-glyph api-diff/,
+  );
+  assert.match(
+    html,
     /item-achievement-glyph implementation-hub/,
   );
   assert.match(
     html,
-    /aria-label="Top Leverage; implementation hub"/,
+    /aria-label="Top Leverage; API differences; implementation hub"/,
   );
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
   assert.match(html, /aria-description="8 instructions"/);

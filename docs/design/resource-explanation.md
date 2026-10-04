@@ -3,12 +3,19 @@
 ## Status
 
 This document is the normative design for **Resource Explanation**, the
-host-neutral contract behind `dotnet-inspect explain`. Production implements
-the complete Library structural domain plus the first bounded Query Space
-adoption: Package Query document, route, operation facets, required-context
-links, and current-host binding resources. Value, broader result-contract,
-Browser/Wasm explanation, and subject-reference adoption remain staged.
+host-neutral object model behind every complete `explain` result. Production
+implements an earlier installed-resource slice for the complete Library
+structural domain plus the first bounded Query Space adoption: Package Query
+document, route, operation facets, required-context links, and current-host
+binding resources. The target object model defined here generalizes that
+slice so installed resources, command resources, and detached resolved
+subjects can use one typed explanation contract. Migration of the current
+closed detail variants and Member-specific contextual wrapper remains staged,
+as do Value, broader result-contract, Browser/Wasm, and subject-reference
+adoption.
 It is the focused design for
+[#9324](https://github.com/richlander/dotnet-inspect/issues/9324), continuing
+the installed-resource lineage from
 [#7964](https://github.com/richlander/dotnet-inspect/issues/7964) under the
 structural and query composition tracked by
 [#7814](https://github.com/richlander/dotnet-inspect/issues/7814).
@@ -21,27 +28,37 @@ behavior.
 
 **Resource Explanation** owns this exact claim:
 
-> Given one exact product-resource path and a settled set of owner-issued
-> explainable descriptors, resolve exactly one root resource, preserve its
-> canonical identity and declared relationships, and produce one deterministic
-> bounded explanation Document. Explanation performs no subject acquisition,
-> executes no query or inspection plan, derives no meaning from display text,
-> CLR reflection, or rendered output, and never turns an absent descriptor into
-> success-shaped empty content.
+> Given one exact owner-issued explainable resource and its settled schema and
+> resource snapshot, compose it with the installed explanation catalog and
+> produce one deterministic bounded explanation Document that preserves typed
+> facts, relationships, identities, and available navigation. Explanation does
+> not itself acquire a subject or execute a query or inspection plan, derives
+> no meaning from display text, CLR reflection, or rendered output, and never
+> turns an absent declaration, invalid value, unresolved required relationship,
+> or unavailable resource into success-shaped empty content.
 
 This is one cross-cutting pattern. It owns:
 
 - the distinction between owner identity and product-resource path;
+- the explanation schema, resource snapshot, catalog, and Document object
+  model;
+- the typed value-shape and relationship vocabulary required to explain data
+  without importing every concrete domain type;
 - the shell-safe resource-path projection;
 - exact path resolution and collection navigation;
-- the host-neutral `ResourceExplanationDocument`;
+- one host-neutral complete explanation Document for installed and contextual
+  resources;
 - typed cross-owner relationship projection;
 - deterministic bounded traversal;
+- the separation between semantic object model and output lowering;
 - the semantic split between compact discovery and exact explanation; and
 - the adoption boundary for CLI and Browser/Wasm consumers.
 
-It does not own the structural, query, value, output-contract, or subject facts
-that it composes.
+It does not own the structural, query, value, output-contract, reusable
+reference, or subject facts that it composes. It also does not decide which
+common declaration types move into `QuerySpace.Primitives`; the
+[QuerySpace library boundary](query-space-library.md) owns that physical and
+API placement after this object model identifies the required shapes.
 
 ## Product role
 
@@ -54,13 +71,32 @@ dotnet-inspect has several introspection surfaces with different jobs:
 | `vocabulary` | Which stable values may I supply? |
 | `explain <search text>` | Which installed product resources might match this text? |
 | `explain <resource path>` | What exactly is this one product resource, and how is it related to other resources? |
+| `<command> --explain` | Make complete or projected explanation the primary result on `stdout`. |
+| `<command> -E` | Preserve ordinary output and append complete or projected explanation on `stderr`. |
 | Inspection commands | What does this subject contain or do? |
 
 The top-level `explain` facade is not a more verbose form of every command. Its
 search branch orients; exact Resource Explanation is the semantic drill-down
-over one installed product contract. The compact surfaces remain the efficient
-way to list and select within a known route; exact explanation resolves one
-resource and composes the detail already issued by its owners.
+over one explainable resource. The compact surfaces remain the efficient way
+to list and select within a known route; exact explanation resolves one
+installed or detached contextual resource and composes the detail already
+issued by its owners.
+
+`--explain` and `-E` are placement gestures over one explanation projection
+namespace. Bare selects the complete explanation Document. `.tips` selects a
+bounded host-gesture projection over owner-issued affordances. The approved
+successor to the former `--references` projection is singular `.reference`,
+which selects reusable owner-issued inspection references. The
+[Contextual Resource Explanation](contextual-resource-explanation.md) owner
+defines their admission, stream, ordering, and direct-subject handoff. This
+owner defines the complete Document they can select and the typed relationships
+from which host projections may be derived.
+
+This design records the approved singular target but does not admit that
+spelling by itself. Contextual Resource Explanation and the dotted-gesture
+grammar currently reserve plural `.references`; their focused #7916 adoption
+must replace that reservation, diagnostics, and examples before `.reference`
+is available in production.
 
 The intended agent loop is:
 
@@ -78,8 +114,10 @@ Resource Explanation uses several precedents by role, not as authorities:
 | Precedent | Adopted idea | Deliberate difference |
 | --- | --- | --- |
 | `kubectl api-resources` and `kubectl explain` | Compact inventory and exact schema explanation are separate gestures. | dotnet-inspect composes several owner-issued descriptor families rather than treating one OpenAPI document as the complete semantic source. |
+| OpenAPI | Reusable schemas, explicit operation inputs and outputs, and named references make a large installed contract navigable. | QuerySpace and semantic owners retain product meaning; Resource Explanation is not an HTTP API description, does not use HTTP verbs or status codes as semantics, and does not make a wire schema authoritative. |
 | GraphQL introspection | Stable typed relationships support tool-driven navigation. | Explanation is bounded product-contract introspection, not a remotely executable graph query language. |
 | JSON Schema | Machine-readable wire shape can be linked from a contract. | Wire shape does not own product meaning, identity, ordering, completeness, effects, or correspondence. |
+| HAL-JSON | A resource representation can carry direct state, navigable relationships, and bounded embedded resources in an agent-familiar form. | HAL terms do not define the object model. A future HAL-JSON projection would be one lowering of typed facts, relationships, and expansion, not their semantic owner. |
 | CLI help systems | Installed behavior is version-matched and locally available. | Resource explanation is structured Content, not presentation prose or parser metadata. |
 
 `kubectl describe` is not the primary analogy. It composes operational detail
@@ -89,23 +127,54 @@ subject-oriented role.
 
 ## Terminology and owner map
 
-### Product resource
+### Explainable resource
 
-A **product resource** is a stable, owner-issued contract element that can be
-named without selecting an inspection subject. Examples include a structural
-section, a query facet, a row space, or a value vocabulary.
+An **explainable resource** is one owner-issued contract or detached resolved
+subject that the owner admits to the explanation object model. Installed
+examples include a structural section, query facet, row space, value
+vocabulary, inspection route, or result contract. Contextual examples include
+one resolved Member or other exact subject after its command owner has
+completed the required resolution.
 
 An explainable resource has:
 
-- one typed owner identity;
-- one registered canonical product-resource path;
-- one resource kind;
-- owner-issued descriptive facts;
-- zero or more declared typed relationships; and
-- an explicit owner.
+- one owner-issued typed identity;
+- one owner-issued explanation key projected from that identity;
+- one owner-issued resource-type identity;
+- one explanation schema that declares its available facts and relationships;
+- one detached resource snapshot whose values conform to that schema;
+- zero or more registered public addresses, such as a product-resource path
+  or reusable inspection reference, when the responsible owner has issued
+  them; and
+- an explicit semantic owner.
 
-Being displayed in a table, emitted as a property, or represented by a CLR
-type does not make a value an explainable resource.
+An installed resource can be entered into the reusable catalog without subject
+acquisition. A resolved resource is supplied as a detached snapshot by the
+command or subject owner after resolution; Resource Explanation does not
+reacquire it or require a public reusable reference for the direct handoff.
+
+Being displayed in a table, emitted as a property, represented by a CLR type,
+or observed in rendered output does not make a value an explainable resource.
+
+### Schema, database, and currency
+
+Resource Explanation serves three related product roles:
+
+- **Schema.** Owner-issued resource types declare stable fact identities,
+  value shapes, cardinalities, and relationship identities.
+- **Database.** Host composition validates and combines the schemas, installed
+  resources, addresses, and cross-owner relationships into one immutable
+  catalog that exact explanation and capability search can consume.
+- **Currency issuer.** The composed catalog publishes canonical
+  product-resource paths, schema identities, fact identities, and relationship
+  identities. Adjacent owners publish their own reusable inspection references
+  and domain identities; explanation preserves and relates them rather than
+  replacing them.
+
+The common vocabulary is the grammar of typed data, not the complete universe
+of product types. A domain owner may describe a `MemberAnchor`, Finding,
+artifact identity, or other domain value through an owner-issued shape without
+moving that concrete type into the common declaration floor.
 
 ### Query vocabulary and value vocabulary
 
@@ -154,8 +223,11 @@ and whole-value Base64 do not satisfy the canonical handoff requirement.
 | Owner | Facts consumed by Resource Explanation |
 | --- | --- |
 | [Schema Query](schema-query.md) | Structural catalogs, categories, sections, items, membership, order, selection, and output capabilities from `DiscoveryDocument`. |
+| [Section Shapes](section-shapes.md) and [Section Cardinality](section-cardinality.md) | Owner-issued Table, Hierarchy, or Text shape and scalar or inventory cardinality for each adopted section. |
 | [Query Space Composition](query-space-composition.md) | Query spaces, scopes, row spaces, facets, bindings, operators, terminals, effects, continuation acceptance, and opaque value-vocabulary or result-contract references from `QuerySpaceDescriptor`. |
+| [QuerySpace Library Boundary](query-space-library.md) | Physical and API placement of the general declaration vocabulary after this owner defines the required object-model shapes. |
 | [Product Vocabulary](vocabulary.md) | Value-vocabulary identities, field schemas, legal operators, accepted query inputs, ordering, defaults, and stable values from `VocabularyDocument`. |
+| [Contextual Resource Explanation](contextual-resource-explanation.md) | Command-resource or resolved-subject selection, direct typed handoff, projection admission, primary-versus-companion placement, and host gesture binding. |
 | [Host-observable Content Kinds](host-observable-content-kinds.md) | The semantic meaning of Document Content. |
 | [Inspection Envelope](inspection-envelope.md) and [Output Shapes](output-shapes.md) | Completed service transport, Share, diagnostics, `(result_kind, schema_version)`, serializers, and output-contract identity. |
 | Reusable Inspection Reference | Subject-reference identity, shell-safe subject IDs, unchanged handoff, and affordance descriptors. |
@@ -173,6 +245,28 @@ query-facet identity, and value-vocabulary identity do not become instances of
 one universal semantic identity merely because `explain` can navigate among
 them.
 
+For composition, each owner issues one schema-conforming explanation key:
+
+```text
+ExplanationResourceKey
+  owner domain identity
+  resource-type identity
+  owner-issued identity value
+```
+
+The identity value uses an owner-declared scalar, record, or closed-choice
+shape with canonical equality and ordering. It cannot be ordered-many. The
+owner constructs the key from its native identity once; Resource Explanation
+does not reconstruct it from a label, path, serialized document, hash, CLR
+type name, or neighboring resource.
+
+The key is the explanation graph's join currency, not a replacement semantic
+identity. Metadata can retain `MemberAnchor`, Query Space can retain a facet
+identity, and Findings can retain a Finding identity while each supplies the
+key projection required for cross-owner composition. Code that already holds
+the native identity continues to use it; hosts and the explanation catalog use
+the key when they need one heterogeneous graph or wire value.
+
 `ResourcePath` is a routing projection over those identities. The explanation
 registry records:
 
@@ -180,8 +274,8 @@ registry records:
 ResourcePathRegistration
   canonical path
   typed owner identity
-  resource kind
-  owner projector
+  resource-type identity
+  owner snapshot projector
 ```
 
 The registration is explicit and statically enumerable. Reflection,
@@ -194,17 +288,17 @@ Each owner adapter declares one explicit adopted descriptor domain. The
 declaration names:
 
 - the owner and descriptor contract;
-- the complete resource kinds adopted from that descriptor;
+- the complete resource types adopted from that descriptor;
 - the descriptor's authoritative resource and relationship enumerations;
-- the typed direct facts selected for each resource-detail variant; and
+- the schema and snapshot projection for each adopted resource type; and
 - the canonical path registration source for every adopted resource.
 
 The adopted boundary is a whole catalog or other owner-issued descriptor
 domain, not an adapter-selected list of individual identities. The source owner
 must expose complete resource and relationship enumeration for that domain; a
-descriptor without such enumeration is not adoptable. Closed kind dispatch is
-exhaustive, so a newly issued resource or relationship kind either receives a
-projector or prevents construction.
+descriptor without such enumeration is not adoptable. Schema and relationship
+dispatch is exhaustive, so a newly issued resource type, fact, or relationship
+either receives a projection or prevents construction.
 
 Adapter construction is bidirectionally total within that boundary:
 
@@ -213,8 +307,9 @@ Adapter construction is bidirectionally total within that boundary:
 - every canonical registration resolves to exactly one authoritative resource
   in the declared domain;
 - every authoritative relationship of an adopted kind produces exactly one
-  typed graph edge, including an opaque external edge when the target owner has
-  no registered path; and
+  typed observation, preserving a targetless admitted outcome or every
+  available graph target whose owner has issued an explanation resource type
+  and key; and
 - no projected resource or relationship exists without its owner-issued
   source.
 
@@ -293,9 +388,11 @@ collection kind. That identity is registered independently of the path. The
 collection carries:
 
 - its collection kind and owner;
-- the count and canonical paths of direct members;
+- the count of direct members;
+- one ordered membership relationship whose emitted targets are subject to the
+  request's target limit;
 - member ordering issued by the source owner; and
-- the direct properties that apply to the collection as a whole.
+- the direct facts that apply to the collection as a whole.
 
 Collection membership does not copy member descriptors. A section belonging to
 several categories remains one section resource with several incoming
@@ -333,41 +430,326 @@ not a runtime ambiguity to rank.
 
 ## Host-neutral model
 
+### Object-model layers
+
+The object model has four layers with different lifetimes and owners:
+
+```text
+ExplanationSchema
+  owner-issued data-shape declarations
+  owner-issued resource-type declarations
+    fact declarations
+    relationship declarations
+  owner-issued public-address-kind declarations
+
+ExplanationResourceSnapshot
+  owner-issued explanation key and resource-type identity
+  schema-conforming direct fact observations
+  schema-conforming relationship observations
+  zero or more owner-issued public addresses
+
+ExplanationCatalog
+  composed schemas and installed resource snapshots
+  canonical product-resource path registrations
+  validated cross-owner identity and relationship joins
+
+ResourceExplanationDocument
+  self-contained bounded schema slice
+  one root resource
+  bounded ordered resource expansion
+  bounded ordered relationship observations
+  bounded ordered relationship targets
+  traversal receipt
+```
+
+Schemas and snapshots are owner-issued immutable data. The catalog is a
+host-composed immutable database over the declarations and installed
+snapshots that host ships. A contextual operation may overlay one detached
+root snapshot and an explicit bounded set of owner-supplied related snapshots
+for the duration of one explanation without mutating the installed catalog.
+Resource Explanation does not acquire or discover that overlay. The Document
+is one bounded projection of the settled installed graph plus request overlay.
+
+This separation is load-bearing:
+
+- a schema can exist before any resource snapshot uses it;
+- an installed snapshot can be cataloged without executing its operation;
+- a resolved snapshot can be explained without becoming an installed
+  capability;
+- a host can lower one completed Document without consulting owner catalogs
+  again; and
+- schema and resource identity remain distinct even when one CLR type
+  currently represents both.
+
+### Data-shape declarations
+
+An owner describes product data exposed through explanation using one shared
+declaration vocabulary. The vocabulary supports:
+
+- scalar values with a stable scalar-kind identity;
+- terms from one owner-issued value vocabulary;
+- named records whose fields each have a stable field identity and data shape;
+- closed choices whose cases each have a stable case identity and optional
+  payload shape;
+- references to another owner-issued data shape; and
+- cardinality paired with every field, fact, relationship, input, or output as
+  required-one, optional-one, or ordered-many. An ordered-many value embedded
+  directly in a resource snapshot also declares a positive maximum count;
+  relationship targets and ordinary operation result sequences use their
+  owning request or execution bounds instead.
+
+The declaration vocabulary is recursive by identity, not by embedding
+arbitrary CLR object graphs. Composition rejects duplicate identities,
+unresolved required shape references, invalid choice cases, contradictory
+cardinality, missing or non-positive embedded-value budgets, and recursive
+shape cycles without a finite declared depth and node bound. Recursive domain
+structure remains expressible through a named reference.
+
+The vocabulary is not limited to direct resource facts. Query operands, result
+rows, reusable references, envelope contracts, and other owner-issued product
+data may name the same shapes without turning every runtime value into an
+explainable resource. Resource snapshots carry values selected for one
+explanation; schemas remain the reusable contract currency for data that is
+produced or consumed elsewhere.
+
+Every named data shape has one semantic owner, stable shape identity, schema
+version, kind, and concise meaning. Record field and choice-case order is
+owner-issued. It also declares a finite embedded-value budget: maximum
+canonical encoded bytes, maximum nesting depth, and maximum value-node count.
+The common declaration vocabulary applies a fixed finite canonical
+encoded-size budget to every declaration node's identity, meaning, and other
+metadata.
+Scalar kinds are common physical value carriers; semantic values such as
+versions, member anchors, artifact coordinates, and durations retain named
+owner shapes rather than collapsing to their physical string or integer
+representation.
+
+A schema-conforming value is correspondingly one scalar, one vocabulary term,
+one record keyed by declared field identities, or one closed-choice case with
+its declared payload. A named shape reference reuses that value contract.
+Cross-resource joins use resource relationships and public addresses instead;
+they are not hidden inside arbitrary nested values.
+
+Snapshot construction validates the complete canonical value against all three
+shape budgets before catalog or request-overlay composition. A value that
+exceeds encoded bytes, nesting depth, node count, or an embedded ordered-many
+maximum is not truncated. The owner supplies an admitted typed Failed or
+Unavailable observation when its contract supports that outcome; otherwise
+the explanation operation fails visibly without a partial Document. Keys,
+public addresses, and typed outcome data use the same budgeted value contract.
+
+Built-in scalar kinds are deliberately small: Boolean, arbitrary-precision
+Integer, finite Decimal, finite Binary Floating Point, Unicode Text, and
+Octets. Width, signedness, units, lexical format, and domain meaning belong to
+an owner-issued named shape over that carrier. A domain value does not become
+plain Text merely because the common floor does not contain its CLR type. Its
+owner publishes a named data shape beside the type and supplies the
+schema-conforming projection used for explanation. For example, metadata may
+describe a member-anchor shape without moving `MemberAnchor` into
+`QuerySpace.Primitives` or making Resource Explanation depend on the metadata
+assembly. Non-finite numeric values require an explicit owner choice shape
+rather than an invalid scalar encoding.
+
+Ordered-many direct facts are for bounded descriptor data such as examples or
+fixed supported cases, and their declarations include a positive maximum
+embedded count. An owner collection that is independently addressable,
+unbounded, pageable, selectable, or useful as a navigation target is modeled
+as resources and relationships instead of being copied into a direct fact.
+
+### Resource-type declarations
+
+One resource-type declaration contains:
+
+- a stable owner-issued resource-type identity;
+- the semantic owner;
+- an ordered set of fact declarations;
+- an ordered set of relationship declarations; and
+- an optional concise owner-issued summary.
+
+A fact declaration contains one stable fact identity, one data-shape
+reference, cardinality, admitted outcome states, and owner-issued meaning. Fact
+identity is semantic currency; a rendered heading or JSON property name is a
+lowering concern.
+
+A relationship declaration contains one stable relationship identity, target
+resource-type constraint, cardinality, admitted outcome states, and
+owner-issued meaning. It may state that registered target navigation is
+required, optional, or unavailable for that relationship kind. It does not
+contain CLI syntax, Browser routes, HAL relation names, or inferred links.
+
+The resource-type schema is closed for one published version. An owner adds a
+fact or relationship by publishing a new compatible schema version under its
+own rules; Resource Explanation does not accept undeclared extension facts.
+This preserves extensibility without an untyped property dictionary or
+cross-owner discriminated union that must be edited whenever one owner adds a
+resource kind.
+
+### Resource snapshots
+
+One detached resource snapshot contains:
+
+- the exact owner-issued explanation key;
+- its declared resource-type identity and schema version;
+- direct fact observations keyed by declared fact identity;
+- relationship observations keyed by declared relationship identity;
+- whether the snapshot represents an installed contract or a resolved
+  request-scoped resource; and
+- zero or more owner-issued public addresses.
+
+Every available fact value is validated against its declared shape and
+cardinality. Every available relationship target preserves its owner-issued
+explanation key and must satisfy the declared target-type constraint. Equal
+labels, property names, field names, CLR types, or serialized values never
+create identity or relationships.
+
+One fact or relationship observation has exactly one state:
+
+- **Available** carries one schema-conforming value or an ordered target
+  sequence, including a valid empty sequence for ordered-many cardinality;
+- **Absent** carries no value and is valid only for optional-one cardinality;
+- **Unavailable** carries one owner-issued typed reason admitted by the
+  declaration; or
+- **Failed** carries one owner-issued typed failure admitted by the
+  declaration.
+
+Unavailable and failed relationship observations carry no target. A required
+relationship can therefore report a typed failure without inventing a target,
+and an available empty many-target sequence remains distinct from absence,
+unavailability, and failure.
+
+Outcome identity, reason, and diagnostics remain typed owner data; they are not
+encoded as `null`, an empty sequence, or display prose.
+
+A public address is navigation, not semantic identity. Resource Explanation
+owns canonical product-resource paths for installed resources. The reusable
+inspection-reference owner publishes references for resolved subjects and
+rows. A direct contextual handoff can explain a snapshot with no public
+address; the operation does not manufacture a reference merely to make the
+resource fit this model.
+
+One public address contains an owner-issued address-kind identity and one
+schema-conforming address value. The address-kind declaration names the
+responsible owner, data shape, target resource-type constraint, and whether
+the spelling is accepted by top-level `explain`. Parsing, formatting, shell
+safety, and resolution remain with that owner. The Document therefore never
+uses one untyped string field for both a product-resource path and a reusable
+inspection reference.
+
+One resource has at most one emitted canonical address per address kind.
+Accepted aliases resolve to that canonical address but do not enlarge the
+Document address set. Address-kind count is covered by the schema-declaration
+limit.
+
+An unavailable relationship remains its targetless owner-issued unavailable
+or failed observation where that owner admits such an outcome. It is not
+replaced by an empty target list, display placeholder, or omission that looks
+like successful absence.
+
+### Explanation catalog
+
+Catalog composition receives explicit schemas, installed snapshots, address
+registrations, and owner modules. It does not scan assemblies, inspect parser
+metadata, reflect over CLR types, or parse rendered output.
+
+Construction validates:
+
+1. Schema, resource-type, fact, relationship, resource, and
+   public-address-kind identities are unique in their declared scopes.
+2. Every installed snapshot conforms to one available resource-type schema.
+3. Every observation state is admitted by its declaration, and every available
+   fact value or relationship target conforms to its shape, cardinality, and
+   target constraint.
+4. Every snapshot has at most one canonical address per address kind, every
+   public-address value resolves to at most one resource within its kind, and
+   every canonical path resolves to exactly one installed resource.
+5. Every available relationship target whose declaration requires navigation
+   has one registered address.
+6. Every adopted owner domain is represented completely under that owner's
+   declared adoption boundary.
+7. No composed fact, relationship, or resource exists without an owner-issued
+   declaration or snapshot.
+
+Invalid composition prevents catalog publication. A host never advertises a
+partially accepted database or silently drops an owner declaration.
+
+### Document schema slice
+
+The completed Document contains the smallest self-contained schema slice that
+interprets every emitted value, observation, target, and address. In
+deterministic owner declaration order it carries:
+
+- each schema identity and version used by the Document;
+- every complete resource-type declaration needed by an emitted resource or
+  target, including its fact and relationship declarations;
+- every data-shape declaration transitively referenced by those declarations
+  and emitted values; and
+- every public-address-kind declaration needed by an emitted address.
+
+The slice carries owner-issued meanings, field and case declarations,
+cardinalities, admitted outcomes, and target constraints. Hosts therefore
+lower the completed Document without consulting owner catalogs or guessing
+semantics from identifiers.
+
+Every request contains a positive schema-declaration limit in addition to its
+resource, relationship, and target limits. The root resource's required schema
+closure must fit or the operation fails visibly without a partial Document.
+Expansion admits another resource, relationship observation, or target only
+when both the item and its newly required transitive declarations fit. The
+traversal receipt records schema declarations emitted and schema-limit
+truncation separately.
+
+The schema-declaration limit counts every schema, data-shape, record-field,
+choice-case, resource-type, fact, relationship, and public-address-kind
+declaration node. Together with the declaration-node encoded-size budget, it
+bounds the self-contained schema slice rather than counting one arbitrarily
+large aggregate as one declaration.
+
 ### Resource Explanation Document
 
 The completed Content value is:
 
 ```text
 ResourceExplanationDocument
-  schema version
-  requested canonical path
-  root typed identity
+  object-model schema version
+  ordered self-contained schema slice
+    schema identities and versions
+    data-shape declarations
+    resource-type, fact, and relationship declarations
+    public-address-kind declarations
+  root explanation key
+  root resource-type identity
+  requested public-address kind and value when one was used
   ordered resources
-    canonical path
-    typed owner identity
-    resource kind
-    owner identity
-    typed detail variant
-  ordered relationships
-    source typed identity
-    relationship kind
-    target typed identity
-    target canonical path when registered
-    source and target owners
+    explanation key and resource-type identity
+    available typed public addresses
+    ordered fact observations
+      fact identity
+      available, absent, unavailable, or failed outcome
+      schema-conforming value or typed outcome data
+  ordered relationship observations
+    source explanation key
+    relationship identity
+    available, absent, unavailable, or failed outcome
+    target projection completeness
+    ordered available targets
+      target explanation key and resource-type identity
+      available typed target addresses
   traversal receipt
     requested depth
-    requested resource and relationship limits
+    requested schema, resource, relationship, and target limits
     completed depth
+    emitted schema declaration count
     visited resource count
-    emitted relationship count
+    emitted relationship-observation count
+    emitted target count
     completeness
     truncation reasons
 ```
 
 It is an immutable semantic
 [Document](host-observable-content-kinds.md#document). The Document is not the
-rendered Markdown document shape, parser help, or a dictionary of display
-properties.
+rendered Markdown document shape, parser help, a dictionary of display
+properties, or a serialized owner descriptor.
 
 The completed host-neutral service returns
 `InspectionEnvelope<ResourceExplanationDocument>`, preserving Content, Share,
@@ -375,96 +757,76 @@ and diagnostics. Registration of a stable `result_kind`, schema version, and
 wire serializer remains an output-contract-owner adoption; it does not delay
 use of the ordinary typed service envelope.
 
-The requested root appears exactly once. Every relationship target is one of:
+The requested root appears exactly once. Every available relationship target
+is one of:
 
 - an expanded resource in the Document;
 - a registered resource outside the selected traversal bound, with its
-  canonical path; or
-- a non-navigable external owner reference whose owner has not registered an
-  explainable path.
+  available public addresses; or
+- an unexpanded typed target whose owner-issued resource type and explanation
+  key are present in the schema slice even when no public address or target
+  snapshot is available.
 
-The last form preserves an opaque result-contract or value-vocabulary identity
-without minting another owner's route. When that owner later registers the
-same typed identity, registry composition adds the canonical path without
-changing the source descriptor.
+The last form preserves an adopted owner-issued typed target without minting
+another owner's route or converting it to display text. An opaque external
+identity whose owner has not issued an explanation resource type and key is a
+schema-conforming fact value, not a relationship target.
 
-Construction rejects duplicate resource identities, duplicate canonical
-paths, dangling expanded edges, inconsistent path-to-identity mappings, and
-resource-detail variants that do not match the registered kind.
+### Lowering-neutral structure
 
-### Typed detail variants
+The object model contains no Markdown headings, JSON property naming policy,
+table columns, HAL `_links` or `_embedded` members, CLI command text, or
+Browser controls. Hosts lower the same completed Document through an explicit
+format contract.
 
-Common framing supports graph navigation. Resource details remain a closed
-discriminated set for the adopted owners. The target contract admits:
+A future HAL-JSON lowering is straightforward but not privileged:
 
-- structural catalog, category, section, and item details;
-- query-space, query-scope, row-space, facet, operator, terminal, and effect
-  details;
-- value-vocabulary and value-field-schema details; and
-- collection details.
+- schema-conforming facts can lower as resource state;
+- public addresses and typed relationships can lower as links;
+- bounded expanded resources can lower as embedded resources; and
+- the traversal receipt can preserve incomplete expansion.
 
-One structural-item variant preserves the `DiscoveryResourceIdentity` owner,
-section, item name, and opaque owner-issued `itemKind`. Its canonical path is:
+The lowering must retain the typed relationship identity and target resource
+identity even if it also emits a concise relation name and `href`. Query
+facets are a representative case: their scalar facts describe key, value
+shape, operators, effects, and examples, while relationships navigate to
+their Query Space, scope, row set, value vocabulary, route, and result
+contract. HAL-JSON, ordinary JSON, Markdown, and Browser presentation all
+consume the same semantic graph.
 
-```text
-<section-path>/items/<item-kind-segment>/<item-segment>
-```
+### Primitive-placement test
 
-`field`, `column`, `filterable`, `sortable`, `default-order`, `order-step`, and
-later Schema Query item kinds use the same variant. Safe path segments are
-explicit registrations; they are not derived from item-kind or item display
-text.
+This object model determines the types that lower layers must be able to
+publish; it does not itself choose their assembly.
 
-The implementation contains navigation-collection and structural variants,
-plus bounded inspection-document, host-neutral-route, operation-query-space,
-query-facet, and consumer-binding variants for Package Query. Row-query,
-value-vocabulary, broader envelope-contract, and subject-affordance variants
-enter through focused versioned owner adoptions rather than one cross-owner
-implementation sweep.
+A type is a candidate for the general declaration floor when it is:
 
-The variants preserve native types such as counts, booleans, operator IDs,
-output-capability IDs, terminal kinds, and effect kinds. They do not lower
-those values to display strings.
+- immutable, resource-free data or identity;
+- required by semantic owners to publish schemas or detached snapshots;
+- independent of acquisition, planning, execution, rendering, and host
+  syntax; and
+- meaningful across more than one inspection domain.
 
-Adding envelope-contract or subject-affordance detail is a versioned adoption
-of the explanation Content contract. Unknown future variants are not silently
-lowered to an `other` property bag.
-
-### Relationships
-
-Relationships are typed navigational projections of owner-issued links.
-Representative relationships include:
-
-- collection membership;
-- category membership;
-- structural item ownership;
-- eligible row space;
-- facet binding;
-- operator acceptance;
-- terminal or effect membership;
-- value-vocabulary reference; and
-- result-contract reference.
-
-The explanation relationship says how to navigate; the cited owner descriptor
-remains authoritative for the relationship's semantics. Equal labels,
-property names, field names, or CLR types never create an edge.
-
-The first query adapter does not classify a value-vocabulary reference as
-complete or constrained. Query-local operand constraints remain typed facet
-facts. If the query owner later issues a stable value-domain relationship, the
-explanation relationship preserves its discriminator, vocabulary identity,
-and owner-issued constraint identity. An owner-issued open value domain may
-carry bounded examples without manufacturing a vocabulary resource.
+Concrete domain identities and mechanics remain with their owners. Catalog
+composition, owner adapters, exact resolution, traversal, capability search,
+format lowering, and host bindings remain above the declaration floor. The
+follow-on QuerySpace library-boundary effort decides whether the shared
+data-shape, resource-type, fact, relationship, and snapshot declaration types
+belong in `QuerySpace.Primitives`, and names the dependency and public-surface
+gates for that move.
 
 ### Determinism
 
 Resource order is breadth-first from the root, then source-owner declaration
-order, then canonical path as a stable tie-breaker. Relationship order follows
-source resource order, source-owner identity, source-owner relationship order,
-relationship kind, target-owner identity, and target canonical path or typed
-identity. This is a total order.
+order, then owner-issued explanation key as a stable tie-breaker. A canonical
+path is used only when the owner-issued ordering key otherwise compares equal.
+Relationship-observation order follows source resource order, source-owner
+identity, source-owner relationship order, and relationship identity. Targets
+within one available observation follow owner-issued order, then target-owner
+identity and target explanation key as stable tie-breakers. This is a total
+order and does not require every resource to have a public address.
 
-Equal registered descriptor inputs and equal traversal bounds produce equal
+Equal schemas, snapshots, registrations, and traversal bounds produce equal
 Content across CLI and Browser/Wasm. Hosts do not reorder the semantic
 Document to match their visual layout.
 
@@ -473,16 +835,25 @@ Document to match their visual layout.
 ### Default explanation
 
 Every host-neutral request contains resolved numeric limits for maximum depth,
-resources, and relationships. Hosts may offer shorthands, but they resolve
-those defaults before calling Resource Explanation. The completed Document
-records all three limits.
+schema declarations, resources, relationship observations, and emitted
+relationship targets. Hosts may offer shorthands, but they resolve those
+defaults before calling Resource Explanation. The completed Document records
+all five limits.
 
 Default explanation resolves depth zero:
 
 - the root resource and its typed direct facts are complete;
-- direct relationships are listed in deterministic order up to the explicit
-  relationship limit, with a canonical target path when registered; and
+- direct relationship observations are listed in deterministic order up to
+  the explicit relationship limit, preserving targetless outcomes;
+- available relationship targets are listed in owner order up to the explicit
+  target limit, with every available address for each emitted target; and
 - related resources are not expanded.
+
+An available relationship observation records whether its target projection
+is complete. Reaching the target limit may therefore emit a deterministic
+prefix of one ordered-many relationship while preserving the source
+observation's Available outcome and reporting that its projected targets are
+truncated. It never changes that observation to available-empty.
 
 This keeps the common response concise while making the next exact gesture
 copyable.
@@ -492,36 +863,47 @@ content. Explanation does not enumerate a value vocabulary's complete rows;
 the `vocabulary` command retains that bulk role.
 
 Repeated owner collections are represented as relationships and are therefore
-subject to the relationship limit. Direct detail fields contain scalar facts,
-fixed product enums, or owner-issued bounded examples; they do not copy an
-unbounded descriptor collection.
+subject to the relationship limit. Direct facts contain scalar values, typed
+records, fixed product terms, or owner-issued bounded examples; they do not
+copy an unbounded descriptor collection.
 
 ### Recursive explanation
 
 Recursive explanation expands declared relationships only. The semantic
-request contains explicit non-negative maximum depth and positive resource and
-relationship limits. A CLI shorthand may supply documented finite defaults,
-but the host-neutral request always contains the resolved numeric bounds.
+request contains explicit non-negative maximum depth and positive schema,
+resource, relationship, and target limits. A CLI shorthand may supply
+documented finite defaults, but the host-neutral request always contains the
+resolved numeric bounds.
 
 Traversal:
 
 1. starts with the root at depth zero;
-2. visits each typed resource identity at most once;
-3. records encountered relationships in total deterministic order until the
-   relationship limit is reached;
-4. expands a target only when the next depth and resource limit admit it; and
-5. records depth, resource, and relationship truncation in the traversal
-   receipt.
+2. visits each explanation key at most once;
+3. records encountered relationship observations in total deterministic order
+   until the relationship limit is reached;
+4. records targets in owner order until the target limit is reached, marking
+   the containing observation's target projection incomplete when needed; each
+   emitted target occurrence consumes the limit even when the same resource is
+   reached through another relationship;
+5. expands an emitted target only when the next depth, schema, and resource
+   limits admit it; and
+6. records depth, schema, resource, relationship, and target truncation in the
+   traversal receipt.
 
 Cycles therefore remain visible as relationships when encountered before the
 relationship bound, but cannot loop. No host may replace any bound with an
-unbounded sentinel. A bounded Document reports `Complete` only when no
-declared resource or relationship within the requested depth was omitted.
+unbounded sentinel. A bounded Document reports `Complete` only when no required
+schema declaration, declared resource, relationship observation, or target
+within the requested depth was omitted.
 
-### Capability and resolved-plan explanation
+### Installed, contextual, and resolved-plan explanation
 
-The first contract explains installed capability descriptors. It performs no
-acquisition and accepts no inspection subject.
+The current implementation explains installed capability descriptors. It
+performs no acquisition and accepts no inspection subject. The target object
+model also admits a detached contextual resource snapshot after its command
+owner has resolved one exact subject. That direct handoff does not make the
+subject an installed capability, mutate the reusable catalog, or require a
+serialized reference.
 
 Query Space separately exposes a resolved structural plan containing normalized
 operands, row-intent associations, semantic stages, effects, terminal
@@ -544,6 +926,7 @@ Structural adaptation must preserve:
 - one section identity across all category memberships;
 - every item identity as the owning section plus opaque owner-issued item kind
   plus name;
+- owner-issued section Shape and Cardinality as typed direct facts;
 - sections with no item-level vocabulary; and
 - addressed resource identity separately from compact projected rows.
 
@@ -553,15 +936,16 @@ effect unless a separately adopted `QuerySpaceDescriptor` supplies that typed
 resource and correspondence. Likewise, a column named `References` does not
 become a query facet named `references`; a shared label establishes nothing.
 
-Output capabilities appear as typed direct facts. Explanation of a format's
-global behavior requires a separately owner-issued output-format descriptor;
-Resource Explanation does not infer it from the capability enum.
+Output capabilities, Shape, and Cardinality appear as typed direct facts.
+Explanation of a format's global behavior requires a separately owner-issued
+output-format descriptor; Resource Explanation does not infer it from the
+capability enum or a renderer.
 
 ### Analysis resources
 
 An analysis registered through
 [analysis participation registration](inspection-capability-composition.md#analysis-participation-registration)
-is an explainable product resource of kind Analysis:
+is an installed explainable resource with an Analysis resource-type identity:
 
 - **Path.** Its canonical path is `analyses/<analysis-id>`. The analysis
   identity already satisfies the segment grammar and is reused unchanged. The
@@ -582,10 +966,11 @@ preserves the distinction among:
 - operation and row query scopes;
 - row spaces and structural sections;
 - facets and their bindings;
+- each facet's owner-issued value shape and cardinality;
 - operators and named orders;
 - Rows and exact Count terminal requirements;
 - effects and continuation acceptance; and
-- opaque external value-vocabulary and result-contract references.
+- opaque external value-vocabulary and result-contract identities.
 
 A structural section may present a row space without owning it. Operation and
 row facets with equal display labels remain distinct resources when their typed
@@ -593,6 +978,13 @@ identities, scopes, stages, or effects differ.
 
 Resource Explanation never reconstructs a facet from a schema column, a
 rendered property, a parser option, or a command delegate.
+
+Before an external owner adopts Resource Explanation, its opaque identity is a
+typed fact under Query Space's named opaque-external-identity shape. It does
+not become a relationship target, because Query Space cannot issue another
+owner's explanation resource type or key. A later focused adoption may replace
+or accompany that fact with an owner-issued relationship after the external
+owner publishes the required schema and key projection.
 
 ### Value-vocabulary resources
 
@@ -613,17 +1005,50 @@ or a reusable subset identity. A later query-owner adoption may issue a typed
 complete, constrained-subset, or open-domain relationship for explanation to
 preserve.
 
+### Contextual resources
+
+Contextual Resource Explanation supplies one installed command resource or one
+detached resolved-subject root snapshot, plus any explicitly admitted related
+snapshots needed for bounded expansion. Every snapshot uses the same
+resource-type, fact, relationship, address, and outcome declarations as every
+other explainable resource.
+
+For the Member first adopter, package or platform context, Library, Type,
+member-group or exact-member identity, default facet, selected semantic
+sections, and related operations remain owner-issued facts or relationships.
+Resource Explanation does not restate their semantics. The adoption retires
+the Member-specific contextual Document wrapper after those values are
+represented by one schema-conforming resource snapshot and the common
+`ResourceExplanationDocument`.
+
+The complete Document may expose every owner-issued related-operation
+relationship. `.tips` applies the Contextual Resource Explanation host-binding
+and ranking contract to those relationships.
+
+The approved singular `.reference` remains the separate row-preserving
+projection owned by Contextual Resource Explanation, staged until that owner
+and the dotted-gesture grammar replace their current plural reservation. Each
+selected semantic row retains one owner-issued reusable-reference value
+conforming to a declared reference shape. The projection does not require
+every selected row to become an explainable resource, enter the catalog, or
+appear in the complete Document. When a resolved root resource itself has a
+reusable inspection reference, that reference may also be one of its public
+addresses; neither use changes the resource key or schema.
+
 ### Output-contract resources
 
 Query Space may expose an opaque result-contract identity. Resource
-Explanation can list that relationship before the contract itself is
-explainable.
+Explanation preserves that pre-adoption identity as a schema-conforming typed
+fact under Query Space's opaque-external-identity shape. It does not list a
+result-contract relationship before the contract owner issues an explanation
+resource type and key.
 
 A later envelope-contract catalog must own exact contract identity, Content
 Kind, `(result_kind, schema_version)`, serializer, JSON Schema, producers, and
-compatibility. Its adoption adds a typed resource detail and path. Resource
-Explanation does not synthesize that catalog from generic arguments, source
-generation contexts, static registrations, or observed envelopes.
+compatibility. Its adoption adds an owner-issued resource schema, snapshots,
+relationships, and paths. Resource Explanation does not synthesize that
+catalog from generic arguments, source-generation contexts, static
+registrations, or observed envelopes.
 
 JSON Schema can describe a wire shape. It cannot replace owner-issued product
 semantics such as identity, ordering, completeness, provenance, effects, or
@@ -662,6 +1087,14 @@ outcome. An unregistered canonical single segment such as `literal`, or a
 noncanonical slash-bearing value such as `https://`, selects capability search
 because `ResourcePath` grammar alone is intentionally broader than the
 facade's exact-path discriminator.
+
+Command-local `--explain` and `-E` consume the same complete
+`ResourceExplanationDocument` for one admitted command resource or detached
+resolved-subject snapshot. The placement changes, not the semantic Content:
+`--explain` writes it as the primary stdout result, while `-E` writes it after
+unchanged successful ordinary output on stderr. Dotted projections select
+typed currencies from the same owner declarations without manufacturing a
+second explanation model.
 
 Human output lowers the Document through a typed Markout view. `--json`
 serializes the same Content contract with source-generated metadata; the final
@@ -712,16 +1145,24 @@ valid command without guessing semantic identities.
 
 ## Demo scenario
 
-`System.Text.Json@10.0.0` motivates the first production flow:
+`System.Text.Json@10.0.0` motivates the complete production flow:
 
 1. Use Library structural discovery to find `Reference Hierarchy`.
 2. Copy its canonical resource path into `explain`.
-3. Read its fields, columns, output capabilities, and declared query
-   relationships without acquiring a Library.
-4. Run the ordinary Library inspection against
+3. Read its Shape, Cardinality, fields, columns, output capabilities, and
+   declared query relationships without acquiring a Library.
+4. Follow one query-facet relationship to its value shape, operators, row
+   scope, value vocabulary, route, and result contract.
+5. Run the ordinary Library inspection against
    `System.Text.Json@10.0.0`.
-5. Follow one emitted related path to explain a query facet or value
-   vocabulary.
+6. Resolve one exact `JsonSerializer.Serialize` Member and request
+   `--explain`; the command passes a detached Member snapshot directly into
+   the same object model.
+7. Run the same exact Member with `-E`; ordinary stdout remains unchanged and
+   the same complete explanation Content follows on stderr.
+8. Select `.tips` to project applicable host gestures. After the focused
+   contextual and #7916 adoption replaces the plural reservation, select
+   `.reference` to issue the reusable Member identity.
 
 The neighboring missing-target case runs the same structural explanation
 without a package, file, or platform selection. It must produce equal Content,
@@ -732,14 +1173,26 @@ The pathological graph includes:
 - one section in several categories;
 - one section column and one query facet with the same display label;
 - operation and row facets with the same display label but different effects;
+- one owner-specific record shape whose concrete CLR type is unavailable to
+  the declaration floor;
+- one recursive optional record value at its depth and node budgets and one
+  value exceeding each budget;
+- legitimate optional absence beside a distinct unavailable or failed fact;
+- one resolved contextual resource with no public reusable reference;
+- a snapshot whose fact value violates its declared data shape;
+- a relationship whose target violates its declared resource-type constraint;
 - an opaque value-vocabulary reference and query-local operand constraints;
 - a later owner-issued complete, constrained-subset, or open value domain;
 - a section with no item vocabulary;
 - a category whose complete capability set differs from one member;
 - an authoritative resource added without a path registration;
 - an authoritative relationship omitted by its adapter;
-- a cycle of cross-owner navigational relationships; and
-- valid expansions truncated by depth, resource, and relationship limits.
+- a cycle of cross-owner navigational relationships;
+- valid expansions truncated by depth, schema, resource, and relationship
+  limits;
+- one ordered-many relationship whose targets exceed the target limit; and
+- one opaque external result-contract identity before and after its owner
+  issues an explainable resource type and key.
 
 ## Invariants and evidence
 
@@ -747,14 +1200,21 @@ Implementation slices must name Release gates for the following properties:
 
 | Property | Required gate |
 | --- | --- |
-| Canonical paths are shell-safe, unique case-insensitively, and registered rather than derived from labels. | Registry-construction tests over every shipped registration. |
-| Each adopted descriptor domain has bidirectionally total resource registration and relationship projection. | Adapter-construction tests comparing the complete real owner enumerations with projected identities and edges, plus omission, duplicate, and extra-projection contract fixtures. |
+| Owner schemas are closed, internally valid, finitely budgeted, and independent of concrete domain assemblies. | Schema-construction tests covering scalar, term, record, choice, reference, cardinality, encoded-byte, nesting-depth, and node-count declarations, including recursive shapes and a real owner-specific shape whose CLR type stays in its owner assembly. |
+| Every snapshot fact and relationship observation uses an admitted state and every available value or target conforms to its declared shape, cardinality, embedded-value budgets, and target-type constraint. | Construction matrix covering valid values, optional absence, available-empty many values, targetless unavailable and failed outcomes, invalid scalar/term/record/choice values, excess cardinality, over-budget bytes/depth/nodes, and wrong-target relationships. |
+| Every completed Document carries the bounded transitive schema slice needed to interpret all emitted observations, targets, and addresses without owner-catalog access. | Document-construction tests over colliding physical scalar values with distinct named meanings, nested record/choice references, typed addresses, schema-limit truncation, and a root closure that exceeds the schema limit and fails without partial Content. |
+| An opaque external identity remains a typed fact until its owner issues an explanation resource type and key; Resource Explanation never invents the target declaration. | Query result-contract fixture before and after output-contract-owner adoption, asserting a typed opaque fact in the first case and the exact owner-issued relationship target in the second. |
+| Installed resources and detached resolved resources use the same Document model without placing contextual snapshots in the installed catalog. | Shared Content-shape tests over one installed query facet and one exact `System.Text.Json` Member, with catalog immutability asserted before and after contextual explanation. |
+| Canonical paths are shell-safe, unique case-insensitively, registered rather than derived from labels, and emitted once per address kind despite accepted aliases. | Registry-construction tests over every shipped registration. |
+| Each adopted descriptor domain has bidirectionally total resource registration and relationship-observation projection. | Adapter-construction tests comparing the complete real owner enumerations with projected identities and observations, plus omission, duplicate, and extra-projection contract fixtures. |
 | Exact resolution returns one root or a visible failure with no partial Document. | Resolver contract tests including unknown paths and bounded suggestions. |
-| Structural, query, and value details preserve owner-issued typed identities and native values. | Adapter contract tests against real owner descriptors. |
+| Structural, query, value, and contextual snapshots preserve owner-issued typed identities and native values. | Adapter contract tests against real owner descriptors and the exact Member contextual basis. |
 | Equal labels do not create resource identity or relationships. | Collision fixture spanning structural and query owners. |
-| Recursive traversal visits each identity once, preserves encountered cycle edges, and reports depth, resource, and relationship truncation. | Cyclic and permuted-input graph fixtures exercising every bound and the total ordering key. |
+| Recursive traversal visits each identity once, preserves encountered cycle edges, bounds emitted relationship targets independently, marks partial target projections, and reports depth, schema, resource, relationship, and target truncation. | Cyclic and permuted-input graph fixtures exercising every bound, including one ordered-many relationship larger than the target limit, and the total ordering key. |
 | Capability explanation performs no acquisition. | Host-level missing-target test with acquisition and planning services replaced by fail-fast recording fakes, asserting no capability was requested. |
+| Direct contextual explanation resolves and acquires once, then hands one detached snapshot to Resource Explanation without serializing a reusable reference. | Authentic exact-Member integration test with counting resolution/acquisition collaborators and fail-fast reference serialization and ordinary-content producers. |
 | CLI and Browser/Wasm receive equal Content for equal descriptor inputs. | Shared Content equality or serialization fixture exercised by both hosts. |
+| Every lowering consumes the completed Document and preserves typed fact and relationship identity. | Cross-format fixture comparing ordinary JSON and human output; a future HAL-JSON adoption adds its own equality and navigation gate. |
 | Structured output uses source-generated serialization and static registrations on supported hosts. | Serializer round-trip and registry-construction tests plus partial absence coverage from NativeAOT and Browser build-and-execution gates. |
 | Library explanation presents Formats before `--details` is removed. | CLI before/after compatibility test in the retirement slice. |
 | A shallow skill leads an agent to one valid unfamiliar query. | Reproducible agent E2E harness recording first-valid-command rate, failed attempts, tokens, latency, and unsupported inferences. |
@@ -770,8 +1230,10 @@ implementation property is **unverified**.
 
 ## Production adoption
 
-1. **Complete:** lock this owner, path contract, explanation Document, and host
-   boundaries.
+The original installed-resource slices remain:
+
+1. **Complete:** lock the original owner, path contract, installed-resource
+   Document, and host boundaries.
 2. **Complete:** add the host-neutral adopted-domain manifest, total registry,
    exact resolver, structural detail variant, and envelope-returning Resource
    Explanation service.
@@ -782,7 +1244,7 @@ implementation property is **unverified**.
 6. **In progress:** Package Query adopts operation query-resource variants,
    canonical paths, required-context links, and its current-host production
    binding. Remaining Query Space owners and row-query resources stay staged.
-7. Let Product Vocabulary adopt value-vocabulary variants and typed links.
+7. Let Product Vocabulary adopt resource schemas, snapshots, and typed links.
 8. Register the stable explanation result contract; then let the focused
    envelope-contract catalog adopt explanation paths and machine-readable
    schemas.
@@ -791,6 +1253,25 @@ implementation property is **unverified**.
 Steps 6 through 9 are separately owned adoptions. They do not block the
 independently coherent structural explanation slice.
 
+The object-model convergence sequence is:
+
+1. Lock the schema, snapshot, catalog, and Document model in this owner.
+2. Have the QuerySpace library-boundary owner place the general declaration
+   vocabulary at the lowest valid layer and gate its dependency/content
+   boundary.
+3. Migrate the installed Resource Explanation implementation from closed
+   cross-owner detail variants to schema-conforming resource snapshots while
+   preserving current CLI Content.
+4. Have Contextual Resource Explanation adopt the same Document for Member and
+   retire the Member-specific wrapper as the bounded first contextual adopter.
+5. Let Section Shapes, Query Space, Product Vocabulary, result contracts,
+   analyses, Findings, and reusable references adopt one owner at a time.
+6. Add Browser/Wasm over the same Content and decide whether HAL-JSON earns a
+   supported lowering through an agent-understanding comparison.
+
+Each step after the first is a focused owner adoption. This design does not
+authorize one implementation PR to move types and migrate every owner.
+
 ## Non-claims
 
 This design does not claim:
@@ -798,15 +1279,19 @@ This design does not claim:
 - ownership of structural discovery, Query Space, value vocabularies,
   Content Kind, envelope transport, output-format semantics, or reusable
   inspection references;
+- the physical assembly or namespace placement of the general declaration
+  vocabulary;
 - one universal semantic base class for all product resources;
 - an untyped property dictionary or arbitrary extension bag;
 - that a section owns every query capability it presents;
 - that fields, columns, row properties, labels, or CLR types imply facets;
 - subject acquisition or query execution during capability explanation;
-- target-effective availability in the first contract;
+- target-effective availability inferred from installed schema rather than
+  supplied by an owner-issued resolved snapshot;
 - wildcard, fuzzy, or natural-language resource resolution;
 - complete value catalogs embedded in facet explanations;
 - JSON Schema embedded in every envelope;
+- HAL-JSON as a required or privileged lowering;
 - resolved-plan explanation in the first implementation;
 - the rename from `library coordinate` to `library address`.
 
@@ -840,11 +1325,13 @@ segments without introducing quoting or escaping.
 
 Rejected. It leaks implementation composition, weakens schema evolution, and
 encourages reflection or untyped property bags. Explanation Content uses a
-closed typed graph projection.
+schema-declared typed graph projection.
 
-### Explain live subjects by default
+### Treat resolved subjects as installed resources
 
 Rejected. Installed capability explanation must remain deterministic,
-acquisition-free, and available before the user chooses a package, file,
-platform, or Workspace subject. Subject affordance and resolved-plan
-explanation are separate typed operands.
+acquisition-free, and reusable before the user chooses a package, file,
+platform, or Workspace subject. Explicit contextual explanation may add one
+detached resolved snapshot for one request, but it does not publish that
+snapshot into the installed catalog or reinterpret it as installed
+capability.
