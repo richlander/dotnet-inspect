@@ -328,6 +328,52 @@ microseconds, where fixed setup dominates.
    be validated, merged, and explained. Closed queries lower to kernels, and
    constant multi-question requests lower to typed fused kernels.
 
+## Closed-query bookkeeping follow-up
+
+The method-classification scorecard on 2026-09-30 found that P/Invoke Count
+was 1.22× NLinq on the AMD EPYC performance host. Count and Exists took
+essentially the same absolute Planner time on the seven assemblies with no
+P/Invoke row; NLinq's direct Count fold was the cheaper terminal. The
+remaining Planner cost grew with MethodDef count.
+
+Two derived changes reduce that per-unit cost without weakening the producer
+contract:
+
+- the stack cursor and method-row gate update unchanged declaring-type state
+  once per type rather than once per method; and
+- the closed-query kernel publishes its visited count when a critical abort
+  unwinds the loop rather than after every method. The abort catch still
+  preserves the exact incomplete receipt.
+
+Exact Release NativeAOT `linux-x64` binaries compared base
+`beea8d44736f65462b25322f2747174fc93466c7` with head
+`44a483daa8bef5af5158e76c42366580b3378f9f`. Their SHA-256 identities were
+`ff9ca58d309f61420f77fddfa73f1d1d6479661ab2ab9b6f7c9e5a975a3b0ae5`
+and
+`aff4a765c5f7435bc0a1ac985d84ff47026569e41cdcf9228249a2955c9747e1`.
+The head added 1,316 bytes of text.
+
+Six rotated rounds, five warmups, 2-second cell budgets, and 20–5,000 samples
+per cell ran on `dotnet-inspect-perf`, an AMD EPYC 9V74 host, over the same
+eight pinned assemblies used by the method-classification scorecard. Base and
+head each produced 144 comparisons per population with zero mismatches.
+
+| Population | Closing | Head/base Planner | Per-asset range | Base/head versus NLinq |
+| --- | --- | ---: | ---: | ---: |
+| P/Invoke | Exists | 0.933× | 0.921–0.947× | 1.06× / 0.99× |
+| P/Invoke | Count | 0.935× | 0.921–0.948× | 1.22× / 1.14× |
+| P/Invoke | Rows | 0.937× | 0.920–0.955× | 0.90× / 0.84× |
+| Async | Exists | 0.967× | 0.944–0.983× | 1.15× / 1.12× |
+| Async | Count | 0.968× | 0.957–0.979× | 1.18× / 1.14× |
+| Async | Rows | 0.971× | 0.965–0.979× | 1.00× / 0.97× |
+
+A compile-time closing policy was also measured and rejected. NativeAOT
+emitted separate Count, Exists, and Rows kernels, adding about 84 KB of text,
+while a shorter diagnostic showed only 0–1% incremental Count improvement
+beyond the two bookkeeping changes. The shared loop therefore retains its
+runtime closing branch: field demand remains closing-specific, and terminal
+code duplication does not earn its carrying or binary-size cost.
+
 ## Open items
 
 - fernie runs above the original loop for some builds of unsafe presence and

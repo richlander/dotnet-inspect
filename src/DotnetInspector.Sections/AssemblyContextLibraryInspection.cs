@@ -111,6 +111,76 @@ public static class AssemblyContextLibraryInspection
         return new(result, failure, [.. cleanupFailures]);
     }
 
+    /// <summary>
+    /// Keeps the materialized Library alive while one asynchronous
+    /// resource-free composition completes, then retires every authority.
+    /// </summary>
+    public static async Task<AssemblyContextLibraryInspectionRun<T>>
+        ExecuteComposedAsync<T>(
+            ValueTask<AssemblyContextLibraryAdapterResult> materialization,
+            Func<
+                LibraryReference,
+                LibraryContentOwner,
+                ValueTask<T?>> inspect,
+            ICollection<string>? cleanupFailureSink = null)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        string? failure = null;
+        ExceptionDispatchInfo? primaryFailure = null;
+        List<string> cleanupFailures = [];
+        T? result = null;
+        AssemblyContextLibraryAdapterResult.Completed? completed = null;
+        try
+        {
+            AssemblyContextLibraryAdapterResult outcome =
+                await materialization.ConfigureAwait(false);
+            if (outcome
+                is AssemblyContextLibraryAdapterResult.Completed available)
+            {
+                completed = available;
+                result =
+                    await inspect(
+                            available.Reference,
+                            available.Owner)
+                        .ConfigureAwait(false);
+            }
+            else
+            {
+                failure = Describe(outcome);
+                if (outcome
+                    is AssemblyContextLibraryAdapterResult.Terminal terminal
+                    && terminal.CleanupFailures.Count > 0)
+                {
+                    cleanupFailures.Add(
+                        "Direct Library realization reported one or more cleanup failures.");
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            if (completed is not null)
+            {
+                await RetireAsync(
+                        completed,
+                        cleanupFailures)
+                    .ConfigureAwait(false);
+            }
+            if (cleanupFailureSink is not null)
+            {
+                foreach (string cleanupFailure in cleanupFailures)
+                    cleanupFailureSink.Add(cleanupFailure);
+            }
+        }
+
+        primaryFailure?.Throw();
+        return new(result, failure, [.. cleanupFailures]);
+    }
+
     private static async Task RetireAsync(
         AssemblyContextLibraryAdapterResult.Completed completed,
         List<string> cleanupFailures)

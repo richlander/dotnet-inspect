@@ -1,8 +1,7 @@
-using System.Collections.Immutable;
-
 using ILInspector.Analysis;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace ILInspector.Research.Tests;
 
@@ -20,312 +19,698 @@ public sealed class LibraryStructuralTypeLeverageTests
         s_analysis = CreateAnalysis();
 
     [Fact]
-    public void TypeLeverage_UsesDirectedDistinctPeersAndUnionSelection()
+    public void NamespaceIndexCountsDistinctExternalSourceTypes()
     {
-        LibraryStructuralTypeLeverageDocument leverage = Execute(
+        MetadataLibrarySignatureUseResult whole = Evidence(
             [
-                ("A", MetadataLibraryTypeClassification.None),
-                ("B", MetadataLibraryTypeClassification.UniversalBase),
-                ("C", MetadataLibraryTypeClassification.None),
-                ("D", MetadataLibraryTypeClassification.None),
+                ("A", "Source1", MetadataLibraryTypeClassification.None),
+                ("A", "Source2", MetadataLibraryTypeClassification.None),
+                ("B", "Target1", MetadataLibraryTypeClassification.None),
+                ("B", "Target2", MetadataLibraryTypeClassification.None),
+                ("C", "Target3", MetadataLibraryTypeClassification.None),
             ],
-            signatureRelationships:
             [
-                (0, 1),
-                (0, 1),
-                (2, 1),
                 (0, 2),
-                (1, 1),
+                (0, 2),
+                (0, 3),
+                (1, 2),
+                (2, 4),
+                (3, 2),
             ],
-            bodyRelationships:
+            exactNamespace: null);
+
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(whole);
+
+        Assert.Equal(
+            ["B", "C", "A"],
+            index.Rows.Select(static row => row.Namespace));
+        Assert.Equal(
+            [2, 1, 0],
+            index.Rows.Select(
+                static row =>
+                    row.ExternalIncomingSourceTypeCount));
+        Assert.True(index.Rows[0].TopLeverage);
+        Assert.False(index.Rows[1].TopLeverage);
+        Assert.False(index.Rows[2].TopLeverage);
+        Assert.Equal(2, index.Rows[0].TypeCount);
+        Assert.Equal(
+            LibraryStructuralEvidenceDisposition.Complete,
+            index.Disposition);
+        Assert.Equal(
+            LibraryStructuralSalience.CurrentMethodologyVersion,
+            index.MethodologyVersion);
+    }
+
+    [Fact]
+    public void TypeShardUsesInducedDirectedDistinctPeersAndExactMaxima()
+    {
+        LibraryStructuralTypeLeverageShard shard = Shard(
+            "B",
             [
-                (0, 1),
-                (0, 2),
+                ("Sea", MetadataLibraryTypeClassification.None),
+                ("Peak", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+                ("Excluded", MetadataLibraryTypeClassification.Enum),
+            ],
+            [
                 (1, 0),
+                (2, 0),
                 (3, 0),
+                (1, 0),
+                (1, 2),
+                (1, 3),
+                (1, 4),
+                (5, 0),
+                (5, 2),
+                (5, 3),
+                (5, 4),
+                (5, 5),
             ]);
 
-        LibraryStructuralTypeLeverageRow a = Row(leverage, 0);
-        Assert.Equal(0, a.SignatureIncomingDegree);
-        Assert.Equal(2, a.BodyOutgoingDegree);
-        Assert.Equal(2, a.CombinedIncomingDegree);
-        Assert.Equal(2, a.CombinedOutgoingDegree);
-        Assert.Equal(LibraryStructuralTypeRole.Hub, a.Role);
+        LibraryStructuralTypeLeverageRow sea = Row(shard, 0);
+        Assert.Equal(4, sea.SignatureIncomingDegree);
+        Assert.Equal(0, sea.SignatureOutgoingDegree);
+        Assert.Equal(LibraryStructuralTypeRole.Foundation, sea.Role);
+        Assert.Equal(LibraryStructuralTypePole.SeaLevel, sea.Pole);
 
-        LibraryStructuralTypeLeverageRow b = Row(leverage, 1);
-        Assert.Equal(2, b.SignatureIncomingDegree);
-        Assert.Equal(1, b.BodyOutgoingDegree);
-        Assert.Equal(2, b.CombinedIncomingDegree);
-        Assert.Equal(1, b.CombinedOutgoingDegree);
-        Assert.False(b.RankingEligible);
-        Assert.DoesNotContain(b.Type, leverage.SeaLevel.Types);
-        Assert.DoesNotContain(b.Type, leverage.MountainPeak.Types);
-
-        Assert.Equal(
-            [Address(2), Address(0), Address(3)],
-            leverage.SeaLevel.Types);
-        Assert.Equal(
-            [Address(0), Address(3), Address(2)],
-            leverage.MountainPeak.Types);
-        Assert.Same(
-            leverage.GraphWork.SignatureIncomingDegree.SourceDocument,
-            leverage.GraphWork.BodyOutgoingDegree.SourceDocument);
-        Assert.Same(
-            leverage.GraphWork.SignatureIncomingDegree.SourceDocument,
-            leverage.GraphWork.CombinedIncomingDegree.SourceDocument);
-        Assert.Same(
-            leverage.GraphWork.SignatureIncomingDegree.SourceDocument,
-            leverage.GraphWork.CombinedOutgoingDegree.SourceDocument);
-        Assert.Equal(5, leverage.SignatureUse.OccurrenceCount);
-        Assert.Equal(4, leverage.BodyUse.OccurrenceCount);
-        Assert.Equal(
-            8,
-            leverage.GraphWork.SignatureIncomingDegree
-                .CanonicalEdgesExamined);
-        Assert.Equal(
-            3,
-            leverage.GraphWork.SignatureIncomingDegree
-                .SelectedEdgesIndexed);
-        Assert.Equal(
-            4,
-            leverage.GraphWork.BodyOutgoingDegree.SelectedEdgesIndexed);
-        Assert.Equal(
-            7,
-            leverage.GraphWork.CombinedIncomingDegree
-                .SelectedEdgesIndexed);
-    }
-
-    [Fact]
-    public void TypeLeverage_ClassifiesExactRoleThresholds()
-    {
-        (string, MetadataLibraryTypeClassification)[] types =
-        [
-            ("Foundation", MetadataLibraryTypeClassification.None),
-            ("Orchestrator", MetadataLibraryTypeClassification.None),
-            .. Enumerable.Range(0, 20).Select(index =>
-                ($"Peer{index}", MetadataLibraryTypeClassification.None)),
-        ];
-        var relationships = new List<(int Source, int Target)>();
-        relationships.AddRange(
-            Enumerable.Range(2, 7).Select(peer => (peer, 0)));
-        relationships.AddRange(
-            Enumerable.Range(9, 3).Select(peer => (0, peer)));
-        relationships.AddRange(
-            Enumerable.Range(12, 3).Select(peer => (peer, 1)));
-        relationships.AddRange(
-            Enumerable.Range(15, 7).Select(peer => (1, peer)));
-
-        LibraryStructuralTypeLeverageDocument leverage = Execute(
-            types,
-            relationships,
-            []);
-
-        LibraryStructuralTypeLeverageRow foundation = Row(leverage, 0);
-        Assert.Equal(7, foundation.CombinedIncomingDegree);
-        Assert.Equal(3, foundation.CombinedOutgoingDegree);
-        Assert.Equal(
-            LibraryStructuralTypeRole.Foundation,
-            foundation.Role);
-
-        LibraryStructuralTypeLeverageRow orchestrator = Row(leverage, 1);
-        Assert.Equal(3, orchestrator.CombinedIncomingDegree);
-        Assert.Equal(7, orchestrator.CombinedOutgoingDegree);
+        LibraryStructuralTypeLeverageRow peak = Row(shard, 1);
+        Assert.Equal(0, peak.SignatureIncomingDegree);
+        Assert.Equal(4, peak.SignatureOutgoingDegree);
         Assert.Equal(
             LibraryStructuralTypeRole.Orchestrator,
-            orchestrator.Role);
+            peak.Role);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            peak.Pole);
+
+        LibraryStructuralTypeLeverageRow excluded = Row(shard, 5);
+        Assert.False(excluded.DesignationEligible);
+        Assert.Null(excluded.Pole);
+        Assert.DoesNotContain(excluded.Type, shard.SeaLevel.Types);
+        Assert.DoesNotContain(
+            excluded.Type,
+            shard.MountainPeak.Types);
+        Assert.Same(
+            shard.GraphWork.SignatureIncomingDegree.SourceDocument,
+            shard.GraphWork.SignatureOutgoingDegree.SourceDocument);
+        Assert.Equal(
+            11,
+            shard.GraphWork.SignatureIncomingDegree
+                .CanonicalEdgesExamined);
+        Assert.Equal(
+            10,
+            shard.GraphWork.SignatureIncomingDegree
+                .SelectedEdgesIndexed);
     }
 
     [Fact]
-    public void TypeLeverage_PreservesExactIdentityAndOmitsIsolatedRows()
+    public void TypeShardRequiresThreePeersAndPreservesMaximumTies()
     {
-        LibraryStructuralTypeLeverageDocument leverage = Execute(
+        LibraryStructuralTypeLeverageShard weak = Shard(
+            "Weak",
             [
-                ("Box`1", MetadataLibraryTypeClassification.None),
-                ("Box`2", MetadataLibraryTypeClassification.None),
-                ("Sink", MetadataLibraryTypeClassification.None),
-                ("Isolated", MetadataLibraryTypeClassification.None),
+                ("A", MetadataLibraryTypeClassification.None),
+                ("B", MetadataLibraryTypeClassification.None),
+                ("C", MetadataLibraryTypeClassification.None),
             ],
-            signatureRelationships:
-            [
-                (0, 2),
-                (1, 2),
-            ],
-            bodyRelationships: []);
+            [(0, 1), (0, 2)]);
+        Assert.All(weak.Rows, static row => Assert.Null(row.Pole));
 
-        Assert.Equal(3, leverage.Rows.Length);
-        Assert.Contains(leverage.Rows, row => row.Type == Address(0));
-        Assert.Contains(leverage.Rows, row => row.Type == Address(1));
-        Assert.DoesNotContain(leverage.Rows, row => row.Type == Address(3));
+        LibraryStructuralTypeLeverageShard tied = Shard(
+            "Tied",
+            [
+                ("Sea1", MetadataLibraryTypeClassification.None),
+                ("Sea2", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+            ],
+            [
+                (2, 0),
+                (3, 0),
+                (4, 0),
+                (2, 1),
+                (3, 1),
+                (4, 1),
+            ]);
         Assert.Equal(
-            [Address(2), Address(0), Address(1)],
-            leverage.SeaLevel.Types);
+            2,
+            tied.Rows.Count(static row =>
+                row.Pole == LibraryStructuralTypePole.SeaLevel));
+        Assert.All(
+            tied.Rows.Where(static row =>
+                row.Pole == LibraryStructuralTypePole.SeaLevel),
+            static row => Assert.Equal(
+                LibraryStructuralSalience.MinimumDesignationDegree,
+                row.SignatureIncomingDegree));
+    }
+
+    [Fact]
+    public void TypeShardUsesTenPercentCohortOnlyAtDoubleDigitMaximum()
+    {
+        (string Name, MetadataLibraryTypeClassification Classification)[]
+            cohortTypes =
+            [
+                ("Maximum", MetadataLibraryTypeClassification.None),
+                ("NinetyPercent", MetadataLibraryTypeClassification.None),
+                ("BelowNinetyPercent", MetadataLibraryTypeClassification.None),
+                .. Enumerable.Range(1, 10).Select(index =>
+                    ($"Peer{index}",
+                        MetadataLibraryTypeClassification.None)),
+            ];
+        (int Source, int Target)[] cohortRelationships =
+        [
+            .. Enumerable.Range(3, 10).Select(source => (source, 0)),
+            .. Enumerable.Range(3, 9).Select(source => (source, 1)),
+            .. Enumerable.Range(3, 8).Select(source => (source, 2)),
+        ];
+        LibraryStructuralTypeLeverageShard cohort = Shard(
+            "Cohort",
+            cohortTypes,
+            cohortRelationships);
+
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            Row(cohort, 0).Pole);
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            Row(cohort, 1).Pole);
+        Assert.Null(Row(cohort, 2).Pole);
+
+        (string Name, MetadataLibraryTypeClassification Classification)[]
+            exactTypes =
+            [
+                ("Maximum", MetadataLibraryTypeClassification.None),
+                ("BelowMaximum", MetadataLibraryTypeClassification.None),
+                .. Enumerable.Range(1, 9).Select(index =>
+                    ($"Peer{index}",
+                        MetadataLibraryTypeClassification.None)),
+            ];
+        (int Source, int Target)[] exactRelationships =
+        [
+            .. Enumerable.Range(2, 9).Select(source => (source, 0)),
+            .. Enumerable.Range(2, 8).Select(source => (source, 1)),
+        ];
+        LibraryStructuralTypeLeverageShard exact = Shard(
+            "Exact",
+            exactTypes,
+            exactRelationships);
+
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            Row(exact, 0).Pole);
+        Assert.Null(Row(exact, 1).Pole);
+    }
+
+    [Fact]
+    public void TypeShardIssuesOneDominantPoleOrNoneForExactTie()
+    {
+        LibraryStructuralTypeLeverageShard seaDominant = Shard(
+            "SeaDominant",
+            [
+                ("Target", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+                ("Peer4", MetadataLibraryTypeClassification.None),
+            ],
+            [
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (4, 0),
+                (0, 1),
+                (0, 2),
+                (0, 3),
+            ]);
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            Row(seaDominant, 0).Pole);
+
+        LibraryStructuralTypeLeverageShard peakDominant = Shard(
+            "PeakDominant",
+            [
+                ("Target", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+                ("Peer4", MetadataLibraryTypeClassification.None),
+            ],
+            [
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (0, 1),
+                (0, 2),
+                (0, 3),
+                (0, 4),
+            ]);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            Row(peakDominant, 0).Pole);
+
+        LibraryStructuralTypeLeverageShard exactTie = Shard(
+            "ExactTie",
+            [
+                ("Target", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+            ],
+            [
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (0, 1),
+                (0, 2),
+                (0, 3),
+            ]);
+        LibraryStructuralTypeLeverageRow tied = Row(exactTie, 0);
+        Assert.Equal(3, tied.SignatureIncomingDegree);
+        Assert.Equal(3, tied.SignatureOutgoingDegree);
+        Assert.Null(tied.Pole);
+        Assert.Contains(tied.Type, exactTie.SeaLevel.Types);
+        Assert.Contains(tied.Type, exactTie.MountainPeak.Types);
     }
 
     [Theory]
     [InlineData(
-        MetadataLibrarySignatureUseDisposition.Partial,
-        AnalysisLibraryBodyUseDisposition.Complete,
-        LibraryStructuralEvidenceDisposition.Qualified,
+        MetadataLibrarySignatureUseDisposition.Complete,
         LibraryStructuralEvidenceDisposition.Complete)]
     [InlineData(
-        MetadataLibrarySignatureUseDisposition.Complete,
-        AnalysisLibraryBodyUseDisposition.Qualified,
-        LibraryStructuralEvidenceDisposition.Complete,
+        MetadataLibrarySignatureUseDisposition.Partial,
         LibraryStructuralEvidenceDisposition.Qualified)]
-    public void TypeLeverage_QualifiesProducerViewsIndependently(
+    public void TypeShardQualifiesEveryViewFromNamespaceEvidence(
         MetadataLibrarySignatureUseDisposition signatureDisposition,
-        AnalysisLibraryBodyUseDisposition bodyDisposition,
-        LibraryStructuralEvidenceDisposition expectedSeaLevel,
-        LibraryStructuralEvidenceDisposition expectedMountainPeak)
+        LibraryStructuralEvidenceDisposition expectedDisposition)
     {
-        LibraryStructuralTypeLeverageDocument leverage = Execute(
+        LibraryStructuralTypeLeverageShard shard = Shard(
+            "N",
             [
                 ("A", MetadataLibraryTypeClassification.None),
                 ("B", MetadataLibraryTypeClassification.None),
             ],
             [(0, 1)],
-            [(1, 0)],
-            signatureDisposition,
-            bodyDisposition);
+            signatureDisposition);
 
-        Assert.Equal(expectedSeaLevel, leverage.SeaLevel.Disposition);
+        Assert.Equal(expectedDisposition, shard.SeaLevel.Disposition);
         Assert.Equal(
-            expectedMountainPeak,
-            leverage.MountainPeak.Disposition);
-        Assert.Equal(
-            LibraryStructuralEvidenceDisposition.Qualified,
-            leverage.RoleDisposition);
+            expectedDisposition,
+            shard.MountainPeak.Disposition);
+        Assert.Equal(expectedDisposition, shard.RoleDisposition);
         Assert.Equal(
             signatureDisposition,
-            leverage.SignatureUse.Disposition);
-        Assert.Equal(bodyDisposition, leverage.BodyUse.Disposition);
+            shard.SignatureUse.Disposition);
     }
 
     [Fact]
-    public void TypeLeverage_RejectsMismatchedProducerEvidence()
+    public void BodyTypeShardUsesTypedOperandsDistinctPeersAndMetadataEligibility()
     {
-        (MetadataLibrarySignatureUseResult signature,
-            AnalysisLibraryBodyUseResult body) = Evidence(
-                [
-                    ("A", MetadataLibraryTypeClassification.None),
-                    ("B", MetadataLibraryTypeClassification.None),
-                ],
-                [(0, 1)],
-                []);
-        MetadataLibrarySignatureUseResult mismatched = signature with
+        LibraryStructuralBodyTypeLeverageShard shard = BodyShard(
+            "B",
+            [
+                ("Sea", MetadataLibraryTypeClassification.None),
+                ("Peak", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+                ("Excluded", MetadataLibraryTypeClassification.Enum),
+            ],
+            [
+                (1, 0, AnalysisLibraryBodyUseOperandKind.Call),
+                (2, 0, AnalysisLibraryBodyUseOperandKind.Field),
+                (3, 0, AnalysisLibraryBodyUseOperandKind.Type),
+                (4, 0, AnalysisLibraryBodyUseOperandKind.MethodToken),
+                (2, 0, AnalysisLibraryBodyUseOperandKind.Constructor),
+                (0, 0, AnalysisLibraryBodyUseOperandKind.TypeToken),
+                (1, 2, AnalysisLibraryBodyUseOperandKind.Array),
+                (1, 3, AnalysisLibraryBodyUseOperandKind.Box),
+                (1, 4, AnalysisLibraryBodyUseOperandKind.Constrained),
+                (5, 0, AnalysisLibraryBodyUseOperandKind.FieldToken),
+                (5, 2, AnalysisLibraryBodyUseOperandKind.Cast),
+                (5, 3, AnalysisLibraryBodyUseOperandKind.TypeTest),
+                (5, 4, AnalysisLibraryBodyUseOperandKind.Unbox),
+                (5, 5, AnalysisLibraryBodyUseOperandKind.MethodReference),
+            ]);
+
+        LibraryStructuralBodyTypeLeverageRow sea = BodyRow(shard, 0);
+        Assert.Equal(5, sea.BodyIncomingDegree);
+        Assert.Equal(0, sea.BodyOutgoingDegree);
+        Assert.Equal(LibraryStructuralTypeRole.Foundation, sea.Role);
+        Assert.Equal(LibraryStructuralTypePole.SeaLevel, sea.Pole);
+
+        LibraryStructuralBodyTypeLeverageRow peak = BodyRow(shard, 1);
+        Assert.Equal(0, peak.BodyIncomingDegree);
+        Assert.Equal(4, peak.BodyOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypeRole.Orchestrator,
+            peak.Role);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            peak.Pole);
+
+        LibraryStructuralBodyTypeLeverageRow excluded =
+            BodyRow(shard, 5);
+        Assert.False(excluded.DesignationEligible);
+        Assert.Null(excluded.Pole);
+        Assert.DoesNotContain(excluded.Type, shard.SeaLevel.Types);
+        Assert.DoesNotContain(
+            excluded.Type,
+            shard.MountainPeak.Types);
+        Assert.Same(
+            shard.GraphWork.BodyIncomingDegree.SourceDocument,
+            shard.GraphWork.BodyOutgoingDegree.SourceDocument);
+        Assert.Equal(
+            LibraryStructuralSalienceEvidenceMode.BodyUse,
+            shard.EvidenceMode);
+    }
+
+    [Fact]
+    public void BodyTypeShardUsesExactNamespaceInducedRelationships()
+    {
+        MetadataLibrarySignatureUseResult inventory = Evidence(
+            [
+                ("N", "A", MetadataLibraryTypeClassification.None),
+                ("N", "B", MetadataLibraryTypeClassification.None),
+            ],
+            [],
+            exactNamespace: "N");
+        AnalysisLibraryBodyUseType[] bodyTypes =
+        [
+            .. inventory.Types.Select(static type =>
+                new AnalysisLibraryBodyUseType(
+                    type.Type,
+                    type.Name,
+                    type.DefinitionKind)),
+            new(
+                Address(2),
+                Name("Other", "External"),
+                AssemblyTypeDefinitionKind.Class),
+        ];
+        AnalysisLibraryBodyUseResult bodyUse = BodyEvidence(
+            bodyTypes,
+            [
+                (0, 1, AnalysisLibraryBodyUseOperandKind.Call),
+                (0, 2, AnalysisLibraryBodyUseOperandKind.Field),
+                (2, 0, AnalysisLibraryBodyUseOperandKind.Type),
+            ]);
+
+        LibraryStructuralBodyTypeLeverageShard shard =
+            LibraryStructuralReport.CreateBodyTypeLeverageShard(
+                inventory,
+                bodyUse);
+
+        LibraryStructuralBodyTypeLeverageRow a = BodyRow(shard, 0);
+        LibraryStructuralBodyTypeLeverageRow b = BodyRow(shard, 1);
+        Assert.Equal(0, a.BodyIncomingDegree);
+        Assert.Equal(1, a.BodyOutgoingDegree);
+        Assert.Equal(1, b.BodyIncomingDegree);
+        Assert.Equal(0, b.BodyOutgoingDegree);
+    }
+
+    [Theory]
+    [InlineData(
+        MetadataLibrarySignatureUseDisposition.Complete,
+        AnalysisLibraryBodyUseDisposition.Complete,
+        LibraryStructuralEvidenceDisposition.Complete)]
+    [InlineData(
+        MetadataLibrarySignatureUseDisposition.Partial,
+        AnalysisLibraryBodyUseDisposition.Complete,
+        LibraryStructuralEvidenceDisposition.Qualified)]
+    [InlineData(
+        MetadataLibrarySignatureUseDisposition.Complete,
+        AnalysisLibraryBodyUseDisposition.Qualified,
+        LibraryStructuralEvidenceDisposition.Qualified)]
+    [InlineData(
+        MetadataLibrarySignatureUseDisposition.Complete,
+        AnalysisLibraryBodyUseDisposition.Partial,
+        LibraryStructuralEvidenceDisposition.Qualified)]
+    public void BodyTypeShardQualifiesEveryViewFromBothEvidenceSources(
+        MetadataLibrarySignatureUseDisposition inventoryDisposition,
+        AnalysisLibraryBodyUseDisposition bodyDisposition,
+        LibraryStructuralEvidenceDisposition expectedDisposition)
+    {
+        LibraryStructuralBodyTypeLeverageShard shard = BodyShard(
+            "N",
+            [
+                ("A", MetadataLibraryTypeClassification.None),
+                ("B", MetadataLibraryTypeClassification.None),
+            ],
+            [(0, 1, AnalysisLibraryBodyUseOperandKind.Call)],
+            inventoryDisposition,
+            bodyDisposition);
+
+        Assert.Equal(expectedDisposition, shard.SeaLevel.Disposition);
+        Assert.Equal(
+            expectedDisposition,
+            shard.MountainPeak.Disposition);
+        Assert.Equal(expectedDisposition, shard.RoleDisposition);
+        Assert.Equal(
+            inventoryDisposition,
+            shard.TypeInventory.Disposition);
+        Assert.Equal(bodyDisposition, shard.BodyUse.Disposition);
+    }
+
+    [Fact]
+    public void BodyTypeShardRejectsMismatchedLibraryGeneration()
+    {
+        MetadataLibrarySignatureUseResult inventory = Evidence(
+            [("N", "A", MetadataLibraryTypeClassification.None)],
+            [],
+            exactNamespace: "N");
+        AnalysisLibraryBodyUseResult bodyUse = BodyEvidence(
+            inventory.Types.Select(static type =>
+                new AnalysisLibraryBodyUseType(
+                    type.Type,
+                    type.Name,
+                    type.DefinitionKind)),
+            []) with
         {
-            Receipt = signature.Receipt with
+            Receipt = new(
+                Guid.NewGuid(),
+                s_assembly,
+                new WorkReceipt(0, [])),
+        };
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => LibraryStructuralReport.CreateBodyTypeLeverageShard(
+                inventory,
+                bodyUse));
+        Assert.Contains(
+            "same exact Library generation",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExhaustiveCompositionRequiresEveryOrderedNamespaceShard()
+    {
+        MetadataLibrarySignatureUseResult whole = Evidence(
+            [
+                ("A", "Source", MetadataLibraryTypeClassification.None),
+                ("B", "Target", MetadataLibraryTypeClassification.None),
+            ],
+            [(0, 1)],
+            exactNamespace: null);
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(whole);
+        LibraryStructuralTypeLeverageShard[] shards =
+        [
+            Shard("B", [("Target", MetadataLibraryTypeClassification.None)], []),
+            Shard("A", [("Source", MetadataLibraryTypeClassification.None)], []),
+        ];
+
+        LibraryStructuralSalienceDocument document =
+            LibraryStructuralReport.CreateStructuralSalience(
+                index,
+                shards);
+
+        Assert.Equal(
+            ["B", "A"],
+            document.TypeLeverageShards.Select(
+                static shard => shard.Namespace));
+        var available =
+            Assert.IsType<LibraryStructuralReportResult.Available>(
+                LibraryStructuralReport.Execute(
+                    s_analysis,
+                    document));
+        Assert.Same(
+            document,
+            available.Document.StructuralSalience);
+
+        Assert.Throws<ArgumentException>(
+            () => LibraryStructuralReport.CreateStructuralSalience(
+                index,
+                shards.Reverse()));
+        Assert.Throws<ArgumentException>(
+            () => LibraryStructuralReport.CreateStructuralSalience(
+                index,
+                shards.Take(1)));
+    }
+
+    [Fact]
+    public void StructuralSalienceRejectsMismatchedAnalysisGeneration()
+    {
+        MetadataLibrarySignatureUseResult whole = Evidence(
+            [("A", "Source", MetadataLibraryTypeClassification.None)],
+            [],
+            exactNamespace: null);
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(whole);
+        LibraryStructuralSalienceDocument document =
+            LibraryStructuralReport.CreateStructuralSalience(
+                index,
+                [
+                    Shard(
+                        "A",
+                        [("Source", MetadataLibraryTypeClassification.None)],
+                        []),
+                ]);
+        document = document with
+        {
+            NamespaceIndex = document.NamespaceIndex with
             {
-                ModuleVersionId = Guid.NewGuid(),
+                SignatureUse =
+                    document.NamespaceIndex.SignatureUse with
+                    {
+                        Receipt =
+                            document.NamespaceIndex.SignatureUse.Receipt
+                            with
+                            {
+                                ModuleVersionId = Guid.NewGuid(),
+                            },
+                    },
             },
         };
 
         ArgumentException error = Assert.Throws<ArgumentException>(
             () => LibraryStructuralReport.Execute(
                 s_analysis,
-                mismatched,
-                body));
+                document));
         Assert.Contains(
             "exact Library generation",
             error.Message,
             StringComparison.Ordinal);
-
-        AnalysisLibraryBodyUseResult mismatchedInventory = body with
-        {
-            Types = [.. body.Types.Skip(1)],
-        };
-        error = Assert.Throws<ArgumentException>(
-            () => LibraryStructuralReport.Execute(
-                s_analysis,
-                signature,
-                mismatchedInventory));
-        Assert.Contains(
-            "inventories",
-            error.Message,
-            StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(MetadataLibraryTypeClassification.UniversalBase)]
-    [InlineData(MetadataLibraryTypeClassification.Enum)]
-    [InlineData(MetadataLibraryTypeClassification.Attribute)]
-    [InlineData(MetadataLibraryTypeClassification.Exception)]
-    [InlineData(MetadataLibraryTypeClassification.Delegate)]
-    public void TypeLeverage_ExcludesOnlyOwnerClassifiedRowsFromRankings(
-        MetadataLibraryTypeClassification classification)
-    {
-        LibraryStructuralTypeLeverageDocument leverage = Execute(
-            [
-                ("Classified", classification),
-                ("Peer", MetadataLibraryTypeClassification.None),
-            ],
-            [(0, 1)],
-            [(1, 0)]);
-
-        LibraryStructuralTypeLeverageRow classified = Row(leverage, 0);
-        Assert.False(classified.RankingEligible);
-        Assert.DoesNotContain(classified.Type, leverage.SeaLevel.Types);
-        Assert.DoesNotContain(
-            classified.Type,
-            leverage.MountainPeak.Types);
-        Assert.Contains(leverage.Rows, row => row.Type == classified.Type);
-    }
-
-    private static LibraryStructuralTypeLeverageDocument Execute(
-        IReadOnlyList<(string Name, MetadataLibraryTypeClassification
-            Classification)> types,
+    private static LibraryStructuralTypeLeverageShard Shard(
+        string @namespace,
+        IReadOnlyList<(
+            string Name,
+            MetadataLibraryTypeClassification Classification)> types,
         IReadOnlyList<(int Source, int Target)> signatureRelationships,
-        IReadOnlyList<(int Source, int Target)> bodyRelationships,
         MetadataLibrarySignatureUseDisposition signatureDisposition =
-            MetadataLibrarySignatureUseDisposition.Complete,
-        AnalysisLibraryBodyUseDisposition bodyDisposition =
-            AnalysisLibraryBodyUseDisposition.Complete)
-    {
-        (MetadataLibrarySignatureUseResult signature,
-            AnalysisLibraryBodyUseResult body) = Evidence(
-                types,
+            MetadataLibrarySignatureUseDisposition.Complete) =>
+        LibraryStructuralReport.CreateTypeLeverageShard(
+            Evidence(
+                types.Select(type =>
+                    (@namespace, type.Name, type.Classification))
+                    .ToArray(),
                 signatureRelationships,
-                bodyRelationships,
-                signatureDisposition,
-                bodyDisposition);
-        var available = Assert.IsType<LibraryStructuralReportResult.Available>(
-            LibraryStructuralReport.Execute(
-                s_analysis,
-                signature,
-                body));
-        return Assert.IsType<LibraryStructuralTypeLeverageDocument>(
-            available.Document.TypeLeverage);
-    }
+                @namespace,
+                signatureDisposition));
 
-    private static (
-        MetadataLibrarySignatureUseResult Signature,
-        AnalysisLibraryBodyUseResult Body) Evidence(
-        IReadOnlyList<(string Name, MetadataLibraryTypeClassification
-            Classification)> types,
-        IReadOnlyList<(int Source, int Target)> signatureRelationships,
-        IReadOnlyList<(int Source, int Target)> bodyRelationships,
-        MetadataLibrarySignatureUseDisposition signatureDisposition =
+    private static LibraryStructuralBodyTypeLeverageShard BodyShard(
+        string @namespace,
+        IReadOnlyList<(
+            string Name,
+            MetadataLibraryTypeClassification Classification)> types,
+        IReadOnlyList<(
+            int Source,
+            int Target,
+            AnalysisLibraryBodyUseOperandKind Kind)> bodyRelationships,
+        MetadataLibrarySignatureUseDisposition inventoryDisposition =
             MetadataLibrarySignatureUseDisposition.Complete,
         AnalysisLibraryBodyUseDisposition bodyDisposition =
             AnalysisLibraryBodyUseDisposition.Complete)
     {
-        LibraryBodyModuleIdentity identity = s_analysis.Receipt.ModuleIdentity;
+        MetadataLibrarySignatureUseResult inventory = Evidence(
+            types.Select(type =>
+                (@namespace, type.Name, type.Classification))
+                .ToArray(),
+            [],
+            @namespace,
+            inventoryDisposition);
+        return LibraryStructuralReport.CreateBodyTypeLeverageShard(
+            inventory,
+            BodyEvidence(
+                inventory.Types.Select(static type =>
+                    new AnalysisLibraryBodyUseType(
+                        type.Type,
+                        type.Name,
+                        type.DefinitionKind)),
+                bodyRelationships,
+                bodyDisposition));
+    }
+
+    private static AnalysisLibraryBodyUseResult BodyEvidence(
+        IEnumerable<AnalysisLibraryBodyUseType> types,
+        IReadOnlyList<(
+            int Source,
+            int Target,
+            AnalysisLibraryBodyUseOperandKind Kind)> bodyRelationships,
+        AnalysisLibraryBodyUseDisposition disposition =
+            AnalysisLibraryBodyUseDisposition.Complete)
+    {
+        AnalysisLibraryBodyUseType[] bodyTypes = [.. types];
+        AnalysisLibraryBodyUseOccurrence[] occurrences =
+        [
+            .. bodyRelationships.Select((relationship, ordinal) =>
+                new AnalysisLibraryBodyUseOccurrence(
+                    bodyTypes[relationship.Source].Type,
+                    bodyTypes[relationship.Source].Name,
+                    bodyTypes[relationship.Target].Type,
+                    bodyTypes[relationship.Target].Name,
+                    0x06000001 + ordinal,
+                    relationship.Kind,
+                    0x0A000001 + ordinal,
+                    ordinal,
+                    ordinal)),
+        ];
+        int examinedBodies = occurrences.Length == 0 ? 0 : 1;
+        return new(
+            new(
+                s_moduleVersionId,
+                s_assembly,
+                new WorkReceipt(0, [])),
+            disposition,
+            [.. bodyTypes],
+            [.. occurrences],
+            [],
+            new(
+                bodiesConsidered: examinedBodies,
+                bodiesExamined: examinedBodies,
+                bodiesPhysicalOnly: 0,
+                bodiesUnavailable: 0,
+                bodiesLimited: 0,
+                operandsConsidered: occurrences.Length,
+                operandsExamined: occurrences.Length,
+                operandsUnavailable: 0,
+                operandsLimited: 0),
+            []);
+    }
+
+    private static MetadataLibrarySignatureUseResult Evidence(
+        IReadOnlyList<(
+            string Namespace,
+            string Name,
+            MetadataLibraryTypeClassification Classification)> types,
+        IReadOnlyList<(int Source, int Target)> signatureRelationships,
+        string? exactNamespace,
+        MetadataLibrarySignatureUseDisposition signatureDisposition =
+            MetadataLibrarySignatureUseDisposition.Complete)
+    {
         MetadataLibrarySignatureType[] signatureTypes =
         [
             .. types.Select((type, index) =>
                 new MetadataLibrarySignatureType(
                     Address(index),
-                    Name(type.Name),
+                    Name(type.Namespace, type.Name),
                     AssemblyTypeDefinitionKind.Class,
                     type.Classification)),
-        ];
-        AnalysisLibraryBodyUseType[] bodyTypes =
-        [
-            .. signatureTypes.Select(type =>
-                new AnalysisLibraryBodyUseType(
-                    type.Type,
-                    type.Name,
-                    type.DefinitionKind)),
         ];
         MetadataLibrarySignatureUseOccurrence[] signatureOccurrences =
         [
@@ -339,63 +724,36 @@ public sealed class LibraryStructuralTypeLeverageTests
                     0x04000001 + ordinal,
                     ordinal)),
         ];
-        AnalysisLibraryBodyUseOccurrence[] bodyOccurrences =
-        [
-            .. bodyRelationships.Select((relationship, ordinal) =>
-                new AnalysisLibraryBodyUseOccurrence(
-                    bodyTypes[relationship.Source].Type,
-                    bodyTypes[relationship.Source].Name,
-                    bodyTypes[relationship.Target].Type,
-                    bodyTypes[relationship.Target].Name,
-                    0x06000001,
-                    AnalysisLibraryBodyUseOperandKind.Type,
-                    0x01000001 + ordinal,
-                    ordinal,
-                    ordinal)),
-        ];
 
-        return (
+        return new(
             new(
-                new(
-                    identity.ModuleVersionId,
-                    s_assembly,
-                    new MetadataOperationCounters(0)),
-                signatureDisposition,
-                [.. signatureTypes],
-                [.. signatureOccurrences],
-                new(
-                    signatureOccurrences.Length,
-                    signatureOccurrences.Length,
-                    unavailable: 0,
-                    limited: 0),
-                []),
+                s_moduleVersionId,
+                s_assembly,
+                exactNamespace,
+                new MetadataOperationCounters(0)),
+            signatureDisposition,
+            [.. signatureTypes],
+            [.. signatureOccurrences],
             new(
-                new(
-                    identity.ModuleVersionId,
-                    s_assembly,
-                    new WorkReceipt(0, [])),
-                bodyDisposition,
-                [.. bodyTypes],
-                [.. bodyOccurrences],
-                [],
-                new(
-                    bodiesConsidered: 0,
-                    bodiesExamined: 0,
-                    bodiesPhysicalOnly: 0,
-                    bodiesUnavailable: 0,
-                    bodiesLimited: 0,
-                    operandsConsidered: bodyOccurrences.Length,
-                    operandsExamined: bodyOccurrences.Length,
-                    operandsUnavailable: 0,
-                    operandsLimited: 0),
-                []));
+                signatureOccurrences.Length,
+                signatureOccurrences.Length,
+                unavailable: 0,
+                limited: 0),
+            []);
     }
 
     private static LibraryStructuralTypeLeverageRow Row(
-        LibraryStructuralTypeLeverageDocument leverage,
+        LibraryStructuralTypeLeverageShard shard,
         int typeIndex) =>
         Assert.Single(
-            leverage.Rows,
+            shard.Rows,
+            row => row.Type == Address(typeIndex));
+
+    private static LibraryStructuralBodyTypeLeverageRow BodyRow(
+        LibraryStructuralBodyTypeLeverageShard shard,
+        int typeIndex) =>
+        Assert.Single(
+            shard.Rows,
             row => row.Type == Address(typeIndex));
 
     private static MetadataTypeDefinitionAddress Address(int index) =>
@@ -403,9 +761,13 @@ public sealed class LibraryStructuralTypeLeverageTests
             s_moduleVersionId,
             0x02000001 + index);
 
-    private static MetadataTypeDefinitionName Name(string name) =>
+    private static MetadataTypeDefinitionName Name(
+        string @namespace,
+        string name) =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-            MetadataTypeDefinitionName.Create("", [name])).Name;
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [name])).Name;
 
     private static LibraryImplementationProfileAnalysisResult
         CreateAnalysis()

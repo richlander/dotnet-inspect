@@ -186,6 +186,12 @@ public enum PortablePdbStoreFailureKind
 
     /// <summary>The store did not retain content after accepting a write.</summary>
     PublicationNotRetained,
+
+    /// <summary>
+    /// The store could not reproduce the supplying provenance for verified
+    /// content.
+    /// </summary>
+    ProvenanceUnavailable,
 }
 
 /// <summary>Why an external PDB provider could not produce usable content.</summary>

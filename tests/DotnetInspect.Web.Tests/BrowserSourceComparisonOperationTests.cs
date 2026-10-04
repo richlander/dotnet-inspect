@@ -68,9 +68,10 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         string json = await SourceExports.QueryMemberSource(
             selection.PackageId, BeforeVersion, selection.Framework, selection.Assembly,
             selection.TypeIdentity, selection.MemberName, selection.SelectorKey,
-            selection.MetadataToken, "[]");
+            selection.MetadataToken, 0, "[]");
         using var document = JsonDocument.Parse(json);
-        var source = document.RootElement.GetProperty("source");
+        var source = document.RootElement.GetProperty("value")
+            .GetProperty("source");
         Assert.Equal("decompiled", source.GetProperty("provider").GetString());
         Assert.Contains(expected, source.GetProperty("text").GetString());
     }
@@ -86,9 +87,10 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         string json = await SourceExports.QueryMemberSource(
             selection.PackageId, BeforeVersion, selection.Framework, selection.Assembly,
             selection.TypeIdentity, selection.MemberName, selection.SelectorKey,
-            selection.MetadataToken, "[]");
+            selection.MetadataToken, 0, "[]");
         using var document = JsonDocument.Parse(json);
-        var source = document.RootElement.GetProperty("source");
+        var source = document.RootElement.GetProperty("value")
+            .GetProperty("source");
         Assert.Equal("decompiled", source.GetProperty("provider").GetString());
         string text = source.GetProperty("text").GetString()!;
         Assert.Contains("field + 1", text);
@@ -102,6 +104,38 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             Assert.DoesNotContain("struct ", text);
             Assert.DoesNotContain("} = ", text);
         }
+    }
+
+    [Fact]
+    public async Task MemberSourceExport_ExplicitDecompilerHasAvailableParts()
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        MemberSelection selection =
+            await pair.Selection("FieldGetter", "Count");
+
+        string json = await SourceExports.QueryMemberSource(
+            selection.PackageId,
+            BeforeVersion,
+            selection.Framework,
+            selection.Assembly,
+            selection.TypeIdentity,
+            selection.MemberName,
+            selection.SelectorKey,
+            selection.MetadataToken,
+            0,
+            "[]",
+            "decompiler-source");
+
+        BrowserMemberSource source =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserSourceJsonContext.Default.BrowserMemberSourceResult)
+                ?.Value
+            ?? throw new InvalidOperationException(
+                "The member source export returned no payload.");
+        Assert.Equal("decompiled", source.Source.Provider);
+        Assert.NotEmpty(source.Parts);
+        Assert.Contains("public int Count", source.Source.Text);
     }
 
     [Theory]

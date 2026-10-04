@@ -4,6 +4,7 @@ import {
   chooseInspector,
   chooseSubject,
   selectLibrary,
+  core,
   other,
   installFacades,
   releaseFacade,
@@ -168,33 +169,7 @@ for (const width of [1280, 390]) {
       undefined,
       width === 390 ? longFrameworkSurface : frameworkSurface);
     await page.goto(width === 390 ? longFrameworkRoot : frameworkRoot);
-    await chooseSubject(page, "type", "Type");
-    if (width === 390) {
-      await chooseInspector(page, "data-lens", "source", "Source");
-      await expect(
-        page.getByRole("group", { name: "Source actions" }),
-      ).toBeVisible();
-      await expect(page.getByLabel("Select type code view")).toBeVisible();
-      await expect(page.locator("#copy-type-source")).toBeVisible();
-      await expect(page.getByRole("link", { name: "Open" })).toBeVisible();
-      await expect(page.locator("#explore-source")).toBeVisible();
-      const targetBounds = await page.locator(".inspected-target").boundingBox();
-      const actionBounds = await page.locator(
-        ".working-surface-actions",
-      ).boundingBox();
-      const targetbarBounds = await page.locator(".targetbar").boundingBox();
-      const workspaceBounds = await page.locator("#subject-panel").boundingBox();
-      expect(targetBounds).not.toBeNull();
-      expect(actionBounds).not.toBeNull();
-      expect(targetbarBounds).not.toBeNull();
-      expect(workspaceBounds).not.toBeNull();
-      expect(targetBounds!.y + targetBounds!.height)
-        .toBeLessThanOrEqual(actionBounds!.y + 1);
-      expect(actionBounds!.y + actionBounds!.height)
-        .toBeLessThanOrEqual(targetbarBounds!.y + targetbarBounds!.height + 1);
-      expect(targetbarBounds!.y + targetbarBounds!.height)
-        .toBeLessThanOrEqual(workspaceBounds!.y + 1);
-    }
+    await selectLibrary(page, other.id);
 
     const targetFramework = page.getByRole(
       "button",
@@ -221,6 +196,199 @@ for (const width of [1280, 390]) {
       .toBeFocused();
   });
 }
+
+test("Package Overview opens an owner-issued tool Library child", async ({
+  page,
+}) => {
+  const asset = "tools/net10.0/any/Tool.Payload.dll";
+  await installPackageLoadingFacades(page, {
+    deferChanges: false,
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: "System.Text.Json",
+        packageVersion: "10.0.0",
+        targetFramework: "net10.0",
+        libraries: [{
+          assetId: asset,
+          assetPath: asset,
+          assemblyName: "Tool.Payload",
+          role: "ToolEntryPoint",
+        }],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+  });
+  await page.goto(frameworkRoot);
+
+  const row = page.locator(`[data-package-child-library="${asset}"]`);
+  await expect(row).toContainText("Tool.Payload");
+  await expect(row).toContainText("entry point");
+  await expect(row).not.toContainText("Type declarations");
+  await row.click();
+
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected",
+    "true");
+  await expect(page.getByText(/Tool\.Payload/).first()).toBeVisible();
+
+  await selectLibrary(page, "all");
+  await expect(page.locator(".library-overview-surface .api-surface-head p"))
+    .toHaveText("Type Count unavailable · Member Count unavailable");
+});
+
+test("Package Overview disambiguates duplicate Library names", async ({
+  page,
+}) => {
+  const firstAsset = "tools/net10.0/any/first/Shared.dll";
+  const secondAsset = "tools/net10.0/any/second/Shared.dll";
+  await installPackageLoadingFacades(page, {
+    deferChanges: false,
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: "System.Text.Json",
+        packageVersion: "10.0.0",
+        targetFramework: "net10.0",
+        libraries: [{
+          assetId: firstAsset,
+          assetPath: firstAsset,
+          assemblyName: "Shared",
+          role: "Compile",
+        }, {
+          assetId: secondAsset,
+          assetPath: secondAsset,
+          assemblyName: "Shared",
+          role: "Compile",
+        }],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+  });
+  await page.goto(frameworkRoot);
+
+  await expect(
+    page.locator(`[data-package-child-library="${firstAsset}"]`),
+  ).toContainText(firstAsset);
+  await expect(
+    page.locator(`[data-package-child-library="${secondAsset}"]`),
+  ).toContainText(secondAsset);
+});
+
+test("lazy Library acquisition keeps partial Package totals unavailable", async ({
+  page,
+}) => {
+  const unavailableAsset = "lib/net10.0/Example.Unavailable.dll";
+  await installPackageLoadingFacades(page, {
+    deferChanges: false,
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: "System.Text.Json",
+        packageVersion: "10.0.0",
+        targetFramework: "net10.0",
+        libraries: [{
+          assetId: core.id,
+          assetPath: core.asset,
+          assemblyName: core.name,
+          role: "Compile",
+        }, {
+          assetId: unavailableAsset,
+          assetPath: unavailableAsset,
+          assemblyName: "Example.Unavailable",
+          role: "Compile",
+        }],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+  });
+  await page.goto(frameworkRoot);
+
+  await page.locator(`[data-package-child-library="${core.id}"]`).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+  await chooseSubject(page, "package", "Package");
+
+  await expect(page.locator(".package-overview-surface .api-surface-head p"))
+    .toHaveText("Type Count unavailable · Member Count unavailable");
+});
+
+test("Package Overview opens an owner-issued RID Package child", async ({
+  page,
+}) => {
+  await installPackageLoadingFacades(page, {
+    deferChanges: false,
+    packageChildren: {
+      content: {
+        kind: "RuntimeIdentifierPackages",
+        status: "Available",
+        packageId: "System.Text.Json",
+        packageVersion: "10.0.0",
+        targetFramework: null,
+        libraries: [],
+        runtimeIdentifierPackages: [{
+          runtimeIdentifier: "linux-x64",
+          packageId: "Tool.Pointer.linux-x64",
+        }],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+  });
+  await page.goto(frameworkRoot);
+
+  const row = page.locator(
+    '[data-package-child-package="Tool.Pointer.linux-x64"]');
+  await expect(row).toContainText("linux-x64");
+  await row.click();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-query-request",
+    JSON.stringify(["Tool.Pointer.linux-x64", "10.0.0", ""]));
+  await expect(page.locator(".package-overview-surface h1"))
+    .toHaveText("Tool.Pointer.linux-x64");
+});
 
 for (const change of packageCoordinateChanges) {
   test(`package ${change.name} replacement preserves latent exact Library selection`, async ({ page }) => {
@@ -483,4 +651,51 @@ test("initial package loading retains the full acquisition interstitial", async 
   await expect(page.locator('[data-package-framework="net10.0"]'))
     .toHaveAttribute("aria-current", "page");
   await expect(page.locator(".package-overview-surface")).toBeVisible();
+});
+
+async function beginPendingTypeActivation(page: Page) {
+  await installPackageLoadingFacades(page, { deferInitial: true });
+  await page.goto(frameworkRoot);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-query-pending");
+  await releaseFacade(page, "finish-package-query");
+  await expect(subjectTab(page, "package")).toHaveAttribute(
+    "aria-selected", "true");
+  await page.locator("html").evaluate(element => {
+    delete element.dataset.packageQueryPending;
+  });
+
+  await subjectTab(page, "type").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-query-pending");
+}
+
+test("newer Library navigation supersedes pending Type activation", async ({
+  page,
+}) => {
+  await beginPendingTypeActivation(page);
+  await chooseSubject(page, "library", "Library");
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+
+  await releaseFacade(page, "finish-package-query");
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+  await expect(page.locator(".library-overview-surface"))
+    .not.toContainText("Library surface details are loading.");
+});
+
+test("newer Package child navigation supersedes pending Type activation", async ({
+  page,
+}) => {
+  await beginPendingTypeActivation(page);
+  await page.locator(`[data-package-child-library="${core.id}"]`).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+
+  await releaseFacade(page, "finish-package-query");
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText(core.name);
 });

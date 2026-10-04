@@ -9,6 +9,9 @@ public static class InspectionViewFacetCatalog
             "workspace.overview",
             InspectionViewFacetExecution.WorkspaceOverview),
         Binding(
+            "ecosystem.overview",
+            InspectionViewFacetExecution.EcosystemOverview),
+        Binding(
             "package.overview",
             InspectionViewFacetExecution.PackageOverview),
         Binding(
@@ -79,6 +82,16 @@ public static class InspectionViewFacetCatalog
                 ViewFacetRole.WorkspaceOverview),
             "Current Workspace scope, ordered packages, and realization status.",
             AppliesToWorkspace),
+        Active(
+            Descriptor(
+                "ecosystem.overview",
+                StructuralSubjectKind.Ecosystem,
+                "Overview",
+                "Registered Ecosystem identity, declarations, and population capabilities.",
+                100,
+                ViewFacetRole.EcosystemOverview),
+            "Registered Ecosystem identity, declarations, and population capabilities.",
+            AppliesToEcosystem),
         Active(
             Descriptor(
                 "package.overview",
@@ -300,6 +313,9 @@ public static class InspectionViewFacetCatalog
     static bool AppliesToWorkspace(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Workspace;
 
+    static bool AppliesToEcosystem(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Ecosystem;
+
     static bool AppliesToPackage(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Package;
 
@@ -316,6 +332,7 @@ public static class InspectionViewFacetCatalog
 internal enum InspectionViewFacetExecution
 {
     WorkspaceOverview,
+    EcosystemOverview,
     PackageOverview,
     PackageDependencies,
     PackageDependencyHierarchy,

@@ -54,6 +54,24 @@ public class NamedReferenceSlotMaterializationTests
         AssertRetained(function);
     }
 
+    [Fact]
+    public void NullLiteralAssignsToProvenNamedReference()
+    {
+        var function = Function(Reference,
+            new StoreStackSlot(0, new Constant(null, Object)),
+            new Return(new LoadStackSlot(0, Reference)));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [Reference] = TypeShape.Reference };
+
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(Reference, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
+    }
+
     [Theory]
     [InlineData("open-generic")]
     [InlineData("wrong-arity")]
@@ -91,7 +109,7 @@ public class NamedReferenceSlotMaterializationTests
     {
         var statements = new List<IrNode>
         {
-            new StoreStackSlot(0, new Constant(null, Object)),
+            new StoreStackSlot(0, new Coerce(Object, new Constant(null, Object))),
             new Return(new LoadStackSlot(0, Reference)),
         };
         if (mixed)

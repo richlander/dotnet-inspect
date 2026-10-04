@@ -12,81 +12,6 @@ public enum AssemblyAnalysisSourceKind
     MethodDefinitions,
 }
 
-/// <summary>Opaque identity for one owner-issued Method-definition source request.</summary>
-public sealed class MethodDefinitionSourceRequestIdentity
-{
-    internal MethodDefinitionSourceRequestIdentity()
-    {
-    }
-}
-
-/// <summary>
-/// One resource-free request to run a closed, single-producer
-/// description over Method definitions.
-/// </summary>
-public sealed class MethodDefinitionSourceRequest<TResult>
-{
-    MethodDefinitionSourceRequest(
-        WorkDescription work,
-        ProducerDeclaration<TResult> producer)
-    {
-        Work = work;
-        Producer = producer;
-        Identity = new();
-        Terminal = work.TerminalOf(producer);
-        DeclaredLayers = MethodDefinitionExecution.FieldsRead(work);
-    }
-
-    /// <summary>Creates the reference Method-source request without reading a subject.</summary>
-    public static MethodDefinitionSourceRequest<TResult> Create(
-        WorkDescription work,
-        ProducerDeclaration<TResult> producer)
-    {
-        ArgumentNullException.ThrowIfNull(work);
-        ArgumentNullException.ThrowIfNull(producer);
-        if (!work.Contains(producer) || !work.WasRequested(producer))
-        {
-            throw new ProducerContractException(
-                $"Producer '{producer.Identity}' is not a requested producer "
-                + "in this work description.");
-        }
-
-        if (work.Producers.Length != 1
-            || !ReferenceEquals(work.Producers[0], producer))
-        {
-            throw new ProducerContractException(
-                "The reference Method source accepts exactly one planned "
-                + "producer until QuerySpace request collapse lands.");
-        }
-
-        foreach (ProducerDeclaration planned in work.Producers)
-        {
-            if (planned is not IMethodDefinitionProducer)
-            {
-                throw new ProducerContractException(
-                    $"Producer '{planned.Identity}' is not a "
-                    + "method-definition producer.");
-            }
-        }
-
-        return new(work, producer);
-    }
-
-    /// <summary>This request's exact identity.</summary>
-    public MethodDefinitionSourceRequestIdentity Identity { get; }
-
-    /// <summary>The focused producer result this request publishes.</summary>
-    public ProducerDeclaration<TResult> Producer { get; }
-
-    /// <summary>The closing applied to the focused producer.</summary>
-    public ProducerTerminal Terminal { get; }
-
-    /// <summary>The source layers declared by the closed work description.</summary>
-    public MethodDefinitionLayers DeclaredLayers { get; }
-
-    internal WorkDescription Work { get; }
-}
-
 /// <summary>
 /// Resource-free composition of one closed producer description and one
 /// owner-issued Method source request.
@@ -125,31 +50,36 @@ public sealed class AssemblyAnalysisOperation<TResult>
         [AssemblyAnalysisSourceKind.MethodDefinitions];
 }
 
-/// <summary>How the Method source settled one accepted request.</summary>
-public enum MethodDefinitionSourceCompletion
+/// <summary>
+/// Resource-free composition of one immutable QuerySpace request-set plan
+/// and the Method source that will execute its compatible groups.
+/// </summary>
+public sealed class AssemblyAnalysisRequestSetOperation
 {
-    /// <summary>The source exhausted the selected Method-definition population.</summary>
-    Exhausted,
+    AssemblyAnalysisRequestSetOperation(
+        string sourceName,
+        MethodDefinitionSourceRequestSetPlan methodDefinitions)
+    {
+        SourceName = sourceName;
+        MethodDefinitions = methodDefinitions;
+    }
 
-    /// <summary>The request's terminal settled before source exhaustion.</summary>
-    Satisfied,
+    public static AssemblyAnalysisRequestSetOperation Create(
+        string sourceName,
+        MethodDefinitionSourceRequestSetPlan methodDefinitions)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentNullException.ThrowIfNull(methodDefinitions);
+        return new(sourceName, methodDefinitions);
+    }
 
-    /// <summary>A producer failure prevented the source request from settling.</summary>
-    ProducerFailed,
+    public string SourceName { get; }
 
-    /// <summary>A critical producer work bound aborted the source request.</summary>
-    Aborted,
+    public MethodDefinitionSourceRequestSetPlan MethodDefinitions { get; }
+
+    public ImmutableArray<AssemblyAnalysisSourceKind> SourceKinds =>
+        [AssemblyAnalysisSourceKind.MethodDefinitions];
 }
-
-/// <summary>Detached evidence of the Method-source work actually performed.</summary>
-public sealed record MethodDefinitionSourceReceipt(
-    MethodDefinitionSourceRequestIdentity Request,
-    ProducerTerminal Terminal,
-    MethodDefinitionLayers DeclaredLayers,
-    MethodDefinitionSourceCompletion Completion,
-    int DefinitionsVisited,
-    int BodiesAcquired,
-    int ModuleLookups);
 
 /// <summary>Why assembly-operation execution was rejected before producer work.</summary>
 public enum AssemblyAnalysisRejectionKind
@@ -175,6 +105,21 @@ public abstract record AssemblyAnalysisServiceResult<TResult>
     /// <summary>Execution was rejected before producer work began.</summary>
     public sealed record Rejected(AssemblyAnalysisRejectionKind Kind)
         : AssemblyAnalysisServiceResult<TResult>;
+}
+
+/// <summary>Result of binding and executing one request-set operation.</summary>
+public abstract record AssemblyAnalysisRequestSetServiceResult
+{
+    private AssemblyAnalysisRequestSetServiceResult()
+    {
+    }
+
+    public sealed record Completed(
+        MethodDefinitionSourceRequestSetExecution Execution)
+        : AssemblyAnalysisRequestSetServiceResult;
+
+    public sealed record Rejected(AssemblyAnalysisRejectionKind Kind)
+        : AssemblyAnalysisRequestSetServiceResult;
 }
 
 /// <summary>
@@ -261,6 +206,38 @@ public sealed class AssemblyAnalysisService
             peReader => Execute(operation, subject, peReader));
     }
 
+    /// <summary>
+    /// Executes one request-set operation through its exact stack-only access.
+    /// </summary>
+    public AssemblyAnalysisRequestSetServiceResult Execute(
+        AssemblyAnalysisRequestSetOperation operation,
+        scoped AssemblyInspectionOperationAccess<
+            AssemblyAnalysisRequestSetOperation> access)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (!ReferenceEquals(operation, access.Operation))
+        {
+            return new AssemblyAnalysisRequestSetServiceResult.Rejected(
+                AssemblyAnalysisRejectionKind.OperationAccessMismatch);
+        }
+
+        if (!access.HasMetadata)
+        {
+            return new AssemblyAnalysisRequestSetServiceResult.Rejected(
+                AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable);
+        }
+
+        AssemblyInspectionSubjectIdentity subject = access.Subject;
+        return access.InspectImage(
+            peReader =>
+                new AssemblyAnalysisRequestSetServiceResult.Completed(
+                    MethodQuerySource.Execute(
+                        operation.MethodDefinitions,
+                        subject,
+                        operation.SourceName,
+                        peReader)));
+    }
+
     static AssemblyAnalysisServiceResult<TResult> Execute<TResult>(
         AssemblyAnalysisOperation<TResult> operation,
         AssemblyInspectionSubjectIdentity subject,
@@ -268,64 +245,18 @@ public sealed class AssemblyAnalysisService
     {
         MethodDefinitionSourceRequest<TResult> request =
             operation.MethodDefinitions;
-        MethodDefinitionExecution interim =
-            MethodDefinitionExecution.Execute(
-                operation.Work,
+        MethodQuerySourceExecution<TResult> source =
+            MethodQuerySource.Execute(
+                request,
+                subject,
                 operation.SourceName,
                 peReader);
-        ProducerResult<TResult> result =
-            interim.ResultOf(request.Producer);
-        WorkReceipt workReceipt = interim.Receipt;
-        ProducerParticipation participation =
-            workReceipt.For(request.Producer);
-
-        int bodiesAcquired = 0;
-        int moduleLookups = 0;
-        foreach (ProducerLayerParticipation layer in participation.Layers)
-        {
-            if (string.Equals(
-                    layer.Layer,
-                    nameof(MethodDefinitionLayers.Body),
-                    StringComparison.Ordinal))
-            {
-                bodiesAcquired = layer.Acquired;
-            }
-            else if (string.Equals(
-                    layer.Layer,
-                    nameof(MethodDefinitionLayers.ModuleLookup),
-                    StringComparison.Ordinal))
-            {
-                moduleLookups = layer.Acquired;
-            }
-        }
-
-        MethodDefinitionSourceCompletion completion = result.Outcome switch
-        {
-            ProducerOutcome.Complete =>
-                MethodDefinitionSourceCompletion.Exhausted,
-            ProducerOutcome.Stopped =>
-                MethodDefinitionSourceCompletion.Satisfied,
-            ProducerOutcome.Failed or ProducerOutcome.PrerequisiteFailed =>
-                MethodDefinitionSourceCompletion.ProducerFailed,
-            ProducerOutcome.Aborted =>
-                MethodDefinitionSourceCompletion.Aborted,
-            _ => throw new ProducerContractException(
-                $"Unknown producer outcome '{result.Outcome}'."),
-        };
-        var sourceReceipt = new MethodDefinitionSourceReceipt(
-            request.Identity,
-            request.Terminal,
-            request.DeclaredLayers,
-            completion,
-            workReceipt.UnitsVisited,
-            bodiesAcquired,
-            moduleLookups);
         var execution = new AssemblyAnalysisExecution<TResult>(
             operation,
             subject,
-            sourceReceipt,
-            workReceipt,
-            result);
+            source.Receipt,
+            source.WorkReceipt,
+            source.Result);
         return new AssemblyAnalysisServiceResult<TResult>.Completed(
             execution);
     }

@@ -97,8 +97,6 @@ public partial class CommandExecutionTests
                 "--lines",
                 "-n",
                 "1",
-                "--tips",
-                "q",
             ];
             var stdout = await RunAppInDirectoryAsync(tempDir, arguments);
             var redirected = await RunAppInDirectoryAsync(
@@ -146,8 +144,6 @@ public partial class CommandExecutionTests
                 "-o=-1",
                 "--lines",
                 "-1",
-                "--tips",
-                "q",
             ];
 
             var direct = await RunAppInDirectoryAsync(
@@ -186,9 +182,9 @@ public partial class CommandExecutionTests
 
         // Negative case: with no window, the count and the render already agreed, and must still.
         var (bareCountExit, bareCountOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--count", "--tips", "q");
+            "package", Package, "-S", "Package Info", "--count");
         var (bareRowsExit, bareRowsOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--jsonl", "--tips", "q");
+            "package", Package, "-S", "Package Info", "--jsonl");
         Assert.Equal(0, bareCountExit);
         Assert.Equal(0, bareRowsExit);
         var bareRows = bareRowsOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
@@ -196,12 +192,12 @@ public partial class CommandExecutionTests
         Assert.Equal(bareRows, int.Parse(bareCountOutput.Trim(), CultureInfo.InvariantCulture));
 
         var (countExit, countOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--rows", "2..3", "--count", "--tips", "q");
+            "package", Package, "-S", "Package Info", "--rows", "2..3", "--count");
         Assert.Equal(0, countExit);
         Assert.Equal(2, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
 
         var (jsonlExit, jsonlOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--rows", "2..3", "--jsonl", "--tips", "q");
+            "package", Package, "-S", "Package Info", "--rows", "2..3", "--jsonl");
         Assert.Equal(0, jsonlExit);
         Assert.Equal(2, jsonlOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
 
@@ -209,13 +205,13 @@ public partial class CommandExecutionTests
         // two, and the header survives it. Derive that expectation from the unwindowed render so
         // the assertion pins the windowing semantics rather than this package's field list.
         var (fullTsvExit, fullTsvOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--tsv", "--tips", "q");
+            "package", Package, "-S", "Package Info", "--tsv");
         Assert.Equal(0, fullTsvExit);
         var fullTsvLines = fullTsvOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.True(fullTsvLines.Length > 3, "The section must have at least three data rows for the window to exclude one.");
 
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--rows", "2..3", "--tsv", "--tips", "q");
+            "package", Package, "-S", "Package Info", "--rows", "2..3", "--tsv");
         Assert.Equal(0, tsvExit);
         var tsvLines = tsvOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal<string>([fullTsvLines[0], fullTsvLines[2], fullTsvLines[3]], tsvLines);
@@ -229,7 +225,7 @@ public partial class CommandExecutionTests
         string selection = string.Join(';', sections);
         var (renderExit, renderOutput, _) = await RunAppAsync(
             "package", "NETStandard.Library@2.0.3",
-            "-S", selection, "--tips", "q");
+            "-S", selection);
         Assert.Equal(0, renderExit);
 
         // This package ships no README, so the section is requested but renders nothing. Without
@@ -238,7 +234,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(
             "package", "NETStandard.Library@2.0.3",
-            "-S", selection, "--count", "--tips", "q");
+            "-S", selection, "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -249,19 +245,15 @@ public partial class CommandExecutionTests
             Assert.Contains($"| {section} |", output);
     }
 
-    /// <summary>
-    /// The negative case for the widened <c>--count</c> requirement: it accepts bare <c>-S</c>
-    /// because that is a selection, not because the requirement was dropped.
-    /// </summary>
     [Fact]
-    public async Task Package_CountWithoutSelect_StillRequiresASelection()
+    public async Task Package_CountWithoutSelect_CountsNativeChildren()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json@13.0.4", "--count", "--tips", "q");
+            "package", "Newtonsoft.Json@13.0.4", "--count");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(CountOutput.SectionRequiredMessage, error);
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -280,18 +272,14 @@ public partial class CommandExecutionTests
                 "Dependency Hierarchy",
                 "--count",
                 "--rows",
-                "2..2",
-                "--tips",
-                "q");
+                "2..2");
             var json = await RunAppAsync(
                 "package",
                 packagePath,
                 "-S",
                 "Dependency Hierarchy",
                 "--count",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Equal("0", output.Trim());
@@ -312,9 +300,9 @@ public partial class CommandExecutionTests
         // --include-unlisted renders through a separate listing path, so it needs its own
         // projection dispatch; without one the count is dropped and the audit fails the run.
         var (countExit, countOutput, _) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--versions", "--include-unlisted", "--count", "--tips", "q");
+            "package", "Newtonsoft.Json", "--versions", "--include-unlisted", "--count");
         var (rowsExit, rowsOutput, _) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--versions", "--include-unlisted", "--jsonl", "--tips", "q");
+            "package", "Newtonsoft.Json", "--versions", "--include-unlisted", "--jsonl");
 
         Assert.Equal(0, countExit);
         Assert.Equal(0, rowsExit);
@@ -354,8 +342,6 @@ public partial class CommandExecutionTests
                 "-n",
                 "1",
                 "--tail",
-                "--tips",
-                "q",
             ];
 
             var markdown = await RunAppAsync(args);
@@ -413,9 +399,7 @@ public partial class CommandExecutionTests
                 "--tfms",
                 "--rows",
                 "2..3",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -444,9 +428,7 @@ public partial class CommandExecutionTests
                 "--lines",
                 "-n",
                 "1",
-                "--tail",
-                "--tips",
-                "q");
+                "--tail");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -527,7 +509,7 @@ public partial class CommandExecutionTests
     [InlineData(
         "Package.That.Must.Not.Resolve",
         "--tree",
-        "--tree requires exactly '-S \"Dependency Hierarchy\"'.")]
+        "--tree cannot be combined with --tfms.")]
     [InlineData(
         "Newtonsoft.Json@1.0.0..2.0.0",
         null,
@@ -550,7 +532,7 @@ public partial class CommandExecutionTests
         };
         if (competingOption is not null)
             args.Add(competingOption);
-        args.AddRange(["--rows", "1", "--tips", "q"]);
+        args.AddRange(["--rows", "1"]);
 
         var (exit, output, error) =
             await RunAppAsync([.. args]);
@@ -595,7 +577,7 @@ public partial class CommandExecutionTests
         };
         if (value is not null)
             args.Add(value);
-        args.AddRange(["--rows", "1", "--tips", "q"]);
+        args.AddRange(["--rows", "1"]);
 
         var (exit, output, error) =
             await RunAppAsync([.. args]);
@@ -635,7 +617,7 @@ public partial class CommandExecutionTests
             };
             if (value is not null)
                 args.Add(value);
-            args.AddRange(["--rows", "1", "--tips", "q"]);
+            args.AddRange(["--rows", "1"]);
 
             var (exit, output, error) =
                 await RunAppAsync([.. args]);
@@ -690,7 +672,7 @@ public partial class CommandExecutionTests
         };
         if (value is not null)
             args.AddRange(["-n", value]);
-        args.AddRange(["--count", "--columns", "Listing", "--tips", "q"]);
+        args.AddRange(["--count", "--columns", "Listing"]);
 
         var (exit, output, error) = await RunAppAsync([.. args]);
 
@@ -709,9 +691,7 @@ public partial class CommandExecutionTests
             "--include-unlisted",
             "--count",
             "--columns",
-            "Listing",
-            "--tips",
-            "q");
+            "Listing");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -727,7 +707,7 @@ public partial class CommandExecutionTests
             "# Test package");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "Package Info", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "Package Info");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -736,7 +716,7 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("| Published | field |", output);
 
             var (projectExit, projected, projectError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package Info", "--fields", "Authors,Version", "-v:q", "--tips", "q");
+                "package", packagePath, "-S", "Package Info", "--fields", "Authors,Version", "-v:q");
 
             Assert.Equal(0, projectExit);
             Assert.DoesNotContain("not found", projectError);
@@ -752,7 +732,7 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Name")]
+    [InlineData("Authors")]
     [InlineData("Version")]
     public async Task Package_DefaultColumns_AllMissReportsCleanError(string column)
     {
@@ -763,7 +743,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--columns", column, "--tips", "q");
+                "package", packagePath, "--columns", column);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -787,20 +767,19 @@ public partial class CommandExecutionTests
         try
         {
             var actual = await RunAppAsync(
-                "package", packagePath, "--columns", "Field,*", "--table", "--tips", "q");
+                "package", packagePath, "--columns", "Name,*", "--tsv");
             var wildcard = await RunAppAsync(
-                "package", packagePath, "--columns", "Fie*", "--tsv", "--tips", "q");
-            var expected = await RunAppAsync(
-                "package", packagePath, "--columns", "Field,Value", "--table", "--tips", "q");
+                "package", packagePath, "--columns", "Na*", "--tsv");
 
             Assert.Equal(0, actual.Exit);
             Assert.Equal(0, wildcard.Exit);
-            Assert.Equal(0, expected.Exit);
             Assert.Empty(actual.Error);
             Assert.Empty(wildcard.Error);
-            Assert.Empty(expected.Error);
-            Assert.Equal(expected.Output, actual.Output);
-            Assert.StartsWith("field\n", wildcard.Output);
+            string[] headers = actual.Output
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)[0]
+                .Split('\t');
+            Assert.Equal(headers.Distinct(StringComparer.Ordinal).Count(), headers.Length);
+            Assert.StartsWith("name\n", wildcard.Output);
         }
         finally
         {
@@ -818,18 +797,20 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--fields", "Authors", "--tips", "q");
+                "package", packagePath, "--fields", "Name,Status");
             var mixed = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Package Info",
                 "--fields", "Version",
                 "--columns", "Value",
-                "--tsv",
-                "--tips", "q");
+                "--tsv");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("| Authors | tests |", output);
+            Assert.Contains("Name", output);
+            Assert.Contains("Status", output);
+            Assert.Contains("Test.Package.ValidField", output);
+            Assert.Contains("NoCompileAssets", output);
             Assert.Equal(0, mixed.Exit);
             Assert.Empty(mixed.Error);
             Assert.Contains("1.0.0", mixed.Output);
@@ -851,7 +832,7 @@ public partial class CommandExecutionTests
             var (normalExit, normalOutput, normalError) = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Package Info,Target Frameworks",
-                "--columns", "TFM", "--tips", "q");
+                "--columns", "TFM");
 
             Assert.Equal(0, normalExit);
             Assert.Empty(normalError);
@@ -861,7 +842,7 @@ public partial class CommandExecutionTests
             var (overviewExit, overviewOutput, overviewError) = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Package README file",
-                "--columns", "Path", "--tips", "q");
+                "--columns", "Path");
 
             Assert.Equal(0, overviewExit);
             Assert.Empty(overviewError);
@@ -875,7 +856,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DefaultFieldsWithoutDataRemainNonFatal()
+    public async Task Package_DefaultFields_AllMissReportsCleanError()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.EmptyFieldProjection",
@@ -883,12 +864,14 @@ public partial class CommandExecutionTests
             "# Test package");
         try
         {
-            var (exit, _, error) = await RunAppAsync(
-                "package", packagePath, "--fields", "Downloads", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--fields", "Downloads");
 
-            Assert.Equal(0, exit);
-            Assert.Contains("Note: 1 field has no data: Downloads", error);
-            Assert.DoesNotContain("No fields matched projection", error);
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "No columns matched projection: Downloads",
+                error);
         }
         finally
         {
@@ -906,7 +889,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath, "--columns", "Missing", "--tips", "q");
+                "package", packagePath, packagePath, "--columns", "Missing");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -922,7 +905,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Package_DiscoverSchema_ListsPublishedPackageInfoField()
     {
-        var (exit, output, error) = await RunAppAsync("package", "-D", "Package Info", "--schema", "--tips", "q");
+        var (exit, output, error) = await RunAppAsync("package", "-D", "Package Info", "--schema");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -935,7 +918,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "Signals", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "Signals");
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("not found", error);
@@ -957,9 +940,7 @@ public partial class CommandExecutionTests
             "package",
             "-D",
             PackageSections.AuditArtifactText,
-            "--schema",
-            "--tips",
-            "q");
+            "--schema");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -974,9 +955,7 @@ public partial class CommandExecutionTests
             "package",
             "-D",
             PackageSections.AuditIdentifierConfusion,
-            "--schema",
-            "--tips",
-            "q");
+            "--schema");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -999,7 +978,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "-D", "Package Info",
-                "--tree", "--tips", "q");
+                "--tree");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1023,15 +1002,15 @@ public partial class CommandExecutionTests
                 "missing-source");
             var effective = await RunAppAsync(
                 "package", packagePath, "-D", "Dependency Hierarchy",
-                "--source", missingSource, "--tips", "q");
+                "--source", missingSource);
             var tree = await RunAppAsync(
                 "package", packagePath, "-D", "Dependency Hierarchy",
-                "--tree", "--source", missingSource, "--tips", "q");
+                "--tree", "--source", missingSource);
             var obsolete = await RunAppAsync(
-                "package", packagePath, "-D", "--dependencies", "--tips", "q");
+                "package", packagePath, "-D", "--dependencies");
             var schema = await RunAppAsync(
-                "package", "-D", "Dependency Hierarchy", "--schema",
-                "--tips", "q");
+                "package", "-D", "Dependency Hierarchy", "--schema"
+                );
 
             Assert.Equal(0, effective.Exit);
             Assert.Empty(effective.Error);
@@ -1074,8 +1053,8 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "-S", "Dependencies",
                 "--tfm", "net9.0",
-                "--source", Path.Combine(tempDir, "missing-feed"),
-                "--tips", "q");
+                "--source", Path.Combine(tempDir, "missing-feed")
+                );
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1098,16 +1077,16 @@ public partial class CommandExecutionTests
         {
             var package = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
-                "--tfm", "net9.0", "--source", tempDir, "--json",
-                "--tips", "q");
+                "--tfm", "net9.0", "--source", tempDir, "--json"
+                );
             var depends = await RunAppAsync(
                 "depends", "--package", packagePath,
                 "--tfm", "net9.0", "--source", tempDir,
                 "-S", "Dependency Hierarchy", "--json");
             var tree = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
-                "--tfm", "net9.0", "--source", tempDir, "--tree",
-                "--tips", "q");
+                "--tfm", "net9.0", "--source", tempDir, "--tree"
+                );
 
             Assert.Equal(0, package.Exit);
             Assert.Empty(package.Error);
@@ -1179,8 +1158,7 @@ public partial class CommandExecutionTests
                 "--depth", "1",
                 "--tfm", "net9.0",
                 "--source", tempDir,
-                "--json",
-                "--tips", "q");
+                "--json");
             var boundedDepends = await RunAppAsync(
                 "depends", "--package", packagePath,
                 "-S", "Dependency Hierarchy",
@@ -1239,7 +1217,7 @@ public partial class CommandExecutionTests
             foreach (var (lens, arguments) in cases)
             {
                 var (exit, output, error) = await RunAppAsync(
-                    ["package", packagePath, "--dependencies", .. arguments, "--tips", "q"]);
+                    ["package", packagePath, "--dependencies", .. arguments]);
 
                 Assert.Equal(1, exit);
                 Assert.Empty(output);
@@ -1264,15 +1242,15 @@ public partial class CommandExecutionTests
             var table = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--table", "--rows", "2", "--tips", "q");
+                "--table", "--rows", "2");
             var json = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--json", "--rows", "2", "--tips", "q");
+                "--json", "--rows", "2");
             var plaintext = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--plaintext", "--rows", "2..3", "--tips", "q");
+                "--plaintext", "--rows", "2..3");
             var dependsPlaintext = await RunAppAsync(
                 "depends", "--package", packagePath,
                 "--tfm", "net9.0", "--source", tempDir,
@@ -1281,7 +1259,7 @@ public partial class CommandExecutionTests
             var composedPackage = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--json", "--rows", "2..4", "-n", "2", "--tips", "q");
+                "--json", "--rows", "2..4", "-n", "2");
             var composedDepends = await RunAppAsync(
                 "depends", "--package", packagePath,
                 "--tfm", "net9.0", "--source", tempDir,
@@ -1291,12 +1269,12 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "-S", "Package Info,Dependency Hierarchy",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--plaintext", "--rows", "2..4", "-n", "2",
-                "--tips", "q");
+                "--plaintext", "--rows", "2..4", "-n", "2"
+                );
             var clampedPackage = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--count", "--rows", "2..6", "--tips", "q");
+                "--count", "--rows", "2..6");
             var clampedDepends = await RunAppAsync(
                 "depends", "--package", packagePath,
                 "--tfm", "net9.0", "--source", tempDir,
@@ -1305,7 +1283,7 @@ public partial class CommandExecutionTests
             var tailPackage = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--json", "--rows", "2", "--tail", "--tips", "q");
+                "--json", "--rows", "2", "--tail");
             var tailDepends = await RunAppAsync(
                 "depends", "--package", packagePath,
                 "--tfm", "net9.0", "--source", tempDir,
@@ -1314,7 +1292,7 @@ public partial class CommandExecutionTests
             var directDependencyTail = await RunAppAsync(
                 "package", packagePath, "-S", "Dependencies",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--count", "--rows", "1", "--tail", "--tips", "q");
+                "--count", "--rows", "1", "--tail");
 
             Assert.Empty(table.Error);
             Assert.Equal(0, table.Exit);
@@ -1431,7 +1409,7 @@ public partial class CommandExecutionTests
                 "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0",
                 "-n", "1", "--rows", "2..2",
-                "--count", "--tips", "q");
+                "--count");
             var absolute = await RunAppInDirectoryAsync(
                 tempDir,
                 "package", absolutePackage,
@@ -1439,7 +1417,7 @@ public partial class CommandExecutionTests
                 "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0",
                 "-n", "1", "--rows", "2..2",
-                "--count", "--tips", "q");
+                "--count");
             var relativeDepends = await RunAppInDirectoryAsync(
                 tempDir,
                 "depends", "--package", relativePackage,
@@ -1480,11 +1458,11 @@ public partial class CommandExecutionTests
         {
             var rendered = await RunAppAsync(
                 "package", packagePath, "-S", "@Dependencies",
-                "--tfm", "net9.0", "--source", tempDir, "--tips", "q");
+                "--tfm", "net9.0", "--source", tempDir);
             var counted = await RunAppAsync(
                 "package", packagePath, "-S", "@Dependencies",
                 "--tfm", "net9.0", "--source", tempDir,
-                "--count", "--tips", "q");
+                "--count");
 
             Assert.Equal(0, rendered.Exit);
             Assert.Contains(
@@ -1564,7 +1542,7 @@ public partial class CommandExecutionTests
         const string Selection = "Package Info";
         var (exit, output, error) = await RunAppAsync(
             "package", "-D", "--schema", "-S", Selection,
-            "--tree", "--tips", "q");
+            "--tree");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1573,7 +1551,7 @@ public partial class CommandExecutionTests
 
         var synthesized = await RunAppAsync(
             "package", "-D", "--schema",
-            "--path", "README.md", "--tree", "--tips", "q");
+            "--path", "README.md", "--tree");
 
         Assert.Equal(0, synthesized.Exit);
         Assert.Empty(synthesized.Error);
@@ -1585,9 +1563,9 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Package_StaticDiscovery_SelectionPreservesCatalogBehavior()
     {
-        var unselected = await RunAppAsync("package", "-D", "--tips", "q");
+        var unselected = await RunAppAsync("package", "-D");
         var selected = await RunAppAsync(
-            "package", "-D", "-S", PackageSections.SourceLinkFiles, "--tips", "q");
+            "package", "-D", "-S", PackageSections.SourceLinkFiles);
 
         Assert.Equal(0, unselected.Exit);
         Assert.Empty(unselected.Error);
@@ -1612,7 +1590,6 @@ public partial class CommandExecutionTests
                     [
                         "package", packagePath, "-S", "Dependency Hierarchy",
                         "--tree", "--tfm", "net9.0", "--source", tempDir,
-                        "--tips", "q",
                         .. lineWindow,
                     ]);
                 var redirected = await RunAppInDirectoryAsync(
@@ -1620,7 +1597,6 @@ public partial class CommandExecutionTests
                     [
                         "package", packagePath, "-S", "Dependency Hierarchy",
                         "--tree", "--tfm", "net9.0", "--source", tempDir,
-                        "--tips", "q",
                         .. lineWindow,
                         "--out", outputPath,
                     ]);
@@ -1667,7 +1643,6 @@ public partial class CommandExecutionTests
             ];
             if (value is not null)
                 arguments.Add(value);
-            arguments.AddRange(["--tips", "q"]);
 
             var baseline = await RunAppInDirectoryAsync(
                 tempDir,
@@ -1699,7 +1674,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--dependencies", "--print", "--tips", "q");
+                "package", packagePath, "--dependencies", "--print");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1759,7 +1734,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_TreeRequiresDependencyHierarchySelection()
+    public async Task Package_TreeDefaultsToPackageChildren()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.TreeAlias",
@@ -1767,21 +1742,923 @@ public partial class CommandExecutionTests
             "# Test package");
         try
         {
-            var (exit, _, error) = await RunAppAsync("package", packagePath, "--tree", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--tree");
             var (categoryExit, _, categoryError) = await RunAppAsync(
-                "package", packagePath, "-S", "@Dependencies", "--tree", "--tips", "q");
+                "package", packagePath, "-S", "@Dependencies", "--tree");
             var (aliasExit, _, aliasError) = await RunAppAsync(
-                "package", packagePath, "--dependencies", "-S", "Manifest", "--tips", "q");
+                "package", packagePath, "--dependencies", "-S", "Manifest");
 
-            Assert.Equal(1, exit);
-            Assert.Contains("--tree requires exactly '-S \"Dependency Hierarchy\"'", error);
-            Assert.DoesNotContain("--layout", error);
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "Test.TreeAlias 1.0.0",
+                output);
+            Assert.Contains("No compile Libraries", output);
+            Assert.Empty(error);
             Assert.Equal(1, categoryExit);
-            Assert.Contains("--tree requires exactly '-S \"Dependency Hierarchy\"'", categoryError);
+            Assert.Contains(
+                "--tree without a section renders Package children",
+                categoryError);
             Assert.DoesNotContain("--layout", categoryError);
             Assert.Equal(1, aliasExit);
             Assert.Contains("--dependencies has been removed", aliasError);
             Assert.DoesNotContain("--tree requires", aliasError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DefaultRendersSelectedCompileLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Test.LibraryFiles 1.0.0", output);
+            Assert.Contains(
+                "Latest.One.dll",
+                output);
+            Assert.Contains(
+                "Latest.Two.dll",
+                output);
+            Assert.DoesNotContain("Type declarations", output);
+            Assert.DoesNotContain("## Package Info", output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DefaultDoesNotOpenSelectedCompileLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                packagePath,
+                ZipArchiveMode.Update))
+            {
+                const string asset = "lib/net10.0/Latest.One.dll";
+                archive.GetEntry(asset)!.Delete();
+                using Stream stream = archive.CreateEntry(asset).Open();
+                stream.Write([0x00, 0x01, 0x02, 0x03]);
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath);
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "Latest.One.dll",
+                output);
+            Assert.Contains(
+                "Latest.Two.dll",
+                output);
+            Assert.DoesNotContain("Type declarations", output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ChildrenFormatsPreserveFullPopulationAndRows()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            string[] root =
+            [
+                "package",
+                packagePath,
+            ];
+            var markdown = await RunAppAsync(
+                [.. root, "--markdown"]);
+            var json = await RunAppAsync(
+                [.. root, "--json"]);
+            var table = await RunAppAsync(
+                [.. root, "--table"]);
+            var tsv = await RunAppAsync(
+                [.. root, "--tsv"]);
+            var jsonl = await RunAppAsync(
+                [.. root, "--jsonl"]);
+            var plainText = await RunAppAsync(
+                [.. root, "--plaintext"]);
+            var envelope = await RunAppAsync(
+                [.. root, "--envelope"]);
+            var count = await RunAppAsync(
+                [.. root, "--count"]);
+            var window = await RunAppAsync(
+                [.. root, "--json", "--rows", "2..2"]);
+            var projection = await RunAppAsync(
+                [.. root, "--json", "--columns", "Name,Selector"]);
+
+            foreach (var result in new[]
+            {
+                markdown,
+                json,
+                table,
+                tsv,
+                jsonl,
+                plainText,
+                envelope,
+                count,
+                window,
+                projection,
+            })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+            }
+
+            foreach (var result in new[]
+            {
+                json,
+                table,
+                tsv,
+                jsonl,
+            })
+            {
+                Assert.Contains(
+                    "lib/net10.0/Latest.One.dll",
+                    result.Output);
+                Assert.Contains(
+                    "lib/net10.0/Latest.Two.dll",
+                    result.Output);
+            }
+            foreach (var result in new[]
+            {
+                markdown,
+                plainText,
+            })
+            {
+                Assert.Contains("Latest.One.dll", result.Output);
+                Assert.Contains("Latest.Two.dll", result.Output);
+            }
+
+            using var jsonDocument = JsonDocument.Parse(json.Output);
+            JsonElement[] children =
+            [
+                .. jsonDocument.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray(),
+            ];
+            Assert.Equal(2, children.Length);
+            Assert.Equal(
+                2,
+                jsonDocument.RootElement
+                    .GetProperty("total_count")
+                    .GetInt32());
+            Assert.All(
+                children,
+                child => Assert.StartsWith(
+                    "package ",
+                    child.GetProperty("selector").GetString()));
+
+            Assert.Equal(
+                2,
+                jsonl.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length);
+            using var envelopeDocument =
+                JsonDocument.Parse(envelope.Output);
+            Assert.Equal(
+                "package-children",
+                envelopeDocument.RootElement
+                    .GetProperty("result_kind")
+                    .GetString());
+            Assert.Equal(
+                2,
+                envelopeDocument.RootElement
+                    .GetProperty("content")
+                    .GetProperty("children")
+                    .GetArrayLength());
+            Assert.Equal("2", count.Output.Trim());
+
+            using var windowDocument = JsonDocument.Parse(window.Output);
+            JsonElement selected = Assert.Single(
+                windowDocument.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.EndsWith(
+                "Latest.Two.dll",
+                selected.GetProperty("asset").GetString());
+            Assert.Equal(
+                2,
+                selected.GetProperty("ordinal").GetInt32());
+            Assert.Equal(
+                1,
+                windowDocument.RootElement
+                    .GetProperty("selected_count")
+                    .GetInt32());
+
+            using var projectionDocument =
+                JsonDocument.Parse(projection.Output);
+            JsonElement[] projectedRows =
+            [
+                .. projectionDocument.RootElement.EnumerateArray(),
+            ];
+            Assert.Equal(2, projectedRows.Length);
+            Assert.All(
+                projectedRows,
+                projected => Assert.Equal(
+                    ["name", "selector"],
+                    projected.EnumerateObject()
+                        .Select(static property => property.Name)));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ChildSelectorsNavigateExactSharedIdentityLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            JsonElement[] children =
+            [
+                .. document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray(),
+            ];
+            Assert.Equal(2, children.Length);
+            Assert.Equal(
+                2,
+                children.Select(
+                    static child =>
+                        child.GetProperty("name").GetString())
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+
+            foreach (JsonElement child in children)
+            {
+                string asset =
+                    child.GetProperty("asset").GetString()!;
+                string selector =
+                    child.GetProperty("selector").GetString()!;
+                Assert.Equal(
+                    "package "
+                        + ShellCommandText.Quote(
+                            Path.GetFullPath(packagePath))
+                        + " --tfm "
+                        + ShellCommandText.Quote("net10.0")
+                        + " --library "
+                        + ShellCommandText.Quote(asset),
+                    selector);
+                var navigation = await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--tfm",
+                    "net10.0",
+                    "--library",
+                    asset);
+
+                Assert.Equal(0, navigation.Exit);
+                Assert.Empty(navigation.Error);
+                Assert.Contains(
+                    $"# {Path.GetFileName(asset)} (net10.0)",
+                    navigation.Output);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ChildSelectorPreservesExplicitTargetFramework()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfm",
+                "net8.0",
+                "--json");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement child = Assert.Single(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            string asset = child.GetProperty("asset").GetString()!;
+            Assert.Equal(
+                "package "
+                    + ShellCommandText.Quote(
+                        Path.GetFullPath(packagePath))
+                    + " --tfm "
+                    + ShellCommandText.Quote("net8.0")
+                    + " --library "
+                    + ShellCommandText.Quote(asset),
+                child.GetProperty("selector").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ChildSelectorQuotesHostileAssetAsInertText()
+    {
+        const string asset =
+            "lib/net10.0/Example.$(id)'s.dll";
+        var (packagePath, tempDir) =
+            CreateLocalPackageWithLibraries(
+                ("Test.HostileSelector", asset, File.ReadAllBytes(
+                    TestAssemblyPath)));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement child = Assert.Single(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.Equal(
+                "package "
+                    + ShellCommandText.Quote(
+                        Path.GetFullPath(packagePath))
+                    + " --tfm "
+                    + ShellCommandText.Quote("net10.0")
+                    + " --library "
+                    + ShellCommandText.Quote(asset),
+                child.GetProperty("selector").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ChildSelectorPreservesReplayableSource()
+    {
+        const string packageId = "Test.PackageSelectorSource";
+        const string asset =
+            "lib/net10.0/Test.PackageSelectorSource.dll";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            packageId,
+            "README.md",
+            "readme");
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                archive.CreateEntryFromFile(
+                    TestAssemblyPath,
+                    asset);
+            }
+
+            var result = await RunAppAsync(
+                "package",
+                $"{packageId}@1.0.0",
+                "--source",
+                tempDir,
+                "--json");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement child = Assert.Single(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            string selector =
+                child.GetProperty("selector").GetString()!;
+            Assert.Contains(
+                " --tfm " + ShellCommandText.Quote("net10.0"),
+                selector);
+            Assert.Contains(
+                " --source "
+                    + ShellCommandText.Quote(
+                        Path.GetFullPath(tempDir)),
+                selector);
+            Assert.EndsWith(
+                " --library " + ShellCommandText.Quote(asset),
+                selector);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LocalRidChildSelectorsPreserveAdjacentSource()
+    {
+        var (packagePath, _, tempDir) =
+            CreateLocalToolPackageSet();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document =
+                JsonDocument.Parse(result.Output);
+            JsonElement[] children =
+            [
+                .. document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray(),
+            ];
+            Assert.NotEmpty(children);
+            Assert.All(
+                children,
+                child =>
+                {
+                    Assert.Equal(
+                        "RID Package",
+                        child.GetProperty("kind").GetString());
+                    Assert.Contains(
+                        " --source "
+                            + ShellCommandText.Quote(
+                                Path.GetFullPath(tempDir)),
+                        child.GetProperty("selector").GetString());
+                });
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_CountAndRowsAvoidUnselectedLibraryInspection()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalPackageWithLibraries(
+                (
+                    "Test.BoundedChildren",
+                    "lib/net10.0/A.Valid.dll",
+                    File.ReadAllBytes(TestAssemblyPath)),
+                (
+                    "Test.BoundedChildren",
+                    "lib/net10.0/Z.Invalid.dll",
+                    "not assembly metadata"u8.ToArray()));
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                packagePath,
+                "--count",
+                "--verbose");
+            var window = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--rows",
+                "1..1",
+                "--verbose");
+            var emptyWindow = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--rows",
+                "3..3",
+                "--verbose");
+            string? previousFormat =
+                Environment.GetEnvironmentVariable(
+                    "DOTNET_INSPECT_FORMAT");
+            (int Exit, string Output, string Error) mermaid;
+            try
+            {
+                Environment.SetEnvironmentVariable(
+                    "DOTNET_INSPECT_FORMAT",
+                    "mermaid");
+                mermaid = await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--rows",
+                    "3..3",
+                    "--verbose");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(
+                    "DOTNET_INSPECT_FORMAT",
+                    previousFormat);
+            }
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal("2", count.Output.Trim());
+            Assert.Equal(0, window.Exit);
+            Assert.All(
+                new[]
+                {
+                    count.Error,
+                    window.Error,
+                    emptyWindow.Error,
+                    mermaid.Error,
+                },
+                error =>
+                {
+                    Assert.DoesNotContain(
+                        "Z.Invalid.dll",
+                        error,
+                        StringComparison.Ordinal);
+                    Assert.DoesNotContain(
+                        "Error scanning binary signals",
+                        error,
+                        StringComparison.Ordinal);
+                });
+            using var windowDocument =
+                JsonDocument.Parse(window.Output);
+            JsonElement selected = Assert.Single(
+                windowDocument.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.Equal(
+                "lib/net10.0/A.Valid.dll",
+                selected.GetProperty("asset").GetString());
+            Assert.Equal(
+                1,
+                selected.GetProperty("ordinal").GetInt32());
+            Assert.Equal(
+                2,
+                windowDocument.RootElement
+                    .GetProperty("total_count")
+                    .GetInt32());
+
+            Assert.Equal(0, emptyWindow.Exit);
+            using var emptyDocument =
+                JsonDocument.Parse(emptyWindow.Output);
+            Assert.Empty(
+                emptyDocument.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.Equal(
+                2,
+                emptyDocument.RootElement
+                    .GetProperty("total_count")
+                    .GetInt32());
+            Assert.Equal(
+                0,
+                emptyDocument.RootElement
+                    .GetProperty("selected_count")
+                    .GetInt32());
+            Assert.Equal(0, mermaid.Exit);
+            Assert.StartsWith(
+                "graph TD",
+                mermaid.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "No Libraries",
+                mermaid.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ExplicitFormatsExpandLargeToolPopulation()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalLargeToolPackage();
+        try
+        {
+            var implicitTree = await RunAppAsync(
+                "package",
+                packagePath);
+            var explicitMarkdown = await RunAppAsync(
+                "package",
+                packagePath,
+                "--markdown");
+            var json = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(0, implicitTree.Exit);
+            Assert.Equal(0, explicitMarkdown.Exit);
+            Assert.Equal(0, json.Exit);
+            Assert.Empty(implicitTree.Error);
+            Assert.Empty(explicitMarkdown.Error);
+            Assert.Empty(json.Error);
+            Assert.Contains(
+                "Dependencies (9 Libraries; "
+                    + "use -v:n for full inventory)",
+                implicitTree.Output);
+            Assert.DoesNotContain(
+                "Dependency.9",
+                implicitTree.Output);
+            Assert.DoesNotContain(
+                "Dependencies (9 Libraries; "
+                    + "use -v:n for full inventory)",
+                explicitMarkdown.Output);
+            Assert.Contains(
+                "Dependency.9",
+                explicitMarkdown.Output);
+
+            using var document = JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                10,
+                document.RootElement
+                    .GetProperty("children")
+                    .GetArrayLength());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_WindowPreservesDuplicateLibraryDisambiguation()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalDuplicateNamedToolPackage();
+        try
+        {
+            var first = await RunAppAsync(
+                "package",
+                packagePath,
+                "--rows",
+                "2..2");
+            var second = await RunAppAsync(
+                "package",
+                packagePath,
+                "--rows",
+                "3..3");
+
+            Assert.Equal(0, first.Exit);
+            Assert.Equal(0, second.Exit);
+            Assert.Empty(first.Error);
+            Assert.Empty(second.Error);
+            Assert.Contains(
+                "tools/net10.0/any/first/Shared.dll",
+                first.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "tools/net10.0/any/second/Shared.dll",
+                second.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ToolChildrenPreserveSelectedEmptyHigherTarget()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalToolPackageWithSelectedEmptyHigherTarget();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "Available",
+                document.RootElement
+                    .GetProperty("status")
+                    .GetString());
+            Assert.Equal(
+                "NoManagedLibraries",
+                document.RootElement
+                    .GetProperty("kind")
+                    .GetString());
+            Assert.Equal(
+                "net10.0",
+                document.RootElement
+                    .GetProperty("target_framework")
+                    .GetString());
+            Assert.Empty(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.DoesNotContain(
+                "Fallback.Library.dll",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ToolChildrenExcludeNestedNativeLibraries()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalToolPackageWithNestedNativeLibrary();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement child = Assert.Single(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.Equal(
+                "tools/net10.0/any/Test.Tool.dll",
+                child.GetProperty("asset").GetString());
+            Assert.Equal(
+                1,
+                document.RootElement
+                    .GetProperty("total_count")
+                    .GetInt32());
+            Assert.DoesNotContain(
+                "Native.Helper.dll",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DisagreeingToolSettingsRemainUnavailable()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalToolPackageWithDisagreeingSettings();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(1, result.Exit);
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "Unavailable",
+                document.RootElement
+                    .GetProperty("status")
+                    .GetString());
+            Assert.Contains(
+                "could not be projected completely",
+                document.RootElement
+                    .GetProperty("detail")
+                    .GetString(),
+                StringComparison.Ordinal);
+            Assert.Empty(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.DoesNotContain(
+                "Tool.First",
+                result.Output,
+                StringComparison.Ordinal);
+
+            var count = await RunAppAsync(
+                "package",
+                packagePath,
+                "--count");
+            Assert.Equal(1, count.Exit);
+            Assert.Empty(count.Output);
+            Assert.Contains(
+                "could not be projected completely",
+                count.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DeclaredToolWithoutSettingsRemainsUnavailable()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalToolPackageWithoutSettings();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(1, result.Exit);
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "Unavailable",
+                document.RootElement
+                    .GetProperty("status")
+                    .GetString());
+            Assert.Contains(
+                "no DotnetToolSettings.xml manifest",
+                document.RootElement
+                    .GetProperty("detail")
+                    .GetString(),
+                StringComparison.Ordinal);
+            Assert.Empty(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+
+            var count = await RunAppAsync(
+                "package",
+                packagePath,
+                "--count");
+            Assert.Equal(1, count.Exit);
+            Assert.Empty(count.Output);
+            Assert.Contains(
+                "no DotnetToolSettings.xml manifest",
+                count.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_NoManagedChildrenRemainVisibleInRows()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.NoLibraries",
+            "README.md",
+            "readme");
+        try
+        {
+            var table = await RunAppAsync(
+                "package",
+                packagePath,
+                "--table");
+            var json = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json");
+
+            Assert.Equal(0, table.Exit);
+            Assert.Empty(table.Error);
+            Assert.Contains("Status", table.Output);
+            Assert.Contains("NoCompileAssets", table.Output);
+            Assert.Equal(0, json.Exit);
+            Assert.Empty(json.Error);
+            using var document = JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                "NoCompileAssets",
+                document.RootElement
+                    .GetProperty("status")
+                    .GetString());
+            Assert.Empty(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
         }
         finally
         {
@@ -1797,7 +2674,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "-S", "Dependency Hierarchy",
-                "--tree", "--count", "--tips", "q");
+                "--tree", "--count");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1817,7 +2694,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, packagePath,
-                "-S", "Dependency Hierarchy", "--json", "--tips", "q");
+                "-S", "Dependency Hierarchy", "--json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1865,7 +2742,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("## Signals", output);
-            Assert.Contains("## Manifest", output);
+            Assert.Contains("No compile Libraries", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -1909,7 +2786,7 @@ public partial class CommandExecutionTests
             "# Test package");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1968,7 +2845,7 @@ public partial class CommandExecutionTests
     public async Task Package_DiscoverPackageCategory_ListsPackageNativeSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "-D", "@Package", "--schema", "--tips", "q");
+            "package", "-D", "@Package", "--schema");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2367,18 +3244,18 @@ public partial class CommandExecutionTests
         {
             var (singleExit, singleOutput, singleError) = await RunAppAsync(
                 "package", packagePath,
-                "-S", "Signature", "--count", "--tips", "q");
+                "-S", "Signature", "--count");
             var (multiExit, multiOutput, multiError) = await RunAppAsync(
                 "package", packagePath, packagePath,
-                "-S", "Signature", "--count", "--tips", "q");
+                "-S", "Signature", "--count");
             var (singleInfoExit, singleInfoOutput, singleInfoError) =
                 await RunAppAsync(
                     "package", packagePath,
-                    "-S", "Package Info", "--count", "--tips", "q");
+                    "-S", "Package Info", "--count");
             var (multiInfoExit, multiInfoOutput, multiInfoError) =
                 await RunAppAsync(
                     "package", packagePath, packagePath,
-                    "-S", "Package Info", "--count", "--tips", "q");
+                    "-S", "Package Info", "--count");
 
             Assert.Equal(0, singleExit);
             Assert.Empty(singleError);
@@ -2515,9 +3392,7 @@ public partial class CommandExecutionTests
             "--fields",
             "Signed",
             "--value",
-            "-v:q",
-            "--tips",
-            "q");
+            "-v:q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2537,10 +3412,10 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
+                "-S",
+                "Package Info",
                 "--fields",
-                field,
-                "--tips",
-                "q");
+                field);
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2562,24 +3437,23 @@ public partial class CommandExecutionTests
             var implicitInfo = await RunAppAsync(
                 "package",
                 packagePath,
-                "-v:q",
-                "--tips",
-                "q");
+                "-v:q");
             var explicitInfo = await RunAppAsync(
                 "package",
                 packagePath,
                 "-S",
                 "Package Info",
-                "-v:q",
-                "--tips",
-                "q");
+                "-v:q");
             Assert.Equal(0, implicitInfo.Exit);
             Assert.Equal(0, explicitInfo.Exit);
             Assert.Empty(implicitInfo.Error);
             Assert.Empty(explicitInfo.Error);
             Assert.DoesNotContain("| Signed |", implicitInfo.Output, StringComparison.Ordinal);
             Assert.DoesNotContain("| Signed |", explicitInfo.Output, StringComparison.Ordinal);
-            Assert.Contains("Version: 1.0.0", implicitInfo.Output, StringComparison.Ordinal);
+            Assert.Contains(
+                "Test.Quiet.Package.Info.dll",
+                implicitInfo.Output,
+                StringComparison.Ordinal);
             Assert.Contains("| Version | 1.0.0 |", explicitInfo.Output, StringComparison.Ordinal);
         }
         finally
@@ -3730,7 +4604,12 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, _) = await RunAppAsync("package", packagePath, "-v:d");
+            var (exit, output, _) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Manifest,Package Info,Target Frameworks",
+                "-v:d");
 
             Assert.Equal(0, exit);
 
@@ -3808,10 +4687,10 @@ public partial class CommandExecutionTests
         {
             var (renderExit, renderOutput, renderError) = await RunAppAsync(
                 "package", packagePath, "-S", "Signals",
-                "--tsv", "--no-header", "--tips", "q");
+                "--tsv", "--no-header");
             var (countExit, countOutput, countError) = await RunAppAsync(
                 "package", packagePath, "-S", "Signals",
-                "--count", "--tips", "q");
+                "--count");
 
             Assert.Equal(0, renderExit);
             Assert.Equal(0, countExit);
@@ -3958,9 +4837,7 @@ public partial class CommandExecutionTests
                 "-v:q",
                 "-S",
                 PackageSections.Signals,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
             var multi = await RunAppAsync(
                 "package",
                 cleanPackage,
@@ -3968,9 +4845,7 @@ public partial class CommandExecutionTests
                 "-v:q",
                 "-S",
                 PackageSections.Signals,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.True(
                 single.Exit == 0,
@@ -4052,9 +4927,8 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "-S",
-                $"Signals,{PackageSections.AuditFindings}",
-                "--tips",
-                "q");
+                $"Signals,{PackageSections.AuditFindings}"
+                );
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
@@ -4095,9 +4969,8 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "-S",
-                $"Signals,{PackageSections.AuditFindings}",
-                "--tips",
-                "q");
+                $"Signals,{PackageSections.AuditFindings}"
+                );
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
@@ -4110,5 +4983,279 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalLargeToolPackage()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"large-tool-package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var toolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(toolsDir);
+        File.WriteAllText(
+            Path.Combine(toolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="test-tool" EntryPoint="Test.Tool.dll" Runner="dotnet" />
+              </Commands>
+            </DotNetCliTool>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(toolsDir, "Test.Tool.dll"));
+        for (int index = 1; index <= 9; index++)
+        {
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(
+                    toolsDir,
+                    $"Dependency.{index}.dll"));
+        }
+
+        var packagePath = Path.Combine(
+            tempDir,
+            "Test.LargeTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalDuplicateNamedToolPackage()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"duplicate-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string toolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(toolsDir);
+        File.WriteAllText(
+            Path.Combine(toolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="test-tool" EntryPoint="Test.Tool.dll" Runner="dotnet" />
+              </Commands>
+            </DotNetCliTool>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(toolsDir, "Test.Tool.dll"));
+        foreach (string directory in new[] { "first", "second" })
+        {
+            string dependencyDir = Path.Combine(toolsDir, directory);
+            Directory.CreateDirectory(dependencyDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(dependencyDir, "Shared.dll"));
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.DuplicateTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalToolPackageWithSelectedEmptyHigherTarget()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"selected-empty-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string selectedToolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        string fallbackToolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net8.0",
+            "any");
+        Directory.CreateDirectory(selectedToolsDir);
+        Directory.CreateDirectory(fallbackToolsDir);
+        File.WriteAllText(
+            Path.Combine(selectedToolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="empty-tool" EntryPoint="Missing.dll" Runner="dotnet" />
+              </Commands>
+            </DotNetCliTool>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(fallbackToolsDir, "Fallback.Library.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.SelectedEmptyTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalToolPackageWithNestedNativeLibrary()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"native-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string toolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        string nativeDir = Path.Combine(
+            toolsDir,
+            "runtimes",
+            "linux-x64",
+            "native");
+        Directory.CreateDirectory(nativeDir);
+        File.WriteAllText(
+            Path.Combine(toolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="test-tool" EntryPoint="Test.Tool.dll" Runner="dotnet" />
+              </Commands>
+            </DotNetCliTool>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(toolsDir, "Test.Tool.dll"));
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(nativeDir, "Native.Helper.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.NativeTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalToolPackageWithDisagreeingSettings()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"ambiguous-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string toolsDir = Path.Combine(packageRoot, "tools");
+        string nestedToolsDir = Path.Combine(toolsDir, "net10.0");
+        Directory.CreateDirectory(nestedToolsDir);
+        File.WriteAllText(
+            Path.Combine(toolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands><Command Name="tool" /></Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="linux-x64" Id="Tool.First" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """);
+        File.WriteAllText(
+            Path.Combine(nestedToolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands><Command Name="tool" /></Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="win-x64" Id="Tool.Second" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """);
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.AmbiguousTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalToolPackageWithoutSettings()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-settings-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string toolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        Directory.CreateDirectory(toolsDir);
+        File.WriteAllText(
+            Path.Combine(packageRoot, "Test.MissingTool.nuspec"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.MissingTool</id>
+                <version>1.0.0</version>
+                <authors>dotnet-inspect</authors>
+                <description>Missing tool settings fixture.</description>
+                <packageTypes>
+                  <packageType name="DotnetTool" />
+                </packageTypes>
+              </metadata>
+            </package>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(toolsDir, "Test.MissingTool.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.MissingTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalPackageWithLibraries(
+            params (string PackageId, string Asset, byte[] Content)[] libraries)
+    {
+        Assert.NotEmpty(libraries);
+        string packageId = libraries[0].PackageId;
+        Assert.All(
+            libraries,
+            library => Assert.Equal(
+                packageId,
+                library.PackageId));
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-children-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        foreach ((_, string asset, byte[] content) in libraries)
+        {
+            string path = Path.Combine(
+                packageRoot,
+                asset.Replace(
+                    '/',
+                    Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, content);
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
     }
 }

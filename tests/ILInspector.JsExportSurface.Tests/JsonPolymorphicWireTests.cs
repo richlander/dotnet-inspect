@@ -1,7 +1,7 @@
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.JsonSchema;
-using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.PolymorphicContractsFixtures;
 using ILInspector.JsExportSurface.PolymorphicExportFixtures;
@@ -13,13 +13,13 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class JsonPolymorphicWireTests
 {
-    static readonly Lazy<LibraryBodyIndex> Bodies = new(() =>
-        LibraryBodyIndex.Open(
+    static readonly Lazy<LibraryJsonWireContractAnalysisResult> Bodies = new(() =>
+        WireContractTestAnalysis.Open(
             typeof(PolymorphicExports).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow));
-    static readonly Lazy<LibraryBodyIndex> ContractBodies = new(() =>
-        LibraryBodyIndex.Open(
+    static readonly Lazy<LibraryJsonWireContractAnalysisResult> ContractBodies = new(() =>
+        WireContractTestAnalysis.Open(
             typeof(PackageDocumentationOutcome).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow));

@@ -6,7 +6,7 @@ namespace DotnetInspect.Web.Interop.Metadata;
 
 internal static class BrowserLibraryApiDiffSchema
 {
-    internal const int Version = 2;
+    internal const int Version = 3;
 }
 
 public sealed record BrowserLibraryApiDiffRequest(
@@ -20,7 +20,20 @@ public sealed record BrowserLibraryApiDiffRequest(
     string[] Analyses,
     BrowserDiffAnalysisViews Views,
     string[] TypeNames,
-    string[] MemberTargetIdentities);
+    string[] MemberTargetIdentities,
+    BrowserDiffAnalysisPredicate? Predicate = null);
+
+public sealed record BrowserDiffAnalysisPredicate(
+    string Key,
+    BrowserDiffAnalysisPredicateOperator Operator,
+    string Value);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserDiffAnalysisPredicateOperator>))]
+public enum BrowserDiffAnalysisPredicateOperator
+{
+    Contains,
+    StartsWith,
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserDiffAnalysisSurface>))]
 public enum BrowserDiffAnalysisSurface

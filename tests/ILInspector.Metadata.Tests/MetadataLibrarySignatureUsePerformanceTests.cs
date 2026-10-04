@@ -49,6 +49,61 @@ public sealed class MetadataLibrarySignatureUsePerformanceTests(
             File.WriteAllLines(reportPath, lines);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void BatchedExactNamespacesMatchIndependentRealAssetResults()
+    {
+        string artifacts = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts");
+        string[] paths =
+        [
+            Path.Combine(
+                artifacts,
+                "packages",
+                "System.Text.Json.10.0.0.dll"),
+            Path.Combine(
+                artifacts,
+                "System.Private.CoreLib.dll"),
+        ];
+
+        foreach (string path in paths)
+        {
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(path);
+            MetadataLibrarySignatureUseResult whole =
+                Product(
+                    session,
+                    TestContext.Current.CancellationToken);
+            string[] exactNamespaces =
+            [
+                .. whole.Types
+                    .Select(static type => type.Name.Namespace)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal),
+            ];
+            MetadataLibrarySignatureUseBatchResult batch =
+                Batch(
+                    session,
+                    exactNamespaces,
+                    TestContext.Current.CancellationToken);
+
+            Assert.Equal(exactNamespaces.Length, batch.Results.Length);
+            for (var index = 0; index < exactNamespaces.Length; index++)
+            {
+                MetadataLibrarySignatureUseResult independent =
+                    Exact(
+                        session,
+                        exactNamespaces[index],
+                        TestContext.Current.CancellationToken);
+                Assert.Equivalent(
+                    independent,
+                    batch.Results[index],
+                    strict: true);
+            }
+        }
+    }
+
     private static Measurement Measure(
         string asset,
         string path)
@@ -212,6 +267,54 @@ public sealed class MetadataLibrarySignatureUsePerformanceTests(
                     + $"{rejected.Kind}: {rejected.Detail}"),
             _ => throw new InvalidOperationException(
                 "The product route returned an unknown outcome."),
+        };
+    }
+
+    private static MetadataLibrarySignatureUseResult Exact(
+        AssemblyInspectionSession session,
+        string exactNamespace,
+        CancellationToken cancellationToken)
+    {
+        MetadataLibrarySignatureUseOutcome outcome =
+            session.LibrarySignatureUses(
+                new(
+                    MetadataOperationPolicy.Unbounded,
+                    exactNamespace),
+                cancellationToken);
+        return outcome switch
+        {
+            MetadataLibrarySignatureUseOutcome.Available available =>
+                available.Result,
+            MetadataLibrarySignatureUseOutcome.Rejected rejected =>
+                throw new InvalidOperationException(
+                    $"The exact route rejected a reference asset: "
+                    + $"{rejected.Kind}: {rejected.Detail}"),
+            _ => throw new InvalidOperationException(
+                "The exact route returned an unknown outcome."),
+        };
+    }
+
+    private static MetadataLibrarySignatureUseBatchResult Batch(
+        AssemblyInspectionSession session,
+        IReadOnlyList<string> exactNamespaces,
+        CancellationToken cancellationToken)
+    {
+        MetadataLibrarySignatureUseBatchOutcome outcome =
+            session.LibrarySignatureUseBatch(
+                new(
+                    MetadataOperationPolicy.Unbounded,
+                    exactNamespaces),
+                cancellationToken);
+        return outcome switch
+        {
+            MetadataLibrarySignatureUseBatchOutcome.Available available =>
+                available.Result,
+            MetadataLibrarySignatureUseBatchOutcome.Rejected rejected =>
+                throw new InvalidOperationException(
+                    $"The batch route rejected a reference asset: "
+                    + $"{rejected.Kind}: {rejected.Detail}"),
+            _ => throw new InvalidOperationException(
+                "The batch route returned an unknown outcome."),
         };
     }
 

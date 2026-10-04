@@ -86,10 +86,12 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageDependencies",
             "QueryPackagePruning",
             "QueryPackageRoot",
+            "QueryPackageSummary",
             "QueryPackageVersions",
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
+            "RunEcosystemPackageQuery",
             "RunPackageActivity",
             "RunPackageQuery",
             "SearchCapabilities",
@@ -132,15 +134,19 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageImplementationProfiles",
             "QueryPackageIntegrations",
             "QueryPackageLibraryMetrics",
+            "QueryPackageLibraryStructuralSalience",
             "QueryPackageOpportunities",
             "QueryPackagePerformance",
             "QueryPackageTypeImplementationHeat",
+            "QueryPackageTypeMethodLeverage",
             "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryMetrics",
+            "QueryPlatformLibraryStructuralSalience",
             "QueryPlatformOpportunities",
             "QueryPlatformPerformance",
             "QueryPlatformTypeImplementationHeat",
+            "QueryPlatformTypeMethodLeverage",
         ],
         [SourceAssembly] =
         [
@@ -157,6 +163,7 @@ public sealed class ProductionFacadeContextTests
             "QueryMemberFindingCensus",
             "QueryMemberSource",
             "QueryMemberSourceComparison",
+            "QueryPlatformMemberFindingCensus",
             "QueryPlatformMemberSource",
             "QueryPlatformTypeSource",
             "QueryTypeExplorer",
@@ -187,9 +194,11 @@ public sealed class ProductionFacadeContextTests
             "DecodeWorkspaceShareState",
             "DescribeWorkspacePackageSources",
             "EncodeWorkspaceShareState",
+            "ListEcosystems",
             "ListHomeDemos",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
+            "PrepareEcosystemWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",
@@ -244,7 +253,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(126, everyExport.Length);
+        Assert.Equal(135, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

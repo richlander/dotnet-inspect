@@ -23,6 +23,14 @@ internal sealed record BrowserAccessibilityInfo(
     bool IsDefault,
     int Count);
 
+internal sealed record BrowserApiFacetInfo(
+    string Id,
+    string SingularLabel,
+    string PluralLabel,
+    int Weight,
+    int Count,
+    bool IsDefault);
+
 internal sealed record BrowserAssemblySurfaceInfo(
     string Id,
     string Name,
@@ -43,6 +51,8 @@ internal sealed record BrowserTypeSurfaceInfo(
     string DisplayName,
     string Namespace,
     string Kind,
+    string KindFacetId,
+    string[] TraitFacetIds,
     string Accessibility,
     string AccessibilityId,
     string Assembly,
@@ -113,6 +123,8 @@ internal sealed record BrowserPackageSurfaceInfo(
     BrowserCompileLibraryInfo CompileLibrary,
     BrowserAssemblySurfaceInfo[] Assemblies,
     BrowserTypeSurfaceInfo[] Types,
+    BrowserApiFacetInfo[] TypeKinds,
+    BrowserApiFacetInfo[] TypeTraits,
     BrowserAccessibilityInfo[] Accessibility,
     int TotalMembers,
     IReadOnlyList<BrowserPackageDocumentEntry> Documents,

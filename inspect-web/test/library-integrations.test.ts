@@ -34,10 +34,14 @@ function render(overrides: Partial<LibraryIntegrationsOptions> = {}) {
   });
 }
 
-test("Integrations uses one quiet heading and bottom identity instead of duplicate summaries", () => {
+test("Integrations uses the shared Analysis heading and bottom identity", () => {
   const html = render();
   assert.equal(html.match(/<h1\b/g)?.length, 1);
-  assert.match(html, /<h1 id="library-integrations-title">Integrations<\/h1>/);
+  assert.match(html, /<h1 id="library-analysis-title">Analysis<\/h1>/);
+  assert.match(
+    html,
+    /data-analysis-mode="integrations" aria-selected="true"/,
+  );
   assert.match(html, /2 categories.*4 signals/);
   assert.match(html, /library-integrations-scroll"><section class="integration-category"/);
   assert.match(html, /<footer[\s\S]*lib\/net10.0\/Example.Core.dll.*Example.Core, Version=1.0.0.0/);
@@ -72,10 +76,10 @@ test("generic and parameter suffixes stay on the short name", () => {
 });
 
 test("platform selection stays outside the scroller and takes precedence over retained results", () => {
-  const pickerHtml = '<select class="scope-select platform-library-select" data-platform-integrations-library aria-label="Select a platform library"><option>Example.Core</option></select>';
+  const pickerHtml = '<select class="scope-select platform-library-select" data-platform-analysis-library aria-label="Select a platform library"><option>Example.Core</option></select>';
   const html = render({ requireLibrary: true, pickerHtml, loading: true, error: "earlier failure" });
   assert.match(html, /library-integrations-with-controls/);
-  assert.match(html, /library-integrations-controls[\s\S]*data-platform-integrations-library[\s\S]*library-integrations-scroll/);
+  assert.match(html, /library-integrations-controls[\s\S]*data-platform-analysis-library[\s\S]*library-integrations-scroll/);
   assert.match(html, /Pick a library to scan/);
   assert.match(html, /<footer/);
   assert.doesNotMatch(html, /role="listitem"|earlier failure|4 signals/);

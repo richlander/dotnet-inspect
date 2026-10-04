@@ -19,15 +19,16 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement.GetProperty("routes").EnumerateArray(),
         ];
 
-        Assert.Equal(8, routes.Length);
+        Assert.Equal(9, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
         AssertRoute(routes[2], "/activity", "/index.html");
         AssertRoute(routes[3], "/credits", "/index.html");
         AssertRoute(routes[4], "/demos", "/index.html");
         AssertRoute(routes[5], "/diagnostics", "/index.html");
-        AssertRoute(routes[6], "/query", "/index.html");
-        AssertRoute(routes[7], "/type-explorer", "/index.html");
+        AssertRoute(routes[6], "/ecosystems", "/index.html");
+        AssertRoute(routes[7], "/query", "/index.html");
+        AssertRoute(routes[8], "/type-explorer", "/index.html");
         Assert.Equal(
             "dotnet-isolated:8.0",
             config.RootElement

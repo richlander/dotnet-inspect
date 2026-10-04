@@ -48,9 +48,7 @@ public sealed class PackageSectionGrowthTests
             packagePath,
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.True(result.ExitCode == 0, result.Error);
         Assert.Equal(
@@ -197,9 +195,7 @@ public sealed class PackageSectionGrowthTests
                 "net11.0",
                 "-S",
                 "Dependency Hierarchy",
-                "--count",
-                "--tips",
-                "q");
+                "--count");
 
             Assert.True(result.ExitCode == 0, result.Error);
             Assert.True(int.TryParse(result.Output.Trim(), out int count));
@@ -282,9 +278,7 @@ public sealed class PackageSectionGrowthTests
             packagePath,
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.True(result.ExitCode == 0, result.Error);
         Assert.Equal(

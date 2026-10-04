@@ -40,8 +40,6 @@ public class MemberCallersSectionTests
             "-n",
             "1",
             "--tail",
-            "--tips",
-            "q",
         ];
 
         var markdown = await RunCliAsync(args);
@@ -112,21 +110,10 @@ public class MemberCallersSectionTests
     [Fact]
     public async Task CallersSection_ScansAuthorizedScopesBeforeSemanticSelection()
     {
-        string scopeDirectory = Directory.CreateTempSubdirectory(
-            "dotnet-inspect-callers-").FullName;
-        try
-        {
-            string testAssembly = typeof(MemberCallersSectionTests)
-                .Assembly.Location;
-            string testAssemblyName =
-                Path.GetFileNameWithoutExtension(testAssembly);
-            File.Copy(
-                testAssembly,
-                Path.Combine(
-                    scopeDirectory,
-                    Path.GetFileName(testAssembly)));
-
-            var result = await RunCliAsync(
+        string testAssemblyName = Path.GetFileNameWithoutExtension(
+            typeof(MemberCallersSectionTests).Assembly.Location);
+        var result = await RunWithIsolatedCallerScopeAsync(
+            scopeDirectory => RunCliAsync(
                 "member",
                 typeof(MemberCommand).FullName!,
                 "--library",
@@ -139,29 +126,22 @@ public class MemberCallersSectionTests
                 scopeDirectory,
                 "-n",
                 "1",
-                "--json",
-                "--tips",
-                "q");
+                "--json"));
 
-            Assert.Equal(0, result.ExitCode);
-            Assert.Empty(result.Error);
-            using var document = JsonDocument.Parse(result.Output);
-            JsonElement caller = Assert.Single(
-                document.RootElement
-                    .GetProperty("callers")
-                    .EnumerateArray());
-            Assert.Equal(
-                testAssemblyName,
-                caller.GetProperty("source").GetString());
-            Assert.StartsWith(
-                $"{testAssemblyName}.",
-                caller.GetProperty("caller").GetString(),
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(scopeDirectory, recursive: true);
-        }
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        JsonElement caller = Assert.Single(
+            document.RootElement
+                .GetProperty("callers")
+                .EnumerateArray());
+        Assert.Equal(
+            testAssemblyName,
+            caller.GetProperty("source").GetString());
+        Assert.StartsWith(
+            $"{testAssemblyName}.",
+            caller.GetProperty("caller").GetString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -178,9 +158,7 @@ public class MemberCallersSectionTests
             SectionNames.Callers,
             "--rows",
             "4..4",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -208,9 +186,7 @@ public class MemberCallersSectionTests
             "-n",
             "1",
             "--lines",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -244,9 +220,7 @@ public class MemberCallersSectionTests
             selection,
             "-n",
             "1",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -322,7 +296,7 @@ public class MemberCallersSectionTests
             AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallersFixture.Orphan)],
             OverloadIndex = 1,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Discover = [SectionCategoryNames.Calls],
             Verbosity = Verbosity.Normal,
             Tabular = true,
@@ -362,7 +336,7 @@ public class MemberCallersSectionTests
             AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallersFixture.Orphan)],
             OverloadIndex = 1,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Detailed,
         }));
 
@@ -375,28 +349,25 @@ public class MemberCallersSectionTests
     [Trait("Speed", "Slow")]
     public async Task CallersSection_CrossAssembly_AttributesCallersToSourceAssembly()
     {
-        // Target a product member (in dotnet-inspect.dll) and scope the test bin directory,
-        // which contains the test assembly that calls it. The caller in the other assembly is
-        // attributed to its source assembly and the Source column appears.
         var ownAssembly = typeof(MemberCommand).Assembly.Location;
-        var scopeDir = Path.GetDirectoryName(typeof(MemberCallersSectionTests).Assembly.Location)!;
         var testAssemblyName = Path.GetFileNameWithoutExtension(
             typeof(MemberCallersSectionTests).Assembly.Location);
 
-        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
-        {
-            TypeName = typeof(MemberCommand).FullName!,
-            AssemblyPath = ownAssembly,
-            MemberFilter = [nameof(MemberCommand.ExecuteAsync)],
-            OverloadIndex = 1,
-            CallerScopeDirectories = [scopeDir],
-            TipLevel = TipLevel.Quiet,
-            Verbosity = Verbosity.Normal,
-        }));
+        var result = await RunWithIsolatedCallerScopeAsync(
+            scopeDir => ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(new MemberOptions
+                {
+                    TypeName = typeof(MemberCommand).FullName!,
+                    AssemblyPath = ownAssembly,
+                    MemberFilter = [nameof(MemberCommand.ExecuteAsync)],
+                    OverloadIndex = 1,
+                    CallerScopeDirectories = [scopeDir],
+                    CompanionOutput = CompanionOutput.None,
+                    Verbosity = Verbosity.Normal,
+                })));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Callers", result.Output);
-        // Cross-assembly callers add the Source column and attribute hits to the scanned assembly.
         Assert.Contains("Source", result.Output);
         Assert.Contains(testAssemblyName, result.Output);
     }
@@ -419,25 +390,23 @@ public class MemberCallersSectionTests
     [Trait("Speed", "Slow")]
     public async Task CallGraph_CrossAssembly_IncorporatesExternalCallersTaggedWithSource()
     {
-        // Target a product member (in dotnet-inspect.dll) and scope the test bin directory,
-        // which contains the test assembly that calls it. The external caller is incorporated
-        // into the bidirectional graph and annotated with its source assembly (#1337).
         var ownAssembly = typeof(MemberCommand).Assembly.Location;
-        var scopeDir = Path.GetDirectoryName(typeof(MemberCallersSectionTests).Assembly.Location)!;
         var testAssemblyName = Path.GetFileNameWithoutExtension(
             typeof(MemberCallersSectionTests).Assembly.Location);
 
-        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
-        {
-            TypeName = typeof(MemberCommand).FullName!,
-            AssemblyPath = ownAssembly,
-            MemberFilter = [nameof(MemberCommand.ExecuteAsync)],
-            OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
-            CallerScopeDirectories = [scopeDir],
-            TipLevel = TipLevel.Quiet,
-            Verbosity = Verbosity.Normal,
-        }));
+        var result = await RunWithIsolatedCallerScopeAsync(
+            scopeDir => ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(new MemberOptions
+                {
+                    TypeName = typeof(MemberCommand).FullName!,
+                    AssemblyPath = ownAssembly,
+                    MemberFilter = [nameof(MemberCommand.ExecuteAsync)],
+                    OverloadIndex = 1,
+                    IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
+                    CallerScopeDirectories = [scopeDir],
+                    CompanionOutput = CompanionOutput.None,
+                    Verbosity = Verbosity.Normal,
+                })));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Call Graph", result.Output);
@@ -456,7 +425,7 @@ public class MemberCallersSectionTests
             MemberFilter = [nameof(MemberCallersFixture.Target)],
             OverloadIndex = 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));
 
@@ -473,7 +442,7 @@ public class MemberCallersSectionTests
             AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
             MemberFilter = [memberName],
             IncludeSections = [SectionNames.Callers],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Discover = discover ? [] : null,
             Verbosity = Verbosity.Normal,
             Tabular = tsv || discover,
@@ -493,6 +462,28 @@ public class MemberCallersSectionTests
                 root.Parse(processed),
                 processed);
         });
+
+    static async Task<TResult> RunWithIsolatedCallerScopeAsync<TResult>(
+        Func<string, Task<TResult>> action)
+    {
+        string scopeDirectory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-callers-").FullName;
+        try
+        {
+            string testAssembly = typeof(MemberCallersSectionTests)
+                .Assembly.Location;
+            File.Copy(
+                testAssembly,
+                Path.Combine(
+                    scopeDirectory,
+                    Path.GetFileName(testAssembly)));
+            return await action(scopeDirectory);
+        }
+        finally
+        {
+            Directory.Delete(scopeDirectory, recursive: true);
+        }
+    }
 
     static int CountOccurrences(string text, string value)
     {

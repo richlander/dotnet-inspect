@@ -236,10 +236,11 @@ public static partial class MemberGroupPopulation
                     selected.Single(cell => cell.Column == "Planner");
                 writer.WriteLine(
                     $"| {scenario.Name} | {terminal} | {phase} | "
-                        + $"{linq.Microseconds / nlinq.Microseconds:F2}x "
+                        + $"{linq.Microseconds / planner.Microseconds:F2}x "
                         + $"({linq.Microseconds:F3} us) | "
-                        + $"1.00x ({nlinq.Microseconds:F3} us) | "
-                        + $"{planner.Microseconds / nlinq.Microseconds:F2}x "
+                        + $"{nlinq.Microseconds / planner.Microseconds:F2}x "
+                        + $"({nlinq.Microseconds:F3} us) | "
+                        + $"1.00x "
                         + $"({planner.Microseconds:F3} us) | "
                         + $"{linq.AllocatedBytes:N0} B | "
                         + $"{nlinq.AllocatedBytes:N0} B | "
@@ -249,8 +250,9 @@ public static partial class MemberGroupPopulation
 
         writer.WriteLine();
         writer.WriteLine(
-            "| Selector | Phase | LINQ geo mean | Planner geo mean |");
-        writer.WriteLine("| --- | --- | ---: | ---: |");
+            "| Selector | Phase | LINQ/Planner geo mean | "
+                + "NLinq/Planner geo mean | Planner |");
+        writer.WriteLine("| --- | --- | ---: | ---: | ---: |");
         foreach (MemberExactSelectorKind selector
             in Enum.GetValues<MemberExactSelectorKind>())
         {
@@ -262,8 +264,15 @@ public static partial class MemberGroupPopulation
                         && cell.Phase == phase)];
                 writer.WriteLine(
                     $"| {selector} | {phase} | "
-                        + $"{GeometricRatio(selected, "LINQ"):F2}x | "
-                        + $"{GeometricRatio(selected, "Planner"):F2}x |");
+                        + $"{GeometricRatio(
+                            selected,
+                            "LINQ",
+                            "Planner"):F2}x | "
+                        + $"{GeometricRatio(
+                            selected,
+                            "NLinq",
+                            "Planner"):F2}x | "
+                        + "1.00x |");
             }
         }
         return writer.ToString();

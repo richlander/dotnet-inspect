@@ -56,7 +56,9 @@ internal static class MemberSearchService
                     platformWorkspace.SourceFor(entry.Subject),
                     entry,
                     logger,
-                    MarkFailure);
+                    MarkFailure,
+                    options.OnMemberRow,
+                    options.Limit);
             }
             if (options.Limit.HasValue
                 && platformResults.Count > options.Limit.Value)
@@ -158,12 +160,12 @@ internal static class MemberSearchService
         Action markFailure)
     {
         List<MemberFindResult> results = [];
-        int? operationalLimit =
+        int? queryLimit =
             options.TypeFilter is null
                 ? options.Limit
                 : null;
         bool ReachedLimit() =>
-            operationalLimit is int limit
+            options.Limit is int limit
             && results.Count >= limit;
 
         await workspace.RunPerAssemblyAsync(
@@ -172,7 +174,7 @@ internal static class MemberSearchService
                 group,
                 patterns,
                 options.IncludeAll,
-                operationalLimit is int limit
+                queryLimit is int limit
                     ? limit - results.Count
                     : null),
             (assembly, entry) => AddMembers(
@@ -181,7 +183,9 @@ internal static class MemberSearchService
                 SearchAssemblySource.FromAssemblySet(assembly),
                 entry,
                 logger,
-                markFailure),
+                markFailure,
+                options.OnMemberRow,
+                options.Limit),
             (assembly, failure) =>
             {
                 markFailure();
@@ -189,7 +193,7 @@ internal static class MemberSearchService
                     $"Could not read {assembly.Path}: {failure}");
             },
             markFailure,
-            operationalLimit is not null ? ReachedLimit : null);
+            options.Limit is not null ? ReachedLimit : null);
         if (options.Limit.HasValue
             && results.Count > options.Limit.Value)
         {
@@ -236,7 +240,9 @@ internal static class MemberSearchService
                 sources.SourceFor(entry.Subject),
                 entry,
                 logger,
-                markFailure);
+                markFailure,
+                options.OnMemberRow,
+                options.Limit);
         }
         if (options.Limit.HasValue
             && results.Count > options.Limit.Value)
@@ -252,7 +258,9 @@ internal static class MemberSearchService
         SearchAssemblySource assembly,
         AssemblyContextEntry<AssemblyMemberMatches> entry,
         VerboseLogger logger,
-        Action markFailure)
+        Action markFailure,
+        Action<MemberFindResult>? onRow = null,
+        int? limit = null)
     {
         switch (entry)
         {
@@ -269,7 +277,7 @@ internal static class MemberSearchService
                         continue;
                     }
 
-                    results.Add(new MemberFindResult
+                    var row = new MemberFindResult
                     {
                         Pattern = member.Pattern,
                         Match = member.IsGlob
@@ -285,7 +293,10 @@ internal static class MemberSearchService
                         Library = assembly.Library,
                         Source = assembly.Source,
                         SourceVersion = assembly.SourceVersion,
-                    });
+                    };
+                    results.Add(row);
+                    if (limit is null || results.Count <= limit)
+                        onRow?.Invoke(row);
                 }
                 WriteInspectionFailures(
                     assembly,

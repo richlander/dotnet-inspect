@@ -20,6 +20,15 @@ export interface BrowserAccessibilityDescriptor {
   readonly count: number;
 }
 
+export interface BrowserApiFacetDescriptor {
+  readonly id: string;
+  readonly singularLabel: string;
+  readonly pluralLabel: string;
+  readonly weight: number;
+  readonly count: number;
+  readonly isDefault: boolean;
+}
+
 export interface BrowserAssemblySurface {
   readonly id: string;
   readonly name: string;
@@ -102,6 +111,24 @@ export interface BrowserCompileLibraryAvailability {
   readonly status: BrowserCompileLibraryStatus;
   readonly targetFramework: string | null;
   readonly message: string | null;
+}
+
+export interface BrowserEcosystemCatalog {
+  readonly ecosystems: ReadonlyArray<BrowserEcosystemCatalogEntry>;
+}
+
+export interface BrowserEcosystemCatalogEntry {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly corePackageCount: number;
+  readonly namespaceRootCount: number;
+  readonly toolPackageCount: number;
+  readonly demoCount: number;
+  readonly hasPackageSet: boolean;
+  readonly hasScanner: boolean;
+  readonly hasPopulationLoader: boolean;
+  readonly hasWorkspaceRegistration: boolean;
 }
 
 export interface BrowserExceptionSurface {
@@ -235,6 +262,8 @@ export interface BrowserPackageSurface {
   readonly compileLibrary: BrowserCompileLibraryAvailability;
   readonly assemblies: ReadonlyArray<BrowserAssemblySurface>;
   readonly types: ReadonlyArray<BrowserTypeSurface>;
+  readonly typeKinds: ReadonlyArray<BrowserApiFacetDescriptor>;
+  readonly typeTraits: ReadonlyArray<BrowserApiFacetDescriptor>;
   readonly accessibility: ReadonlyArray<BrowserAccessibilityDescriptor>;
   readonly totalMembers: number;
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
@@ -655,6 +684,8 @@ export interface BrowserTypeSurface {
   readonly displayName: string;
   readonly namespace: string;
   readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
   readonly accessibility: string;
   readonly accessibilityId: string;
   readonly assembly: string;
@@ -803,6 +834,7 @@ export interface BrowserWorkspaceShareView {
   readonly memberSignature: string | null;
   readonly section: string | null;
   readonly libraries: ReadonlyArray<string>;
+  readonly sourceView: string | null;
 }
 
 export interface BrowserVocabularyAvailableShare {
@@ -890,8 +922,10 @@ type $ManagedExports = {
             readonly "DescribeWorkspacePackageSources.304094707": (canonicalPacket: string) => string;
             readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
             readonly "InspectVocabulary.1310674786": () => string;
+            readonly "ListEcosystems.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
             readonly "ObserveRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
+            readonly "PrepareEcosystemWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, ecosystemId: string) => Promise<string>;
             readonly "PreparePackageQueryWorkspaceDefinition.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, packageId: string, version: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string) => Promise<string>;
@@ -1171,6 +1205,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "ListEcosystems.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListEcosystems.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
     value = $ownDataProperty(value, "ListHomeDemos.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListHomeDemos.1310674786\u0027 is not callable.");
@@ -1186,6 +1232,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ObserveRetainedWorkspaceSettlement.976702342");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ObserveRetainedWorkspaceSettlement.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "PrepareEcosystemWorkspaceDefinition.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.PrepareEcosystemWorkspaceDefinition.1579276339\u0027 is not callable.");
     }
   }
   {
@@ -1427,6 +1485,12 @@ export function inspectVocabulary(): BrowserVocabularyInspection {
   return $parsed as BrowserVocabularyInspection;
 }
 
+export function listEcosystems(): BrowserEcosystemCatalog {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListEcosystems.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserEcosystemCatalog;
+}
+
 export function listHomeDemos(): BrowserHomeDemoCatalog {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListHomeDemos.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
@@ -1437,6 +1501,12 @@ export async function observeRetainedWorkspaceSettlement(settlementId: string): 
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ObserveRetainedWorkspaceSettlement.976702342"](settlementId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspaceSettlementResult;
+}
+
+export async function prepareEcosystemWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, ecosystemId: string): Promise<BrowserRetainedWorkspacePreparationResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["PrepareEcosystemWorkspaceDefinition.1579276339"](retainedDefinitionId, label, canonicalLocation, ecosystemId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserRetainedWorkspacePreparationResult;
 }
 
 export async function preparePackageQueryWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, packageId: string, version: string): Promise<BrowserRetainedWorkspacePreparationResult> {

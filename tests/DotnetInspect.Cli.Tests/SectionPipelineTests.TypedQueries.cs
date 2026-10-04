@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryInfoAndExtensionMethodsSections_ShareTypedExtensionMethodsQuery()
+    public void LibraryInfoNoLongerBindsTheTypedExtensionMethodsQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();
         string[] boundSections = pipeline.QueryBoundSections
@@ -125,7 +125,7 @@ public partial class SectionPipelineTests
             sections);
 
         Assert.Equal(
-            [SectionNames.ExtensionMethods, SectionNames.LibraryInfo],
+            [SectionNames.ExtensionMethods],
             boundSections);
         Assert.Equal(
             [
@@ -168,7 +168,6 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 CustomAttributesQuery.Definition,
-                ExtensionMethodsQuery.Definition,
                 MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
@@ -205,7 +204,6 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 CustomAttributesQuery.Definition,
-                ExtensionMethodsQuery.Definition,
                 MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
@@ -242,7 +240,6 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 CustomAttributesQuery.Definition,
-                ExtensionMethodsQuery.Definition,
                 MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
@@ -586,9 +583,23 @@ public partial class SectionPipelineTests
         var available = Assert.IsType<MethodClassificationBindingResult.Available>(shared);
         // Async Count (Library Info) and async Rows (the section) are separate closings.
         Assert.Equal(
-            [ClassificationClosing.Rows, ClassificationClosing.Count],
-            available.Result.Receipts.Keys.Order());
-        Assert.False(available.Result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
+            [
+                new ClassificationExecution(ClassificationClosing.Rows),
+                new ClassificationExecution(ClassificationClosing.Count),
+            ],
+            available.Result.Receipts
+                .Select(static receipt => receipt.Execution)
+                .OrderBy(static key => key.Closing));
+        Assert.False(
+            available.Result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Count)).IdentityBudgetArmed);
+        var source =
+            Assert.Single(available.Result.SourceGroups);
+        // Async Rows plus async, extension, pointer, and P/Invoke Count retain
+        // five
+        // independent association lanes in one physical source group.
+        Assert.Equal(5, source.LaneReceipts.Length);
         Assert.Equal(1, context.SharedQueryCount);
     }
 
@@ -616,8 +627,93 @@ public partial class SectionPipelineTests
         (ClassificationQuestion question, ClassificationAnswer answer) = Assert.Single(available.Result.Answers);
         Assert.Equal(ClassificationClosing.Count, question.Closing);
         Assert.True(Assert.IsType<ClassificationAnswer.Count>(answer).Value > 0);
-        Assert.Equal([ClassificationClosing.Count], available.Result.Receipts.Keys);
-        Assert.False(available.Result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
+        Assert.Equal(
+            [new ClassificationExecution(ClassificationClosing.Count)],
+            available.Result.Receipts.Select(
+                static receipt => receipt.Execution));
+        Assert.False(
+            available.Result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Count)).IdentityBudgetArmed);
+    }
+
+    [Fact]
+    public void MethodClassificationDemand_SectionAsksForExistsDuringApplicability()
+    {
+        using var metadataContext = PdbContext.Open(
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath());
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath =
+                FixtureCatalog.DecompilerClassicAsync.AssemblyPath(),
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+            RequestedQueries =
+                [MethodClassificationDemand.AsyncMethods],
+            ApplicabilityOnly = true,
+        };
+
+        InspectionQueryResults results =
+            LibrarySections.CreateQueryRegistry().Run(
+                [MethodClassificationDemand.AsyncMethods],
+                context);
+        var available =
+            Assert.IsType<
+                MethodClassificationBindingResult.Available>(
+                    results.Get(
+                        MethodClassificationDemand.AsyncMethods));
+
+        (ClassificationQuestion question, ClassificationAnswer answer) =
+            Assert.Single(available.Result.Answers);
+        Assert.Equal(ClassificationClosing.Exists, question.Closing);
+        Assert.True(
+            Assert.IsType<ClassificationAnswer.Exists>(answer).Value);
+        Assert.False(
+            available.Result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Exists))
+                .IdentityBudgetArmed);
+        Assert.Single(available.Result.SourceGroups);
+
+        LibraryMetadataService.ApplyMethodClassificationResult(
+            context.AssemblyPath,
+            context.Model,
+            context.Logger,
+            available);
+        Assert.True(context.Model.AsyncMethodPresence);
+        Assert.Null(context.Model.AsyncMethodCount);
+        Assert.Null(context.Model.AsyncMethods);
+    }
+
+    [Fact]
+    public async Task EffectiveDiscovery_UsesExistsWithoutProjectingAsyncRows()
+    {
+        string path =
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
+        using var httpClient = new HttpClient();
+
+        LibraryInspection inspection =
+            Assert.IsType<LibraryInspection>(
+                await LibraryMetadataService.InspectAsync(
+                    path,
+                    new LibraryOptions
+                    {
+                        Discover = [SectionNames.AsyncMethods],
+                        Effective = true,
+                    },
+                    new Output.VerboseLogger(false),
+                    packageName: null,
+                    packageVersion: null,
+                    httpClient,
+                    queries:
+                        [MethodClassificationDemand.AsyncMethods],
+                    queryCatalog: LibrarySections.QueryCatalog));
+
+        Assert.True(inspection.AsyncMethodPresence);
+        Assert.Null(inspection.AsyncMethodCount);
+        Assert.Null(inspection.AsyncMethods);
+        Assert.True(LibrarySections.AsyncMethods.CanRender(inspection));
     }
 
     [Fact]
@@ -2699,7 +2795,9 @@ public partial class SectionPipelineTests
         [
             .. expectedQueryBodyIndexFamily,
             SectionNames.CloneCandidates,
+            SectionNames.DependencyStructure,
             SectionNames.LibraryMetrics,
+            SectionNames.NameFamilies,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
             IntegrationSectionNames.Integrations,

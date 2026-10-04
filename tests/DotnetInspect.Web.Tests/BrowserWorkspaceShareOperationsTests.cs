@@ -44,6 +44,7 @@ public sealed class BrowserWorkspaceShareOperationsTests
         Assert.Equal("g0", state.SelectedContextId);
         Assert.Equal("api", state.View.Lens);
         Assert.Equal("System.Text.Json.JsonSerializer", state.View.Type);
+        Assert.Null(state.View.SourceView);
         Assert.Equal(["System.Text.Json"], state.View.Libraries);
 
         BrowserWorkspaceShareEncodeResult encoded =
@@ -52,6 +53,50 @@ public sealed class BrowserWorkspaceShareOperationsTests
         Assert.True(encoded.Succeeded);
         Assert.Null(encoded.Failure);
         Assert.Equal(CanonicalVector, encoded.Packet);
+    }
+
+    [Fact]
+    public void DecompiledMemberSourceView_RoundTripsThroughCanonicalPacket()
+    {
+        var state = new BrowserWorkspaceShareState(
+            [
+                new BrowserWorkspaceShareTab(
+                    "t0",
+                    "package",
+                    "System.Text.Json",
+                    "11.0.0-preview.7.26381.103",
+                    "net10.0",
+                    RuntimeIdentifier: null),
+            ],
+            [new BrowserWorkspaceShareContext("g0", ["t0"])],
+            ActiveTabId: "t0",
+            SelectedContextId: "g0",
+            new BrowserWorkspaceShareView(
+                Lens: "api",
+                Type: "System.Text.Json.JsonDocument",
+                MemberAnchor: "78b5dfa21b",
+                MemberSignature: null,
+                Section: "source",
+                Libraries: [],
+                SourceView: "decompiler-source"));
+
+        BrowserWorkspaceShareEncodeResult encoded =
+            BrowserWorkspaceShareOperations.Encode(state);
+
+        Assert.True(encoded.Succeeded);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            Assert.IsType<string>(encoded.Packet),
+            TestContext.Current.CancellationToken);
+        Assert.Equal("decompiler-source", packet.SourceView);
+        Assert.Contains(
+            "\"o\":\"decompiler-source\"",
+            WorkspaceSharePacketCodec.SerializeJson(packet),
+            StringComparison.Ordinal);
+
+        BrowserWorkspaceShareState decoded =
+            Assert.IsType<BrowserWorkspaceShareState>(
+                BrowserWorkspaceShareOperations.Decode(encoded.Packet!).State);
+        Assert.Equal("decompiler-source", decoded.View.SourceView);
     }
 
     [Fact]
@@ -207,7 +252,8 @@ public sealed class BrowserWorkspaceShareOperationsTests
                 MemberAnchor: null,
                 MemberSignature: null,
                 Section: null,
-                Libraries: []));
+                Libraries: [],
+                SourceView: null));
 
         BrowserWorkspaceShareEncodeResult result =
             BrowserWorkspaceShareOperations.Encode(state);

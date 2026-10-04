@@ -19,6 +19,7 @@ const types = [
     key: "Example.E",
     display: "Example.PersistentWorkspaceRelationshipIndex",
   },
+  { key: "Example.F", display: "Example.F" },
 ];
 const entangledRelationships = types.flatMap(source =>
   types
@@ -29,8 +30,8 @@ const entangledRelationships = types.flatMap(source =>
       targetTypeKey: target.key,
       targetTypeDisplay: target.display,
       callSiteCount: 1,
-      sourceDegree: 4,
-      targetDegree: 4,
+      sourceDegree: 5,
+      targetDegree: 5,
     })));
 
 const data: BrowserLibraryMetrics = {
@@ -66,7 +67,6 @@ const data: BrowserLibraryMetrics = {
     message: null,
   },
 };
-
 const app = document.querySelector("#app");
 if (!(app instanceof HTMLElement))
   throw new Error("Library metrics harness root is missing.");

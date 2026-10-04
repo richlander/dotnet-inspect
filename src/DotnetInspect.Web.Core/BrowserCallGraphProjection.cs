@@ -644,7 +644,8 @@ internal static class BrowserCallGraphProjection
         Analysis.MethodIdentity member,
         AssemblyReferenceIdentity identity,
         string id,
-        IReadOnlyList<BrowserWorkspaceParticipant>? surfaceParticipants = null)
+        IReadOnlyList<BrowserWorkspaceParticipant>? surfaceParticipants = null,
+        Func<string, string?>? platformPackForAssembly = null)
     {
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(identity);
@@ -677,7 +678,7 @@ internal static class BrowserCallGraphProjection
             member.MetadataToken,
             Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
             "method",
-            PlatformPack: null,
+            platformPackForAssembly?.Invoke(identity.Name),
             surfaceAssemblyId,
             PackageId: null,
             PackageVersion: null,

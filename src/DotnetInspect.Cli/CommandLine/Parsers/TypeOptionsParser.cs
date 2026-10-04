@@ -553,7 +553,7 @@ public static class TypeOptionsParser
 
         options = options with
         {
-            TipLevel = opts.ParseTipLevel(parseResult)
+            CompanionOutput = opts.ParseCompanionOutput(parseResult)
         };
 
         return new Success(

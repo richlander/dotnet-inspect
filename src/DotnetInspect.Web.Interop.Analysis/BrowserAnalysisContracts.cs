@@ -314,6 +314,60 @@ public sealed record BrowserLibraryMetricsRelationship(
     int SourceDegree,
     int TargetDegree);
 
+public sealed record BrowserLibraryStructuralSalience(
+    int SchemaVersion,
+    string Outcome,
+    string? MethodologyVersion,
+    string? EvidenceMode,
+    BrowserLibraryNamespaceLeverageIndex? NamespaceIndex,
+    BrowserLibraryTypeLeverageShard[] TypeLeverageShards,
+    string? Failure,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserLibraryNamespaceLeverageIndex(
+    string Disposition,
+    BrowserLibrarySignatureUseCoverage Coverage,
+    BrowserLibraryNamespaceLeverageRow[] Namespaces,
+    string[] Diagnostics);
+
+public sealed record BrowserLibraryNamespaceLeverageRow(
+    string Namespace,
+    int TypeCount,
+    int ExternalIncomingSourceTypeCount,
+    bool TopLeverage);
+
+public sealed record BrowserLibraryTypeLeverageShard(
+    string Namespace,
+    string Disposition,
+    BrowserLibrarySignatureUseCoverage Coverage,
+    BrowserLibraryTypeLeverageRow[] Types,
+    string[] SeaLevelOrder,
+    string[] MountainPeakOrder,
+    string[] Diagnostics);
+
+public sealed record BrowserLibrarySignatureUseCoverage(
+    int Considered,
+    int Examined,
+    int Unavailable,
+    int Limited);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserLibraryStructuralTypePole>))]
+public enum BrowserLibraryStructuralTypePole
+{
+    SeaLevel,
+    MountainPeak,
+}
+
+public sealed record BrowserLibraryTypeLeverageRow(
+    string TypeDefinitionId,
+    string TypeDisplay,
+    bool DesignationEligible,
+    int SignatureIncomingDegree,
+    int SignatureOutgoingDegree,
+    string Role,
+    BrowserLibraryStructuralTypePole? Pole);
+
 public sealed record BrowserPerformanceMember(
     string Assembly,
     string TypeId,
@@ -415,6 +469,38 @@ public sealed record BrowserTypeImplementationHeat(
     BrowserAnalysisInspectionDiagnostic[] Diagnostics,
     BrowserCompileLibraryAvailability CompileLibrary);
 
+public sealed record BrowserTypeMethodLeverage(
+    int SchemaVersion,
+    string Outcome,
+    BrowserImplementationProfileSubject? Subject,
+    BrowserTypeMethodLeverageContent? Content,
+    BrowserImplementationProfileFailure? Failure,
+    BrowserAnalysisInspectionShare? Share,
+    BrowserAnalysisInspectionDiagnostic[] Diagnostics,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserTypeMethodLeverageContent(
+    string TypeDefinitionId,
+    int MethodCount,
+    int WinnerCount,
+    BrowserTypeMethodLeverageRank? WinningRank,
+    BrowserTypeMethodLeverageWinner[] AnchoredWinners,
+    BrowserImplementationProfileAnalysisDiagnostic[] AnalysisDiagnostics,
+    BrowserImplementationProfileApiSurfaceFailure[]
+        ApiSurfaceInspectionFailures);
+
+public sealed record BrowserTypeMethodLeverageRank(
+    int DirectCallerCount,
+    int RootReach,
+    int Fanout,
+    int LoopCallCount,
+    int MaxDepth);
+
+public sealed record BrowserTypeMethodLeverageWinner(
+    string TypeDefinitionId,
+    string StableSelector,
+    int[] MethodTokens);
+
 public sealed record BrowserTypeImplementationHeatContent(
     string TypeDefinitionId,
     BrowserImplementationHeatFamily[] Families,
@@ -451,8 +537,10 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
+[JsonSerializable(typeof(BrowserLibraryStructuralSalience))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserTypeImplementationHeat))]
+[JsonSerializable(typeof(BrowserTypeMethodLeverage))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserCloneCandidateRequest))]

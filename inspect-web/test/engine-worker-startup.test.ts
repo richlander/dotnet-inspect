@@ -19,6 +19,7 @@ import {
 } from "../src/engine-worker-startup-contract.ts";
 import type { BrowserBuildIdentity } from "../src/facades/inspect-web-host.d.ts";
 import type {
+  BrowserEcosystemCatalog,
   BrowserHomeDemoCatalog,
   BrowserVocabularyInspection,
 } from "../src/facades/inspect-web-catalog.d.ts";
@@ -53,6 +54,21 @@ const vocabulary: BrowserVocabularyInspection = {
 };
 const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "source", title: "Source", summary: "Show generated source." }],
+};
+const productEcosystems: BrowserEcosystemCatalog = {
+  ecosystems: [{
+    id: "ecosystem.aspire",
+    title: "Aspire",
+    summary: "Aspire package and demo content.",
+    corePackageCount: 2,
+    namespaceRootCount: 1,
+    toolPackageCount: 1,
+    demoCount: 2,
+    hasPackageSet: true,
+    hasScanner: true,
+    hasPopulationLoader: false,
+    hasWorkspaceRegistration: true,
+  }],
 };
 const catalog: BrowserPackageQueryCatalog = {
   presets: [{
@@ -93,6 +109,12 @@ const cases = [
     read: (client: EngineStartupClient) => client.catalog.inspectVocabulary() },
   { operation: engineStartupOperations.listHomeDemos, expected: demos, field: "demos",
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
+  {
+    operation: engineStartupOperations.listEcosystems,
+    expected: productEcosystems,
+    field: "ecosystems",
+    read: (client: EngineStartupClient) => client.catalog.listEcosystems(),
+  },
   { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "presets",
     read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
   {
@@ -124,6 +146,10 @@ function fixture(options: {
     async buildIdentity() { calls.push("identity"); return identity; },
     async inspectVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
+    async listEcosystems() {
+      calls.push("product-ecosystems");
+      return productEcosystems;
+    },
     async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
     async listPackageActivityEcosystems() {
       calls.push("ecosystems");
@@ -162,11 +188,11 @@ function fixture(options: {
   return { host, client, environment, calls, failures, diagnostics, workers, starts: () => starts };
 }
 
-test("all five cold reads share readiness and preserve full generated-shaped results", async () => {
+test("all six cold reads share readiness and preserve full generated-shaped results", async () => {
   const ready = deferred<void>();
   const state = fixture({ bootstrap: () => ready.promise });
   const results = Promise.all(cases.map(item => item.read(state.client)));
-  assert.equal(state.host.snapshot().heldOperations, 5);
+  assert.equal(state.host.snapshot().heldOperations, 6);
   await state.environment.flushAsync();
   assert.equal(state.starts(), 1);
   assert.deepEqual(state.calls, []);
@@ -175,15 +201,19 @@ test("all five cold reads share readiness and preserve full generated-shaped res
   assert.deepEqual(await results, cases.map(item => item.expected));
   assert.deepEqual(
     state.calls,
-    ["identity", "vocabulary", "demos", "catalog", "ecosystems"]);
+    [
+      "identity", "vocabulary", "demos", "product-ecosystems",
+      "catalog", "ecosystems",
+    ]);
   assert.deepEqual(
     await Promise.all(cases.map(item => item.read(state.client))),
     cases.map(item => item.expected));
   assert.deepEqual(
     state.calls,
     [
-      "identity", "vocabulary", "demos", "catalog", "ecosystems",
-      "identity", "demos", "catalog", "ecosystems",
+      "identity", "vocabulary", "demos", "product-ecosystems",
+      "catalog", "ecosystems",
+      "identity", "demos", "product-ecosystems", "catalog", "ecosystems",
     ]);
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);

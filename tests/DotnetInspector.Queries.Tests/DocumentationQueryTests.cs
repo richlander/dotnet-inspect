@@ -786,6 +786,78 @@ public sealed class DocumentationQueryTests
 
     [Fact]
     public async Task
+        UnifiedBatch_PreservesRequestOrderAndExactChannelOutcomes()
+    {
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync();
+        DocumentationSubjectReference[] subjects =
+            library.ApiSurfaceCorrespondence.Surface.Types
+                .SelectMany(type =>
+                    type.Members.Select(member => (Type: type, Member: member)))
+                .Select(candidate =>
+                    ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                        candidate.Type,
+                        candidate.Member,
+                        out _)
+                            ? DocumentationSubjectReference.ForMember(
+                                library.ApiSurfaceCorrespondence,
+                                candidate.Type,
+                                candidate.Member)
+                            : null)
+                .OfType<DocumentationSubjectReference>()
+                .Take(2)
+                .ToArray();
+        Assert.Equal(2, subjects.Length);
+        var operationPlan = new DocumentationHouseOperationPlan(
+            DocumentationHouseOperationPlanIdentity.Create(
+                "query-ordered-batch-plan"),
+            DocumentationHousePolicyGeneration.Create("query-policy"),
+            DocumentationQueryHouseLimits(),
+            DateTimeOffset.UtcNow.AddMinutes(1),
+            compiledXmlContributions: []);
+        DocumentationHouseRequest[] requests =
+        [
+            new(
+                DocumentationHouseRequestIdentity.Create(
+                    "query-ordered-batch-first"),
+                subjects[0],
+                DocumentationDemand.CompiledXml,
+                operationPlan),
+            new(
+                DocumentationHouseRequestIdentity.Create(
+                    "query-ordered-batch-second"),
+                subjects[1],
+                DocumentationDemand.CompiledXml,
+                operationPlan),
+        ];
+
+        IReadOnlyList<DocumentationQueryResult> results =
+            await DocumentationQuery.ExecuteManyAsync(
+                requests,
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, results.Count);
+        var first =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                results[0].Content);
+        var second =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                results[1].Content);
+        Assert.Equal(
+            subjects[0].CompiledXmlIdentity.Value,
+            first.Subject.DocumentationId);
+        Assert.Equal(
+            subjects[1].CompiledXmlIdentity.Value,
+            second.Subject.DocumentationId);
+        Assert.NotNull(first.CompiledXml);
+        Assert.NotNull(second.CompiledXml);
+        Assert.Null(first.AuthoredSource);
+        Assert.Null(second.AuthoredSource);
+    }
+
+    [Fact]
+    public async Task
         UnifiedCompiledQuery_ForeignLeasePublishesRequestRejection()
     {
         await using LibraryFixture selected =

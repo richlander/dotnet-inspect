@@ -115,7 +115,7 @@ public sealed class AnalysisLibraryBodyUseTests
                     AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         FixturePath,
                         image,
-                        ProducerTerminal.Complete,
+                        ProducerTerminal.Count,
                         new(),
                         cancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
@@ -160,7 +160,7 @@ public sealed class AnalysisLibraryBodyUseTests
                     AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         "Empty.dll",
                         image,
-                        ProducerTerminal.Complete,
+                        ProducerTerminal.Count,
                         new(),
                         cancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
@@ -210,7 +210,7 @@ public sealed class AnalysisLibraryBodyUseTests
                     AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         "OccurrenceLimit.dll",
                         image,
-                        ProducerTerminal.Complete,
+                        ProducerTerminal.Count,
                         limits,
                         TestContext.Current.CancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<

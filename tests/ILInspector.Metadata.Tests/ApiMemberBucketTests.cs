@@ -66,6 +66,7 @@ public sealed class ApiMemberBucketTests
             Type(IncludeAllSurface).Members,
             member => member.Name == "Finalize");
         Assert.Equal("protected", finalizer.Accessibility);
+        Assert.False(finalizer.IsExplicitInterfaceImplementation);
     }
 
     // VB spells an interface implementation as a private, ordinarily named
@@ -81,6 +82,14 @@ public sealed class ApiMemberBucketTests
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         ApiSurface summarySurface = ApiSurfaceExtractor.ExtractSummary(peReader);
+
+        ApiMember publicAdd = Assert.Single(
+            publicSurface.Types.Single(
+                type => type.Namespace == "Microsoft.VisualBasic"
+                    && type.Name == "Collection")
+                .Members,
+            member => member.Name == "IListAdd");
+        Assert.True(publicAdd.IsExplicitInterfaceImplementation);
 
         foreach (ApiSurface surface in new[] { publicSurface, summarySurface })
         {

@@ -72,6 +72,50 @@ public sealed class BrowserProductHomeDemosTests
     }
 
     [Fact]
+    public void ListEcosystems_MatchesProductCatalogOrderAndMetadata()
+    {
+        using var document = JsonDocument.Parse(
+            DotnetInspect.Web.Interop.Catalog.CatalogExports.ListEcosystems());
+        JsonElement ecosystems = document.RootElement.GetProperty("ecosystems");
+        IReadOnlyList<EcosystemPackDescriptor> expected =
+            EcosystemPackCatalog.Discover();
+
+        Assert.Equal(expected.Count, ecosystems.GetArrayLength());
+        for (var i = 0; i < ecosystems.GetArrayLength(); i++)
+        {
+            EcosystemPackDescriptor descriptor = expected[i];
+            JsonElement actual = ecosystems[i];
+            Assert.Equal(descriptor.Id.Value, actual.GetProperty("id").GetString());
+            Assert.Equal(descriptor.Title, actual.GetProperty("title").GetString());
+            Assert.Equal(descriptor.Summary, actual.GetProperty("summary").GetString());
+            Assert.Equal(
+                descriptor.CorePackages.Length,
+                actual.GetProperty("corePackageCount").GetInt32());
+            Assert.Equal(
+                descriptor.NamespaceRoots.Length,
+                actual.GetProperty("namespaceRootCount").GetInt32());
+            Assert.Equal(
+                descriptor.ToolPackages.Length,
+                actual.GetProperty("toolPackageCount").GetInt32());
+            Assert.Equal(
+                descriptor.Demos.Length,
+                actual.GetProperty("demoCount").GetInt32());
+            Assert.Equal(
+                descriptor.PackageSet is not null,
+                actual.GetProperty("hasPackageSet").GetBoolean());
+            Assert.Equal(
+                descriptor.HasScanner,
+                actual.GetProperty("hasScanner").GetBoolean());
+            Assert.Equal(
+                descriptor.HasPopulationLoader,
+                actual.GetProperty("hasPopulationLoader").GetBoolean());
+            Assert.Equal(
+                descriptor.HasWorkspaceRegistration,
+                actual.GetProperty("hasWorkspaceRegistration").GetBoolean());
+        }
+    }
+
+    [Fact]
     public void ResolveHomeDemo_UnknownId_ReturnsNotFound()
     {
         using var missing = JsonDocument.Parse(DotnetInspect.Web.Interop.Catalog.CatalogExports.ResolveHomeDemo("not-a-demo"));

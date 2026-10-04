@@ -37,13 +37,21 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
     internal static async ValueTask<PlatformFindSearchWorkspace> OpenAsync(
         FindOptions options,
         CommandContext context,
+        CancellationToken cancellationToken) =>
+        await OpenAsync(
+            FindSourceCollector.CreateWorkspacePlan(options),
+            options, context, cancellationToken);
+
+    internal static async ValueTask<PlatformFindSearchWorkspace> OpenAsync(
+        WorkspacePlan plan,
+        FindOptions options,
+        CommandContext context,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
-        WorkspacePlan plan = FindSourceCollector.CreateWorkspacePlan(options);
         IReadOnlyList<PlatformLibraryPopulationDeclaration> populations =
             GetPlatformPopulations(plan);
         string? dotnetRoot =

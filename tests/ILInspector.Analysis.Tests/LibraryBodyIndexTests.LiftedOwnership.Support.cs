@@ -25,17 +25,17 @@ public partial class LibraryBodyIndexTests
 {
 
     static void AssertCompilerPositiveSuppressedByCensus(
-        LibraryBodyIndex index)
+        LibraryBodyAnalysisExecution analysis)
     {
         MethodIdentity compilerPositive = Assert.Single(
-            index.DeclaredMethods,
+            analysis.CallGraph.DeclaredMethods,
             method => method.DeclaringType.Name
                     == nameof(ClassicAsyncSiblingFixture)
                 && method.Name == nameof(
                     ClassicAsyncSiblingFixture
                         .ReturnsCallStoredBeforeAwait));
         Assert.DoesNotContain(
-            index.ResultSinks,
+            analysis.JsonWireContracts.ResultSinks,
             sink => sink.Caller == compilerPositive
                 && sink.StateMachineFieldSource is not null);
     }

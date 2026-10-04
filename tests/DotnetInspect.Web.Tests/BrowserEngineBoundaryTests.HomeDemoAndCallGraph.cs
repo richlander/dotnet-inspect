@@ -908,8 +908,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     [],
                     [
                         "ecosystem.runtime",
-                        "ecosystem.aspnetcore",
                         "ecosystem.microsoft-extensions",
+                        "ecosystem.aspnetcore",
                     ]),
                 MemberCallGraphFocalScopeReceipt.CaptureEverything(
                     scope,

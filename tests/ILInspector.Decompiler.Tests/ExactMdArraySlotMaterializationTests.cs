@@ -101,7 +101,7 @@ public class ExactMdArraySlotMaterializationTests
             new ExpressionStatement(new Call(
                 new MethodRef(Owner, "Observe", TypeRef.CoreLib("System", "Void"), [target], HasThis: false),
                 isVirtual: false, [new LoadStackSlot(0, target)])),
-            new StoreStackSlot(0, new Constant(null, producer)),
+            new StoreStackSlot(0, new CastClass(producer, new Constant(null, Object))),
             new Return(new LoadStackSlot(0, target)));
 
         Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).Vetoes

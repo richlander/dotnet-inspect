@@ -80,7 +80,7 @@ Reproduce the inventory with each version/framework pair:
 
 ```bash
 dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer Deserialize \
-  --package System.Text.Json@10.0.0 --tfm net10.0 -S Methods -T q
+  --package System.Text.Json@10.0.0 --tfm net10.0 -S Methods
 ```
 
 An observed absence boundary is

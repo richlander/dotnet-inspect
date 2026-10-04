@@ -295,12 +295,16 @@ public static class MemberProjectionProducer
             return null;
         }
 
-        var indexes = new AnalysisIndexCache();
+        IReadOnlySet<int>? bodyScope =
+            requirements.Scope == ResearchAnalysisScope.Member
+                ? new HashSet<int> { imported.MetadataToken }
+                : null;
         LibraryBodyAnalysisExecution execution =
-            indexes.ForPathExecution(
+            LibraryBodyAnalysisService.ExecutePath(
                 path,
-                requirements,
-                imported.MetadataToken);
+                LibraryBodyAnalysisRequest.Create(
+                    requirements.Features,
+                    bodyScope));
         return new MemberProjectionAnalysisInput(
             execution.Allocations,
             execution.Safety,

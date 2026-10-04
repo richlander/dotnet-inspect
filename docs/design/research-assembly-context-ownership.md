@@ -22,8 +22,9 @@ by member token.
 
 The context has no static cache, path lookup, reacquisition behavior, or
 cross-request continuity. Releasing the request releases the context and its
-focused inputs. `AnalysisIndexCache` separately owns path-backed execution
-reuse and does not become a context dependency.
+focused inputs. Path-backed Research production invokes
+`LibraryBodyAnalysisService` once per request and retains no reusable Analysis
+state.
 
 ## Boundary case and evidence
 
@@ -36,6 +37,6 @@ including instruction coordinates and typed safety evidence.
 
 - No migration of query-owned call relationships, invocation destinations, or
   local-throw paths that still use the compatibility index.
-- No change to Analysis execution or `AnalysisIndexCache`.
+- No cross-request Analysis reuse.
 - No cross-Workspace Research cache.
 - No redesign of individual Research fact producers.

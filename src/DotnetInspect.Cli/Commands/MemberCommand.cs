@@ -61,6 +61,14 @@ public static class MemberCommand
                 nameof(plan));
         ResolvedMemberInspectionPlan executionPlan = plan;
         MemberInspectionTerminalPlan? terminalPlan = null;
+        ResolvedMemberGroupExplanationBasis?
+            companionGroupExplanationBasis = null;
+        ResolvedMemberInspectionBasis?
+            companionExactExplanationBasis = null;
+        MemberGroupSubject? contextualExplanationGroup = null;
+        MemberTargetResolution? contextualExplanationResolution = null;
+        ApiMember? contextualExplanationMember = null;
+        string? contextualExplanationSelector = null;
         if ((options.SourceParts || options.SourcePart is not null)
             && options.Select is null && options.IncludeSections is null)
         {
@@ -192,6 +200,24 @@ public static class MemberCommand
 
         try
         {
+            bool requiresContextualExplanation =
+                options.Explanation is not null
+                || options.CompanionOutput
+                    == CompanionOutput.Explanation
+                || options.CompanionOutput == CompanionOutput.Tips
+                    && (options.OverloadIndex.HasValue
+                        || !string.IsNullOrWhiteSpace(
+                            options.MemberDigest));
+            if (loadedSurface is null
+                && ApiCommand.TryWriteCallSiteCount(
+                    source,
+                    typeName,
+                    options,
+                    Console.Out) is { } directCallCountExitCode)
+            {
+                return directCallCountExitCode;
+            }
+
             var loaded = loadedSurface
                 ?? (options.RouterDeferredTypeOrMember
                     ? ApiServices.LoadTypeApi(source, options)
@@ -211,7 +237,8 @@ public static class MemberCommand
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
             {
-                if (options.RouterDeferredTypeOrMember)
+                if (options.RouterDeferredTypeOrMember
+                    && !requiresContextualExplanation)
                 {
                     return await ExecuteDeferredTypeAsync(
                         unresolvedOptions,
@@ -233,6 +260,7 @@ public static class MemberCommand
             ResolvedAssemblyReference? sourceAssembly =
                 loaded.TryGetSourceAssembly(apiType);
             if (options.RouterDeferredTypeOrMember
+                && !requiresContextualExplanation
                 && lookupResult.ImpliedMember is null
                 && DeferredExactTargetUsesTypePipeline(
                     apiType,
@@ -447,6 +475,15 @@ public static class MemberCommand
                 }
             }
 
+            if (requiresContextualExplanation
+                && options.MemberFilter.Count != 1)
+            {
+                CommandError.Write(
+                    "Contextual Member explanation requires one Member "
+                        + "selector.");
+                return 1;
+            }
+
             var acquisition = new ApiCommand.TypeAcquisitionContext(
                 loaded.GetLibraryAssetPath(source.PackageExtractPath),
                 packageName, packageVersion ?? source.ApiVersion, apiSource,
@@ -454,6 +491,7 @@ public static class MemberCommand
                 MemberCodeSourceAssembly: sourceAssembly);
 
             // Default --docs on for single-type view at Normal+ unless explicitly disabled
+            MemberOptions contextualSubjectOptions = options;
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
@@ -543,10 +581,176 @@ public static class MemberCommand
                     };
             }
 
+            if ((effectiveOptions.SourceParts
+                    || effectiveOptions.SourcePart is not null)
+                && MemberSourcePartsOutput.ValidateSections(effectiveOptions)
+                    is { } sectionError)
+            {
+                CommandError.Write(sectionError);
+                return 1;
+            }
+
+            if (requiresContextualExplanation)
+            {
+                contextualExplanationGroup =
+                    MemberGroupDocumentOutput.ResolveSubject(
+                        apiType,
+                        contextualSubjectOptions);
+                if (contextualExplanationGroup is not null)
+                {
+                    string? groupDllPath =
+                        apiType.SourceAssemblyPath
+                        ?? sourceAssembly?.Path
+                        ?? apiDllPath;
+                    if (groupDllPath is null)
+                    {
+                        CommandError.Write(
+                            "The MemberGroup's defining Library has no local "
+                                + "inspection path.");
+                        return 1;
+                    }
+
+                    companionGroupExplanationBasis =
+                        MemberInspectionPlanBuilder
+                            .CreateGroupExplanationBasis(
+                                sourceAssembly,
+                                groupDllPath,
+                                selectedTfm,
+                                contextualExplanationGroup,
+                                executionPlan,
+                                effectiveOptions,
+                                ResolvedPackageSource(
+                                    source,
+                                    sourceAssembly,
+                                    selectedTfm));
+                    if (effectiveOptions.Explanation is not null)
+                    {
+                        return WriteSelectedContextualExplanation(
+                            effectiveOptions,
+                            () => MemberExplanationBindings
+                                .ExplainMemberGroup(
+                                    companionGroupExplanationBasis),
+                            () => ResolveSelectedMemberTips(
+                                apiType,
+                                effectiveOptions,
+                                packageName,
+                                packageVersion));
+                    }
+                }
+                else
+                {
+                    string memberName =
+                        effectiveOptions.MemberFilter.First();
+                    var selector = new MemberTargetSelector(
+                        memberName,
+                        memberName,
+                        effectiveOptions.OverloadIndex,
+                        effectiveOptions.MemberDigest,
+                        GenericArity:
+                            effectiveOptions.MemberGenericArity);
+                    contextualExplanationResolution =
+                        MemberTargetResolver.Resolve(
+                            apiType,
+                            selector,
+                            effectiveOptions.KindFilter);
+                    if (contextualExplanationResolution.Diagnostic
+                        is { } explanationDiagnostic)
+                    {
+                        CommandError.Write(
+                            explanationDiagnostic.Message,
+                            [.. explanationDiagnostic.CandidateDetails()]);
+                        return 1;
+                    }
+
+                    ResolvedMemberTarget target =
+                        contextualExplanationResolution.Target!;
+                    ApiMember selected = target.ApiMember.Member;
+                    contextualExplanationMember = selected;
+                    contextualExplanationSelector =
+                        target.OverloadIndex.HasValue
+                            || target.DigestPrefix is not null
+                        ? target.NormalizedSelector
+                        : $"{ApiMemberIdentity.GetMemberSelectorName(selected)}"
+                            + $":{target.SelectorIndex}";
+                    string? detailDllPath =
+                        apiType.SourceAssemblyPath
+                        ?? apiDllPath;
+                    if (detailDllPath is null)
+                    {
+                        CommandError.Write(
+                            "The exact Member's defining Library has no local "
+                                + "inspection path.");
+                        return 1;
+                    }
+
+                    MemberOptions explanationOptions =
+                        effectiveOptions with
+                        {
+                            DllPath = detailDllPath,
+                            OverloadIndex =
+                                target.Body?.DeclaringOverloadIndex
+                                ?? target.DeclaringOverloadIndex,
+                            SelectedBodyMethodToken =
+                                target.Body?.MetadataToken,
+                        };
+                    ResolvedMemberInspectionPlan explanationPlan =
+                        ResolvedMemberInspectionPlan
+                            .FromCompatibilityOptions(
+                                explanationOptions);
+                    var (explanationPreamble, explanationError) =
+                        ApiCommand.RunPreamble(
+                            explanationOptions,
+                            explanationPlan);
+                    if (explanationError.HasValue)
+                        return explanationError.Value;
+                    explanationOptions =
+                        (MemberOptions)explanationPreamble.Options;
+                    MemberInspectionTerminalPlan explanationTerminalPlan =
+                        MemberInspectionPlanBuilder.Create(
+                            sourceAssembly,
+                            detailDllPath,
+                            selectedTfm,
+                            apiType.FullName,
+                            apiType.DefinitionName,
+                            ApiMemberIdentity.GetMemberAnchor(
+                                apiType,
+                                selected),
+                            explanationPlan,
+                            explanationOptions,
+                            ResolvedPackageSource(
+                                source,
+                                sourceAssembly,
+                                selectedTfm));
+                    companionExactExplanationBasis =
+                        explanationTerminalPlan.Basis;
+
+                    if (effectiveOptions.Explanation is not null)
+                    {
+                        return WriteSelectedContextualExplanation(
+                            effectiveOptions,
+                            () => MemberExplanationBindings
+                                .ExplainExactMember(
+                                    explanationTerminalPlan.Basis),
+                            () => MemberTipBindings.ResolveExact(
+                                apiType,
+                                selected,
+                                contextualExplanationSelector,
+                                options.PlatformAssembly,
+                                options.PackagePath,
+                                options.AssemblyPath,
+                                packageName,
+                                packageVersion));
+                    }
+                }
+            }
+
             if (MemberDocumentOutput.IsSelected(
                         apiType,
                         effectiveOptions,
-                        executionPlan))
+                        executionPlan)
+                || MemberDocumentOutput.IsSourceSelected(
+                    apiType,
+                    effectiveOptions))
             {
                 string? memberAssemblyPath =
                     apiType.SourceAssemblyPath
@@ -559,11 +763,27 @@ public static class MemberCommand
                             + "inspection path.");
                     return 1;
                 }
-                return await MemberDocumentOutput.WriteAsync(
+                int memberDocumentExitCode =
+                    await MemberDocumentOutput.WriteAsync(
                     apiType,
                     effectiveOptions,
                     memberAssemblyPath,
-                    CancellationToken.None);
+                    sourceAssembly,
+                    packageName,
+                    packageVersion,
+                    context.HttpClient,
+                    CancellationToken.None,
+                    contextualExplanationResolution);
+                return WriteContextualCompanion(
+                    memberDocumentExitCode,
+                    effectiveOptions,
+                    companionGroupExplanationBasis,
+                    companionExactExplanationBasis,
+                    apiType,
+                    contextualExplanationMember,
+                    contextualExplanationSelector,
+                    packageName,
+                    packageVersion);
             }
 
             if (effectiveOptions.OverloadIndex.HasValue
@@ -584,7 +804,12 @@ public static class MemberCommand
                     effectiveOptions.OverloadIndex,
                     effectiveOptions.MemberDigest,
                     GenericArity: effectiveOptions.MemberGenericArity);
-                var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
+                var memberResolution =
+                    contextualExplanationResolution
+                    ?? MemberTargetResolver.Resolve(
+                        apiType,
+                        selector,
+                        effectiveOptions.KindFilter);
                 if (memberResolution.Diagnostic is { } diagnostic)
                 {
                     CommandError.Write(diagnostic.Message, [.. diagnostic.CandidateDetails()]);
@@ -719,13 +944,6 @@ public static class MemberCommand
                 apiType.Members = arityCandidates;
             }
 
-            if ((effectiveOptions.SourceParts || effectiveOptions.SourcePart is not null)
-                && MemberSourcePartsOutput.ValidateSections(effectiveOptions) is { } sectionError)
-            {
-                CommandError.Write(sectionError);
-                return 1;
-            }
-
             if (!CloneCandidatesCommand.ValidatePredicateSelection(
                     effectiveOptions.CloneCandidateQuery,
                     effectiveOptions.IncludeSections))
@@ -770,17 +988,28 @@ public static class MemberCommand
                         clonePath,
                         AssemblyResolutionProvenance.Local(
                             "member Clone Candidates"));
-                return await CloneCandidatesCommand.ExecuteAsync(
-                    cloneAssembly,
-                    clonePath,
-                    seed!,
-                    effectiveOptions.CloneCandidateQuery,
-                    CloneCandidateOutputOptions.From(effectiveOptions),
-                    new CloneCandidateWorkspaceOptions(
-                        source.PackageExtractPath,
-                        effectiveOptions.ProjectAssetsPath,
-                        effectiveOptions.Tfm,
-                        effectiveOptions.SourceOptions));
+                int cloneCandidatesExitCode =
+                    await CloneCandidatesCommand.ExecuteAsync(
+                        cloneAssembly,
+                        clonePath,
+                        seed!,
+                        effectiveOptions.CloneCandidateQuery,
+                        CloneCandidateOutputOptions.From(effectiveOptions),
+                        new CloneCandidateWorkspaceOptions(
+                            source.PackageExtractPath,
+                            effectiveOptions.ProjectAssetsPath,
+                            effectiveOptions.Tfm,
+                            effectiveOptions.SourceOptions));
+                return WriteContextualCompanion(
+                    cloneCandidatesExitCode,
+                    effectiveOptions,
+                    companionGroupExplanationBasis,
+                    companionExactExplanationBasis,
+                    apiType,
+                    contextualExplanationMember,
+                    contextualExplanationSelector,
+                    packageName,
+                    packageVersion);
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -844,11 +1073,23 @@ public static class MemberCommand
                         "The exact member group's defining Library has no local inspection path.");
                     return 1;
                 }
-                return await MemberGroupDocumentOutput.WriteAsync(
-                    apiType,
+                int memberGroupExitCode =
+                    await MemberGroupDocumentOutput.WriteAsync(
+                        apiType,
+                        effectiveOptions,
+                        memberGroupAssemblyPath,
+                        CancellationToken.None,
+                        contextualExplanationGroup);
+                return WriteContextualCompanion(
+                    memberGroupExitCode,
                     effectiveOptions,
-                    memberGroupAssemblyPath,
-                    CancellationToken.None);
+                    companionGroupExplanationBasis,
+                    companionExactExplanationBasis,
+                    apiType,
+                    contextualExplanationMember,
+                    contextualExplanationSelector,
+                    packageName,
+                    packageVersion);
             }
             if (effectiveOptions.Tree
                 && !(effectiveOptions.Count
@@ -1386,43 +1627,19 @@ public static class MemberCommand
             if (writeExitCode != 0)
                 return writeExitCode;
 
-            if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
-            {
-                var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
-                    : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
-                    : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
-                    : "";
+            if (selectedSurfaceExitCode != 0)
+                return selectedSurfaceExitCode;
 
-                var simpleName = TypeMatcher.GetSimpleName(apiType.FullName);
-
-                var overloadGroups = apiType.Members
-                    .Where(ApiMemberSectionDescriptors.IsMethodLike)
-                    .GroupBy(m => m.Name)
-                    .OrderByDescending(g => g.Count())
-                    .ToList();
-                var exampleGroup = overloadGroups.FirstOrDefault();
-
-                List<Tip> tips = [];
-
-                if (exampleGroup != null)
-                {
-                    var memberName = exampleGroup.Key == ".ctor" ? ".ctor" : exampleGroup.Key;
-                    tips.Add(new(Name, $"{simpleName} {sourceFlag} {memberName}:1", "view member detail (source, IL)"));
-                }
-
-                if (overloadGroups.Any(g => g.Count() > 1))
-                    tips.Add(new(Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
-
-                tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --tree", "view type tree"));
-                tips.Add(new(Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
-
-                if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
-                    tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
-
-                Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
-            }
-
-            return selectedSurfaceExitCode;
+            return WriteContextualCompanion(
+                0,
+                effectiveOptions,
+                companionGroupExplanationBasis,
+                companionExactExplanationBasis,
+                apiType,
+                contextualExplanationMember,
+                contextualExplanationSelector,
+                packageName,
+                packageVersion);
         }
         catch (Exception ex)
         {
@@ -1439,6 +1656,133 @@ public static class MemberCommand
             callerScopeAssemblySet?.Dispose();
         }
     }
+
+    private static int WriteSelectedContextualExplanation(
+        MemberOptions options,
+        Func<
+            InspectionEnvelope<MemberContextualExplanationDocument>>
+            explain,
+        Func<Tip[]> tips)
+    {
+        ExplanationProjection projection =
+            options.Explanation
+            ?? throw new InvalidOperationException(
+                "Primary contextual explanation requires one projection.");
+        InspectionEnvelope<MemberContextualExplanationDocument>?
+            explanation =
+                projection == ExplanationProjection.Complete
+                    || options.CompanionOutput
+                        == CompanionOutput.Explanation
+                ? explain()
+                : null;
+        int exitCode =
+            projection switch
+            {
+                ExplanationProjection.Complete =>
+                    MemberExplanationOutput.WritePrimary(
+                        explanation
+                            ?? throw new InvalidOperationException(
+                                "Complete Member explanation was not "
+                                    + "constructed."),
+                        options.Format),
+                ExplanationProjection.Tips =>
+                    Hints.WritePrimaryTips(tips),
+                _ => throw new InvalidOperationException(
+                    $"Unsupported Member explanation projection "
+                        + $"'{projection}'."),
+            };
+        if (exitCode == 0
+            && options.CompanionOutput
+                == CompanionOutput.Explanation)
+        {
+            MemberExplanationOutput.WriteCompanion(
+                explanation
+                    ?? throw new InvalidOperationException(
+                        "Companion Member explanation was not constructed."));
+        }
+        else if (exitCode == 0
+            && options.CompanionOutput == CompanionOutput.Tips)
+        {
+            Hints.WriteTips(
+                options.CompanionOutput,
+                tips);
+        }
+
+        return exitCode;
+    }
+
+    private static int WriteContextualCompanion(
+        int exitCode,
+        MemberOptions options,
+        ResolvedMemberGroupExplanationBasis? groupBasis,
+        ResolvedMemberInspectionBasis? exactBasis,
+        ApiType type,
+        ApiMember? exactMember,
+        string? exactSelector,
+        string? packageName,
+        string? packageVersion)
+    {
+        if (exitCode == 0
+            && options.CompanionOutput
+                == CompanionOutput.Explanation)
+        {
+            MemberExplanationOutput.WriteCompanion(
+                (groupBasis, exactBasis) switch
+                {
+                    (not null, null) =>
+                        MemberExplanationBindings.ExplainMemberGroup(
+                            groupBasis),
+                    (null, not null) =>
+                        MemberExplanationBindings.ExplainExactMember(
+                            exactBasis),
+                    _ => throw new InvalidOperationException(
+                        "Member explanation completed without one resolved "
+                            + "semantic subject."),
+                });
+        }
+        else if (exitCode == 0
+            && options.CompanionOutput == CompanionOutput.Tips)
+        {
+            Hints.WriteTips(
+                options.CompanionOutput,
+                () => exactMember is null
+                    ? ResolveSelectedMemberTips(
+                        type,
+                        options,
+                        packageName,
+                        packageVersion)
+                    : MemberTipBindings.ResolveExact(
+                        type,
+                        exactMember,
+                        exactSelector
+                            ?? throw new InvalidOperationException(
+                                "Exact Member tips completed without "
+                                    + "a resolved selector."),
+                        options.PlatformAssembly,
+                        options.PackagePath,
+                        options.AssemblyPath,
+                        packageName,
+                        packageVersion));
+        }
+
+        return exitCode;
+    }
+
+    private static Tip[] ResolveSelectedMemberTips(
+        ApiType type,
+        MemberOptions options,
+        string? packageName,
+        string? packageVersion) =>
+        MemberTipBindings.ResolveSelected(
+            type,
+            ApiCommand.BuildFilteredTypeForSections(
+                type,
+                options).Members,
+            options.PlatformAssembly,
+            options.PackagePath,
+            options.AssemblyPath,
+            packageName,
+            packageVersion);
 
     private static bool DeferredExactTargetUsesTypePipeline(
         ApiType type,
@@ -2164,7 +2508,7 @@ public static class MemberCommand
             ?? throw new InvalidOperationException(
                 "The selected member could not be resolved in the decompilation assembly.");
         ApiType targetType =
-            session.ApiSurface(includeAll: true).Types.Single(
+            session.CompatibilityApiSurface(includeAll: true).Types.Single(
                 candidate =>
                     candidate.FullName == lookupType);
         ApiMember? targetMember =

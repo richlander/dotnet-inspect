@@ -350,6 +350,25 @@ public sealed class IrFunction : IrNode
         => LocalSlotReferencesInScope(node, index).Any();
 
     /// <summary>
+    /// Every node in <paramref name="node"/>'s subtree that addresses the same
+    /// local pool. Shared-scope nested functions are included; nested functions
+    /// with their own locals or stack slots are excluded.
+    /// </summary>
+    internal static IEnumerable<IrNode> NodesSharingLocalScope(IrNode node)
+    {
+        if (node is Lambda { NeedsIsolatedLocalScope: true })
+            yield break;
+        if (node is LocalFunctionStatement { NeedsIsolatedLocalScope: true })
+            yield break;
+        yield return node;
+        foreach (var child in node.Children)
+        {
+            foreach (var scopedNode in NodesSharingLocalScope(child))
+                yield return scopedNode;
+        }
+    }
+
+    /// <summary>
     /// Every node in <paramref name="node"/>'s subtree that binds or reads local slot
     /// <paramref name="index"/>, under the same scope rules as
     /// <see cref="LocalSlotReferencedInScope"/> — which delegates here, so the two
@@ -358,17 +377,9 @@ public sealed class IrFunction : IrNode
     /// </summary>
     internal static IEnumerable<IrNode> LocalSlotReferencesInScope(IrNode node, int index)
     {
-        if (node is Lambda { NeedsIsolatedLocalScope: true })
-            yield break;
-        if (node is LocalFunctionStatement { NeedsIsolatedLocalScope: true })
-            yield break;
-        if (NodeBindsLocalSlot(node, index))
-            yield return node;
-        foreach (var child in node.Children)
-        {
-            foreach (var reference in LocalSlotReferencesInScope(child, index))
-                yield return reference;
-        }
+        foreach (var scopedNode in NodesSharingLocalScope(node))
+            if (NodeBindsLocalSlot(scopedNode, index))
+                yield return scopedNode;
     }
 
     /// <summary>

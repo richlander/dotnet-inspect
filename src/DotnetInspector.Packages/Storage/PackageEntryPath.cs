@@ -20,4 +20,15 @@ public static class PackageEntryPath
             && !segment.Contains('\0')
             && !Path.IsPathRooted(segment);
     }
+
+    /// <summary>
+    /// Returns whether a value is a non-empty, package-root-relative path
+    /// composed only of safe entry segments.
+    /// </summary>
+    public static bool IsSafeRelativePath(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return path.Length != 0
+            && path.Split('/').All(IsSafeSegment);
+    }
 }

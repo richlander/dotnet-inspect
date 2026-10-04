@@ -88,6 +88,51 @@ public sealed class PdbLocalDeclarationScopeTests
                     reference)));
     }
 
+    [Fact]
+    public void SharedScopeLambdaReference_ParticipatesInDuplicateLocalOrdering()
+    {
+        var delegateType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [Int32]);
+        var lambdaEntry = new Block();
+        var sharedReference = new LoadLocal(0, Int32);
+        lambdaEntry.Add(new Return(sharedReference));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaEntry);
+        var lambda = new Lambda(
+            delegateType,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var entry = new Block();
+        entry.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+        entry.Add(new StoreLocal(1, Int32, new Constant(2, Int32)));
+        entry.Add(Observe(1));
+        entry.Add(new Return(lambda));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(delegateType, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+
+        function.CheckInvariant();
+        Assert.Contains(
+            sharedReference,
+            IrFunction.NodesSharingLocalScope(function));
+    }
+
     [Theory]
     [InlineData(nameof(PdbScopeFixtures.DisjointScopeLocals))]
     [InlineData(nameof(PdbScopeFixtures.SequentialScopeLocals))]

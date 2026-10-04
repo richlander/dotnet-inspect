@@ -405,7 +405,7 @@ public static class AssemblyContextMemberMatchesQuery
         bool includeAll,
         int? limit)
     {
-        ApiSurface surface = session.ApiSurface(includeAll);
+        ApiSurface surface = session.CompatibilityApiSurface(includeAll);
         return new AssemblyMemberMatches(
             MemberSearch.Search(
                 surface,

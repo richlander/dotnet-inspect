@@ -56,13 +56,13 @@ public sealed partial class JsExportSurfaceBuilderTests
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
             includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         ILInspector.JsExportSurface.JsExportSurface surface =
-            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+            JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis);
 
         ApiType record = Assert.Single(
             surface.Records,
@@ -121,7 +121,7 @@ public sealed partial class JsExportSurfaceBuilderTests
     public void Build_RecordsInactiveDiscoveredTypeAsNone()
     {
         string path = typeof(FixtureExports).Assembly.Location;
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
@@ -132,7 +132,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             ApiSurfaceExtractor.Extract(
                 peReader,
                 includeAll: false),
-            bodyIndex);
+            bodyAnalysis);
 
         ApiType inactive = Assert.Single(
             surface.Records,
@@ -152,13 +152,13 @@ public sealed partial class JsExportSurfaceBuilderTests
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
             includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         JsExportFunction function = Assert.Single(
-            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex).Functions,
+            JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis).Functions,
             candidate => candidate.Name == "SetDirectionalInput");
 
         Assert.Contains(

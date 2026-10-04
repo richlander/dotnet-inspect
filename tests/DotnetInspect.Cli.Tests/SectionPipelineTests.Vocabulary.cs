@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
 
 namespace DotnetInspect.Cli.Tests;

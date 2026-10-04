@@ -86,9 +86,10 @@ public abstract class DiffAnalysisProduction
 }
 
 /// <summary>
-/// Host-resolved, typed Diff inputs every Compare producer may read. Member
-/// and type targets are resolved before any producer runs; a resolution
-/// failure is a request failure, never an analysis outcome.
+/// Host-resolved, typed Diff inputs every Compare producer may read. API
+/// targets are resolved eagerly; body and implementation producers receive
+/// host callbacks that preserve their owner-issued typed targeting. A callback
+/// failure remains a request failure, never an analysis outcome.
 /// </summary>
 public sealed class DiffAnalysisInput
 {
@@ -102,10 +103,13 @@ public sealed class DiffAnalysisInput
         IReadOnlyList<string> toPaths,
         IReadOnlySet<string> typeFilters,
         IEnumerable<string> typeNames,
-        IReadOnlySet<string>? memberTargetIdentities,
+        IReadOnlySet<string>? apiMemberTargetIdentities,
         Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals,
+        Func<ImplementationDiffResult>? prepareImplementation = null,
         ApiFindingComparison? precomputedApiComparison = null,
-        IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability = null)
+        IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability = null,
+        StringLiteralComparisonQueryPlan? stringLiteralQuery = null,
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals = null)
         : this(
             fromSurface,
             toSurface,
@@ -113,10 +117,13 @@ public sealed class DiffAnalysisInput
             toPaths,
             typeFilters,
             typeNames,
-            memberTargetIdentities,
+            apiMemberTargetIdentities,
             prepareBodySignals,
+            prepareImplementation,
             precomputedApiComparison,
             hostUnavailability,
+            stringLiteralQuery,
+            prepareStringLiterals,
             requireApiSurfaces: true)
     {
     }
@@ -128,10 +135,13 @@ public sealed class DiffAnalysisInput
         IReadOnlyList<string> toPaths,
         IReadOnlySet<string> typeFilters,
         IEnumerable<string> typeNames,
-        IReadOnlySet<string>? memberTargetIdentities,
+        IReadOnlySet<string>? apiMemberTargetIdentities,
         Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals,
+        Func<ImplementationDiffResult>? prepareImplementation,
         ApiFindingComparison? precomputedApiComparison,
         IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability,
+        StringLiteralComparisonQueryPlan? stringLiteralQuery,
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals,
         bool requireApiSurfaces)
     {
         if (requireApiSurfaces)
@@ -145,9 +155,18 @@ public sealed class DiffAnalysisInput
         ToPaths = toPaths ?? throw new ArgumentNullException(nameof(toPaths));
         TypeFilters = typeFilters ?? throw new ArgumentNullException(nameof(typeFilters));
         TypeNames = [.. typeNames ?? throw new ArgumentNullException(nameof(typeNames))];
-        MemberTargetIdentities = memberTargetIdentities;
+        ApiMemberTargetIdentities = apiMemberTargetIdentities;
         PrepareBodySignals = prepareBodySignals;
+        PrepareImplementation = prepareImplementation;
         PrecomputedApiComparison = precomputedApiComparison;
+        if ((stringLiteralQuery is null)
+            != (prepareStringLiterals is null))
+        {
+            throw new ArgumentException(
+                "String-literal Diff query context and execution must be supplied together.");
+        }
+        StringLiteralQuery = stringLiteralQuery;
+        PrepareStringLiterals = prepareStringLiterals;
         HostUnavailability = (
                 hostUnavailability
                     ?? [])
@@ -161,10 +180,13 @@ public sealed class DiffAnalysisInput
         IReadOnlyList<string> toPaths,
         IReadOnlySet<string> typeFilters,
         IEnumerable<string> typeNames,
-        IReadOnlySet<string>? memberTargetIdentities,
+        IReadOnlySet<string>? apiMemberTargetIdentities,
         Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
             prepareBodySignals,
-        IEnumerable<DiffAnalysisHostUnavailability> hostUnavailability)
+        Func<ImplementationDiffResult>? prepareImplementation,
+        IEnumerable<DiffAnalysisHostUnavailability> hostUnavailability,
+        StringLiteralComparisonQueryPlan? stringLiteralQuery = null,
+        Func<RetainedFindingComparisonSet>? prepareStringLiterals = null)
         => new(
             fromSurface: null,
             toSurface: null,
@@ -172,10 +194,13 @@ public sealed class DiffAnalysisInput
             toPaths,
             typeFilters,
             typeNames,
-            memberTargetIdentities,
+            apiMemberTargetIdentities,
             prepareBodySignals,
+            prepareImplementation,
             precomputedApiComparison: null,
             hostUnavailability,
+            stringLiteralQuery,
+            prepareStringLiterals,
             requireApiSurfaces: false);
 
     public ApiSurface FromSurface => _fromSurface
@@ -194,7 +219,7 @@ public sealed class DiffAnalysisInput
     public ImmutableArray<string> TypeNames { get; }
 
     /// <summary>Resolved member identities of a Member-surface request.</summary>
-    public IReadOnlySet<string>? MemberTargetIdentities { get; }
+    public IReadOnlySet<string>? ApiMemberTargetIdentities { get; }
 
     /// <summary>
     /// Resolves member targets and runs the one shared body-signal comparison
@@ -205,10 +230,22 @@ public sealed class DiffAnalysisInput
         PrepareBodySignals { get; }
 
     /// <summary>
+    /// Runs the shared typed implementation comparison once for retained C#
+    /// and IL Finding routes.
+    /// </summary>
+    public Func<ImplementationDiffResult>? PrepareImplementation { get; }
+
+    /// <summary>
     /// The owner-issued API comparison when an enclosing operation already
     /// projected and compared the same endpoint pair.
     /// </summary>
     public ApiFindingComparison? PrecomputedApiComparison { get; }
+
+    /// <summary>The one owner-resolved string-literal predicate, when selected.</summary>
+    public StringLiteralComparisonQueryPlan? StringLiteralQuery { get; }
+
+    /// <summary>Executes the selected string-literal comparison exactly once.</summary>
+    public Func<RetainedFindingComparisonSet>? PrepareStringLiterals { get; }
 
     internal ImmutableDictionary<AnalysisDeclarationId, string>
         HostUnavailability { get; }

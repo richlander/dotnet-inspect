@@ -146,6 +146,34 @@ At type/member scope, `@Audit`, `@Calls`, `@Decompiler`, `@Performance`,
 the broad type view, overload inventory, and exact-member detail view, while
 each resolved catalog exposes only the sections it can render.
 
+### Authored facet sets
+
+A useful domain category may issue an authored View Facet set for the explicit
+query model that replaces section selection. The set has:
+
+- a catalog-scoped, lower-kebab machine identity that is independent of its
+  display title and legacy `@` selector;
+- one display title; and
+- a non-empty, ordered, duplicate-free list of exact Registry-issued View Facet
+  identities.
+
+Identity and membership are authored facts. Equal titles do not imply equal
+identity, and neither section names nor View Facet prefixes add members. Set
+identity is unique within one compiled section catalog.
+
+During migration, the legacy category's section membership and its successor
+facet-set descriptor are one declaration. This preserves existing `-S`
+selection while giving planning and discovery one owner-issued successor
+identity before the atomic CLI cutover. Package `@Dependencies` is the first
+adopter: its `dependencies` set contains `package.dependencies` followed by
+`package.dependency-hierarchy`.
+
+Base categories, computed category poles, and automatic normal/detailed unions
+do not issue facet sets. They are transitional selection machinery rather than
+authored domain promises. A facet-set descriptor also makes no presentation
+shape promise; the View Facet/query composition owns compatible Table
+composition and Document lowering for mixed shapes.
+
 ### Category doors
 
 A category name is a discoverable door, not a rendered pseudo-section.
@@ -264,7 +292,7 @@ The multi-section probe used this command shape:
 
 ```sh
 dnx dotnet-inspect -y -- library --package Npgsql@8.0.4 \
-  -S '@Library,@Surface' --json --tips q
+  -S '@Library,@Surface' --json
 ```
 
 Sections not represented reliably in that JSON projection were measured
@@ -273,7 +301,7 @@ directly:
 ```sh
 dnx dotnet-inspect -y -- library \
   --package SQLitePCLRaw.provider.e_sqlite3@2.1.10 \
-  -S 'P/Invoke Methods' --count --jsonl --tips q
+  -S 'P/Invoke Methods' --count --jsonl
 ```
 
 The audit found four prior declarations outside their stated ranges:
@@ -828,7 +856,9 @@ writes one stderr line: `This section (<name>) produced no output.`
 ## Output shapes
 
 A concrete section owns a row schema and can be rendered in document or
-row-oriented formats when that schema permits.
+row-oriented formats when that schema permits. Which formats a section
+supports, and which is native when it is selected alone, follow from its
+declared shape under [Section shapes](section-shapes.md).
 
 A category may be heterogeneous. Markdown and JSON document output can
 represent multiple section schemas. Table, TSV, and JSONL require a homogeneous
@@ -1050,6 +1080,12 @@ The section pipeline and derived catalog gates enforce these invariants:
    composed documents in alphabetical section order by default; callers request
    data order only when the owning output contract requires it.
 9. Output-shape compatibility is validated before producers run.
+10. Facet-set identities are unique within a compiled catalog. Their exact
+    memberships resolve through the supplied View Facet Registry, are
+    non-empty and duplicate-free, and preserve authored order.
+    `SectionPipelineSubstrateTests` gates the owner contract, and
+    `PackagePipeline_DependencyDomainIssuesOneExactFacetSet` gates the first
+    production adoption.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.
@@ -1066,6 +1102,8 @@ During migration:
 
 - Do not infer category membership from prefixes.
 - Do not add computed `@All`, `@Default`, or `@Hidden` categories.
+- Migrate only useful domain categories to explicit facet sets; do not preserve
+  base-category unions or automatic verbosity presets under new set names.
 - Apply development practices to every proposed or existing legacy section
   alias, and use the CLI change-classification design for removal mechanics;
   section migration does not itself justify retention.

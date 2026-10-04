@@ -545,7 +545,7 @@ internal static class TypeScriptFacadeEmitter
             var moduleBindings = new HashSet<string>(
                 InfrastructureBindings,
                 StringComparer.Ordinal);
-            if (DtsEmitter.UsesJsonValue(surface))
+            if (DtsEmitter.UsesJsonValue(surface, declarationPlan))
                 moduleBindings.Add("JsonValue");
             ApiTypeReferenceIdentity? inertStringIdentity =
                 DtsEmitter.FindInertStringIdentity(surface);
@@ -568,7 +568,7 @@ internal static class TypeScriptFacadeEmitter
             IReadOnlyList<ApiTypeReferenceIdentity> dateTimeOffsetIdentities =
                 DtsEmitter.FindDateTimeOffsetIdentities(surface);
             bool usesDateTimeOffset =
-                DtsEmitter.UsesDateTimeOffset(surface);
+                DtsEmitter.UsesDateTimeOffset(surface, declarationPlan);
             string dateTimeOffsetIdentity =
                 dateTimeOffsetIdentities.Count == 0
                     ? TsTypeMapper.DateTimeOffsetFullName

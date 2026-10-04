@@ -16,6 +16,7 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphTargetV2/ILInspector.Analysis.CallerGraphTargetV2.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures/ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures/ILInspector.Analysis.CallGenericScopeFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CalleeResolutionFixtures/ILInspector.Analysis.CalleeResolutionFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures/ILInspector.Analysis.CallOverloadFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CrossAsmCollisionFixtures/ILInspector.Analysis.CrossAsmCollisionFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.FacadeFixtures/ILInspector.Analysis.FacadeFixtures.csproj" />
@@ -118,6 +119,7 @@
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V1/DotnetInspector.SourceDiff.V1.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V2/DotnetInspector.SourceDiff.V2.csproj" />
     <Project Path="fixtures/research/ILInspector.Research.NameFamilyFixtures/ILInspector.Research.NameFamilyFixtures.csproj" />
+    <Project Path="fixtures/research/ILInspector.Research.DependencyStructureFixtures/ILInspector.Research.DependencyStructureFixtures.csproj" />
     <Project Path="fixtures/research/ILInspector.Research.TargetFixtures/ILInspector.Research.TargetFixtures.csproj" />
     <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V1/ResearchTargetCorrespondenceFixtures.V1.csproj" />
     <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V2/ResearchTargetCorrespondenceFixtures.V2.csproj" />
@@ -198,6 +200,7 @@
     <Project Path="src/Inspector.Graph/Inspector.Graph.csproj" />
     <Project Path="src/Inspector.Resources/Inspector.Resources.csproj" />
     <Project Path="src/QuerySpace/QuerySpace.csproj" />
+    <Project Path="src/QuerySpace.Primitives/QuerySpace.Primitives.csproj" />
     <Project Path="src/Inspector.Text/Inspector.Text.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
@@ -304,12 +307,16 @@
    <Project Path="tools/AddressTerminalScorecard/AddressTerminalScorecard.csproj" />
    <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/AotProbe/AotProbe.csproj" />
+    <Project Path="tools/CatalogCallGraphScorecard/CatalogCallGraphScorecard.csproj" />
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
     <Project Path="tools/MemberBodySizeScorecard/MemberBodySizeScorecard.csproj" />
     <Project Path="tools/MemberGroupScorecard/MemberGroupScorecard.csproj" />
     <Project Path="tools/BodyUseScorecard/BodyUseScorecard.csproj" />
+    <Project Path="tools/MethodBodyTraversalScorecard/MethodBodyTraversalScorecard.csproj" />
+    <Project Path="tools/MethodBodyDemandScorecard/MethodBodyDemandScorecard.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
+    <Project Path="tools/LibraryInfoCountScorecard/LibraryInfoCountScorecard.csproj" />
     <Project Path="tools/OwnershipIncidenceScorecard/OwnershipIncidenceScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
     <Project Path="tools/TypeFindPopulationScorecard/TypeFindPopulationScorecard.csproj" />
@@ -323,5 +330,6 @@
     <Project Path="tools/RoundTripCompilation/RoundTripCompilation.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
     <Project Path="tools/SourceCorpusCensus/SourceCorpusCensus.csproj" />
+    <Project Path="tools/SubjectRelationsScorecard/SubjectRelationsScorecard.csproj" />
   </Folder>
 </Solution>

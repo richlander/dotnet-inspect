@@ -576,8 +576,17 @@ internal static class BrowserLibraryApiDiffWireProjection
                 : new BrowserLibraryApiDiffMatch(
                     member.Relation.Match.Tier.Id,
                     member.Relation.Match.Confidence),
-            Explore(target, current, before, after));
+            HasTextMode(member.Relation)
+                ? Explore(target, current, before, after)
+                : null);
     }
+
+    static bool HasTextMode(LibraryApiMemberRelation relation) =>
+        (relation.Before is null || SupportsTextMode(relation.Before))
+        && (relation.After is null || SupportsTextMode(relation.After));
+
+    static bool SupportsTextMode(LibraryApiMemberIdentity member) =>
+        member.AnchorKind is ApiMemberAnchorKind.Method;
 
     static BrowserLibraryApiDiffMemberExploreDestination? Explore(
         BrowserLibraryApiDiffEndpoint target,
@@ -654,6 +663,7 @@ internal static class BrowserLibraryApiDiffWireProjection
             count += identity.Anchor.Fingerprint.Length;
             count += identity.Anchor.TypeFullName.Length;
             count += identity.Anchor.MemberName.Length;
+            count += identity.Kind.Length;
             count += identity.Display.Length;
         }
     }

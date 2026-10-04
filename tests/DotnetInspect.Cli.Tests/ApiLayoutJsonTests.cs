@@ -102,7 +102,7 @@ public sealed class ApiLayoutJsonTests
                     IncludeSections = [SectionNames.Fields],
                     JsonOutput = true,
                     CompactJson = compact,
-                    TipLevel = TipLevel.Quiet,
+                    CompanionOutput = CompanionOutput.None,
                 })
                 : MemberCommand.ExecuteAsync(new MemberOptions
                 {
@@ -111,7 +111,7 @@ public sealed class ApiLayoutJsonTests
                     KindFilter = ["field"],
                     JsonOutput = true,
                     CompactJson = compact,
-                    TipLevel = TipLevel.Quiet,
+                    CompanionOutput = CompanionOutput.None,
                 }));
 
         Assert.Equal(0, result.ExitCode);
