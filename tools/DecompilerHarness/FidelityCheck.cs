@@ -22,6 +22,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>
