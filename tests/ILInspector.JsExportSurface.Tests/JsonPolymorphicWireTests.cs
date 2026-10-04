@@ -1,7 +1,7 @@
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.JsonSchema;
-using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.PolymorphicContractsFixtures;
 using ILInspector.JsExportSurface.PolymorphicExportFixtures;

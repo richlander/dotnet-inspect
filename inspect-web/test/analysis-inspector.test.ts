@@ -16,6 +16,23 @@ test("Library exposes one ordered Analysis inspector", () => {
   assert.equal(isLibraryLens("metrics"), false);
 });
 
+test("Metrics precedes Performance in the Analysis tab order", () => {
+  const html = renderAnalysisInspector({
+    assemblyIdentity: "Microsoft.Extensions.AI, Version=10.0.0.0",
+    assetPath: "lib/net10.0/Microsoft.Extensions.AI.dll",
+    coordinate: "Microsoft.Extensions.AI@10.0.0",
+    pickerHtml: "",
+    escapeHtml: value => String(value),
+  }, "metrics", "Ready", "<p>Metrics</p>");
+  const modes = [...html.matchAll(/data-analysis-mode="([^"]+)"/g)]
+    .map(match => match[1]);
+
+  assert.deepEqual(
+    modes,
+    ["metrics", "performance", "integrations", "opportunities"],
+  );
+});
+
 for (const mode of [
   "performance",
   "integrations",

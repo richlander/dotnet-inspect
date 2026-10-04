@@ -125,7 +125,10 @@ composition and the CLI suite's pinned digest is the only identity gate.
 Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) lands,
 `DotnetInspector.Vocabulary` composes the owner catalogs itself and therefore
 references `ILInspector.Decompiler`; the `vocabulary-dependencies` policy rule
-records that interim edge, and the project retires with the migration.
+records that interim edge, and the project retires with the migration. The
+declaration types already live in `QuerySpace.Primitives` and the document
+and wire types in `DotnetInspector.Sections`; the interim project holds only
+the composition and the compatibility projection.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected

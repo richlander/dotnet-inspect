@@ -224,9 +224,11 @@ is retained as a zero-body summary so every relationship endpoint resolves to
 one typed node without inventing body evidence.
 
 When call-graph evidence is supplied, `EntangledRelationships` retains
-cross-type direct-call evidence whose caller body is complete, whose callee
-definition token resolves to an inspected declared method (including abstract
-and extern declarations), and whose source and target types differ. Only
+cross-type direct-call evidence whose caller body is complete, whose
+Analysis-issued target is a current-module declared method (including abstract
+and extern declarations, and calls through generic instantiations; see
+[direct-call target resolution](library-body-analysis-service.md#direct-call-target-resolution)),
+and whose source and target types differ. Only
 invocation kinds (`call`, `callvirt`, and `newobj`) are
 admitted; loading a method address with `ldftn` or `ldvirtftn` is not a call
 relationship. Relationships are aggregated by source type, target type, and
@@ -531,7 +533,12 @@ Explorer omits zero-body relationship-only summaries because they carry no
 implementation volume. Relationship Crossing renders every endpoint and edge
 in Research's bounded relationship projection; selecting an arc exposes its
 exact source and target Types as traversable actions plus its retained call-site
-count as relationship depth. The Browser performs no second topology selection.
+count as relationship depth and its one-based position in Research's
+deterministic relationship order as rank. Browser presentation initially
+exposes half of the retained relationship prefix, capped at 24 arcs. Its range
+control discloses quartile prefixes through the complete projection while
+preserving Research's order; the Browser performs no second ranking or
+topology computation.
 
 The ordinary Type Browser automatically requests the exhaustive structural-
 salience document for every exact Library represented in its current Type

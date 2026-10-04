@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
-using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 

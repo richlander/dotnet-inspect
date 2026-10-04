@@ -4,7 +4,9 @@ using System.Reflection.PortableExecutable;
 
 using Inspector.Findings;
 
-namespace ILInspector.Instructions;
+using ILInspector.Instructions;
+
+namespace ILInspector.ILDiff;
 
 /// <summary>
 /// Adapts IL method bodies onto the domain-free finding substrate: it canonicalizes each body

@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace DotnetInspector.Vocabulary;
+namespace QuerySpace.Vocabulary;
 
 internal static class VocabularyText
 {
@@ -426,12 +426,13 @@ public sealed class VocabularySnapshot
     private VocabularySnapshot(
         int formatVersion,
         VocabularyCatalogIdentity catalog,
-        Func<VocabularySnapshotIdentity> identity,
+        VocabularySnapshotIdentity? suppliedIdentity,
         ImmutableArray<VocabularyDefinition> vocabularies)
     {
         FormatVersion = formatVersion;
         Catalog = catalog;
-        _identity = new(identity);
+        _identity = new(() => suppliedIdentity
+            ?? ComputeIdentity(formatVersion, catalog, vocabularies));
         Vocabularies = vocabularies;
         _vocabularies = vocabularies.ToDictionary(
             vocabulary => vocabulary.Identity);
@@ -488,9 +489,7 @@ public sealed class VocabularySnapshot
         return new(
             formatVersion,
             catalog,
-            expectedIdentity is { } supplied
-                ? () => supplied
-                : () => ComputeIdentity(formatVersion, catalog, normalized),
+            expectedIdentity,
             normalized);
     }
 
