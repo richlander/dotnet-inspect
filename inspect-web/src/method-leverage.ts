@@ -231,22 +231,6 @@ export function projectTypeMethodLeverage(
   };
 }
 
-export function methodLeverageEmptyStateMessage(
-  state: TypeMethodLeverageState,
-): string {
-  if (state.status === "ready") {
-    if (state.presentation.winnerCount === 0) {
-      return "This Type has no inbound-call Top Leverage designation.";
-    }
-    return state.presentation.anchoredMethodCount === 0
-      ? "The true Top Leverage winner has no browsable member row."
-      : "No Top Leverage member matches the current filters.";
-  }
-  return state.status === "failed"
-    ? "Top Leverage is unavailable until retry."
-    : "Loading Top Leverage…";
-}
-
 function projectState(
   result: BrowserTypeMethodLeverage,
   request: TypeMethodLeverageRequest,
@@ -283,38 +267,6 @@ export function methodLeverageFor(
   return state.status === "ready" && stableSelector
     ? state.presentation.byStableSelector.get(stableSelector) ?? null
     : null;
-}
-
-interface MethodLeverageFilterGroup {
-  readonly overloads: readonly {
-    readonly stableSelector?: string | null;
-  }[];
-}
-
-type MethodLeverageFilteredGroup<TGroup extends MethodLeverageFilterGroup> =
-  Omit<TGroup, "overloads"> & {
-    overloads: Array<TGroup["overloads"][number]>;
-  };
-
-export function filterMemberGroupsByMethodLeverage<
-  TGroup extends MethodLeverageFilterGroup,
->(
-  groups: readonly TGroup[],
-  state: TypeMethodLeverageState,
-): Array<MethodLeverageFilteredGroup<TGroup>> {
-  if (state.status !== "ready") {
-    return groups.map(group => ({
-      ...group,
-      overloads: [...group.overloads],
-    }));
-  }
-  return groups.flatMap(group => {
-    const overloads = group.overloads.filter(overload =>
-      methodLeverageFor(state, overload.stableSelector) !== null);
-    return overloads.length === 0
-      ? []
-      : [{ ...group, overloads }];
-  });
 }
 
 export interface TypeMethodLeverageCoordinatorDependencies {

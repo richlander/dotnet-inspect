@@ -43,8 +43,6 @@ export interface WorkspaceView {
   memberAccessibilityFilter: string;
   memberTraitFilter: string;
   memberTextFilter: string;
-  methodLeverageEnabled?: boolean;
-  memberLeverageFilter?: "" | "top-leverage";
   selectedOverloadIndex: number | null;
   memberDocumentFingerprint?: string;
   bodyTarget: BodyTarget | null;
@@ -73,8 +71,6 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     mk: view.memberKindFilter,
     ma: view.memberAccessibilityFilter,
     mr: view.memberTraitFilter,
-    mle: view.methodLeverageEnabled === true,
-    mlf: view.memberLeverageFilter ?? "",
     o: view.selectedOverloadIndex,
     mf: view.memberDocumentFingerprint ?? "",
     b: graphTarget ? null : encodeBodyTarget(view.bodyTarget),
@@ -309,7 +305,6 @@ export interface WorkspaceDeepLink {
   memberKindFilter?: string;
   memberAccessibilityFilter?: string;
   memberTraitFilter?: string;
-  memberLeverageFilter?: "" | "top-leverage";
   graphTarget?: GraphMemberShareIdentity | null;
 }
 
@@ -321,7 +316,6 @@ export interface WorkspaceUrlState {
   activeTabId: string;
   selectedContextId: string;
   view: BrowserWorkspaceShareView;
-  memberLeverageFilter?: "" | "top-leverage";
 }
 
 export interface PackageRootUrlState {
@@ -944,10 +938,6 @@ function resolveWorkspaceLocation(
   let memberKindFilter = "all";
   let memberAccessibilityFilter = "public";
   let memberTraitFilter = "";
-  const memberLeverageFilter: "" | "top-leverage" =
-    params.get("member-leverage") === "top"
-    ? "top-leverage"
-    : "";
   let graphTarget: GraphMemberShareIdentity | null = null;
   let shareState: BrowserWorkspaceShareState | null = null;
   const workspaceNotice = share && "error" in share ? share.error : "";
@@ -1026,7 +1016,6 @@ function resolveWorkspaceLocation(
     memberKindFilter,
     memberAccessibilityFilter,
     memberTraitFilter,
-    memberLeverageFilter,
     graphTarget,
     shareState,
     hasWorkspaceState,
@@ -1108,8 +1097,6 @@ export function buildWorkspaceStateUrl(
   if (state.package) params.set("package", state.package);
   const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
-  if (state.memberLeverageFilter === "top-leverage")
-    params.set("member-leverage", "top");
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;
@@ -1125,8 +1112,6 @@ export async function buildWorkspaceStateUrlAsync(
   const params = new URLSearchParams();
   params.set("package", state.package);
   params.set("w", await encodeWorkspaceShareStateAsync(state, encode));
-  if (state.memberLeverageFilter === "top-leverage")
-    params.set("member-leverage", "top");
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;

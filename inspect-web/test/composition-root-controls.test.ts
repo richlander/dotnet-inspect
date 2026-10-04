@@ -67,7 +67,7 @@ import {
 } from "./composition-root-test-fixture.ts";
 
 test("qualified Type leverage exposes a cache-bypassing retry", () => {
-  const control = sourceText(functionDeclaration("typeLeverageControl"));
+  const control = sourceText(functionDeclaration("typeLeverageStatus"));
   assert.match(
     control,
     /qualified[\s\S]*data-type-leverage-retry>Retry/,
@@ -92,25 +92,21 @@ test("ordinary Type lists request and present exhaustive structural salience", (
   const typePresentation = sourceText(
     functionDeclaration("currentTypeLeveragePresentation"),
   );
-  const control = sourceText(
-    functionDeclaration("typeLeverageControl"),
+  const status = sourceText(
+    functionDeclaration("typeLeverageStatus"),
   );
 
   assert.match(
     typeAutoLoad,
-    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*currentTypeLeverageKey\(\)[\s\S]*typeLeverage\.presentation\(leverageKey\) !== null[\s\S]*typeLeverage\.pending\(leverageKey\)[\s\S]*loadTypeLeverage\(\)/,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*createCurrentTypeLeverageTargets\(\)[\s\S]*typeLeverage\.presentation\(target\.key\) === null[\s\S]*!typeLeverage\.pending\(target\.key\)[\s\S]*loadTypeLeverage\(\)/,
   );
   assert.match(
     typePresentation,
-    /return typeLeverage\.presentation\(key\)/,
-  );
-  assert.match(
-    control,
-    /data-type-leverage-filter=""[\s\S]*data-type-leverage-filter="sea-level"[\s\S]*data-type-leverage-filter="mountain-peak"/,
+    /typeLeverageTargetFor\(item\)[\s\S]*typeLeverage\.presentation\(target\.key\)/,
   );
   assert.doesNotMatch(
-    control,
-    /Show structural salience|Hide salience|data-type-leverage-activate/,
+    `${status}${typePanelSource}`,
+    /Show structural salience|Hide salience|data-type-leverage-(?:activate|filter)/,
   );
   assert.doesNotMatch(
     renderer,
@@ -202,7 +198,7 @@ test("implementation evidence remains subtle member-list heat", () => {
     /overloadHeat: memberNavOverloadHeat,[\s\S]*familyHeatCue: memberNavFamilyHeatCue/);
 });
 
-test("explicit Top Leverage activation runs before background heat", () => {
+test("automatic Top Leverage acquisition runs independently of background heat", () => {
   const render = sourceText(functionDeclaration("render"));
   assert.match(
     render,
@@ -218,36 +214,27 @@ test("explicit Top Leverage activation runs before background heat", () => {
     /const typeMethodLeverage = createTypeMethodLeverageCoordinator\(\{[\s\S]*?whenWorkerIdle:\s*\(\) => Promise\.resolve\(\)/);
   const target = sourceText(
     functionDeclaration("typeMethodLeverageTarget"));
+  assert.match(
+    target,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*return null/);
   assert.match(target, /state\.rootKind === "library"/);
-  assert.doesNotMatch(target, /navMode/);
+  assert.doesNotMatch(target, /navMode|methodLeverageEnabled/);
 });
 
-test("Top Leverage preserves source families and restorable intent", () => {
+test("Top Leverage decorates source families without filter or history state", () => {
   const visible = sourceText(functionDeclaration("visibleMemberGroups"));
   assert.match(
     visible,
-    /const sourceGroups = selectedMemberGroups\(type\)[\s\S]*const filtered = filterMemberGroups\(sourceGroups, memberFilterState\(\)\)[\s\S]*return filterMemberGroupsByMethodLeverage\(\s*filtered,\s*currentTypeMethodLeverageState\(\)\)/);
+    /const sourceGroups = selectedMemberGroups\(type\)[\s\S]*return filterMemberGroups\(sourceGroups, memberFilterState\(\)\)/);
 
   const capture = sourceText(functionDeclaration("captureView"));
-  assert.match(
-    capture,
-    /methodLeverageEnabled: state\.methodLeverageEnabled,[\s\S]*memberLeverageFilter: state\.memberLeverageFilter/);
   const apply = sourceText(functionDeclaration("applyView"));
-  assert.match(
-    apply,
-    /state\.methodLeverageEnabled = view\.methodLeverageEnabled === true;[\s\S]*state\.memberLeverageFilter = view\.methodLeverageEnabled/);
   const deepLink = sourceText(functionDeclaration("applyDeepLink"));
-  assert.match(
-    deepLink,
-    /state\.methodLeverageEnabled =\s*deep\?\.memberLeverageFilter === "top-leverage";[\s\S]*state\.memberLeverageFilter = state\.methodLeverageEnabled/);
   const share = sourceText(
     functionDeclaration("captureWorkspaceUrlState"));
-  assert.match(
-    share,
-    /memberLeverageFilter: state\.memberLeverageFilter === "top-leverage"\s*\? "top-leverage"\s*: ""/);
-  assert.match(
-    appSource,
-    /onMethodLeverageActivate:[\s\S]*state\.methodLeverageEnabled = true;[\s\S]*navigationHistory\.record\(\);[\s\S]*onMethodLeverageFilterSelect:[\s\S]*state\.memberLeverageFilter = value;[\s\S]*navigationHistory\.record\(\);/);
+  assert.doesNotMatch(
+    `${capture}${apply}${deepLink}${share}${appSource}`,
+    /methodLeverageEnabled|memberLeverageFilter|onMethodLeverageActivate|onMethodLeverageFilterSelect/);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -1272,9 +1259,7 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     clearFilters,
     /setTypeAccessibilityFilter\(\s*defaultAccessibilityFilter\(state\.package\),\s*"exact",\s*\)/);
-  assert.match(
-    clearFilters,
-    /state\.typeLeverageFilter = ""/);
+  assert.doesNotMatch(clearFilters, /typeLeverageFilter/);
   assert.match(
     clearFilters,
     /renderPreservingMemberFocus\(\)/);
@@ -1403,14 +1388,20 @@ test("typed type panel owns its rendered control bindings", () => {
       "#namespace-jump": 0,
     });
 
-    test("structural salience requests one exhaustive Library document", () => {
+    test("structural salience requests one exhaustive document per represented Library", () => {
       const target = sourceText(
         functionDeclaration("createTypeLeverageTarget"),
+      );
+      const targets = sourceText(
+        functionDeclaration("typeLeverageLibraryIds"),
       );
       assert.match(
         target,
         /key: JSON\.stringify\(\[salienceLibraryKey, consumer\]\)/);
       assert.doesNotMatch(target, /requestedNamespaces|namespaceFilter/);
+      assert.match(
+        targets,
+        /aggregateLibrarySubjectIsActive\(\)[\s\S]*pkg\.types[\s\S]*\.map\(libraryKey\)/);
       assert.match(
         appSource,
         /const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__"/);
@@ -1426,9 +1417,7 @@ test("typed type panel owns its rendered control bindings", () => {
       assert.match(
         appSource,
         /function namespaceFilterValue\(exactNamespace: string\): string \{\s*return exactNamespace \|\| GLOBAL_NAMESPACE_FILTER;\s*}/);
-      assert.match(
-        appSource,
-        /typeLeverageMatchesFilter\(undefined, leverageFilter\)[\s\S]*\.filter\(row =>\s*exactNamespace === null \|\| row\.namespace === exactNamespace\)/);
+      assert.doesNotMatch(appSource, /typeLeverageMatchesFilter|typeLeverageFilter/);
     });
   assert.equal(selectorCount("#type-filter"), 1);
   assert.equal(selectorCount("#type-list"), 5);

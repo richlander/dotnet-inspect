@@ -4,8 +4,8 @@ Status: proposed for [issue #9134](https://github.com/richlander/dotnet-inspect/
 
 ## Owned claim
 
-This document owns how Inspect Web acquires and presents **Top Leverage**
-achievements for the methods declared by one selected Type.
+This document owns how Inspect Web automatically acquires and presents
+**Top Leverage** achievements for the methods declared by one selected Type.
 
 The achievement answers one question:
 
@@ -14,8 +14,8 @@ The achievement answers one question:
 
 `ILInspector.Analysis.MethodLeverageRanking` owns the method evidence and rank
 order. This design owns the Type-scoped designation, exact correspondence to
-browsable member rows, explicit Browser acquisition, filtering, and composition
-with other member achievements. It does not redefine call-graph evidence,
+browsable member rows, Browser acquisition, and composition with other
+member achievements. It does not redefine call-graph evidence,
 Implementation Hub, or namespace structural-report semantics.
 
 The motivating asset is `System.Text.Json@10.0.0`. For
@@ -29,9 +29,12 @@ presentation.
 
 - `src/ILInspector.Analysis/MethodLeverage.cs` owns the complete method evidence,
   score fields, and deterministic rank order.
-- [Progressive disclosure](progressive-disclosure.md) requires this unbounded
-  implementation analysis to remain explicit. Accessibility filters describe
-  presentation; they do not define an implementation-analysis population.
+- [Progressive disclosure](progressive-disclosure.md) requires expensive work
+  to remain capability-gated. Opening an exact Type's member inventory is the
+  capability gesture for this achievement; the request is scheduled after
+  ordinary content so it does not block the member view. Accessibility filters
+  describe presentation; they do not define an implementation-analysis
+  population.
 - [Inspect Web implementation profiles](inspect-web-implementation-profiles.md)
   owns the adjacent overload-family heat and Implementation Hub fact. Its
   all-accessibility analysis and exact visible-row projection are precedent,
@@ -142,21 +145,16 @@ selected Type may be an otherwise invisible caller of one of its methods.
 
 ## Acquisition
 
-### Explicit activation
+### Automatic member-view acquisition
 
-Ordinary Type navigation does not start method-leverage analysis. The member
-filter disclosure offers an explicit **Show Top Leverage** action. Activation
-authorizes this capability for the current workspace.
+Opening an exact Type's member inventory requests its method-leverage
+designation automatically after ordinary member content is available. Later
+Type navigation requests each newly selected Type, while revisiting an already
+inspected coordinate reuses the cached result.
 
-After activation:
-
-- the selected Type is requested immediately;
-- later Type navigation requests each newly selected Type while the capability
-  remains active; and
-- revisiting an already inspected coordinate reuses the cached result.
-
-This makes the initial unbounded work deliberate without requiring repeated
-button presses during one exploration.
+The member inventory is the capability gate: package or platform browsing
+without an exact Type does not start this work, and the designation request
+does not block ordinary member rendering. No activation button is presented.
 
 ### Coordinate and cache
 
@@ -216,9 +214,10 @@ rank rows or manufacture a designation.
 
 ### Member achievement rail
 
-Every member and overload row reserves the shared two-slot achievement rail
-after activation, including rows with no achievement. Kind icons remain to the
-right of the rail; implementation heat remains right-anchored.
+Every member and overload row reserves the shared two-slot achievement rail,
+including rows with no achievement and rows rendered before the designation
+settles. Kind icons remain to the right of the rail; implementation heat
+remains right-anchored.
 
 Member achievement order is:
 
@@ -241,39 +240,22 @@ The accessible name and tooltip summarize the fact, for example:
 The text uses only producer-issued evidence. It does not describe a member as
 "highest visible".
 
-### Filtering
+### Icon-only presentation
 
-Once an available result exists, the member filter disclosure offers:
-
-- **all members**; and
-- **top leverage**.
-
-The Top Leverage choice keeps only exact anchored winner rows after the ordinary
-accessibility, kind, trait, and text filters are applied. It never recomputes
-the winner over the remaining rows.
-
-If anchored winners exist but ordinary filters hide them, the empty state says
-that no Top Leverage member matches the current filters and suggests changing
-those filters. If semantic winners exist but none has a browsable anchor, the
-empty state says the true winner has no browsable member row. If no nonzero
-winner exists, the state says the Type has no inbound-call Top Leverage
-designation.
-
-The filter and capability activation participate in navigation history. A
-shared view requesting the Top Leverage filter is itself an explicit request
-for the capability and may start the analysis after the normal workspace
-construction succeeds. The canonical workspace packet continues to own the
-portable workspace and API selection; the Browser URL carries this
-host-capability request alongside that packet as `member-leverage=top`.
+Top Leverage adds no member filter, activation control, count summary, or
+navigation/share state. Ordinary accessibility, kind, trait, and text filters
+continue to select members; an exact anchored winner that survives those
+filters carries its glyph. The Browser never recomputes a winner over the
+visible rows and never substitutes a visible runner-up.
 
 ### Pending and failure states
 
-Pending state keeps the member list usable and labels the control as analyzing.
-It never shows stale cues from another Type.
+Pending state keeps the member list usable with empty reserved glyph slots and
+never shows stale cues from another Type. It adds no loading control.
 
-Rejected, incomplete, and failed outcomes show their diagnostic beside a Retry
-action. They do not display an empty winner set. Retry preserves the requested
-filter but does not publish until the replacement result is available for the
+Rejected, incomplete, and failed outcomes show a compact diagnostic with a
+Retry action. They do not display an empty winner set or success-shaped absence.
+Retry does not publish until the replacement result is available for the
 current coordinate.
 
 ## Boundaries
@@ -286,8 +268,8 @@ This slice does not:
 - change Implementation Hub designation or family-relative heat;
 - infer source-level declarations for compiler-created methods;
 - add a host-owned Analysis path for uploaded Libraries;
-- make method-leverage analysis part of ordinary Type navigation before
-  explicit activation;
+- start method-leverage analysis before an exact Type member inventory is
+  presented;
 - require `--all` for CLI Top Leverage; or
 - tint member rows with a scalar or categorical wash.
 
@@ -308,9 +290,10 @@ The implementation must gate:
 - external failed-body evidence preventing an authoritative available result;
 - package and platform route parity plus explicit uploaded-Library
   unavailability;
-- generation-safe single-flight caching and retry;
+- automatic member-view acquisition, generation-safe single-flight caching,
+  and retry;
 - Top Leverage plus Implementation Hub ordering in the two-slot rail;
-- top-only filtering without recomputation;
+- absence of Top Leverage activation/filter controls or share state;
 - keyboard and accessible-name behavior; and
 - real Wasm operation and a production-host screenshot using
   `System.Text.Json`.

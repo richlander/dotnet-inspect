@@ -3861,20 +3861,16 @@ test.describe("bounded network-backed Worker smoke", () => {
     await page.locator("[data-type]").filter({
       hasText: "JsonSerializerOptions",
     }).first().click();
-    await page.getByRole("button", {
+    await expect(page.getByRole("button", {
       name: "Show Top Leverage",
       exact: true,
-    }).click();
-
-    const control = page.locator(".member-leverage-control");
-    await expect(control).toContainText(
-      "1 browsable Top Leverage member",
-      { timeout: 180_000 },
+    })).toHaveCount(0);
+    await expect(page.locator("[data-method-leverage-filter]")).toHaveCount(0);
+    const runnerUp = page.locator(
+      '.api-row[data-member="property:AllowDuplicateProperties"]',
     );
-    const runnerUp = page.locator(".api-row[data-member]").filter({
-      hasText: "AllowDuplicateProperties",
-    });
     await expect(runnerUp).toBeVisible();
+    await expect(runnerUp.locator(".item-achievement-rail")).toHaveCount(1);
     await expect(
       runnerUp.locator(".item-achievement-glyph.top-leverage"),
     ).toHaveCount(0);
@@ -3895,12 +3891,10 @@ test.describe("bounded network-backed Worker smoke", () => {
       winner.locator(".item-achievement-rail"),
     ).toHaveAttribute("aria-label", /Top Leverage; 31 direct callers/);
 
-    await page.locator("[data-method-leverage-filter]")
-      .selectOption("top-leverage");
     await expect(winner).toBeVisible();
-    await expect(runnerUp).toHaveCount(0);
+    await expect(runnerUp).toBeVisible();
     await page.locator("#subject-panel").screenshot({
-      path: testInfo.outputPath("method-leverage-filtered.png"),
+      path: testInfo.outputPath("method-leverage-achievement.png"),
     });
   });
 
