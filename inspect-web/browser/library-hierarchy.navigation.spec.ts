@@ -465,7 +465,8 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator("#package-version")).toBeVisible();
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
-    await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
+    await expect(page.locator(".overview-surface-head p"))
+      .toHaveText("Type Count unavailable · Member Count unavailable");
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "Example.Package@1.0.0", "net10.0",
     ]);
@@ -543,7 +544,7 @@ for (const width of [1440, 800, 390]) {
       .toHaveCount(4);
     await expect(page.locator(
       `.library-subject-list [data-library-subject="${empty.id}"]`))
-      .toContainText("0 types");
+      .toContainText("Library surface details are unavailable.");
     const aggregateOverview = page.locator(".library-overview-surface");
     expect(await aggregateOverview.boundingBox()).toEqual(
       await page.locator("#inspector-panel").boundingBox());

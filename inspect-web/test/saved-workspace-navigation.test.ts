@@ -748,6 +748,7 @@ function harness() {
       state.packages.push(pkg);
       return pkg;
     },
+    loadDeepPackageSurface: async () => {},
     applyLoadedPackageLibraryScope: () => null,
     applyDeepLink: (deep: ParsedWorkspaceLocation) => {
       effects.push("deep-link");

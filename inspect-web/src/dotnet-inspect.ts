@@ -4838,6 +4838,7 @@ const spotlight = createSpotlight({
   commandContext: () => !state.home && state.package
     ? { command: state.spotlightQuery, package: state.package }
     : null,
+  prepareResults: prepareSpotlightResults,
   schedulePackageFetch: () => spotlightPackageSearch.schedule(),
   resetPackageSearch: () => spotlightPackageSearch.reset(),
   resetTypeSearch: () => spotlightTypeFind.reset(),
@@ -9200,7 +9201,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   if (state.rootKind !== "library") {
     maybeAutoLoadVisibleSource();
     maybeAutoLoadTypeMetadata();
-    maybeAutoLoadPackageSurfaceForCompare();
+    maybeAutoLoadPackageSurfaceForLibraryNavigation();
     maybeAutoLoadLibraryApi();
     maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
@@ -9712,7 +9713,11 @@ function renderScopeBar(
   availableScopes ??= [
     ...rootScopes,
     ...(libraryScopeAvailable ? ["library" as const] : []),
-    ...(selected || selectedForwarder() ? ["type" as const] : []),
+    ...(selected
+      || selectedForwarder()
+      || packageSurfaceCanLoadTypes(state.package)
+        ? ["type" as const]
+        : []),
     ...(selected && memberGroups(selected).length ? ["member" as const] : []),
   ];
   const showMemberScope =
@@ -11265,59 +11270,141 @@ function maybeAutoLoadLibraryApi() {
     `Loading ${library.name} public API`);
 }
 
-const packageSurfaceLoads = new Set<string>();
-const packageSurfaceSettlements = new Set<string>();
+const packageSurfaceLoads = new WeakMap<AppPackage, Promise<boolean>>();
+const packageSurfaceSettlements = new WeakSet<AppPackage>();
 
-async function loadPackageSurfaceForCompare(pkg: AppPackage) {
-  const key = packageIdentityKey(pkg);
-  if (packageSurfaceLoads.has(key) || packageSurfaceSettlements.has(key)) return;
-  packageSurfaceLoads.add(key);
-  try {
-    const load = await inspectPackageSurface(
-      pkg.id,
-      pkg.version,
-      pkg.activeFramework,
-    );
-    if (!load.surface) {
-      throw new Error(
-        `The broad Package surface for ${pkg.id} is unavailable.`);
+function packageSurfaceCanLoadTypes(
+  pkg: AppPackage | null | undefined,
+): pkg is AppPackage {
+  return Boolean(
+    pkg
+    && pkg.source.kind === "nuget.org"
+    && pkg.assemblies.length === 0
+    && packageLibrariesForModel(pkg).length > 0);
+}
+
+function loadPackageSurface(pkg: AppPackage): Promise<boolean> {
+  const pending = packageSurfaceLoads.get(pkg);
+  if (pending) return pending;
+  if (packageSurfaceSettlements.has(pkg)) {
+    return Promise.resolve(pkg.assemblies.length > 0);
+  }
+  const operation = (async () => {
+    try {
+      const load = await inspectPackageSurface(
+        pkg.id,
+        pkg.version,
+        pkg.activeFramework,
+      );
+      if (!load.surface) {
+        throw new Error(
+          `The broad Package surface for ${pkg.id} is unavailable.`);
+      }
+      const expanded = createNuGetPackageModel(load.surface);
+      Object.assign(pkg, {
+        ...expanded,
+        versionSettlement: pkg.versionSettlement,
+        packageInfo: pkg.packageInfo,
+        packageChildren: pkg.packageChildren ?? expanded.packageChildren,
+      });
+      if (state.package === pkg && state.accessibilityFilter.size === 0) {
+        setTypeAccessibilityFilter(
+          defaultAccessibilityFilter(pkg),
+          "exact");
+      }
+      packageSurfaceSettlements.add(pkg);
+      return true;
+    } catch (error) {
+      appendQueryNotice(
+        `Type navigation for ${pkg.id} Libraries is unavailable: ${
+          errorMessage(error)
+        }`,
+        null,
+      );
+      packageSurfaceSettlements.add(pkg);
+      render({ synchronizeUrl: false });
+      return false;
+    } finally {
+      packageSurfaceLoads.delete(pkg);
+      if (state.package === pkg
+        && state.atLibraryRoot
+        && selectedLibrary()) {
+        renderPreservingContentFrameFocus();
+      }
     }
-    const expanded = createNuGetPackageModel(load.surface);
-    Object.assign(pkg, {
-      ...expanded,
-      versionSettlement: pkg.versionSettlement,
-      packageInfo: pkg.packageInfo,
-      packageChildren: pkg.packageChildren ?? expanded.packageChildren,
-    });
-    packageSurfaceSettlements.add(key);
-  } catch (error) {
-    appendQueryNotice(
-      `Type navigation for ${pkg.id} Compare results is unavailable: ${
-        errorMessage(error)
-      }`,
-      null,
-    );
-    packageSurfaceSettlements.add(key);
-  } finally {
-    packageSurfaceLoads.delete(key);
-    if (state.package === pkg
-      && currentCompareSubject()?.kind === "library") {
-      renderPreservingContentFrameFocus();
-    }
+  })();
+  packageSurfaceLoads.set(pkg, operation);
+  return operation;
+}
+
+function prepareSpotlightResults() {
+  const query = state.spotlightQuery.trim();
+  const requestsTypes = state.spotlightScope === "commands"
+    ? /^type(?:\s|$)/i.test(query)
+    : Boolean(query)
+      && (state.spotlightScope === "all"
+        || state.spotlightScope === "types"
+        || state.spotlightScope === "members");
+  if (!state.spotlightOpen || !requestsTypes) return;
+  const candidates = (state.spotlightScope === "commands"
+      ? state.package ? [state.package] : []
+      : state.packages)
+    .filter(packageSurfaceCanLoadTypes)
+    .filter(pkg =>
+      !packageSurfaceLoads.has(pkg)
+      && !packageSurfaceSettlements.has(pkg));
+  if (candidates.length === 0) return;
+  observeAsync(
+    Promise.all(candidates.map(loadPackageSurface)).then(loaded => {
+      if (loaded.some(Boolean) && state.spotlightOpen) {
+        spotlight.updateResults();
+      }
+      return undefined;
+    }),
+    "Loading Type and Member search choices");
+}
+
+async function enterTypeSubjectFromPackageSummary(pkg: AppPackage) {
+  if (!await loadPackageSurface(pkg) || state.package !== pkg) return;
+  state.selectedTypeId = defaultVisibleTypeId(pkg);
+  const type = selectedType();
+  if (!type || !enterTypeSubject(type)) {
+    render();
+    return;
+  }
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  render();
+  loadCurrentSelectionData("Loading the selected Type");
+}
+
+async function loadDeepPackageSurface(
+  pkg: AppPackage,
+  deep: ParsedLocation | undefined,
+  librarySelection: LoadPackageOptions["librarySelection"],
+) {
+  const requestsType = Boolean(deep?.type || deep?.member);
+  const requestsLibrary =
+    Boolean(deep?.library)
+    || (librarySelection?.activate === true
+      && Boolean(librarySelection.id || librarySelection.name));
+  if ((requestsType || requestsLibrary) && packageSurfaceCanLoadTypes(pkg)) {
+    await loadPackageSurface(pkg);
   }
 }
 
-function maybeAutoLoadPackageSurfaceForCompare() {
-  const subject = currentCompareSubject();
-  if (!subject
-    || subject.kind !== "library"
-    || subject.pkg.source.kind !== "nuget.org"
-    || subject.pkg.assemblies.length > 0) {
+function maybeAutoLoadPackageSurfaceForLibraryNavigation() {
+  const pkg = state.package;
+  if (!pkg
+    || !state.atLibraryRoot
+    || !selectedLibrary()
+    || !packageSurfaceCanLoadTypes(pkg)) {
     return;
   }
   observeAsync(
-    loadPackageSurfaceForCompare(subject.pkg),
-    `Loading ${subject.pkg.id} Type navigation for Compare`);
+    loadPackageSurface(pkg),
+    `Loading ${pkg.id} Type navigation for its selected Library`);
 }
 
 function libraryEnablementsRequest(
@@ -13038,6 +13125,12 @@ function bindScopeBarEvents() {
       } else if (target === "library") {
         if (!enterRetainedLibrarySubject({ preserveView: true })) return;
       } else if (target === "type") {
+        if (!selectedType() && packageSurfaceCanLoadTypes(state.package)) {
+          observeAsync(
+            enterTypeSubjectFromPackageSummary(state.package),
+            `Loading ${state.package.id} Type navigation`);
+          return;
+        }
         state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the
         // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
@@ -15364,17 +15457,24 @@ async function pickSpotlight(
   packageResult: { id: string; version: string; activeFramework?: string },
   typeId: string,
 ) {
+  const navigationSeq = navigationSequence.begin();
   const pkg = state.packages.find(item =>
     item.id === packageResult.id
     && item.version === packageResult.version
     && (!packageResult.activeFramework
       || item.activeFramework === packageResult.activeFramework));
-  const type = pkg?.types?.find(item => item.id === typeId);
+  if (pkg
+    && packageSurfaceCanLoadTypes(pkg)
+    && !await loadPackageSurface(pkg)) {
+    closeSpotlight();
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const type = pkg?.types.find(item => item.id === typeId);
   if (!pkg || !type) {
     closeSpotlight();
     return;
   }
-  const navigationSeq = navigationSequence.begin();
   if (!await spotlightPlatformTypeIsAvailable(
       pkg,
       type,
@@ -15757,6 +15857,30 @@ function installManagedSpotlightType(
   );
 }
 
+async function executeTypeCommand(
+  pkg: AppPackage,
+  argument: string,
+  result: CommandPaletteResult | null,
+) {
+  const navigationSeq = navigationSequence.begin();
+  if (packageSurfaceCanLoadTypes(pkg)) {
+    await loadPackageSurface(pkg);
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const match = result?.targetTypeId
+    ? pkg.types.find(item => item.id === result.targetTypeId)
+    : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
+      || pkg.types.find(item =>
+        item.name.toLowerCase().includes(argument.toLowerCase()));
+  if (!match) return;
+  enterTypeSubject(match);
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetMemberFilters();
+  await loadSelectionData();
+}
+
 function executeCommand(
   value: string,
   result: CommandPaletteResult | null = null,
@@ -15767,19 +15891,7 @@ function executeCommand(
   const argument = rest.join(" ");
   let operation;
   if (verb === "type") {
-    const match = result?.targetTypeId
-      ? pkg.types.find(item => item.id === result.targetTypeId)
-      : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
-        || pkg.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
-    if (match) {
-      navigationSequence.begin();
-      enterTypeSubject(match);
-      state.selectedMemberKey = "";
-      state.memberBrowseTypeId = "";
-      state.selectedOverloadIndex = null;
-      resetMemberFilters();
-      operation = loadSelectionData();
-    }
+    operation = executeTypeCommand(pkg, argument, result);
   } else if (verb === "show") {
     const match = availableTypeLenses()
       .find(([id, label]) =>
@@ -23380,6 +23492,14 @@ async function loadPackage(
     });
     if (!packageModel) return null;
     if (background) return packageModel;
+    await loadDeepPackageSurface(
+      packageModel,
+      options.location,
+      options.librarySelection);
+    if (navigationSeq != null
+      && !navigationSequence.isCurrent(navigationSeq)) {
+      return null;
+    }
     if (options.invalidateWorkspaceShareBasis)
       state.workspaceShareBasis = null;
     activatePackage(packageModel, { resetAccessibility: true });
@@ -24290,6 +24410,8 @@ async function restoreWorkspaceFromLocation(
 
   const targetModel = loadedTargetModel ?? state.packages.find(matchesTarget);
   if (targetModel) {
+    await loadDeepPackageSurface(targetModel, loc, undefined);
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     activatePackage(targetModel, { resetAccessibility: true });
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library. Called
@@ -25097,6 +25219,8 @@ async function navigateWithinCurrentWorkspace(
   }
   const pkg = state.package;
   if (!pkg) return;
+  await loadDeepPackageSurface(pkg, loc, undefined);
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const libraryFailure = applyLoadedPackageLibraryScope(pkg, loc.library);
   applyLocationView(loc);
   const viewFailure = loc.shareState

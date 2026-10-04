@@ -86,7 +86,10 @@ test("canonical aggregate Library links reject zero-compile packages", async ({ 
   await expect(subjectTab(page, "library")).toHaveCount(0);
 });
 
-for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
+for (const [status, detail] of [
+  ["NoCompileAssets", "The Package contains no compile Libraries."],
+  ["EmptyCompileGroup", "The selected compile group contains no Libraries."],
+] as const) {
   test(`implicit ${status} package entry retains the Package subject`, async ({ page }) => {
     await installFacades(page, {
       ...surface,
@@ -102,7 +105,7 @@ for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
     await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
     await expect(page.locator(".package-overview-surface [data-lib-scope]"))
       .toHaveCount(0);
-    await expect(page.locator(".query-notice-text")).toContainText(status);
+    await expect(page.locator(".query-notice-text")).toContainText(detail);
     await page.locator(".package-overview-surface").focus();
     await page.keyboard.press("Enter");
     await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");

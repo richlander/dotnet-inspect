@@ -233,8 +233,6 @@ export function createNuGetPackageSummaryModel(
   const hasNoManagedLibraries =
     content.isComplete && content.libraries.length === 0;
   const inspectionError = content.status === "Available"
-    || content.status === "SelectedEmpty"
-    || content.status === "NoCompileAssets"
     ? undefined
     : content.detail ?? `Package children are ${content.status}.`;
   return {

@@ -1520,6 +1520,14 @@ test("typed scope bar owns its rendered control bindings", () => {
                   {
                     if: 'target === "type"',
                     whenTrue: [
+                      {
+                        if: "!selectedType() && packageSurfaceCanLoadTypes(state.package)",
+                        whenTrue: [
+                          "call:observeAsync(enterTypeSubjectFromPackageSummary(state.package), `Loading ${state.package.id} Type navigation`)",
+                          "statement:ReturnStatement:return;",
+                        ],
+                        whenFalse: [],
+                      },
                       "assign:state.workspaceSubjectOpen = false",
                       "declare:const forwarder = selectedForwarder()",
                       {
@@ -2171,7 +2179,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
+    /async function pickSpotlight\([\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*packageSurfaceCanLoadTypes\(pkg\)[\s\S]*loadPackageSurface\(pkg\)[\s\S]*if \(!pkg \|\| !type\)[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
     /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);

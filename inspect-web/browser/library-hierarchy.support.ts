@@ -867,7 +867,11 @@ async function installFacades(
                 role: "Compile",
               })),
               runtimeIdentifierPackages: [],
-              detail: null,
+              detail: surface.compileLibrary.status === "NoCompileAssets"
+                ? "The Package contains no compile Libraries."
+                : surface.compileLibrary.status === "EmptyCompileGroup"
+                  ? "The selected compile group contains no Libraries."
+                  : null,
               isComplete: true,
             },
             share: {
