@@ -140,6 +140,12 @@ A **source plan** is resource-free and immutable. It binds resolved breadth,
 depth, terminal-specialized producer work, work bounds, and receipt
 requirements without opening the subject.
 
+One source request names exactly one requested producer. Its closed Producer
+Planning description also carries that producer's dependency closure, so
+dependency-consistent visits, completion, failure containment, and
+`WorkReceipt` remain intact. Another independently requested producer belongs
+to another request-set association rather than hitchhiking in that request.
+
 A **source execution group** is one QuerySpace-selected physical traversal
 serving one or more source plans over the same owner-issued resource identity.
 A singleton group is ordinary execution, not a special path.
@@ -512,6 +518,8 @@ The first implementation slice is gated in Release:
 - `MethodQuerySource_SequentialReferenceMatchesInterimExecutor`
 - `MethodQuerySource_ExistsStopsAtFirstSettledMethod`
 - `MethodQuerySource_ProducerFailureDoesNotBecomeSuccessfulAbsence`
+- `MethodQuerySource_ExecutesFocusedProducerDependencyClosure`
+- `MethodQuerySource_RejectsUnrelatedRequestedProducer`
 - `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
 - `Execute_FailedBodyReadIsNotReportedAsAcquired`
 

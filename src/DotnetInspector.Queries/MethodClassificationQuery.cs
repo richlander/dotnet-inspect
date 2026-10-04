@@ -6,7 +6,7 @@ using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
-using Analyzer = ILInspector.Analysis.Planning.ProducerDeclaration<
+using ClassificationProducer = ILInspector.Analysis.Planning.ProducerDeclaration<
     ILInspector.Analysis.Planning.ClosedQueryResult<ILInspector.Analysis.Classification.ClassifiedMethodRow>>;
 using Result = ILInspector.Analysis.Planning.ProducerResult<
     ILInspector.Analysis.Planning.ClosedQueryResult<ILInspector.Analysis.Classification.ClassifiedMethodRow>>;
@@ -375,7 +375,7 @@ public static class MethodClassificationQuery
                     retainedQuestions,
                     finding))
             {
-                Analyzer producer = ProducerFor(analyzer);
+                ClassificationProducer producer = ProducerFor(analyzer);
                 ProducerRequest producerRequest =
                     execution.HeadCount is int count
                         ? ProducerRequest.Head(producer, count)
@@ -488,7 +488,7 @@ public static class MethodClassificationQuery
                     questions,
                     finding))
             {
-                Analyzer producer = ProducerFor(analyzer);
+                ClassificationProducer producer = ProducerFor(analyzer);
                 requests.Add(execution.HeadCount is int count
                     ? ProducerRequest.Head(producer, count)
                     : new ProducerRequest(
@@ -882,15 +882,22 @@ public static class MethodClassificationQuery
         MethodClassificationAnalyzer.PointerSignature,
     ];
 
-    static Analyzer ProducerFor(MethodClassificationAnalyzer analyzer) =>
+    static ClassificationProducer ProducerFor(
+        MethodClassificationAnalyzer analyzer) =>
         analyzer switch
         {
-            MethodClassificationAnalyzer.PInvoke => PInvokeAnalyzer.Instance,
-            MethodClassificationAnalyzer.Async => AsyncAnalyzer.Instance,
-            MethodClassificationAnalyzer.PointerSignature => PointerSignatureAnalyzer.Instance,
-            MethodClassificationAnalyzer.RuntimeAsync => RuntimeAsyncAnalyzer.Instance,
-            MethodClassificationAnalyzer.CompilerAsync => CompilerAsyncAnalyzer.Instance,
-            MethodClassificationAnalyzer.Extension => ExtensionMethodAnalyzer.Instance,
+            MethodClassificationAnalyzer.PInvoke =>
+                PInvokeClassificationProducer.Instance,
+            MethodClassificationAnalyzer.Async =>
+                AsyncClassificationProducer.Instance,
+            MethodClassificationAnalyzer.PointerSignature =>
+                PointerSignatureClassificationProducer.Instance,
+            MethodClassificationAnalyzer.RuntimeAsync =>
+                RuntimeAsyncClassificationProducer.Instance,
+            MethodClassificationAnalyzer.CompilerAsync =>
+                CompilerAsyncClassificationProducer.Instance,
+            MethodClassificationAnalyzer.Extension =>
+                ExtensionMethodClassificationProducer.Instance,
             _ => throw new ArgumentOutOfRangeException(nameof(analyzer)),
         };
 
@@ -942,7 +949,7 @@ public static class MethodClassificationQuery
         var rows = new List<ClassifiedMethodRow>();
         foreach (MethodClassificationAnalyzer analyzer in MergedAnalyzers)
         {
-            Analyzer producer = ProducerFor(analyzer);
+            ClassificationProducer producer = ProducerFor(analyzer);
             Result result = resultOf(analyzer);
             if (result.Outcome == ProducerOutcome.Aborted)
             {

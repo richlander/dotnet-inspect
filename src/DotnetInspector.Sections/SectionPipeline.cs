@@ -34,7 +34,10 @@ public enum SectionCategoryRole
     Domain
 }
 
-public sealed record SectionCategory(string Name, SectionCategoryRole Role, string[] Sections);
+public sealed record SectionCategory(string Name, SectionCategoryRole Role, string[] Sections)
+{
+    public ViewFacetSetDescriptor? FacetSet { get; init; }
+}
 
 public static class SectionAnnotations
 {
@@ -299,7 +302,20 @@ public sealed class SectionPipeline<TModel>
     /// construction instead of silently dropping the section out of its category.
     /// </summary>
     public SectionPipeline<TModel> AddCategory(string name, params string[] sections)
-        => AddCategory(name, SectionCategoryRole.Domain, sections);
+        => AddCategory(name, SectionCategoryRole.Domain, sections, facetSet: null);
+
+    /// <summary>
+    /// Declares one domain category and its successor authored View Facet set together.
+    /// Legacy section selection continues to use <paramref name="sections"/>.
+    /// </summary>
+    public SectionPipeline<TModel> AddFacetSetCategory(
+        string name,
+        ViewFacetSetDescriptor facetSet,
+        params string[] sections)
+    {
+        ArgumentNullException.ThrowIfNull(facetSet);
+        return AddCategory(name, SectionCategoryRole.Domain, sections, facetSet);
+    }
 
     /// <summary>
     /// Declares a category whose members form part of the command's ordinary evidence scope.
@@ -307,16 +323,23 @@ public sealed class SectionPipeline<TModel>
     /// of base categories; separate domains remain reachable through their category doors.
     /// </summary>
     public SectionPipeline<TModel> AddBaseCategory(string name, params string[] sections)
-        => AddCategory(name, SectionCategoryRole.Base, sections);
+        => AddCategory(name, SectionCategoryRole.Base, sections, facetSet: null);
 
     private SectionPipeline<TModel> AddCategory(
         string name,
         SectionCategoryRole role,
-        params string[] sections)
+        string[] sections,
+        ViewFacetSetDescriptor? facetSet)
     {
         EnsureMutable();
         if (!name.StartsWith("@", StringComparison.Ordinal))
             throw new ArgumentException("Section category names must start with '@'.", nameof(name));
+        if (_categories.Any(category =>
+                category.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                $"Category '{name}' is already registered.");
+        }
 
         var known = _entries.Select(e => e.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var unknown = sections.Where(s => !known.Contains(s)).ToArray();
@@ -326,7 +349,17 @@ public sealed class SectionPipeline<TModel>
                 "Category membership must name a registered section; use the same constant " +
                 "the descriptor returns so renames move both together.");
 
-        _categories.Add(new SectionCategory(name, role, [.. sections]));
+        if (facetSet is not null
+            && _categories.Any(category => category.FacetSet?.Id == facetSet.Id))
+        {
+            throw new InvalidOperationException(
+                $"View-facet set id '{facetSet.Id.Value}' is already registered.");
+        }
+
+        _categories.Add(new SectionCategory(name, role, [.. sections])
+        {
+            FacetSet = facetSet,
+        });
         return this;
     }
 

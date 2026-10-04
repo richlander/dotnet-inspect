@@ -27,6 +27,17 @@ public static class PackageSectionDescriptors
     public static InspectionQueryCatalog<SourceLinkQueryContext> QueryCatalog { get; } =
         BuildQueryCatalog();
 
+    /// <summary>The authored Package dependency facets selected as one domain.</summary>
+    public static ViewFacetSetDescriptor DependenciesFacetSet { get; } =
+        new(
+            new ViewFacetSetId("dependencies"),
+            "Dependencies",
+            InspectionViewFacetCatalog.Registry,
+            [
+                new ViewFacetId("package.dependencies"),
+                new ViewFacetId("package.dependency-hierarchy"),
+            ]);
+
     /// <summary>The reusable fixed-domain catalog for package sections and query-demand plans.</summary>
     public static SectionCatalog<InspectionResult> SectionCatalog { get; } =
         CreatePipeline().Compile();
@@ -113,8 +124,9 @@ public static class PackageSectionDescriptors
             // so it is deliberately not a member: including it would make
             // -S @Files render most rows twice.
             .AddBaseCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)
-            .AddCategory(
+            .AddFacetSetCategory(
                 SectionCategoryNames.Dependencies,
+                DependenciesFacetSet,
                 PackageSections.DependencyHierarchy,
                 PackageSections.Dependencies,
                 PackageSections.EcosystemDependencies,

@@ -300,7 +300,7 @@ public static class MemberOptionsParser
         Option<string?> RouterDeferredTargetOption,
         Option<bool> SourcePartsOption,
         Option<string?> SourcePartOption,
-        Option<bool> ExplainOption,
+        Option<string?> ExplainOption,
         Option<string?> CompanionOption);
 
     /// <summary>
@@ -660,7 +660,10 @@ public static class MemberOptionsParser
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Focus = parseResult.GetValue(opts.Focus),
-            Explain = parseResult.GetValue(args.ExplainOption),
+            Explanation =
+                SharedOptions.ParseExplanationProjection(
+                    parseResult,
+                    args.ExplainOption),
             Print = parseResult.GetValue(opts.Print),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
