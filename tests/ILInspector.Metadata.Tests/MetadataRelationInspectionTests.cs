@@ -288,6 +288,84 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void ExtensionPopulationMatchesRuntimeCensusInMetadataOrder()
+    {
+        string path = typeof(Enumerable).Assembly.Location;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        AssemblyReferenceIdentity receiverAssembly =
+            Assert.Single(
+                session.AssemblyReferenceIdentities(),
+                static reference =>
+                    reference.Name == "System.Runtime");
+        MetadataTypeDefinitionName receiverType =
+            TypeName(
+                "System.Collections.Generic",
+                "IEnumerable`1");
+        var receiver = new MetadataExtensionReceiverSelection(
+            receiverAssembly,
+            receiverType);
+        ExtensionMethodInfo[] census =
+            [.. session.ExtensionMethods()];
+        (int Token, string Signature)[] expected =
+        [
+            .. census
+                .Where(method =>
+                    method.GetExtendedTypeReference()
+                        is
+                        {
+                            Scope:
+                                MetadataTypeReferenceScope
+                                    .AssemblyReference scope,
+                            Type: { } type,
+                        }
+                    && scope.Assembly.IsEquivalentTo(
+                        receiverAssembly)
+                    && type == receiverType)
+                .Select(static method => (
+                    method.DeclarationMetadataToken,
+                    method.Anchor!.CanonicalSignature)),
+        ];
+
+        var available =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            receiver,
+                            MetadataOperationPolicy.Unbounded,
+                            count: new(),
+                            rows: new(
+                                startOrdinal: 0,
+                                maximumRows: census.Length)),
+                        TestContext.Current.CancellationToken));
+        var rows =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationRowsOutcome.Read>(
+                    available.Result.Rows);
+        (int Token, string Signature)[] actual =
+        [
+            .. rows.Items
+                .SelectMany(static row => row.Occurrences)
+                .Select(static occurrence => (
+                    occurrence.DeclarationMetadataToken,
+                    occurrence.Member.CanonicalSignature)),
+        ];
+
+        Assert.True(expected.Length > 100);
+        Assert.Equal(expected, actual);
+        Assert.Equal(
+            expected.Length,
+            Assert.IsType<
+                MetadataExtensionRelationPopulationCountOutcome.Counted>(
+                    available.Result.Count).Value);
+        Assert.Equal(
+            census.Length,
+            available.Result.Receipt.Counters
+                .DeclarationCandidates);
+    }
+
+    [Fact]
     public void ExtensionPopulationPreservesConstructedReceiverContext()
     {
         string path =

@@ -126,7 +126,18 @@ internal static partial class MetadataRelationInspection
 
     private sealed record ExtensionCandidatePopulation(
         HashSet<int> Included,
-        int Excluded);
+        int Excluded,
+        ImmutableArray<ExtensionDeclarationCandidate> Candidates);
+
+    private readonly record struct ExtensionDeclarationCandidate(
+        TypeDefinitionHandle DeclaringType,
+        TypeDefinitionHandle GroupingType,
+        MethodDefinitionHandle Method,
+        PropertyDefinitionHandle Property,
+        int MetadataToken)
+    {
+        internal bool IsProperty => !Property.IsNil;
+    }
 
     private static ExtensionCandidatePopulation ExtensionCandidates(
         MetadataReader reader,
@@ -156,6 +167,8 @@ internal static partial class MetadataRelationInspection
     {
         ArgumentNullException.ThrowIfNull(includesType);
         var included = new HashSet<int>();
+        var candidates =
+            ImmutableArray.CreateBuilder<ExtensionDeclarationCandidate>();
         int excluded = 0;
         foreach (TypeDefinitionHandle typeHandle
             in reader.TypeDefinitions)
@@ -207,7 +220,18 @@ internal static partial class MetadataRelationInspection
                 if (methodExcluded)
                     excluded++;
                 else
-                    included.Add(MetadataTokens.GetToken(methodHandle));
+                {
+                    int metadataToken =
+                        MetadataTokens.GetToken(methodHandle);
+                    included.Add(metadataToken);
+                    candidates.Add(
+                        new(
+                            typeHandle,
+                            default,
+                            methodHandle,
+                            default,
+                            metadataToken));
+                }
             }
 
             foreach (TypeDefinitionHandle groupingHandle
@@ -251,13 +275,26 @@ internal static partial class MetadataRelationInspection
                     if (propertyExcluded)
                         excluded++;
                     else
-                        included.Add(
-                            MetadataTokens.GetToken(propertyHandle));
+                    {
+                        int metadataToken =
+                            MetadataTokens.GetToken(propertyHandle);
+                        included.Add(metadataToken);
+                        candidates.Add(
+                            new(
+                                typeHandle,
+                                groupingHandle,
+                                default,
+                                propertyHandle,
+                                metadataToken));
+                    }
                 }
             }
         }
 
-        return new(included, excluded);
+        return new(
+            included,
+            excluded,
+            candidates.ToImmutable());
     }
 
     private static bool TryReadExtensionDeclaration(
