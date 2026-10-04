@@ -578,6 +578,27 @@ public sealed class IrFunction : IrNode
         = ImmutableHashSet<TypeRef>.Empty;
 
     /// <summary>
+    /// Reference widenings the importer proved at evaluation-stack joins while
+    /// metadata was live: each pair says a value of <c>From</c> flowed into a
+    /// join whose merged type is <c>To</c>, so storing a <c>From</c> value at a
+    /// <c>To</c>-typed place needs no cast. Metadata-free passes consume this
+    /// through <see cref="ReferenceAssignmentTargets"/> instead of walking a
+    /// type hierarchy they cannot see.
+    /// </summary>
+    public IReadOnlySet<ReferenceWidening> ProvenReferenceWidenings { get; set; }
+        = ImmutableHashSet<ReferenceWidening>.Empty;
+
+    internal void RecordProvenReferenceWidening(TypeRef from, TypeRef to)
+    {
+        var widening = new ReferenceWidening(from, to);
+        if (ProvenReferenceWidenings.Contains(widening))
+            return;
+        var set = ProvenReferenceWidenings as ImmutableHashSet<ReferenceWidening>
+            ?? ImmutableHashSet.CreateRange(ProvenReferenceWidenings);
+        ProvenReferenceWidenings = set.Add(widening);
+    }
+
+    /// <summary>
     /// Types proven, while metadata was live, to satisfy C# collection-initializer
     /// receiver rules. `ObjectInitializerPass` consumes this so an arbitrary
     /// method named `Add` is not enough to raise `new C { ... }`.
@@ -654,7 +675,8 @@ public sealed class IrFunction : IrNode
             ByRefLikeTypes.ToImmutableHashSet(),
             InterfaceTypes.ToImmutableHashSet(),
             EqualityOperatorFreeTypes.ToImmutableHashSet(),
-            InequalityOperatorFreeTypes.ToImmutableHashSet());
+            InequalityOperatorFreeTypes.ToImmutableHashSet(),
+            ProvenReferenceWidenings.ToImmutableHashSet());
 
     internal void MergeTypeFactsFrom(IrFunction body)
         => MergeTypeFactsFrom(body.CaptureTypeFacts());
@@ -706,6 +728,11 @@ public sealed class IrFunction : IrNode
         InequalityOperatorFreeTypes = MergeSet(
             InequalityOperatorFreeTypes,
             body.InequalityOperatorFreeTypes);
+        ProvenReferenceWidenings = MergeSet(
+            ProvenReferenceWidenings,
+            body.ProvenReferenceWidenings.Where(
+                widening => !ambiguous.Contains(widening.From) && !ambiguous.Contains(widening.To))
+                .ToImmutableHashSet());
     }
 
     internal void CopyTypeFactsFrom(IrFunction source)
@@ -722,6 +749,7 @@ public sealed class IrFunction : IrNode
         InterfaceTypes = source.InterfaceTypes;
         EqualityOperatorFreeTypes = source.EqualityOperatorFreeTypes;
         InequalityOperatorFreeTypes = source.InequalityOperatorFreeTypes;
+        ProvenReferenceWidenings = source.ProvenReferenceWidenings;
     }
 
     static IReadOnlyDictionary<TKey, TValue> MergeMap<TKey, TValue>(

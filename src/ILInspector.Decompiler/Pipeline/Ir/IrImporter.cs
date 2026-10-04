@@ -1192,6 +1192,15 @@ public static class IrImporter
                             DiagnosticIds.UnsupportedConstruct,
                             $"IL_{offset:X4} (join-type): slot {i} type unknown — paths carry {existing.Types[i]!.ToDisplayString()} and {types[i]!.ToDisplayString()}"));
                     }
+                    else
+                    {
+                        // A reference merge to a common supertype proves each
+                        // narrower path assignable to it; publish that as a
+                        // function fact so storage decisions downstream need
+                        // no hierarchy of their own.
+                        RecordReferenceWidening(source, function, existing.Types[i]!, merged);
+                        RecordReferenceWidening(source, function, types[i]!, merged);
+                    }
                     existing.Types[i] = merged;  // family-canonical, or null — never a guess
                     existing.NullLiterals[i] = false;
                 }
@@ -2101,6 +2110,13 @@ public static class IrImporter
     /// the family-canonical type is the ground truth there. Anything else is
     /// null — an honest "unknown" rather than a guess.
     /// </summary>
+    static void RecordReferenceWidening(MetadataSource source, IrFunction function, TypeRef from, TypeRef to)
+    {
+        if (from.Equals(to) || !IsReferenceType(source, from) || !IsReferenceType(source, to))
+            return;
+        function.RecordProvenReferenceWidening(from, to);
+    }
+
     static TypeRef? MergeSlotTypes(TypeRef a, TypeRef b, MetadataSource source, bool aIsNullLiteral = false, bool bIsNullLiteral = false)
     {
         if (Equals(a, b))

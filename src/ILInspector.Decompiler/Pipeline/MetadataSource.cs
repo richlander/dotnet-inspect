@@ -1333,15 +1333,38 @@ public sealed class MetadataSource : IDisposable
         switch (type.Kind)
         {
             case TypeRefKind.Definition:
-                return _baseTypes!.GetValueOrDefault(type);
+                return _baseTypes!.TryGetValue(type, out var sameAssemblyBase)
+                    ? sameAssemblyBase
+                    : CrossAssemblyBaseType(type);
             case TypeRefKind.GenericInstance when type.ElementType is { } definition:
                 // The base of List<int> is the base of List<T> with T := int.
                 // The stored base is open (carries List's own parameters), so
                 // substitute the instance's arguments to close it.
-                return _baseTypes!.GetValueOrDefault(definition)?.Instantiate(type.TypeArguments, []);
+                return _baseTypes!.TryGetValue(definition, out var openBase)
+                    ? openBase?.Instantiate(type.TypeArguments, [])
+                    : CrossAssemblyBaseType(type);
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// The base type of a type defined in another assembly, read through the
+    /// shared metadata context. Null when the definition is unreachable or
+    /// declares no base, so a chain that leaves the reference closure stops
+    /// rather than guessing.
+    /// </summary>
+    TypeRef? CrossAssemblyBaseType(TypeRef type)
+        => CrossAssembly.BaseType(type, out var baseType) == MetadataFactState.Yes
+            ? baseType
+            : null;
+
+    /// <summary>True when the named definition is declared in this module.</summary>
+    bool IsSameAssemblyDefinition(TypeRef type)
+    {
+        EnsureTypeMaps();
+        var definition = NamedDefinition(type);
+        return definition is not null && _shapes!.ContainsKey(definition);
     }
 
     /// <summary>True when <paramref name="type"/> is <c>System.Object</c>.</summary>
@@ -1356,7 +1379,11 @@ public sealed class MetadataSource : IDisposable
     {
         EnsureTypeMaps();
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
-        return definition is not null && _interfaces!.Contains(definition);
+        if (definition is null)
+            return false;
+        if (_shapes!.ContainsKey(definition))
+            return _interfaces!.Contains(definition);
+        return CrossAssembly.ClassifyShape(definition) == TypeShapeKind.Interface;
     }
 
     /// <summary>
@@ -1434,6 +1461,20 @@ public sealed class MetadataSource : IDisposable
             if (implemented.Equals(iface))
                 return true;
         }
+        // The same-assembly walk above reads only this module's interface
+        // implementations. A base class or base interface declared in another
+        // assembly (EqualityComparer<T> under IEqualityComparer<T>) answers
+        // through the shared metadata context, which compares interface
+        // identity across facades rather than by spelling.
+        int depth = 0;
+        for (var current = type; current is not null && depth < 64; current = ResolveBaseType(current), depth++)
+        {
+            if (!IsSameAssemblyDefinition(current)
+                && CrossAssembly.Implements(current, iface) == MetadataFactState.Yes)
+            {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -1509,14 +1550,19 @@ public sealed class MetadataSource : IDisposable
             return a;
         if (IsInterface(b) && Implements(a, b))
             return b;
-        var ancestorsA = new HashSet<TypeRef>();
+        // Keep the instances the caller handed in when the common ancestor is
+        // one of them: an arm decoded from this module carries the resolution
+        // identity the function's other references to that type share, while a
+        // base type decoded from another module's rows carries only the
+        // module's own binding.
+        var ancestorsA = new Dictionary<TypeRef, TypeRef>();
         for (var current = a; current is not null && ancestorsA.Count < 64; current = ResolveBaseType(current))
-            ancestorsA.Add(current);
+            ancestorsA.TryAdd(current, current);
         var fromB = b;
         for (int depth = 0; fromB is not null && depth < 64; depth++, fromB = ResolveBaseType(fromB))
         {
-            if (ancestorsA.Contains(fromB))
-                return fromB;
+            if (ancestorsA.TryGetValue(fromB, out var fromA))
+                return depth == 0 ? b : fromA;
         }
         return null;
     }
