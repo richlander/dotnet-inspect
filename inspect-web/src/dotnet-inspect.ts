@@ -12493,8 +12493,9 @@ function annotatedSourceHighlighter(
 
 const packageViewActions: PackageViewBindingActions = {
   onPackageChildLibrarySelect: assetId => {
-    if (!assetId || !selectLibrarySubject(assetId)) return;
+    if (!assetId) return;
     navigationSequence.begin();
+    if (!selectLibrarySubject(assetId)) return;
     showContentDetailAfterRender();
     render();
   },

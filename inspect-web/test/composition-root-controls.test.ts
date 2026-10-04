@@ -737,7 +737,7 @@ test("typed package view owns package navigation bindings", () => {
     actionSource("onPackageChildLibrarySelect");
   assert.match(
     packageChildLibrary,
-    /selectLibrarySubject\(assetId\)[\s\S]*navigationSequence\.begin\(\)/);
+    /navigationSequence\.begin\(\)[\s\S]*selectLibrarySubject\(assetId\)/);
   assert.match(
     kindJump,
     /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
