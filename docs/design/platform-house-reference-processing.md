@@ -2128,8 +2128,10 @@ request. Further project moves are tracked by
 
 Source-specific implementations remain focused:
 
-- installed implementation realization preserves its package-free dependency
-  boundary;
+- installed implementation realization keeps its package-free boundary at the
+  `DotnetInspector.Platforms.Local` namespace inside the local adapter
+  assembly, as [the installed source owner](installed-reference-pack-realization.md#boundary-and-dependency-direction)
+  records;
 - package-backed pack acquisition may depend on package source and payload
   owners;
 - documentation settlement remains with DocumentationHouse;
@@ -2666,7 +2668,7 @@ The implementation and adoption slices own these Release gates:
 | Visible incomplete evidence | Source, catalog, forwarding, acquisition, work, and generation incompleteness never become absence or a success-shaped empty result. |
 | Ladder composition | The assembly-reference ladder receives one House platform contribution and preserves its own rung order and result algebra. |
 | Host parity | Representative CLI and Browser operations issue equivalent House requests, retain the same Platform Library certification, and interpret the same typed outcomes. |
-| Installed boundary | Browser composition does not reference desktop installed adapters, and installed realization remains package-free. |
+| Installed boundary | Browser composition does not reference desktop installed adapters (`browser-hosts-never-reference-local-adapters` in `eng/dependency-policy.json`), and installed realization remains package-free at the `DotnetInspector.Platforms.Local` namespace, a boundary the installed source owner marks `unverified` as a gate. |
 | Encapsulation | Representative ladder, Query, CLI, and Browser paths use the House. Per user choice, no automated repository-wide bypass-absence gate is required. |
 
 The implemented step-6a gates are:

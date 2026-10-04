@@ -90,8 +90,9 @@ DotnetInspector.PlatformHouse
 DotnetInspector.PlatformHouse.Local (source, adapter, execution)
 ```
 
-The installed source may depend on the package-neutral target currency and
-Metadata identity projection. It must not reference:
+The installed source code, the `DotnetInspector.Platforms.Local` namespace,
+uses only the package-neutral target currency, the platform manifest formats,
+and the Metadata identity projection. Its code must not use:
 
 - `DotnetInspector.Packages` or NuGet implementations;
 - `DotnetInspector.Services`;
@@ -99,13 +100,23 @@ Metadata identity projection. It must not reference:
 - package caches or package-source configuration; or
 - inspected-assembly loading or Roslyn.
 
+This is a namespace boundary, not an assembly boundary. The source compiles
+inside `DotnetInspector.PlatformHouse.Local`, whose reference to
+`DotnetInspector.PlatformHouse` closes over Source Selection, Packages, and
+Workspaces, so a consumer that loads the installed source loads those
+assemblies with it. Before #9240 slice 3 the source's own project enforced the
+list at build time; no policy rule or layering test checks the namespace's
+references today, so the boundary is `unverified` as a gate and code review
+holds it.
+
 `DotnetInspector.PlatformHouse.Local` is the integration boundary above
 both owners. It translates House target currency into installed-source
 coordinates, validates House capability authorization, and pairs live source
 values with resource-free `PlatformSourceContribution` evidence.
 
-The source owner remains usable without PlatformHouse. PlatformHouse does not
-learn installed paths or source implementation types.
+The source owner's types take no dependency on PlatformHouse, though the
+assembly that carries them does. PlatformHouse does not learn installed paths
+or source implementation types.
 
 ## Installed source identity and coordinate
 
