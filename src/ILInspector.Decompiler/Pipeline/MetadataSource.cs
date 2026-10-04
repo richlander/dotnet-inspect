@@ -1667,35 +1667,43 @@ public sealed class MetadataSource : IDisposable
     {
         EnsureTypeMaps();
         var seen = new HashSet<TypeRef>();
-        var pending = new Stack<TypeRef>();
-        // Same-module metadata can close the base chain into a cycle (a
-        // TypeDef's Extends column pointing back down the chain is malformed
-        // but readable); the walk ends on a repeated definition, which on a
-        // valid hierarchy visits exactly the same types.
+        // Each pending entry carries the interface definitions on its own
+        // expansion path. Same-module metadata can be cyclic in two ways that
+        // are malformed but readable: a TypeDef's Extends column pointing back
+        // down its chain, and an InterfaceImpl row making an interface extend
+        // an instance of itself (`IA<T> : IA<List<T>>`, or the doubling
+        // `IA<T> : IA<Tuple<T,T>>` whose instances grow so fast that even
+        // hashing the 256th would never finish). The base walk ends on a
+        // repeated definition, and an interface whose definition already sits
+        // on its expansion path is yielded but not expanded. A valid hierarchy
+        // never repeats a definition on one path, so both rules visit exactly
+        // the same interfaces there, while sibling instances reached on
+        // different paths (`IZ<int>` under `IX<int>`, `IZ<string>` under
+        // `IY<string>`) still expand. The 256-interface cap stays as the last
+        // resort; every consumer acts only on a positive answer, so each bound
+        // can only decline.
+        var pending = new Stack<(TypeRef Current, ImmutableHashSet<TypeRef> Path)>();
         var definitions = new HashSet<TypeRef>();
         for (var current = type; current is not null && definitions.Count < 64 && definitions.Add(WalkDefinition(current)); current = ResolveBaseType(current))
-            pending.Push(current);
+            pending.Push((current, ImmutableHashSet<TypeRef>.Empty));
         while (pending.Count > 0)
         {
-            var current = pending.Pop();
+            var (current, path) = pending.Pop();
             var definition = current.Kind == TypeRefKind.GenericInstance ? current.ElementType : current;
             if (definition is null || !_interfaceImpls!.TryGetValue(definition, out var impls))
                 continue;
             var arguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+            var pathBelow = path.Add(definition);
             foreach (var open in impls)
             {
                 var iface = open.Instantiate(arguments, []);
                 if (!seen.Add(iface))
                     continue;
                 yield return iface;
-                // A malformed InterfaceImpl row can make an interface extend a
-                // growing instance of itself (`IA<T> : IA<List<T>>`), so the
-                // instance set never repeats; cap the expansion like the
-                // cross-assembly resolver does. Every consumer acts only on a
-                // positive answer, so the cap can only decline.
                 if (seen.Count >= 256)
                     yield break;
-                pending.Push(iface);   // an interface's own base interfaces
+                if (!pathBelow.Contains(WalkDefinition(iface)))
+                    pending.Push((iface, pathBelow));   // an interface's own base interfaces
             }
         }
     }

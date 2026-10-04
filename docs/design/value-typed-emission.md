@@ -1127,10 +1127,13 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `IsInterfaceForMerge`, `ImplementsForMerge`), and every chain walk the merge runs — the
    merge-private walks and the shared `InterfacesOf` walk behind `Implements`
    — ends on a revisited definition (the generic definition for an instance)
-   within 64 steps, and `InterfacesOf` yields at most 256 distinct interfaces
-   (a malformed InterfaceImpl row can make `IA<T> : IA<List<T>>`, whose
-   instances never repeat); the bounds are exact on any valid hierarchy
-   within them and can only decline beyond them, because two resolved assemblies in version skew can
+   within 64 steps, and `InterfacesOf` expands an interface only while its
+   definition is absent from its own expansion path, yielding at most 256
+   distinct interfaces (a malformed InterfaceImpl row can make
+   `IA<T> : IA<List<T>>` or the doubling `IA<T> : IA<Tuple<T,T>>`, whose
+   instances never repeat and grow too fast even to hash); the bounds are
+   exact on any valid hierarchy within them and can only decline beyond
+   them, because two resolved assemblies in version skew can
    declare `A : B` and `B : A`, or `GA<T> : GB<Tuple<T,T>>` and
    `GB<T> : GA<Tuple<T,T>>` whose instances never repeat and double at every
    step (each compiled against the other's earlier shape), and malformed
