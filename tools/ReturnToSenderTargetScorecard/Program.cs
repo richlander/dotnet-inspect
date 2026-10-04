@@ -14,6 +14,47 @@ using NLinq;
 if (args.Length >= 4
     && string.Equals(
         args[0],
+        "select-one",
+        StringComparison.Ordinal))
+{
+    if (args[1] is not ("Eager" or "RankFirst")
+        || !int.TryParse(
+            args[2],
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out int cap)
+        || cap <= 0)
+    {
+        Console.Error.WriteLine(
+            "usage: select-one Eager|RankFirst <positive-cap> "
+            + "<assembly>...");
+        return 2;
+    }
+
+    string column = args[1];
+    string[] paths = [.. args[3..].Select(Path.GetFullPath)];
+    CappedSelectionAnswer answer =
+        column == "Eager"
+            ? SelectEagerMany(paths, cap)
+            : SelectRankFirstMany(paths, cap);
+    Console.WriteLine(
+        "column\ttargets\tranked-bodies\tevaluated-bodies\t"
+        + "declaration-candidates\texcluded-candidates\t"
+        + "allocated-bytes\tfingerprint");
+    Console.WriteLine(
+        $"{column}\t{answer.Targets.Length}\t"
+        + $"{answer.RankedBodyCount}\t"
+        + $"{answer.EvaluatedBodyCount}\t"
+        + $"{answer.DeclarationCandidateCount}\t"
+        + $"{answer.ExcludedDeclarationCandidateCount}\t"
+        + $"{GC.GetTotalAllocatedBytes()}\t"
+        + $"{answer.Fingerprint}");
+    return 0;
+}
+
+if (args.Length >= 4
+    && string.Equals(
+        args[0],
         "select-repeat",
         StringComparison.Ordinal))
 {

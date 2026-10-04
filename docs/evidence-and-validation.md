@@ -295,6 +295,8 @@ than an inspected artifact:
   <assembly>...` compares complete eligibility-before-ranking against the
   operation-owned rank-first capped plan, requires identical selected-target
   fingerprints, and reports ranked and deeply evaluated body counts.
+  `select-one Eager|RankFirst <cap> <assembly>...` supports exact base/head
+  process-start measurement of either capped physical plan.
 
 **The scorecard** scores QuerySpace (Base), LINQ, NLinq, and QuerySpace for
 Exists, Count,
