@@ -295,6 +295,7 @@ import {
 import {
   itemAchievementClassNames,
   renderItemAchievementRail,
+  type ItemAchievement,
 } from "./item-achievements.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
@@ -598,6 +599,7 @@ import {
 import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
+  libraryApiDiffPresence,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffMemberExploreContext,
@@ -6748,6 +6750,31 @@ function methodLeverageAchievements(
     : [];
 }
 
+const apiDiffAchievement: ItemAchievement = {
+  kind: "api-diff",
+  description: "API differences",
+};
+
+function memberApiDiffAchievements(
+  memberFingerprints: ReadonlySet<string>,
+  group: {
+    readonly overloads: readonly {
+      readonly anchorDigest?: string | null;
+    }[];
+  },
+  index: number | null,
+): readonly ItemAchievement[] {
+  const overloads = index === null
+    ? group.overloads
+    : group.overloads.slice(index, index + 1);
+  return overloads.some(overload =>
+    overload.anchorDigest !== null
+    && overload.anchorDigest !== undefined
+    && memberFingerprints.has(overload.anchorDigest))
+    ? [apiDiffAchievement]
+    : [];
+}
+
 function selectedMemberGroups(type: AppTypeSurface) {
   return declaredMemberGroups(type);
 }
@@ -9682,6 +9709,7 @@ function renderTypeNavPane(
   visible: readonly TypeInventoryRow[],
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
+  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
   return renderTypeNav({
@@ -9735,12 +9763,16 @@ function renderTypeNavPane(
       const leverage = presentation?.byType.get(
         item.definitionId ?? item.id,
       );
-      return leverage
-        ? [{
-            kind: leverage.pole,
-            description: leverage.description,
-          }]
-        : [];
+      const achievements: ItemAchievement[] = [];
+      if (leverage) {
+        achievements.push({
+          kind: leverage.pole,
+          description: leverage.description,
+        });
+      }
+      if (diffPresence.typeIdentifiers.has(item.definitionId ?? item.id))
+        achievements.push(apiDiffAchievement);
+      return achievements;
     },
     statusHtml:
       `${typeLeverageStatus()}${platformForwarderInventoryStatus()}`,
@@ -9750,6 +9782,7 @@ function renderTypeNavPane(
 function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   const groups = selectedMemberGroups(type);
+  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
@@ -9770,7 +9803,13 @@ function renderMemberNavPane(type: AppTypeSurface) {
     highlight,
     overloadHeat: memberNavOverloadHeat,
     familyHeatCue: memberNavFamilyHeatCue,
-    memberAchievements: methodLeverageAchievements,
+    memberAchievements: (group, index) => [
+      ...methodLeverageAchievements(group, index),
+      ...memberApiDiffAchievements(
+        diffPresence.memberFingerprints,
+        group,
+        index),
+    ],
     overloadSourceIndex: memberNavOverloadSourceIndex,
     emptyMessage: "No members match these filters.",
   });
