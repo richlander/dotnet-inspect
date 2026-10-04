@@ -80,6 +80,10 @@ dependency direction and the assembly owner.
   `InstructionSequence` is the demand-driven retained-prefix primitive.
   Independent cursors advance with `MoveNext`, and indexed access extends the
   same shared scan frontier only through the requested instruction. The
+  `IndexAtOrAfter(offset)` and `TryGetAtOffset(offset, ...)` operations extend
+  that frontier only until the requested IL offset is covered; they do not
+  imply completion or validate an unreached suffix.
+  The
   retained `InstructionEntry` is deliberately shallow: offset, opcode, and
   encoded extent. `Resolve(index)` decodes and caches full operand and branch
   detail only for the requested entry. The sequence has no count or implicit

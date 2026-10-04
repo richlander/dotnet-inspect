@@ -31,8 +31,12 @@ public readonly record struct MethodBodyScanSummary(
 public sealed partial class PreparedMethodBodies : IDisposable
 {
     readonly PEReader _peReader;
+    readonly MetadataReader _reader;
     readonly ImmutableArray<MethodBodyBlock> _bodies;
     readonly ImmutableArray<ImmutableArray<byte>> _bodyIl;
+    readonly ImmutableArray<MethodDefinitionHandle> _methodHandles;
+    readonly ImmutableArray<int> _stableGetterBodyIndices;
+    ImmutableArray<MethodBodyFlowProbeInput> _flowProbeInputs;
     readonly CallScan _calls = new();
     readonly AllocationScan _allocations = new();
     readonly ThrowScan _throws = new();
@@ -46,8 +50,12 @@ public sealed partial class PreparedMethodBodies : IDisposable
             throw new BadImageFormatException("The scorecard asset has no metadata.");
 
         MetadataReader reader = peReader.GetMetadataReader();
+        _reader = reader;
         var bodies = ImmutableArray.CreateBuilder<MethodBodyBlock>();
         var bodyIl = ImmutableArray.CreateBuilder<ImmutableArray<byte>>();
+        var methodHandles =
+            ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+        var stableGetterBodyIndices = ImmutableArray.CreateBuilder<int>();
         foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
         {
             MethodDefinition method = reader.GetMethodDefinition(handle);
@@ -59,17 +67,61 @@ public sealed partial class PreparedMethodBodies : IDisposable
 
             MethodBodyBlock body =
                 peReader.GetMethodBody(method.RelativeVirtualAddress);
+            int bodyIndex = bodies.Count;
             bodies.Add(body);
-            bodyIl.Add(
+            methodHandles.Add(handle);
+            ImmutableArray<byte> il =
                 ImmutableCollectionsMarshal.AsImmutableArray(
-                    body.GetILBytes() ?? []));
+                    body.GetILBytes() ?? []);
+            bodyIl.Add(il);
+
+            if (body.ExceptionRegions.Length == 0
+                && reader.GetString(method.Name).StartsWith(
+                    "get_",
+                    StringComparison.Ordinal))
+            {
+                stableGetterBodyIndices.Add(bodyIndex);
+            }
+
         }
 
         _bodies = bodies.ToImmutable();
         _bodyIl = bodyIl.ToImmutable();
+        _methodHandles = methodHandles.ToImmutable();
+        _stableGetterBodyIndices =
+            stableGetterBodyIndices.ToImmutable();
     }
 
     public int BodyCount => _bodies.Length;
+
+    internal bool FlowProbeInputsPrepared =>
+        !_flowProbeInputs.IsDefault;
+
+    internal ImmutableArray<MethodBodyFlowProbeInput> FlowProbeInputs
+    {
+        get
+        {
+            if (!_flowProbeInputs.IsDefault)
+                return _flowProbeInputs;
+
+            var inputs =
+                ImmutableArray.CreateBuilder<MethodBodyFlowProbeInput>();
+            for (int bodyIndex = 0;
+                bodyIndex < _bodyIl.Length;
+                bodyIndex++)
+            {
+                MethodBodyFlowProbeInput probes =
+                    MethodBodyFlowProbeInput.Create(
+                        bodyIndex,
+                        _bodyIl[bodyIndex]);
+                if (probes.HasProbes)
+                    inputs.Add(probes);
+            }
+
+            _flowProbeInputs = inputs.ToImmutable();
+            return _flowProbeInputs;
+        }
+    }
 
     public static IReadOnlyList<ScorecardAsset<PreparedMethodBodies>> LoadAssets(
         IReadOnlyList<string> paths)
@@ -133,6 +185,48 @@ public sealed partial class PreparedMethodBodies : IDisposable
         foreach (MethodBodyBlock body in _bodies)
             InstructionDecoder.Visit(body, _composite.Visitor);
         return _composite.Summary(_bodies.Length);
+    }
+
+    public MethodBodyScanSummary PlannedForwardShallowTraversal() =>
+        MethodBodyAnalyzerPlans.ForwardShallow.Source switch
+        {
+            MethodBodyInstructionSourceKind.NoRetentionStream =>
+                CompositeStream(),
+            MethodBodyInstructionSourceKind.LazyRetainedSequence =>
+                RetainedForwardShallowTraversal(),
+            _ => throw new InvalidOperationException(
+                "Unknown Method-body instruction source."),
+        };
+
+    MethodBodyScanSummary RetainedForwardShallowTraversal()
+    {
+        long instructions = 0;
+        long calls = 0;
+        long allocations = 0;
+        long throws = 0;
+        foreach (ImmutableArray<byte> il in _bodyIl)
+        {
+            var sequence = new InstructionSequence(il);
+            InstructionCursor cursor = sequence.GetCursor();
+            while (cursor.MoveNext())
+            {
+                instructions++;
+                ILOpCode opcode = cursor.Current.OpCode;
+                if (CallScan.IsCall(opcode))
+                    calls++;
+                if (AllocationScan.IsAllocation(opcode))
+                    allocations++;
+                if (ThrowScan.IsThrow(opcode))
+                    throws++;
+            }
+        }
+
+        return new(
+            _bodyIl.Length,
+            instructions,
+            calls,
+            allocations,
+            throws);
     }
 
     public MethodBodyScanSummary HandFusedStream()
@@ -493,9 +587,11 @@ public static class MethodBodyTraversalPrototype
             static (closing, bodies) =>
                 Answer(closing, bodies.IndependentStreams())),
         new(
-            "Composite stream",
+            "Planner-selected composite stream",
             static (closing, bodies) =>
-                Answer(closing, bodies.CompositeStream())),
+                Answer(
+                    closing,
+                    bodies.PlannedForwardShallowTraversal())),
         new(
             "Hand-fused stream",
             static (closing, bodies) =>
