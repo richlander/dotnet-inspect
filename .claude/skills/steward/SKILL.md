@@ -114,7 +114,9 @@ matches.
 - Before merging a user-observable change, record it with its PR link on the
   current release tracker named in AGENTS.md *PR and CI discipline*. Do not
   edit `src/DotnetInspect.Cli/release-notes.md` outside release preparation.
-- Use REST endpoints for metadata mutations; never `gh pr edit`.
+- Metadata mutations follow the tool-surface rule below: operation-specific
+  REST endpoints through `gh api`, never whole-array replacement, never
+  `gh pr edit`.
 
 ## Merge
 
@@ -146,19 +148,25 @@ Two different waits apply, and they must not be confused.
 
 ## Tool surface in cloud sessions
 
-- Use whichever GitHub surface the session provides (`gh api`, the GitHub
-  MCP tools, or REST through the proxy); check availability rather than
-  assuming it. Merge preflight needs the GraphQL snapshot that
+- For reads and for the head-bound merge, use whichever GitHub surface the
+  session provides (`gh api`, the GitHub MCP tools, or REST through the
+  proxy); check availability rather than assuming it. Merge preflight needs
+  the GraphQL snapshot that
   [`docs/github-status-queries.md`](../../../docs/github-status-queries.md)
   describes, and every merge mutation binds the expected head per
   [`docs/github-api-operations.md`](../../../docs/github-api-operations.md),
-  whichever tool issues it. Metadata mutations use REST endpoints, never
-  `gh pr edit`.
+  whichever tool issues it.
+- For PR and issue metadata changes (labels, assignees, body), use the
+  operation-specific REST endpoints through `gh api` that
+  [`docs/github-api-operations.md`](../../../docs/github-api-operations.md)
+  lists: per-label POST and DELETE, never a whole-array replacement such as
+  the MCP issue-update tool's `labels` parameter, and never `gh pr edit`.
 - End every GitHub comment, review, or reply you author with the attribution
   footer the harness specifies, and end commits with the trailers it
   specifies.
 - Reviewer worktrees live under `.worktrees/` or an OS temporary directory
-  and are read-only for the reviewer; remove them after the round.
+  and are read-only for the reviewer; remove them after review and
+  reproduction finish.
 
 ## Nevers (restated, not owned here)
 
