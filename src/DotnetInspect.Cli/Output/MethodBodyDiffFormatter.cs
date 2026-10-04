@@ -8,6 +8,8 @@ using ILInspector.Research;
 using InertText;
 using Markout;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspect.Cli.Output;
 
 public static class MethodBodyDiffFormatter

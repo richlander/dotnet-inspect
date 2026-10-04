@@ -1,3 +1,5 @@
+using ILInspector.ILDiff;
+
 namespace ILInspector.ILDiff.Tests;
 
 /// <summary>
