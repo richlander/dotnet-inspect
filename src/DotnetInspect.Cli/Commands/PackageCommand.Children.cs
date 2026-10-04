@@ -454,14 +454,9 @@ public partial class PackageCommand
         {
             PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
                 new(
-                    new(
-                        subject.PackageId,
-                        subject.PackageVersion,
-                        selection.TargetFramework is null
-                            ? null
-                            : new InertText.InertString(
-                                InertText.TextPolicy.Field,
-                                selection.TargetFramework)),
+                    SubjectWithTargetFramework(
+                        subject,
+                        selection.TargetFramework),
                     PackageChildrenKind.Libraries,
                     PackageChildrenStatus.SelectedEmpty,
                     [],

@@ -2245,6 +2245,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_EmptyCompileGroupTitleKeepsIssuedSource()
+    {
+        // An explicit empty compile group (ref/<tfm>/_._) rebuilds the subject
+        // with the selected target; the source property must survive that
+        // rebuild so the title still names where the package came from.
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.EmptyCompile",
+            "README.md",
+            "readme",
+            extraFiles: ("ref/net10.0/_._", ""));
+        try
+        {
+            var result = await RunAppAsync("package", packagePath);
+
+            Assert.Equal(0, result.Exit);
+            string[] lines = result.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(
+                "Test.EmptyCompile 1.0.0 (File; net10.0)",
+                lines[0]);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_PositionalSectionNameIsRejectedAsPackageReference()
     {
         var (exit, output, error) = await RunAppAsync(
