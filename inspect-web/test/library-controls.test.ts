@@ -57,8 +57,6 @@ class FakeRoot {
 
 function recordingActions(calls: string[]): LibraryControlBindingActions {
   return {
-    onAccessibilityChipSelect: value =>
-      calls.push(`accessibility:${value}`),
     onLibraryApiRetry: () => calls.push("library-api-retry"),
     onLibraryChipSelect: value => calls.push(`library-chip:${value}`),
     onLibraryJump: value => calls.push(`library-jump:${value}`),
@@ -76,13 +74,10 @@ test("library controls decode every rendered selector without eager work", () =>
   const root = new FakeRoot();
   const libraryChip = new FakeElement({ libraryChip: "System.Text.Json" });
   const defaultLibraryChip = new FakeElement();
-  const accessChip = new FakeElement({ accessChip: "public" });
-  const allAccessChip = new FakeElement();
   root.addAll(
     "[data-library-chip]",
     libraryChip,
     defaultLibraryChip);
-  root.addAll("[data-access-chip]", accessChip, allAccessChip);
   const libraryApiRetry = new FakeElement();
   root.addAll("[data-library-api-retry]", libraryApiRetry);
   const libraryJump = root.add("#library-jump", new FakeElement());
@@ -101,25 +96,14 @@ test("library controls decode every rendered selector without eager work", () =>
     defaultPlatformPack,
     emptyPlatform);
 
-  const integrations = new FakeElement();
-  integrations.value = "System.Net.Http";
-  integrations.selectedOptions = [new FakeElement({ pack: "netcore.app" })];
-  const opportunities = new FakeElement();
-  opportunities.value = "System.Text.Json";
-  opportunities.selectedOptions = [new FakeElement()];
   const analysis = new FakeElement();
   analysis.value = "System.Linq";
   const emptyAnalysis = new FakeElement();
   const metadata = new FakeElement();
   metadata.value = "System.Console";
   metadata.selectedOptions = [new FakeElement({ pack: "windowsdesktop.app" })];
-  root.addAll("[data-platform-integrations-library]", integrations, opportunities);
   root.addAll("[data-platform-analysis-library]", analysis, emptyAnalysis);
   root.addAll("[data-platform-metadata-library]", metadata);
-  const metrics = new FakeElement();
-  metrics.value = "System.Text.Json";
-  metrics.selectedOptions = [new FakeElement({ pack: "netcore.app" })];
-  root.addAll("[data-platform-metrics-library]", metrics);
   const calls: string[] = [];
 
   bindLibraryControls(
@@ -129,8 +113,6 @@ test("library controls decode every rendered selector without eager work", () =>
   assert.deepEqual(calls, []);
   libraryChip.dispatch("click");
   defaultLibraryChip.dispatch("click");
-  accessChip.dispatch("click");
-  allAccessChip.dispatch("click");
   libraryApiRetry.dispatch("click");
   libraryJump.dispatch("change");
   libraryJump.value = "";
@@ -138,28 +120,20 @@ test("library controls decode every rendered selector without eager work", () =>
   platform.dispatch("change");
   defaultPlatformPack.dispatch("change");
   emptyPlatform.dispatch("change");
-  integrations.dispatch("change");
-  opportunities.dispatch("change");
   analysis.dispatch("change");
   emptyAnalysis.dispatch("change");
   metadata.dispatch("change");
-  metrics.dispatch("change");
 
   assert.deepEqual(calls, [
     "library-chip:System.Text.Json",
     "library-chip:",
-    "accessibility:public",
-    "accessibility:",
     "library-api-retry",
     "library-jump:System.Collections",
     "library-jump:",
     "platform:System.Private.CoreLib:netcore.app",
     "platform:System.Runtime:netcore.app",
-    "platform-lens:integrations:System.Net.Http:netcore.app",
-    "platform-lens:integrations:System.Text.Json:undefined",
     "platform-lens:analysis:System.Linq:undefined",
     "platform-lens:metadata:System.Console:windowsdesktop.app",
-    "platform-lens:metrics:System.Text.Json:netcore.app",
   ]);
 });
 

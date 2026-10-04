@@ -86,6 +86,20 @@ public static class MetadataMethodPtrFixture
     public static byte[] BuildPointerMethods(params ushort[] rows)
         => Build(pointerSignatures: true, rows);
 
+    /// <summary>
+    /// MethodPtr rows [2, 1], split so <c>&lt;Module&gt;</c> owns MethodDef 2
+    /// and <c>N.Fixture</c> owns MethodDef 1.
+    /// </summary>
+    public static byte[] BuildSplitReorderedPointerMethods()
+    {
+        byte[] image = BuildPointerMethods(2, 1);
+        WriteMethodListStart(
+            image,
+            typeDefRow: 1,
+            start: 2);
+        return image;
+    }
+
     static byte[] Build(bool pointerSignatures, ushort[] rows)
     {
         ArgumentNullException.ThrowIfNull(rows);

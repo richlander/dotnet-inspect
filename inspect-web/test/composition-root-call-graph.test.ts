@@ -288,7 +288,7 @@ test("graph-only members open through the typed member surface", () => {
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     applyMemberSection,
-    /member\s*&& id !== "overview"\s*&& state\.selectedOverloadIndex == null[\s\S]*state\.selectedOverloadIndex = 0/);
+    /member\s*&& id !== "overview"\s*&& state\.selectedOverloadIndex == null[\s\S]*state\.selectedOverloadIndex =\s*memberNavOverloadSourceIndex\(member, 0\)/);
   assert.doesNotMatch(
     applyMemberSection,
     /member\.overloads\.length > 1/);
@@ -542,7 +542,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -805,7 +805,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
   assert.match(capture, /libraryScope: captureLibraryScope\(state\.libraryScope\)/);
   assert.match(
     apply,
-    /state\.libraryScope = restoreLibraryScope\(\s*view\.libraryScope,\s*pkg\.assemblies\.map\(assembly => assembly\.id\)\)/);
+    /state\.libraryScope = restoreLibraryScope\(\s*view\.libraryScope,\s*packageLibrariesForModel\(pkg\)\.map\(library => library\.id\)\)/);
   assert.match(
     callGraphInspectionSource,
     /state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;\s*state\.platformDrillLoading = false;/);
@@ -823,7 +823,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
     /enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
   assert.match(
     navigation,
-    /state\.accessibilityFilter = accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)/);
+    /includeTypeAccessibility\(type\)/);
 });
 
 test("restored selections reveal their accessibility bucket", () => {
@@ -832,7 +832,7 @@ test("restored selections reveal their accessibility bucket", () => {
     original,
     { accessibilityId: "private" });
   assert.deepEqual([...original], ["public"]);
-  assert.deepEqual([...revealed], ["public", "private"]);
+  assert.deepEqual([...revealed], ["private"]);
 
   const apply =
     appSource.match(/function applyView[\s\S]*?(?=\nfunction navBack)/)?.[0]
@@ -848,10 +848,10 @@ test("restored selections reveal their accessibility bucket", () => {
     /const type = pkg\.types\.find[\s\S]*?if \(!state\.atPackageRoot && !state\.atLibraryRoot\) revealTypeInFilters\(type\)/);
   assert.match(
     deepLink,
-    /const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
+    /const selected = pkg\.types\.find[\s\S]*?selectTypeAccessibility\(selected\.accessibilityId\)[\s\S]*?const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
   assert.match(
     reveal,
-    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
+    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.typeTraitFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
     /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypeRows\(\)\.findIndex[\s\S]*?loadCurrentSelectionData\("Loading the selected Type"\)/);
@@ -872,6 +872,12 @@ test("Type transitions load the current lens selection after rendering", () => {
     /onKindSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
   assert.match(
     appSource,
+    /onTypeAccessibilitySelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onTypeTraitSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
     /onTypeFilterChange:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
   assert.match(
     appSource,
@@ -883,13 +889,6 @@ test("Type transitions load the current lens selection after rendering", () => {
   assert.match(
     keyboardSelection,
     /state\.selectedTypeId = selected\.id[\s\S]*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
-
-  const libraryScope =
-    appSource.match(/function afterLibraryScopeChange\(\) \{[\s\S]*?\n}/)?.[0]
-    ?? "";
-  assert.match(
-    libraryScope,
-    /normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Library Type"\)/);
 
   const indexedLensSelection =
     appSource.match(/function selectScopeLensByIndex\([\s\S]*?\n}\n\n\/\/ The resident runtime/)?.[0]
@@ -1002,7 +1001,7 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /const hasSelectedBody = bodyTargetMatchesOverload\([\s\S]*?memberSectionIdsFor\(\s*group,\s*state\.package\?\.isRuntimePack,\s*hasSelectedBody\)/);
   assert.match(
     appSource,
-    /function renderMember\(type: AppTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverloadIndex = state\.selectedOverloadIndex;[\s\S]*?const hasSelectedOverload =[\s\S]*?selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? selectedOverloadIndex \?\? 0 : 0;/);
+    /function renderMember\(type: AppTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverload = selectedMemberOverload\(type, member\);[\s\S]*?const hasSelectedOverload =\s*state\.selectedOverloadIndex != null\s*&& selectedOverload !== undefined;[\s\S]*?const overload = selectedOverload \?\? member\.overloads\[0\];/);
 });
 
 test("member family re-entry leaves exact ordinary methods for the shared document", () => {
@@ -1024,7 +1023,7 @@ test("member family re-entry leaves exact ordinary methods for the shared docume
     /const methodGroup = ordinaryMethodGroup\(group\)/);
   assert.match(
     openMemberGroup,
-    /state\.selectedOverloadIndex = graphOnlyTarget \? 0 : null;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
+    /const singletonSourceIndex =[\s\S]*memberNavOverloadSourceIndex\(group, 0\)[\s\S]*state\.selectedOverloadIndex =\s*graphOnlyTarget \? 0 : singletonSourceIndex;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
 });
 
 test("fallback ordinary families load the shared document", () => {
@@ -1033,7 +1032,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     overview,
-    /ordinaryMethodGroup\(selectedMember\(selectedType\(\)\)\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /ordinaryMethodGroup\(selectedMember\(selectedType\(\)\)\)[\s\S]*memberGroupUsesFamilySurface\(selectedMember\(selectedType\(\)\)\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
@@ -1062,7 +1061,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     drillOut,
-    /ordinaryMethodGroup\(member\)[\s\S]*state\.selectedOverloadIndex != null[\s\S]*state\.selectedOverloadIndex = null;\s*state\.memberSection = "overview";\s*clearMemberContentCache\(\);\s*loadMemberSectionContent\(state\.memberSection\)/);
+    /ordinaryMethodGroup\(member\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*state\.selectedOverloadIndex != null[\s\S]*state\.selectedOverloadIndex = null;\s*state\.memberSection = "overview";\s*clearMemberContentCache\(\);\s*loadMemberSectionContent\(state\.memberSection\)/);
   assert.doesNotMatch(drillOut, /resetMemberSectionState\(\)/);
 
   const drillIn =
@@ -1070,18 +1069,14 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     drillIn,
-    /ordinaryMethodGroup\(member\)[\s\S]*state\.selectedOverloadIndex == null[\s\S]*memberDocumentOrdinalForOverload\(member, 0\)[\s\S]*openMemberDocument\(baselineOrdinal\)/);
-  assert.doesNotMatch(drillIn, /member\.overloads\.length > 1/);
+    /ordinaryMethodGroup\(member\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*state\.selectedOverloadIndex == null[\s\S]*openOverload\(memberNavOverloadSourceIndex\(member, 0\)\)/);
 
   const stepHorizontal =
     appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
     ?? "";
   assert.match(
     stepHorizontal,
-    /const overloadOpen = member\s*&& !\(ordinaryMethodGroup\(member\)\s*&& state\.selectedOverloadIndex == null\)/);
-  assert.doesNotMatch(
-    stepHorizontal,
-    /member\.overloads\.length > 1/);
+    /const overloadOpen = member\s*&& !\(ordinaryMethodGroup\(member\)\s*&& memberGroupUsesFamilySurface\(member\)\s*&& state\.selectedOverloadIndex == null\)/);
 
   const normalizeSnapshot =
     appSource.match(/function normalizeWorkspaceAsyncSnapshotState\([\s\S]*?\n}\n\nfunction settleInterruptedPlatformStatus/)?.[0]
@@ -1095,7 +1090,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     loadSelection,
-    /await loadSelectedTypeMemberPopulation\(\);[\s\S]*if \(state\.memberSection === "overview"\) \{\s*await loadSelectedMemberOverview\(\);\s*return;\s*}[\s\S]*member\.overloads\.length > 1/);
+    /await loadSelectedTypeMemberPopulation\(\);[\s\S]*if \(state\.memberSection === "overview"\) \{\s*await loadSelectedMemberOverview\(\);\s*return;\s*}[\s\S]*member\.sourceOverloadCount \?\? member\.overloads\.length\) > 1/);
 });
 
 test("member navigation excludes graph-only projections from ordinary filters", () => {
@@ -1104,16 +1099,16 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     ?? "";
   assert.match(
     filters,
-    /filterMemberGroups\(selectedMemberGroups\(type\), memberFilterState\(\)\)/);
+    /const sourceGroups = selectedMemberGroups\(type\);[\s\S]*filterMemberGroups\(sourceGroups, memberFilterState\(\)\)/);
   assert.match(
     appSource,
     /function selectedMember\([\s\S]*memberGroupForCurrentFilters\(type, state\.selectedMemberKey\)/);
   assert.match(
     appSource,
     /function openMemberGroup\([\s\S]*memberGroupForCurrentFilters\(type, key\)/);
-  assert.match(
+  assert.doesNotMatch(
     appSource,
-    /function openMemberGroup\([\s\S]*state\.memberTraitFilter[\s\S]*memberDocumentOrdinalForOverload\(group, 0\)[\s\S]*openMemberDocument\(filteredDocumentOrdinal\)/);
+    /function openMemberGroup\([\s\S]*openMemberDocument/);
   assert.match(
     filters,
     /function selectedMemberGroups\([\s\S]*?return declaredMemberGroups\(type\)/);
@@ -1139,6 +1134,27 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     entries,
     /for \(const group of visibleMemberGroups\(type\)\)[\s\S]*?const graphGroup = selectedGraphMemberGroup\(type\);[\s\S]*?entries\.push\(\{ kind: "member", group: graphGroup }\)/);
+  assert.match(
+    entries,
+    /group\.key === state\.selectedMemberKey[\s\S]*memberGroupUsesFamilySurface\(group\)/);
+  const cursor =
+    appSource.match(/function memberNavCursor\([\s\S]*?\n}\n\nfunction selectMemberNavEntry/)?.[0]
+    ?? "";
+  assert.match(
+    cursor,
+    /state\.selectedOverloadIndex\s*=== memberNavOverloadSourceIndex\(entry\.group, entry\.index\)/);
+  assert.match(
+    cursor,
+    /const isMulti = memberGroupUsesFamilySurface\(entry\.group\);[\s\S]*isMulti \? state\.selectedOverloadIndex == null : true/);
+  const selection =
+    appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
+    ?? "";
+  assert.match(
+    selection,
+    /const sourceIndex =\s*memberNavOverloadSourceIndex\(entry\.group, entry\.index\)[\s\S]*openOverload\(sourceIndex\)/);
+  assert.match(
+    appSource,
+    /onOverloadSelect: index => \{[\s\S]*memberNavOverloadVisibleIndex\(group, index\)[\s\S]*selectMemberNavEntry\(\s*\{ kind: "overload", group, index: visibleIndex \}/);
 
   const pane =
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
@@ -1192,6 +1208,7 @@ test("unavailable exact Member populations omit selector counts", () => {
         memberKindCount,
         typeMemberPopulationKey: () =>
           `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
+        currentTypeMethodLeverageState: () => ({ status: "idle" }),
         escapeHtml: (value: string) => value,
       });
     if (!rendered
@@ -1335,7 +1352,8 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
     ?? "";
   const renderMember =
-    appSource.match(/function renderMember\([\s\S]*?\n}\n\n\/\/ The annotated section/)?.[0]
+    appSource.match(
+      /function renderMember\([\s\S]*?\n}\n\nfunction memberReceiverPrefix/)?.[0]
     ?? "";
   const memberOverview =
     renderMember.match(/if \(state\.memberSection === "overview"\) \{[\s\S]*?\n  \} else if \(state\.memberSection === "call-graph"\)/)?.[0]
@@ -1349,7 +1367,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /member\.kind === "method"[\s\S]*member\.completeCountStatus === "available"[\s\S]*completeMemberGroupHasBaselineOrdinals\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*exactOrdinals \? overload\.baselineOrdinal : index[\s\S]*highlight\(overload\.signature\)/);
+    /member\.kind === "method"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.completeCountStatus === "available"[\s\S]*completeMemberGroupHasBaselineOrdinals\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
   assert.match(
     renderMember,
     /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
@@ -1358,40 +1376,18 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberGroupDocumentError[\s\S]*Overload query failed/);
   assert.match(
     renderMember,
-    /document\.rows\.map\(row =>[\s\S]*data-overload="\$\{row\.baselineOrdinal}"/);
+    /document\.rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
   assert.doesNotMatch(
     renderMember,
-    /document\.rows\.map\(row =>[\s\S]*findIndex/);
-  assert.match(
-    renderMember,
-    /memberDocumentLoading[\s\S]*Resolving the shared Member document/);
-  assert.match(
-    renderMember,
-    /state\.memberDocument\?\.outcome === "Available"[\s\S]*Exact Member document/);
+    /Exact Member document|Resolving the shared Member document/);
   assert.match(
     appSource,
-    /function memberDocumentOrdinalForOverload\([\s\S]*return overload\?\.baselineOrdinal[\s\S]*row => row\.metadataToken === metadataToken\)\?\.baselineOrdinal/);
+    /function selectMemberNavEntry\([\s\S]*memberNavOverloadSourceIndex\(entry\.group, entry\.index\)[\s\S]*openOverload\(sourceIndex\)/);
   assert.match(
     appSource,
-    /function selectMemberNavEntry\([\s\S]*memberDocumentOrdinalForOverload\(entry\.group, entry\.index\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(entry\.group\)[\s\S]*openOverload\(entry\.index\)/);
-  assert.match(
-    appSource,
-    /function drillIn\(\)[\s\S]*memberDocumentOrdinalForOverload\(member, 0\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(member\)[\s\S]*openOverload\(0\)/);
-  const loadMemberDocument =
-    appSource.match(/async function loadSelectedMemberDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberGroupDocument/)?.[0]
-    ?? "";
-  assert.match(
-    loadMemberDocument,
-    /inspectUploadedLibraryMemberDocument\([\s\S]*baselineOrdinal,[\s\S]*fingerprintPrefix\)/);
-  assert.match(
-    loadMemberDocument,
-    /inspectPlatformMemberDocument\([\s\S]*baselineOrdinal,[\s\S]*fingerprintPrefix\)/);
-  assert.match(
-    loadMemberDocument,
-    /inspectMemberDocument\([\s\S]*baselineOrdinal,[\s\S]*fingerprintPrefix\)/);
-  assert.match(
-    loadMemberDocument,
-    /state\.memberDocumentFingerprint = document\.fingerprint;[\s\S]*findIndex\(overload =>/);
+    /function drillIn\(\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*openOverload\(memberNavOverloadSourceIndex\(member, 0\)\)/);
+  assert.doesNotMatch(appSource, /function openMemberDocument\(/);
+  assert.doesNotMatch(appSource, /async function loadSelectedMemberDocument\(/);
   assert.match(
     renderMember,
     /const callGraphExplore = state\.memberSection === "call-graph"[\s\S]*class="member-surface-actions"[\s\S]*id="call-graph-explore" data-graph-explore/);
@@ -1413,7 +1409,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(renderMember, /implementation-profiles/);
   assert.match(
     renderMember,
-    /· \$\{overloadIndex \+ 1} of \$\{member\.overloads\.length}<\/span>/);
+    /· \$\{sourceOverloadIndex \+ 1} of \$\{sourceOverloadCount}<\/span>/);
   assert.match(
     memberOverview,
     /class="learn-section member-overview-intro">\s*<section class="signature-panel"[\s\S]*?class="member-documentation"[\s\S]*?class="member-identity"/);
@@ -1438,7 +1434,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /<dt>Namespace:<\/dt>|<dt>Assembly:<\/dt>|<dt>Package:<\/dt>/);
   assert.match(
     appSource,
-    /const memberOverloadPicker =[\s\S]*?!selectedConcreteOverload\([\s\S]*?const memberWorkingSurface =[\s\S]*?currentPendingGraphMember\(\) === null[\s\S]*?memberOverloadPicker[\s\S]*?memberSectionUsesWorkingSurface\(state\.memberSection\)/);
+    /const memberOverloadPicker =[\s\S]*?currentMemberOverload === undefined;[\s\S]*?const memberWorkingSurface =[\s\S]*?currentPendingGraphMember\(\) === null[\s\S]*?memberOverloadPicker[\s\S]*?memberSectionUsesWorkingSurface\(state\.memberSection\)/);
   assert.match(
     stylesSource,
     /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
@@ -1540,9 +1536,9 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderLibraryComposition,
     /displayName: library\?\.name \?\? "All libraries"/);
   assert.match(renderLibraryComposition,
-    /libraries\.reduce\(\(sum, candidate\) => sum \+ candidate\.types, 0\)/);
+    /aggregateKnownPackageLibraryCount\(\s*libraries,\s*pkg\.packageChildren\?\.content\.isComplete \?\? true,\s*candidate => candidate\.types\)/);
   assert.match(renderLibraryComposition,
-    /libraries\.reduce\(\(sum, candidate\) => sum \+ candidate\.members, 0\)/);
+    /aggregateKnownPackageLibraryCount\(\s*libraries,\s*pkg\.packageChildren\?\.content\.isComplete \?\? true,\s*candidate => candidate\.members\)/);
   assert.match(renderLibraryOverview,
     /aggregateLibrarySubjectIsActive\(\)[\s\S]*renderLibraryCompositionOverview\(currentPackage\(\), null\)/);
   assert.match(renderLibraryOverview,
@@ -1575,7 +1571,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metrics"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml: metadataLibraryControl[\s\S]*?package-metadata-controls/);
@@ -1599,16 +1595,16 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
 });
 
-test("library Metrics uses the full-area analysis working surface", () => {
+test("all Library Analysis modes use one full-area working surface", () => {
   assert.match(
     appSource,
-    /const libraryMetricsWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "metrics"/);
+    /const libraryAnalysisWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "analysis"/);
   assert.match(
     appSource,
-    /libraryAnalysisWorkingSurface \|\| libraryMetricsWorkingSurface \? " library-analysis-working-surface" : ""/);
+    /libraryAnalysisWorkingSurface \? " library-analysis-working-surface" : ""/);
   assert.match(
     appSource,
-    /contentNavigationIntegrated =[\s\S]*\|\| libraryMetricsWorkingSurface[\s\S]*?;/);
+    /contentNavigationIntegrated =[\s\S]*\|\| libraryAnalysisWorkingSurface[\s\S]*?;/);
 });
 
 test("package dependencies use compact coordinates in a full-area working surface", () => {

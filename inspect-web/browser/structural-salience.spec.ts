@@ -10,7 +10,7 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
-test("projections and cross-surface retry preserve one request generation", async ({
+test("aggregate Type lists load icon-only cues automatically", async ({
   page,
 }, testInfo) => {
   await installFacades(
@@ -24,73 +24,79 @@ test("projections and cross-surface retry preserve one request generation", asyn
     "ready",
     undefined,
     {
-      qualifiedStructuralSalience: true,
       slowStructuralSalience: true,
     },
   );
   await page.goto(root);
-  await selectLibrary(page, core.id);
   await chooseSubject(page, "type", "Type");
-  await page.locator("#type-filter-summary").click();
+  await expect(page.locator(".type-row .item-achievement-rail")).toHaveCount(2);
+  await expect(page.locator("[data-type-leverage-filter]")).toHaveCount(0);
+  await expect(page.getByRole("button", {
+    name: /structural salience/i,
+  })).toHaveCount(0);
 
-  await page.getByRole(
-    "button",
-    { name: "Show structural salience", exact: true },
-  ).click();
-  await page.locator('[data-namespace="Example"]').click();
+  await page.locator("#type-filter-summary").click();
+  await page.locator("#namespace-jump").selectOption("Example");
   await expect(page.locator("html")).toHaveAttribute(
     "data-structural-salience-request-count",
-    "1",
+    "2",
   );
-  await expect(page.getByRole(
-    "button",
-    { name: "Hide salience", exact: true },
-  )).toBeVisible();
-  expect(await page.getByRole("img", {
-    name: /sea-level Type/,
-  }).getAttribute("class")).toContain("item-achievement-rail");
   await expect(page.locator(".type-row.sea-level")).toHaveCount(1);
+  await expect(page.locator(".type-row.mountain-peak")).toHaveCount(1);
   await expect(page.locator(".type-row.sea-level.mountain-peak"))
     .toHaveCount(0);
-  expect(await page.locator(".item-achievement-glyph.sea-level").evaluate(
-    element => getComputedStyle(element).maskImage,
-  )).not.toBe("none");
-  await expect(page.locator(".type-leverage-control"))
-    .toContainText("1 namespace analyzed");
-
-  await page.locator(
-    '[data-type-leverage-filter="sea-level"]',
-  ).click();
+  expect(await page.locator(".item-achievement-glyph.sea-level").first()
+    .evaluate(element => getComputedStyle(element).maskImage)).not.toBe("none");
+  await expect(page.locator(".metadata-warning")).toHaveCount(0);
   await page.locator("#clear-filter").click();
-
-  await expect(page.getByRole(
-    "button",
-    { name: "Hide salience", exact: true },
-  )).toBeVisible();
-  await expect(page.locator(".item-achievement-glyph")).toHaveCount(1);
-  await expect(page.locator(
-    '[data-type-leverage-filter=""]',
-  )).toHaveClass(/\bactive\b/);
+  await expect(page.locator(".item-achievement-glyph.sea-level")).toHaveCount(1);
+  await expect(page.locator(".item-achievement-glyph.mountain-peak"))
+    .toHaveCount(1);
   await expect(page.locator("html")).toHaveAttribute(
     "data-structural-salience-request-count",
-    "1",
+    "2",
   );
   await page.locator(".type-browser").screenshot({
     path: testInfo.outputPath("type-browser-salience.png"),
   });
 
+  await selectLibrary(page, core.id);
   await chooseSubject(page, "library", "Library");
-  await chooseInspector(page, "data-library-lens", "metrics", "Metrics");
-  const metrics = page.locator(".metrics-salience-section");
-  await expect(metrics).toContainText("Structural salience is qualified");
-  await metrics.locator("[data-metrics-salience-retry]").click();
+  await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await page.locator('[data-analysis-mode="metrics"]').click();
+  await expect(page.locator(".library-metrics-surface"))
+    .not.toContainText("Structural Salience");
+});
+
+test("qualified structural salience remains visible and retryable", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    undefined,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {
+      qualifiedStructuralSalience: true,
+    },
+  );
+  await page.goto(root);
   await chooseSubject(page, "type", "Type");
-  await expect(page.getByRole(
-    "button",
-    { name: "Hide salience", exact: true },
-  )).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute(
     "data-structural-salience-request-count",
     "2",
+  );
+  await expect(page.locator(".metadata-warning").filter({
+    hasText: "Structural salience has qualified evidence",
+  })).toHaveCount(1);
+  await page.locator("[data-type-leverage-retry]").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-structural-salience-request-count",
+    "4",
   );
 });

@@ -156,6 +156,8 @@ public partial class LibraryCommand
             return 1;
         if (!ValidateNameFamilyTransport(options))
             return 1;
+        if (!ValidateDependencyStructureTransport(options))
+            return 1;
 
         if (!LibrarySourceAdapter.TryBind(
                 options,
@@ -628,9 +630,29 @@ public partial class LibraryCommand
             IncludeSections =
                 nameFamilySelection.Sections,
         };
+        var dependencyStructureSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.DependencyStructure);
+        if (dependencyStructureSelection.Error is not null)
+        {
+            CommandError.Write(
+                dependencyStructureSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                dependencyStructureSelection.Sections,
+        };
         if (!ValidateLibraryMetricsTransport(options))
             return 1;
         if (!ValidateNameFamilyTransport(options))
+            return 1;
+        if (!ValidateDependencyStructureTransport(options))
             return 1;
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
@@ -769,6 +791,7 @@ public partial class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !RequestsLibraryMetricsTransport(options)
             && !RequestsNameFamilyTransport(options)
+            && !RequestsDependencyStructureTransport(options)
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Json,
                 options.IncludeSections))
@@ -1335,6 +1358,16 @@ public partial class LibraryCommand
                     return WriteNameFamilyTransport(inspection, options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
+                if (RequestsDependencyStructureTransport(options))
+                    return WriteDependencyStructureTransport(
+                        inspection,
+                        options);
+                if (RejectUnavailableDependencyStructure(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1683,8 +1716,28 @@ public partial class LibraryCommand
                         inspections[0],
                         options);
                 }
+                if (RequestsDependencyStructureTransport(options))
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Dependency Structure requires one exact "
+                                + "Library.");
+                        return 1;
+                    }
+                    return WriteDependencyStructureTransport(
+                        inspections[0],
+                        options);
+                }
                 if (inspections.Count == 1
                     && RejectUnavailableNameFamilies(
+                        inspections[0],
+                        options))
+                {
+                    return 1;
+                }
+                if (inspections.Count == 1
+                    && RejectUnavailableDependencyStructure(
                         inspections[0],
                         options))
                 {
@@ -1922,6 +1975,16 @@ public partial class LibraryCommand
                     return WriteNameFamilyTransport(inspection, options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
+                if (RequestsDependencyStructureTransport(options))
+                    return WriteDependencyStructureTransport(
+                        inspection,
+                        options);
+                if (RejectUnavailableDependencyStructure(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -2092,6 +2155,15 @@ public partial class LibraryCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return 0;
+
+        if (options.ExactIncludeSections?.Contains(
+                SectionNames.ArrayPoolEscapes) == true
+            && inspections.Any(inspection =>
+                inspection.ResourceTriageQueryResult
+                    is ResourceTriageResult.Incomplete))
+        {
+            return 1;
+        }
 
         return inspections.Any(inspection =>
         {
@@ -4170,8 +4242,9 @@ public partial class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v29: ReadyToRun applicability adds sections and a category door.
-    private const string EffectiveCategory = "effective-v29";
+    // Bumped to v30: Method Classification applicability now uses exact Exists
+    // instead of broad metadata-presence predicates.
+    private const string EffectiveCategory = "effective-v30";
 
     static LibraryCommand()
     {
@@ -4404,6 +4477,8 @@ public partial class LibraryCommand
     internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, bool writeEmptyNote = true)
     {
+        WarnIncompleteResourceTriage(inspections, options);
+
         var emptyResults = inspections
             .Select(inspection => pipeline.GetEmptySections(
                 inspection, options.Verbosity, options.IncludeSections))
@@ -4446,6 +4521,37 @@ public partial class LibraryCommand
             var label = unexplained.Count == 1 ? "section has" : "sections have";
             CommandError.WriteNote(
                 $"{unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
+        }
+    }
+
+    private static void WarnIncompleteResourceTriage(
+        IReadOnlyList<LibraryInspection> inspections,
+        LibraryOptions options)
+    {
+        if (options.ExactIncludeSections?.Contains(
+                SectionNames.ArrayPoolEscapes) != true)
+        {
+            return;
+        }
+
+        foreach (LibraryInspection inspection in inspections)
+        {
+            if (inspection.ResourceTriageQueryResult
+                is not ResourceTriageResult.Incomplete incomplete)
+            {
+                continue;
+            }
+
+            ILInspector.Analysis.ResourceLifecycleLimitation first =
+                incomplete.Limitations[0];
+            string prefix = inspections.Count > 1
+                ? LibraryViewText.DocumentTitle(inspection) + ": "
+                : string.Empty;
+            CommandError.WriteWarning(
+                $"{prefix}{SectionNames.ArrayPoolEscapes} inspection incomplete "
+                + $"({ILInspector.Analysis.AnalysisFindings
+                    .ResourceLifecycleDescriptor.Id}): "
+                + $"{first.Kind}: {first.Detail}");
         }
     }
 
@@ -4510,6 +4616,7 @@ public partial class LibraryCommand
                     StringComparison.OrdinalIgnoreCase)))
             return false;
 
+        WarnIncompleteResourceTriage(inspections, options);
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;
     }

@@ -67,7 +67,7 @@ import {
 } from "./composition-root-test-fixture.ts";
 
 test("qualified Type leverage exposes a cache-bypassing retry", () => {
-  const control = sourceText(functionDeclaration("typeLeverageControl"));
+  const control = sourceText(functionDeclaration("typeLeverageStatus"));
   assert.match(
     control,
     /qualified[\s\S]*data-type-leverage-retry>Retry/,
@@ -82,18 +82,9 @@ test("qualified Type leverage exposes a cache-bypassing retry", () => {
   );
 });
 
-test("Metrics lens requests and presents exhaustive structural salience", () => {
-  const target = sourceText(
-    functionDeclaration("libraryMetricsTypeLeverageTarget"),
-  );
-  const loader = sourceText(
-    functionDeclaration("loadLibraryMetricsTypeLeverage"),
-  );
+test("ordinary Type lists request and present exhaustive structural salience", () => {
   const renderer = sourceText(
     functionDeclaration("renderPackageLibraryMetrics"),
-  );
-  const autoLoad = sourceText(
-    functionDeclaration("maybeAutoLoadPackageLibraryMetrics"),
   );
   const typeAutoLoad = sourceText(
     functionDeclaration("maybeAutoLoadTypeLeverage"),
@@ -101,49 +92,25 @@ test("Metrics lens requests and presents exhaustive structural salience", () => 
   const typePresentation = sourceText(
     functionDeclaration("currentTypeLeveragePresentation"),
   );
-  const metricsPresentation = sourceText(
-    functionDeclaration("currentLibraryMetricsTypeLeveragePresentation"),
+  const status = sourceText(
+    functionDeclaration("typeLeverageStatus"),
   );
 
   assert.match(
-    target,
-    /state\.atLibraryRoot[\s\S]*state\.libraryLens !== "metrics"[\s\S]*createTypeLeverageTarget\("metrics", true\)/,
-  );
-  assert.match(
-    loader,
-    /libraryMetricsTypeLeverageTarget\(\)[\s\S]*typeLeverage\.retry\(target\)[\s\S]*typeLeverage\.request\(target\)/,
-  );
-  assert.match(
-    renderer,
-    /salienceLoading: currentLibraryMetricsTypeLeveragePending\(\)[\s\S]*salience: currentLibraryMetricsTypeLeveragePresentation\(\)[\s\S]*selectedSalienceNamespace: state\.libraryMetricsLeverageNamespace/,
-  );
-  assert.match(
-    autoLoad,
-    /libraryMetricsLeverageKey !== leverageKey[\s\S]*typeLeverage\.presentation\(leverageKey\) === null[\s\S]*!typeLeverage\.pending\(leverageKey\)[\s\S]*loadLibraryMetricsTypeLeverage\(\)/,
-  );
-  assert.match(
     typeAutoLoad,
-    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*typeLeverage\.presentation\(leverageKey\) !== null[\s\S]*typeLeverage\.pending\(leverageKey\)[\s\S]*loadTypeLeverage\(\)/,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*createCurrentTypeLeverageTargets\(\)[\s\S]*typeLeverage\.presentation\(target\.key\) === null[\s\S]*!typeLeverage\.pending\(target\.key\)[\s\S]*loadTypeLeverage\(\)/,
   );
-  for (const presentation of [typePresentation, metricsPresentation]) {
-    assert.match(presentation, /return typeLeverage\.presentation\(key\)/);
-    assert.doesNotMatch(presentation, /state\.\w*Presentation/);
-  }
   assert.match(
-    appSource,
-    /maybeAutoLoadPackageLibraryMetrics\(\);[\s\S]*maybeAutoLoadTypeLeverage\(\)/,
-  );
-  const metricsBindings =
-    appSource.match(/bindLibraryMetricsInteractions\(document, \{[\s\S]*?\n  }\);/)?.[0]
-    ?? "";
-  assert.match(
-    metricsBindings,
-    /selectSalienceNamespace: exactNamespace => \{[\s\S]*state\.libraryMetricsLeverageNamespace = exactNamespace;[\s\S]*render\(\);[\s\S]*retrySalience: \(\) => loadLibraryMetricsTypeLeverage\(true\)/,
+    typePresentation,
+    /typeLeverageTargetFor\(item\)[\s\S]*typeLeverage\.presentation\(target\.key\)/,
   );
   assert.doesNotMatch(
-    metricsBindings.match(/selectSalienceNamespace:[\s\S]*?(?=\n    retrySalience)/)?.[0]
-      ?? "",
-    /loadLibraryMetricsTypeLeverage/,
+    `${status}${typePanelSource}`,
+    /Show structural salience|Hide salience|data-type-leverage-(?:activate|filter)/,
+  );
+  assert.doesNotMatch(
+    renderer,
+    /salience|typeLeverage/i,
   );
 });
 
@@ -172,7 +139,7 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
     ["overview", "call-graph", "source"]);
@@ -183,12 +150,11 @@ test("platform type and member navigation hides package-only operations", () => 
       "call-graph",
       "facts",
       "source",
-      "annotated",
       "compare",
     ]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "compare"]);
 });
 
 test("implementation evidence remains subtle member-list heat", () => {
@@ -230,6 +196,48 @@ test("implementation evidence remains subtle member-list heat", () => {
   assert.match(
     memberNav,
     /overloadHeat: memberNavOverloadHeat,[\s\S]*familyHeatCue: memberNavFamilyHeatCue/);
+});
+
+test("automatic Top Leverage acquisition runs independently of background heat", () => {
+  const render = sourceText(functionDeclaration("render"));
+  assert.match(
+    render,
+    /scheduleTypeHeat\(\);[\s\S]*scheduleTypeMethodLeverage\(\);/);
+  const scheduleLeverage =
+    sourceText(functionDeclaration("scheduleTypeMethodLeverage"));
+  assert.match(
+    scheduleLeverage,
+    /typeMethodLeverage\.request\(target\.request, target\.isCurrent\)/);
+  assert.doesNotMatch(scheduleLeverage, /currentTypeHeatState/);
+  assert.match(
+    appSource,
+    /const typeMethodLeverage = createTypeMethodLeverageCoordinator\(\{[\s\S]*?whenWorkerIdle:\s*\(\) => Promise\.resolve\(\)/);
+  const target = sourceText(
+    functionDeclaration("typeMethodLeverageTarget"));
+  assert.match(
+    target,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*return null/);
+  assert.match(target, /uploadedLibraryIsActive\(\)/);
+  const uploadedLibrary =
+    sourceText(functionDeclaration("uploadedLibraryIsActive"));
+  assert.match(uploadedLibrary, /state\.package\?\.source\.kind === "file"/);
+  assert.doesNotMatch(target, /navMode|methodLeverageEnabled/);
+});
+
+test("Top Leverage decorates source families without filter or history state", () => {
+  const visible = sourceText(functionDeclaration("visibleMemberGroups"));
+  assert.match(
+    visible,
+    /const sourceGroups = selectedMemberGroups\(type\)[\s\S]*return filterMemberGroups\(sourceGroups, memberFilterState\(\)\)/);
+
+  const capture = sourceText(functionDeclaration("captureView"));
+  const apply = sourceText(functionDeclaration("applyView"));
+  const deepLink = sourceText(functionDeclaration("applyDeepLink"));
+  const share = sourceText(
+    functionDeclaration("captureWorkspaceUrlState"));
+  assert.doesNotMatch(
+    `${capture}${apply}${deepLink}${share}${appSource}`,
+    /methodLeverageEnabled|memberLeverageFilter|onMethodLeverageActivate|onMethodLeverageFilterSelect/);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -492,7 +500,7 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
 test("workspace data bar receives package acquisition provenance", () => {
   assert.match(
     appSource,
-    /createPackageAcquisition\(\{[\s\S]*queryPackage:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
+    /createPackageAcquisition\(\{[\s\S]*queryPackageSummary:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
   assert.match(appSource, /packageAcquisition\.loadPackage\(\{/);
   assert.match(appSource, /packageAcquisition\.loadRuntimePack\(/);
   assert.match(appSource, /packageAcquisition\.loadRuntimePackAssembly\(/);
@@ -725,6 +733,11 @@ test("typed package view owns package navigation bindings", () => {
   const kindJump = actionSource("onKindJump");
   const libraryJump = actionSource("onLibraryScopeSelect");
   const namespaceJump = actionSource("onNamespaceJump");
+  const packageChildLibrary =
+    actionSource("onPackageChildLibrarySelect");
+  assert.match(
+    packageChildLibrary,
+    /navigationSequence\.begin\(\)[\s\S]*selectLibrarySubject\(assetId\)/);
   assert.match(
     kindJump,
     /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
@@ -818,13 +831,9 @@ test("typed library controls own library and Platform picker bindings", () => {
     ?? "";
   assert.match(
     libraryControlsSource,
-    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
-  for (const lens of [
-    "integrations",
-    "analysis",
-    "metrics",
-    "metadata",
-  ]) {
+    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+  assert.doesNotMatch(libraryControlsSource, /\[data-access-chip\]/);
+  for (const lens of ["analysis", "metadata"]) {
     assert.match(
       libraryControlsSource,
       new RegExp(`\\[data-platform-${lens}-library\\]`));
@@ -838,9 +847,6 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.doesNotMatch(
     wrapper,
     /\bquerySelector(?:All)?\b|\baddEventListener\b/);
-  assert.match(
-    binding,
-    /onAccessibilityChipSelect: accessibility => \{[\s\S]*toggleAccessibilityChip\(accessibility\);[\s\S]*afterLibraryScopeChange\(\)/);
   assert.match(
     binding,
     /onLibraryChipSelect: library => \{\s*if \(library && selectLibrarySubject\(library\)\) render\(\);/);
@@ -861,30 +867,30 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     appSource,
-    /else if \(lens === "metrics"\) \{\s*loadLibraryMetricsTypeLeverage\(\);\s*await loadPackageLibraryMetrics\(\);\s*}/);
+    /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*state\.analysisMode === "opportunities"[\s\S]*loadPackageLibraryMetrics\(\)/);
   assert.doesNotMatch(
     workspaceBinding,
-    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
+    /\[data-(?:library-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(
     appSource,
     /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
 });
 
-test("type accessibility controls offer an all-access selection", () => {
-  const toggle =
-    appSource.match(/function toggleAccessibilityChip\([\s\S]*?\n}(?=\n\n\/\/ The accessibility selector)/)?.[0]
+test("type accessibility selector offers a single bucket or all", () => {
+  const select =
+    appSource.match(/function selectTypeAccessibility\([\s\S]*?\n}/)?.[0]
     ?? "";
-  const control =
-    appSource.match(/function accessibilityControl\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Options for the namespace picker)/)?.[0]
+  const options =
+    appSource.match(/function typeAccessibilityOptions\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
 
   assert.match(
-    toggle,
-    /if \(!bucket\) \{[\s\S]*new Set\(accessibilityBuckets\(\)\.map\(descriptor => descriptor\.id\)\);[\s\S]*return;/);
+    select,
+    /accessibility\s*\?\s*new Set\(\[accessibility\]\)\s*:\s*new Set\(accessibilityBuckets\(\)\.map\(descriptor => descriptor\.id\)\)/);
   assert.match(
-    control,
-    /const allOn = buckets\.every\([\s\S]*data-access-chip="">all access<\/button>/);
+    options,
+    /value: "",\s*label: "all",\s*count: definitions\.length \+ forwarders\.length/);
 });
 
 test("typed shell controls own workbench, home, and load-error bindings", () => {
@@ -1192,7 +1198,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 7);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 8);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -1260,10 +1266,8 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.doesNotMatch(clearFilters, /focusFilter/);
   assert.match(
     clearFilters,
-    /state\.accessibilityFilter = defaultAccessibilityFilter\(state\.package\)/);
-  assert.match(
-    clearFilters,
-    /state\.typeLeverageFilter = ""/);
+    /setTypeAccessibilityFilter\(\s*defaultAccessibilityFilter\(state\.package\),\s*"exact",\s*\)/);
+  assert.doesNotMatch(clearFilters, /typeLeverageFilter/);
   assert.match(
     clearFilters,
     /renderPreservingMemberFocus\(\)/);
@@ -1291,7 +1295,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /function bindEvents\(\) \{\s*packageControls\.bind\(document\);\s*bindWorkspaceSubjectEvents\(\);\s*bindTypePanelEvents\(\);/);
   assert.match(
     typePanelSource,
-    /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
+    /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-type-kind-filter\][\s\S]*\[data-type-access-filter\][\s\S]*\[data-type-trait-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
   assert.match(
     typePanelSource,
     /\[data-member-kind-filter\][\s\S]*\[data-member-access-filter\][\s\S]*\[data-member-trait-filter\][\s\S]*#clear-member-filter[\s\S]*#member-filter/);
@@ -1346,7 +1350,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameMedia\.matches\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     binding,
-    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(member\)[\s\S]*openOverload\(selector\)[\s\S]*openMemberDocument\(selector\)/);
+    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{\s*openOverload\(selector\);\s*}/);
   assert.doesNotMatch(
     binding,
     /onCopyName|currentInspectedSubjectName/);
@@ -1392,14 +1396,20 @@ test("typed type panel owns its rendered control bindings", () => {
       "#namespace-jump": 0,
     });
 
-    test("structural salience requests one exhaustive Library document", () => {
+    test("structural salience requests one exhaustive document per represented Library", () => {
       const target = sourceText(
         functionDeclaration("createTypeLeverageTarget"),
+      );
+      const targets = sourceText(
+        functionDeclaration("typeLeverageLibraryIds"),
       );
       assert.match(
         target,
         /key: JSON\.stringify\(\[salienceLibraryKey, consumer\]\)/);
       assert.doesNotMatch(target, /requestedNamespaces|namespaceFilter/);
+      assert.match(
+        targets,
+        /aggregateLibrarySubjectIsActive\(\)[\s\S]*pkg\.types[\s\S]*\.map\(libraryKey\)/);
       assert.match(
         appSource,
         /const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__"/);
@@ -1415,9 +1425,7 @@ test("typed type panel owns its rendered control bindings", () => {
       assert.match(
         appSource,
         /function namespaceFilterValue\(exactNamespace: string\): string \{\s*return exactNamespace \|\| GLOBAL_NAMESPACE_FILTER;\s*}/);
-      assert.match(
-        appSource,
-        /typeLeverageMatchesFilter\(undefined, leverageFilter\)[\s\S]*\.filter\(row =>\s*exactNamespace === null \|\| row\.namespace === exactNamespace\)/);
+      assert.doesNotMatch(appSource, /typeLeverageMatchesFilter|typeLeverageFilter/);
     });
   assert.equal(selectorCount("#type-filter"), 1);
   assert.equal(selectorCount("#type-list"), 5);
@@ -1483,11 +1491,11 @@ test("typed scope bar owns its rendered control bindings", () => {
   assert.deepEqual(
     statementSignatures(scope.body.body.slice(1)),
     [
+      "declare:const navigationSeq = navigationSequence.begin()",
       'assign:contentFramePane = "detail"',
       {
         if: 'target === "workspace"',
         whenTrue: [
-          "expression:navigationSequence.begin()",
           "assign:state.workspaceSubjectOpen = true",
           "assign:state.atPackageRoot = true",
           "assign:state.atLibraryRoot = false",
@@ -1517,6 +1525,14 @@ test("typed scope bar owns its rendered control bindings", () => {
                   {
                     if: 'target === "type"',
                     whenTrue: [
+                      {
+                        if: "!selectedType() && packageSurfaceCanLoadTypes(state.package)",
+                        whenTrue: [
+                          "call:observeAsync(enterTypeSubjectFromPackageSummary(state.package, navigationSeq), `Loading ${state.package.id} Type navigation`)",
+                          "statement:ReturnStatement:return;",
+                        ],
+                        whenFalse: [],
+                      },
                       "assign:state.workspaceSubjectOpen = false",
                       "declare:const forwarder = selectedForwarder()",
                       {
@@ -1978,19 +1994,15 @@ test("annotated source owns its rendered control bindings", () => {
 test("annotated source validation failures stay visible at the shell boundary", () => {
   assert.match(
     appSource,
-    /function renderAnnotatedSource\(result: AnnotatedSourceResult\) \{\s*try \{[\s\S]*renderAnnotatedSourcePure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*return renderAnnotatedSourceRejection\(error\)/,
+    /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*return renderAnnotatedSourceRejectionModal\(\s*errorMessage\(error\),\s*escapeHtml,\s*\)/,
+  );
+  assert.match(
+    annotatedSourceModule,
+    /export function renderAnnotatedSourceRejectionModal\([\s\S]*Annotated source document rejected[\s\S]*data-annotated-action="close-modal"/,
   );
   assert.match(
     appSource,
-    /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;[\s\S]*Annotated source document rejected[\s\S]*data-annotated-action="close-modal"/,
-  );
-  assert.match(
-    appSource,
-    /function renderAnnotatedSourceRejection\(error: TypeError\) \{[\s\S]*Annotated source document rejected[\s\S]*escapeHtml\(errorMessage\(error\)\)/,
-  );
-  assert.match(
-    appSource,
-    /function dismissAnnotatedSourceModal\(restoreExploreFocus: boolean\) \{[\s\S]*try \{\s*model = createAnnotatedSourceViewerModel\(state\.memberAnnotated\);\s*\} catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*state\.memberAnnotatedEmbedded = null;\s*state\.memberAnnotatedModal = null;[\s\S]*renderAndFocusAnnotated\("#annotated-source-rejection-title", "embedded"\);[\s\S]*return true;\s*\}[\s\S]*dismissModalSession\(model, state\.memberAnnotatedModal\)/,
+    /function dismissAnnotatedSourceModal\(restoreExploreFocus: boolean\) \{[\s\S]*try \{\s*model = createAnnotatedSourceViewerModel\(state\.memberAnnotated\);\s*\} catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*state\.memberAnnotatedEmbedded = null;\s*state\.memberAnnotatedModal = null;[\s\S]*restoreMemberAnnotatedOriginFocus\(origin\);[\s\S]*return true;\s*\}[\s\S]*dismissModalSession\(model, state\.memberAnnotatedModal\)/,
   );
   assert.match(
     appSource,
@@ -2005,7 +2017,10 @@ test("annotated source validation failures stay visible at the shell boundary", 
 test("annotated source Escape and history ownership track the mounted surface", () => {
   assert.match(
     appSource,
-    /const embeddedAnnotatedSourceDetailContextIsActive = \(\) =>\s*workspaceKeyboardContextIsActive\(\)\s*&& !workbenchOverlayOwnsFocus\(\)\s*&& state\.memberSection === "annotated"\s*&& Boolean\(state\.memberAnnotatedEmbedded\?\.detail\);\s*const annotatedSourceEscapeContextIsActive = \(\) =>\s*annotatedSourceContextIsActive\(\)\s*\|\| embeddedAnnotatedSourceDetailContextIsActive\(\)/);
+    /const annotatedSourceEscapeContextIsActive = \(\) =>\s*annotatedSourceContextIsActive\(\);/);
+  assert.doesNotMatch(
+    appSource,
+    /embeddedAnnotatedSourceDetailContextIsActive/);
 
   const dismiss =
     appSource.match(
@@ -2169,7 +2184,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
+    /async function pickSpotlight\([\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*packageSurfaceCanLoadTypes\(pkg\)[\s\S]*loadPackageSurface\(pkg\)[\s\S]*if \(!pkg \|\| !type\)[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
     /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);

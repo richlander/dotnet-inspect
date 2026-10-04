@@ -2682,6 +2682,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.Evidence.IsDefault);
         Assert.True(
             execution.Safety.WasRequested);
+        Assert.Equal(
+            execution.CallGraph.DeclaredMethods.Length,
+            execution.Safety.UnsafeModes.Total);
         Assert.False(
             execution.Allocations.WasRequested);
         Assert.Empty(
@@ -2747,6 +2750,11 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.Evidence);
         Assert.Empty(
             execution.Safety.Occurrences);
+        Assert.Throws<InvalidOperationException>(
+            () => execution.Safety.UnsafeModes);
+        Assert.IsType<
+            ILInspector.Metadata.MemorySafetyRulesResult.Available>(
+            execution.Safety.MemorySafetyRules);
         Assert.False(
             execution.Allocations.WasRequested);
         Assert.Empty(
@@ -3007,10 +3015,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.ImplementationProfiles
                 .OverloadRelationships,
             index.OverloadRelationships());
-        Assert.True(
-            execution.ImplementationProfiles
-                .GeneratedFrameworkTypes.SetEquals(
-                    index.GeneratedFrameworkTypes));
     }
 
     static ImmutableArray<int> ManagedMethodTokens(
@@ -3259,36 +3263,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
-    public void CompatibilityIndex_DelegatesCallGraphAndLeverageResults()
-    {
-        LibraryBodyAnalysisExecution execution =
-            LibraryBodyAnalysisService.ExecutePath(
-                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence));
-        LibraryBodyIndex index =
-            execution.CompatibilityIndex();
-        int rootToken =
-            execution.CallGraph.Methods[0].MetadataToken;
-
-        Assert.Same(
-            execution.CallGraph,
-            index.CallGraphAnalysis);
-        Assert.Same(
-            execution.Leverage,
-            index.LeverageAnalysis);
-        Assert.Equal(
-            execution.CallGraph.BuildCallTree(rootToken),
-            index.BuildCallTree(rootToken));
-        Assert.Equal(
-            execution.CallGraph.BuildCallerTree(rootToken),
-            index.BuildCallerTree(rootToken));
-        Assert.Equal(
-            execution.Leverage.Top(int.MaxValue),
-            index.TopLeverage(int.MaxValue));
-    }
-
-    [Fact]
     public void JsonWireContracts_PreservesExecutionIdentityWithoutIndex()
     {
         LibraryBodyAnalysisExecution execution =
@@ -3307,9 +3281,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
             result.DirectCalls);
         Assert.False(execution.HasMaterializedCompatibilityIndex);
 
-        LibraryBodyIndex index = execution.CompatibilityIndex();
-
-        Assert.Same(result, index.JsonWireContracts);
     }
 
     [Fact]
@@ -3343,9 +3314,5 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Optimization
                 .AllocationFanoutOpportunities,
             index.AllocationFanoutOpportunities);
-        Assert.True(
-            execution.Optimization
-                .GeneratedFrameworkTypes.SetEquals(
-                    index.GeneratedFrameworkTypes));
     }
 }

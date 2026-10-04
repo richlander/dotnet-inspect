@@ -52,15 +52,38 @@ export interface MemberDocumentationRequest {
   isCurrent(): boolean;
 }
 
-export interface MemberFindingCensusRequest extends MemberCoordinates {
+interface MemberFindingCensusCoordinates {
   signature: string;
   typeIdentity: string;
+  type: string;
+  member: string;
+  memberSignature: string;
   selectorKey: string;
   metadataToken: number;
   taste: string;
   embeddedSession?: boolean;
   isCurrent(): boolean;
 }
+
+export type MemberFindingCensusRequest =
+  & MemberFindingCensusCoordinates
+  & (
+    | {
+      kind: "package";
+      packageId: string;
+      version: string;
+      framework: string;
+      assembly: string;
+    }
+    | {
+      kind: "platform";
+      version: string;
+      framework: string;
+      assembly: string;
+      pack: string;
+      contextId: string | null;
+    }
+  );
 
 export interface MemberFactsRequest extends MemberCoordinates {
   signature: string;

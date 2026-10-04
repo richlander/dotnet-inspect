@@ -94,7 +94,6 @@ public static class LibrarySections
                     AssemblyReferencesQuery.Definition,
                     MethodClassificationDemand.LibraryInfo,
                     CustomAttributesQuery.Definition,
-                    ExtensionMethodsQuery.Definition,
                     ResourcesQuery.Definition,
                     TypeForwardersQuery.Definition,
                 ])
@@ -151,6 +150,9 @@ public static class LibrarySections
                 HasMethodBodies)
             .Add<NameFamilies>(
                 LibraryNameFamilyQuery.Definition)
+            .Add<DependencyStructure>(
+                LibraryDependencyStructureQuery.Definition,
+                HasMethodBodies)
             .Add<BodyShapes>(
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
@@ -407,6 +409,9 @@ public static class LibrarySections
             .Add(
                 LibraryNameFamilyQuery.Definition,
                 ExecuteLibraryNameFamilyQuery)
+            .Add(
+                LibraryDependencyStructureQuery.Definition,
+                ExecuteLibraryDependencyStructureQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
             .Compile();
     }
@@ -444,7 +449,9 @@ public static class LibrarySections
             new Inspector.Findings.FindingSubject(
                 Path.GetFullPath(context.AssemblyPath),
                 Path.GetFileName(context.AssemblyPath)));
-        if (result is ResourceTriageResult.Available)
+        if (result
+            is ResourceTriageResult.Available
+                or ResourceTriageResult.Incomplete)
             _ = context.DrillMap();
         return result;
     }
@@ -641,6 +648,42 @@ public static class LibrarySections
         catch (Exception error)
         {
             return new LibraryNameFamilyQueryResult.Failed(error);
+        }
+    }
+
+    internal static LibraryDependencyStructureQueryResult
+        ExecuteLibraryDependencyStructureQuery(
+            InspectionQueryContext context)
+    {
+        if (context.MetadataContext?.HasMetadata == false)
+        {
+            return new LibraryDependencyStructureQueryResult.Failed(
+                new InvalidOperationException(
+                    "Library Dependency Structure requires managed "
+                        + "metadata."));
+        }
+
+        try
+        {
+            QuerySpaceRequest request =
+                LibraryDependencyStructureQuery.CreateRequest(
+                    LibraryDependencyStructureQuery.NamespaceEdgesRowSet,
+                    context.DependencyStructureRowSelection
+                        ?? RowSelectionIntent<string>.Create([]),
+                    context.CountOnly
+                        ? QuerySpaceTerminalRequirement.Count
+                        : QuerySpaceTerminalRequirement.Rows);
+            return LibraryDependencyStructureInspection.Execute(
+                context.BodyAnalysis(),
+                request);
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            return new LibraryDependencyStructureQueryResult.Failed(error);
         }
     }
 
@@ -1201,6 +1244,20 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => true;
     }
 
+    public sealed class DependencyStructure
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.DependencyStructure;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) =>
+            model.DependencyStructureQueryResult
+                is LibraryDependencyStructureQueryResult.Available;
+    }
+
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.BodyShapes;
@@ -1330,7 +1387,9 @@ public static class LibrarySections
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null
-               && (model.HasPInvokeMethods || model.HasPInvokeImports);
+               && (model.PInvokeMethodPresence
+                   ?? (model.HasPInvokeMethods
+                       || model.HasPInvokeImports));
     }
 
     public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
@@ -1340,8 +1399,10 @@ public static class LibrarySections
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null
-               && (model.HasAsyncMethods
-                   || model.HasRuntimeAsync || model.HasStateMachineAsync);
+               && (model.AsyncMethodPresence
+                   ?? (model.HasAsyncMethods
+                       || model.HasRuntimeAsync
+                       || model.HasStateMachineAsync));
     }
 
     public sealed class Resources : ISectionDescriptor<LibraryInspection>

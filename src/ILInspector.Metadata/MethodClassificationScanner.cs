@@ -64,7 +64,14 @@ public enum MethodClassification
     /// Classic compiler state-machine async method: carries
     /// AsyncStateMachineAttribute or AsyncIteratorStateMachineAttribute.
     /// </summary>
-    StateMachineAsync
+    StateMachineAsync,
+
+    /// <summary>
+    /// A public static extension method declared by a static extension type,
+    /// neither hidden, as <c>ExtensionMethodScanner.FindAllExtensions</c>
+    /// selects it without <c>includeAll</c>.
+    /// </summary>
+    Extension,
 }
 
 /// <summary>

@@ -284,8 +284,8 @@ public class ResearchTargetResolverTests
                 resolved.Target,
                 resolved.Address,
                 resolved.Role,
-                LibraryBodyIndex.Open(
-                    FixtureCatalog.DiffV1.AssemblyPath()).ModuleIdentity,
+                BodyAnalysisTestExecution.Open(
+                    FixtureCatalog.DiffV1.AssemblyPath()).Receipt.ModuleIdentity,
                 resolved.Candidates,
                 resolved.BodyIdentity));
         Rejects(
@@ -1867,7 +1867,7 @@ public class ResearchTargetResolverTests
             typeof(ResearchTargetPlanningRequest),
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
-            typeof(LibraryBodyIndex),
+            typeof(LibraryBodyAnalysisExecution),
             typeof(LibraryCallGraphAnalysisResult),
             typeof(MethodIdentity),
             typeof(TypeRef),
@@ -2550,14 +2550,14 @@ public class ResearchTargetResolverTests
         Guid replacementMvid = Guid.NewGuid();
         ReplaceGuid(selected, selectedMvid, replacementMvid);
         AssemblyReferenceIdentity identity = ReadAssemblyIdentity(selected);
-        LibraryBodyIndex replacementIndex = LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution replacementIndex = BodyAnalysisTestExecution.FromEvidence(
             [],
             [],
             moduleIdentity: new(identity, replacementMvid));
         var occurrence = new ImplementationComparisonInputOccurrence(
             descriptor,
             new NullResolver(),
-            replacementIndex.CallGraphAnalysis);
+            replacementIndex.CallGraph);
         TargetFixture fixture = TargetFixture.Create(
             [(occurrence, null, null)]);
 
@@ -2808,7 +2808,7 @@ public class ResearchTargetResolverTests
         {
         }
 
-        public LibraryBodyIndex BodyIndex => null!;
+        public LibraryBodyAnalysisExecution BodyIndex => null!;
 
         public LibraryCallGraphAnalysisResult CallGraph => null!;
 
@@ -2919,10 +2919,10 @@ public class ResearchTargetResolverTests
         string path,
         Action? onOpen = null)
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(path);
         return new ImplementationComparisonInputOccurrence(
             ResolvedAssemblyReference.Create(
-                index.ModuleIdentity.AssemblyIdentity!,
+                index.Receipt.ModuleIdentity.AssemblyIdentity!,
                 path,
                 () =>
                 {
@@ -2934,7 +2934,7 @@ public class ResearchTargetResolverTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            index.CallGraphAnalysis);
+            index.CallGraph);
     }
 
     static ImplementationComparisonInputOccurrence Occurrence(byte[] image)
@@ -2951,11 +2951,11 @@ public class ResearchTargetResolverTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            LibraryBodyIndex.FromEvidence(
+            BodyAnalysisTestExecution.FromEvidence(
                     [],
                     [],
                     moduleIdentity: new(identity, mvid))
-                .CallGraphAnalysis);
+                .CallGraph);
     }
 
     static AssemblyReferenceIdentity ReadAssemblyIdentity(byte[] image)
@@ -3554,18 +3554,18 @@ public class ResearchTargetResolverTests
     static ImplementationComparisonInputOccurrence SampleWithForeignModule()
     {
         string path = FixtureCatalog.ResearchTargetSample.AssemblyPath();
-        LibraryBodyIndex foreign =
-            LibraryBodyIndex.Open(FixtureCatalog.DiffV1.AssemblyPath());
-        LibraryBodyIndex spoofed = LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution foreign =
+            BodyAnalysisTestExecution.Open(FixtureCatalog.DiffV1.AssemblyPath());
+        LibraryBodyAnalysisExecution spoofed = BodyAnalysisTestExecution.FromEvidence(
             [],
             [],
             moduleIdentity: new(
-                LibraryBodyIndex.Open(path).ModuleIdentity.AssemblyIdentity,
-                foreign.ModuleIdentity.ModuleVersionId));
+                BodyAnalysisTestExecution.Open(path).Receipt.ModuleIdentity.AssemblyIdentity,
+                foreign.Receipt.ModuleIdentity.ModuleVersionId));
         return new ImplementationComparisonInputOccurrence(
-            Descriptor(path, LibraryBodyIndex.Open(path).ModuleIdentity.AssemblyIdentity!),
+            Descriptor(path, BodyAnalysisTestExecution.Open(path).Receipt.ModuleIdentity.AssemblyIdentity!),
             new NullResolver(),
-            spoofed.CallGraphAnalysis);
+            spoofed.CallGraph);
     }
 
     /// <summary>
@@ -3574,7 +3574,7 @@ public class ResearchTargetResolverTests
     static ImplementationComparisonInputOccurrence SampleWithForeignIdentity()
     {
         string path = FixtureCatalog.ResearchTargetSample.AssemblyPath();
-        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(path);
         return new ImplementationComparisonInputOccurrence(
             Descriptor(
                 path,
@@ -3584,7 +3584,7 @@ public class ResearchTargetResolverTests
                     null,
                     null)),
             new NullResolver(),
-            index.CallGraphAnalysis);
+            index.CallGraph);
     }
 
     /// <summary>
@@ -3593,17 +3593,17 @@ public class ResearchTargetResolverTests
     static ImplementationComparisonInputOccurrence SampleWithStandaloneModule()
     {
         string path = FixtureCatalog.ResearchTargetSample.AssemblyPath();
-        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
-        LibraryBodyIndex standalone = LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(path);
+        LibraryBodyAnalysisExecution standalone = BodyAnalysisTestExecution.FromEvidence(
             [],
             [],
             moduleIdentity: new(
                 assemblyIdentity: null,
-                index.ModuleIdentity.ModuleVersionId));
+                index.Receipt.ModuleIdentity.ModuleVersionId));
         return new ImplementationComparisonInputOccurrence(
-            Descriptor(path, index.ModuleIdentity.AssemblyIdentity!),
+            Descriptor(path, index.Receipt.ModuleIdentity.AssemblyIdentity!),
             new NullResolver(),
-            standalone.CallGraphAnalysis);
+            standalone.CallGraph);
     }
 
     /// <summary>
@@ -3612,11 +3612,11 @@ public class ResearchTargetResolverTests
     /// </summary>
     static ImplementationComparisonInputOccurrence Unreadable()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.ResearchTargetSample.AssemblyPath());
         return new ImplementationComparisonInputOccurrence(
             ResolvedAssemblyReference.Create(
-                index.ModuleIdentity.AssemblyIdentity!,
+                index.Receipt.ModuleIdentity.AssemblyIdentity!,
                 path: null,
                 () => throw new IOException(TargetFixture.UnreadableMarker),
                 AssemblyResolutionProvenance.Project(
@@ -3624,16 +3624,16 @@ public class ResearchTargetResolverTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            index.CallGraphAnalysis);
+            index.CallGraph);
     }
 
     static ImplementationComparisonInputOccurrence Malformed()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.ResearchTargetSample.AssemblyPath());
         return new ImplementationComparisonInputOccurrence(
             ResolvedAssemblyReference.Create(
-                index.ModuleIdentity.AssemblyIdentity!,
+                index.Receipt.ModuleIdentity.AssemblyIdentity!,
                 path: null,
                 static () => new MemoryStream([0, 1, 2, 3]),
                 AssemblyResolutionProvenance.Project(
@@ -3641,7 +3641,7 @@ public class ResearchTargetResolverTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            index.CallGraphAnalysis);
+            index.CallGraph);
     }
 
     static ResolvedAssemblyReference Descriptor(
@@ -3769,11 +3769,11 @@ public class ResearchTargetResolverTests
                         tfm: null,
                         rid: null)),
                 new NullResolver(),
-                LibraryBodyIndex.FromEvidence(
+                BodyAnalysisTestExecution.FromEvidence(
                         [],
                         [],
                         moduleIdentity: new(identity, Guid.NewGuid()))
-                    .CallGraphAnalysis);
+                    .CallGraph);
 
         public ResearchCarriedMemberSelection Carried(
             int questionIndex,

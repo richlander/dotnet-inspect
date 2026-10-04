@@ -27,10 +27,12 @@ public sealed record ApiNamespaceDescriptor(
     int Count);
 
 /// <summary>
-/// Selects type-kind facets. Null or empty means the producer-declared defaults.
+/// Selects Type-kind and Type-trait facets. Null or empty Kind selection means the
+/// producer-declared Kind defaults. Null or empty Trait selection means no Trait narrowing.
 /// </summary>
 public sealed record ApiTypeInventoryRequest(
-    IReadOnlyCollection<string>? KindFacetIds = null);
+    IReadOnlyCollection<string>? KindFacetIds = null,
+    IReadOnlyCollection<string>? TraitFacetIds = null);
 
 /// <summary>
 /// Type inventory and the available type-kind facets for its unfiltered input.
@@ -38,6 +40,7 @@ public sealed record ApiTypeInventoryRequest(
 public sealed record ApiTypeInventoryResult(
     IReadOnlyList<ApiType> Types,
     IReadOnlyList<ApiFacetDescriptor> KindFacets,
+    IReadOnlyList<ApiFacetDescriptor> TraitFacets,
     IReadOnlyList<ApiSurfaceInspectionFailure> InspectionFailures);
 
 /// <summary>
@@ -80,6 +83,16 @@ public static class ApiInventoryQuery
         new("api.type-kind.delegate", "delegate", "delegates", 500, true, type => type.Kind == "delegate"),
     ];
 
+    static readonly IReadOnlyList<FacetDefinition<ApiType>> TypeTraitFacets =
+    [
+        new("api.type-trait.abstract", "abstract", "abstract", 100, false,
+            type => type.Kind == "class" && type.IsAbstract && !type.IsStatic),
+        new("api.type-trait.static", "static", "static", 200, false,
+            type => type.IsStatic),
+        new("api.type-trait.object", "object", "objects", 300, false,
+            IsInstantiableType),
+    ];
+
     static readonly IReadOnlyList<FacetDefinition<ApiMember>> MemberKindFacets =
     [
         new("api.member-kind.constructor", "constructor", "constructors", 100, true,
@@ -115,12 +128,33 @@ public static class ApiInventoryQuery
     {
         ArgumentNullException.ThrowIfNull(surface);
 
-        var descriptors = Describe(surface.Types, TypeKindFacets, "type");
-        var selected = SelectIds(request?.KindFacetIds, TypeKindFacets);
+        var kindDescriptors = DescribeExclusive(
+            surface.Types,
+            TypeKindFacets,
+            "type");
+        var traitDescriptors = DescribeOverlapping(
+            surface.Types,
+            TypeTraitFacets);
+        var selectedKinds = SelectIds(
+            request?.KindFacetIds,
+            TypeKindFacets);
+        var selectedTraits = SelectOptionalIds(
+            request?.TraitFacetIds,
+            TypeTraitFacets);
         var types = surface.Types
-            .Where(type => selected.Contains(Classify(type, TypeKindFacets, "type")))
+            .Where(type =>
+                selectedKinds.Contains(
+                    ClassifyExclusive(type, TypeKindFacets, "type"))
+                && (selectedTraits is null
+                    || TypeTraitFacets.Any(definition =>
+                        selectedTraits.Contains(definition.Id)
+                        && definition.Matches(type))))
             .ToList();
-        return new ApiTypeInventoryResult(types, descriptors, [.. surface.InspectionFailures]);
+        return new ApiTypeInventoryResult(
+            types,
+            kindDescriptors,
+            traitDescriptors,
+            [.. surface.InspectionFailures]);
     }
 
     /// <summary>
@@ -151,15 +185,34 @@ public static class ApiInventoryQuery
     {
         ArgumentNullException.ThrowIfNull(type);
 
-        var descriptors = Describe(type.Members, MemberKindFacets, "member");
+        var descriptors = DescribeExclusive(
+            type.Members,
+            MemberKindFacets,
+            "member");
         var selected = SelectIds(request?.KindFacetIds, MemberKindFacets);
         var members = type.Members
-            .Where(member => selected.Contains(Classify(member, MemberKindFacets, "member")))
+            .Where(member => selected.Contains(
+                ClassifyExclusive(member, MemberKindFacets, "member")))
             .ToList();
         return new ApiMemberInventoryResult(members, descriptors);
     }
 
-    static IReadOnlyList<ApiFacetDescriptor> Describe<T>(
+    public static string TypeKindFacetId(ApiType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return ClassifyExclusive(type, TypeKindFacets, "type");
+    }
+
+    public static IReadOnlyList<string> TypeTraitFacetIds(ApiType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return TypeTraitFacets
+            .Where(definition => definition.Matches(type))
+            .Select(definition => definition.Id)
+            .ToList();
+    }
+
+    static IReadOnlyList<ApiFacetDescriptor> DescribeExclusive<T>(
         IReadOnlyList<T> items,
         IReadOnlyList<FacetDefinition<T>> definitions,
         string subject)
@@ -167,7 +220,7 @@ public static class ApiInventoryQuery
         Dictionary<string, int> counts = new(StringComparer.Ordinal);
         foreach (var item in items)
         {
-            var id = Classify(item, definitions, subject);
+            var id = ClassifyExclusive(item, definitions, subject);
             counts[id] = counts.GetValueOrDefault(id) + 1;
         }
 
@@ -182,6 +235,19 @@ public static class ApiInventoryQuery
                 definition.IsDefault))
             .ToList();
     }
+
+    static IReadOnlyList<ApiFacetDescriptor> DescribeOverlapping<T>(
+        IReadOnlyList<T> items,
+        IReadOnlyList<FacetDefinition<T>> definitions) =>
+        definitions
+            .Select(definition => new ApiFacetDescriptor(
+                definition.Id,
+                definition.SingularLabel,
+                definition.PluralLabel,
+                definition.Weight,
+                items.Count(definition.Matches),
+                definition.IsDefault))
+            .ToList();
 
     static HashSet<string> SelectIds<T>(
         IReadOnlyCollection<string>? requested,
@@ -208,7 +274,33 @@ public static class ApiInventoryQuery
         return selected;
     }
 
-    static string Classify<T>(
+    static HashSet<string>? SelectOptionalIds<T>(
+        IReadOnlyCollection<string>? requested,
+        IReadOnlyList<FacetDefinition<T>> definitions)
+    {
+        if (requested is null || requested.Count == 0)
+            return null;
+
+        var known = definitions
+            .Select(definition => definition.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        var selected = requested.ToHashSet(StringComparer.Ordinal);
+        var unknown = selected
+            .Where(id => !known.Contains(id))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        if (unknown.Count > 0)
+        {
+            throw new ArgumentException(
+                $"Unknown facet ID{(unknown.Count == 1 ? "" : "s")}: "
+                    + $"{string.Join(", ", unknown)}.",
+                nameof(requested));
+        }
+
+        return selected;
+    }
+
+    static string ClassifyExclusive<T>(
         T item,
         IReadOnlyList<FacetDefinition<T>> definitions,
         string subject)
@@ -230,6 +322,11 @@ public static class ApiInventoryQuery
             ?? throw new InvalidOperationException(
                 $"The product-owned facet catalog does not classify this {subject}.");
     }
+
+    static bool IsInstantiableType(ApiType type) =>
+        !type.IsStatic
+        && !type.IsAbstract
+        && type.Kind is "class" or "struct" or "enum" or "delegate";
 
     static bool IsConstructor(ApiMember member)
         => member.Kind == "constructor" || IsStaticConstructor(member);

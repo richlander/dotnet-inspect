@@ -819,18 +819,18 @@ public class ResearchFactRegistryTests
         string callerName,
         string calleeName)
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             typeof(ResearchFixture).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.Allocations);
         MethodIdentity caller = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method =>
                 method.DeclaringType.Name
                     == nameof(ResearchFixture)
                 && method.Name == callerName);
         return Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call =>
                 call.Caller.MetadataToken
                     == caller.MetadataToken

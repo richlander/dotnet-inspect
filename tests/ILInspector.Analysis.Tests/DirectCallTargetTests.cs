@@ -132,6 +132,34 @@ public sealed class DirectCallTargetTests
     }
 
     [Fact]
+    public void LiftedLambdaTarget_MapsToDeclaredSourceOnFocusedResult()
+    {
+        LibraryCallGraphAnalysisResult graph = CallGraph();
+        DirectCall load = Assert.Single(
+            graph.DirectCalls,
+            call => call.Caller.Name == "UseLambda"
+                && call.Kind == CallKind.LoadFunction);
+
+        DirectCallTarget.CurrentModule target =
+            Assert.IsType<DirectCallTarget.CurrentModule>(
+                graph.ResolveTarget(load));
+        Assert.NotEqual("Consumer", target.Method.DeclaringType.Name);
+
+        MethodIdentity source = Assert.IsType<MethodIdentity>(
+            graph.ResolveDeclaredMethod(target.Method));
+        Assert.Equal("UseLambda", source.Name);
+        Assert.Equal("Consumer", source.DeclaringType.Name);
+        Assert.Null(graph.ResolveDeclaredMethod(source));
+
+        DirectCall bodyCall = Assert.Single(
+            graph.DirectCalls,
+            call => call.Callee.Name == "Value"
+                && call.EvidenceMethod.MetadataToken
+                    == target.Method.MetadataToken);
+        Assert.Equal(source, bodyCall.Caller);
+    }
+
+    [Fact]
     public void EveryCall_ReceivesExactlyOneTypedTarget()
     {
         LibraryCallGraphAnalysisResult graph = CallGraph();

@@ -42,8 +42,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 source,
                 "-S",
                 "Context: Member",
-                "--tips",
-                "q",
             ]);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
@@ -85,8 +83,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             source,
             "-S",
             "Context: Member",
-            "--tips",
-            "q",
         ];
 
         var first = await RunCommandAsync(args);
@@ -139,8 +135,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source",
                 source,
                 "-v:d",
-                "--tips",
-                "q",
             ]);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
@@ -185,8 +179,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source",
                 source,
                 "-v:d",
-                "--tips",
-                "q",
             ]);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
@@ -236,8 +228,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source",
                 source,
                 "-v:d",
-                "--tips",
-                "q",
             ]);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
@@ -284,8 +274,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 $"{id}@{Version}",
                 "--source",
                 source,
-                "--tips",
-                "q",
             ]);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
@@ -334,8 +322,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source",
                 source,
                 "-v:d",
-                "--tips",
-                "q",
             ]);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");

@@ -645,7 +645,7 @@ public class SlotMaterializationPassTests
         Assert.Contains(decisions, decision => decision.Slot == 3
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.MissingStore));
         Assert.Contains(decisions, decision => decision.Slot == 4
-            && decision.Vetoes.HasFlag(SlotMaterializationVeto.OutsideCoercionDomain));
+            && decision.WillMaterialize);
         Assert.Contains(decisions, decision => decision.Slot == 5
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType));
     }

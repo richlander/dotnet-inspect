@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using InertText;
 
 namespace DotnetInspector.Sections;
@@ -10,6 +11,13 @@ namespace DotnetInspector.Sections;
 public enum MemberGroupCategory
 {
     Method,
+    Constructor,
+    Operator,
+    Finalizer,
+    ExplicitInterfaceImplementation,
+    Property,
+    Field,
+    Event,
 }
 
 public enum MemberGroupRole
@@ -22,6 +30,15 @@ public enum MemberReceiver
     Static,
     This,
     Extension,
+}
+
+[Flags]
+public enum MemberGroupReceiverForms
+{
+    None = 0,
+    Static = 1,
+    This = 2,
+    Extension = 4,
 }
 
 public enum MemberOverloadAccessibilityFilter
@@ -272,6 +289,12 @@ public sealed record MemberOverloadPopulationInspectionPlan
     {
         Subject = subject
             ?? throw new ArgumentNullException(nameof(subject));
+        if (Subject.Category is not MemberGroupCategory.Method)
+        {
+            throw new ArgumentException(
+                "The exact-overload population currently supports method groups only.",
+                nameof(subject));
+        }
         Overloads = overloads
             ?? throw new ArgumentNullException(nameof(overloads));
         Bounds = bounds
@@ -332,6 +355,7 @@ public abstract record MemberOverloadCountOutcome
 
 public sealed record MemberOverloadShape(
     int MetadataToken,
+    MemberAnchor Anchor,
     int BaselineOrdinal,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString DisplaySignature,

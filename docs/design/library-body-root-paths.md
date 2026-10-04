@@ -191,8 +191,10 @@ This Analysis result is an internal owner-issued input to that composition, not
 a host result by itself.
 
 Annotated Source is a second production consumer. It supplies the selected
-physical MethodDef as the only root, supplies exact same-index MethodDefs with
-proven local throws as destinations, and joins returned first-edge physical
-receipts to the existing `call.edge` Findings. Research Queries owns that join,
-its local-throw completeness state, and Browser/Wasm transport. Analysis still
-does not claim exception propagation or runtime execution.
+physical MethodDef as the only root, supplies exact same-execution MethodDefs
+with proven local throws from that execution's
+`LibraryLocalThrowAnalysisResult` as destinations, and joins returned
+first-edge physical receipts to the existing `call.edge` Findings. Research
+Queries owns that join, its local-throw completeness state, and Browser/Wasm
+transport. Analysis still does not claim exception propagation or runtime
+execution.

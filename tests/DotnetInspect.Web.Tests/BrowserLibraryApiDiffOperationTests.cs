@@ -414,6 +414,130 @@ public sealed class BrowserLibraryApiDiffOperationTests
             diagnostic => diagnostic.Code == "diff-analysis.unavailable");
     }
 
+    [Fact]
+    public async Task StringLiteralSelectionExecutesSharedBrowserComparison()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Analyses = ["string-literals"],
+            Views = BrowserDiffAnalysisViews.Transitions,
+            Predicate = new(
+                "Literal",
+                BrowserDiffAnalysisPredicateOperator.Contains,
+                "https://"),
+        };
+
+        BrowserLibraryApiDiffResult result =
+            await fixture.Query(request);
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        JsonElement content = result.Inspection!.Content;
+        JsonElement predicate = Assert.Single(
+            content
+                .GetProperty("comparison")
+                .GetProperty("predicates")
+                .EnumerateArray());
+        Assert.Equal("Literal", predicate.GetProperty("key").GetString());
+        Assert.Equal(
+            "contains",
+            predicate.GetProperty("operator").GetString());
+        Assert.Equal(
+            "https://",
+            predicate.GetProperty("value").GetString());
+        JsonElement[] transitions =
+        [
+            .. content.GetProperty("transitions").EnumerateArray(),
+        ];
+        Assert.Contains(
+            transitions,
+            row => row.GetProperty("old").GetString()
+                == "https://old.example and https://shared.example");
+        Assert.Contains(
+            transitions,
+            row => row.GetProperty("new").GetString()
+                == "https://new.example and https://shared.example");
+        Assert.Contains(
+            transitions,
+            row => row.GetProperty("old").GetString()
+                    == "prefix https://embedded.example"
+                && row.GetProperty("new").GetString()
+                    == "prefix https://embedded.example");
+    }
+
+    [Fact]
+    public async Task StringLiteralStartsWithExcludesEmbeddedOnlyLiteral()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Analyses = ["string-literals"],
+            Views = BrowserDiffAnalysisViews.Transitions,
+            Predicate = new(
+                "Literal",
+                BrowserDiffAnalysisPredicateOperator.StartsWith,
+                "https://"),
+        };
+
+        BrowserLibraryApiDiffResult result =
+            await fixture.Query(request);
+
+        JsonElement[] transitions =
+        [
+            .. result.Inspection!.Content
+                .GetProperty("transitions")
+                .EnumerateArray(),
+        ];
+        Assert.DoesNotContain(
+            transitions,
+            row => row.GetProperty("old").GetString()
+                    == "prefix https://embedded.example"
+                || row.GetProperty("new").GetString()
+                    == "prefix https://embedded.example");
+    }
+
+    [Fact]
+    public async Task StringLiteralPredicateRejectsBeforePackageAcquisition()
+    {
+        BrowserLibraryApiDiffRequest request =
+            Request("Unregistered.Predicate.Package") with
+            {
+                Analyses = ["string-literals"],
+                Views = BrowserDiffAnalysisViews.Transitions,
+                Predicate = new(
+                    "literal",
+                    BrowserDiffAnalysisPredicateOperator.Contains,
+                    "https://"),
+            };
+
+        string requestJson = JsonSerializer.Serialize(
+            request,
+            BrowserMetadataJsonContext.Default
+                .BrowserLibraryApiDiffRequest);
+        string resultJson = await MetadataExports.QueryLibraryApiDiff(
+            Guid.NewGuid().ToString(),
+            requestJson);
+        BrowserLibraryApiDiffResult result =
+            JsonSerializer.Deserialize(
+                resultJson,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffResult)!;
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Failed,
+            result.Kind);
+        Assert.Contains(
+            "exact predicate key 'Literal'",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not registered",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("unknown-analysis")]
     [InlineData("allocation")]
@@ -860,6 +984,72 @@ public sealed class BrowserLibraryApiDiffOperationTests
             result.Rejected!.Kind);
         Assert.Null(result.Value);
         Assert.NotNull(result.Inspection);
+    }
+
+    [Theory]
+    [InlineData("property", ApiMemberAnchorKind.Property)]
+    [InlineData("field", ApiMemberAnchorKind.Field)]
+    [InlineData("event", ApiMemberAnchorKind.Event)]
+    public void MembersWithoutATextModeDoNotReceiveExploreDestinations(
+        string memberKind,
+        ApiMemberAnchorKind anchorKind)
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(
+                    memberCount: 1,
+                    memberKind: memberKind,
+                    anchorKind: anchorKind),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffMember member = Assert.Single(
+            Assert.Single(result.Value!.Types).Members);
+        Assert.Null(member.Explore);
+    }
+
+    [Theory]
+    [InlineData("method")]
+    [InlineData("constructor")]
+    [InlineData("operator")]
+    [InlineData("finalizer")]
+    [InlineData("explicit-interface-implementation")]
+    [InlineData("extension-method")]
+    public void MethodAnchorsReceiveExploreDestinations(string memberKind)
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(
+                    memberCount: 1,
+                    memberKind: memberKind),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffMember member = Assert.Single(
+            Assert.Single(result.Value!.Types).Members);
+        Assert.NotNull(member.Explore);
+    }
+
+    [Fact]
+    public void EveryPresentEndpointMustHaveAMethodAnchor()
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(
+                    memberCount: 1,
+                    memberKind: "operator",
+                    anchorKind: ApiMemberAnchorKind.Method,
+                    afterMemberKind: "property",
+                    afterAnchorKind: ApiMemberAnchorKind.Property),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffMember member = Assert.Single(
+            Assert.Single(result.Value!.Types).Members);
+        Assert.Null(member.Explore);
     }
 
     [Fact]
@@ -1506,7 +1696,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
 
     static InspectionEnvelope<DiffAnalysisDocument> AvailableWithMembers(
         int memberCount,
-        string? memberDisplay = null)
+        string? memberDisplay = null,
+        string memberKind = "method",
+        ApiMemberAnchorKind anchorKind = ApiMemberAnchorKind.Method,
+        string? afterMemberKind = null,
+        ApiMemberAnchorKind? afterAnchorKind = null)
     {
         AssemblyReferenceIdentity identity = AssemblyIdentity();
         var endpoint = new LibraryApiDiffEndpointSummary(
@@ -1531,16 +1725,24 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     MemberAnchor.ComputeFingerprint(canonicalSignature),
                     typeIdentity.Identifier,
                     memberName);
-                var memberIdentity = new LibraryApiMemberIdentity(
+                var beforeIdentity = new LibraryApiMemberIdentity(
                     typeIdentity,
                     anchor,
+                    anchorKind,
+                    memberKind,
+                    memberDisplay ?? memberName);
+                var afterIdentity = new LibraryApiMemberIdentity(
+                    typeIdentity,
+                    anchor,
+                    afterAnchorKind ?? anchorKind,
+                    afterMemberKind ?? memberKind,
                     memberDisplay ?? memberName);
                 return new LibraryApiMemberDiff(
                     new LibraryApiMemberRelation(
                         $"member-relation:{index}",
                         LibraryApiMemberPairKind.Changed,
-                        memberIdentity,
-                        memberIdentity,
+                        beforeIdentity,
+                        afterIdentity,
                         Match: null),
                     LibraryApiMemberRelationRole.Both);
             }),

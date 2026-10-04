@@ -182,7 +182,8 @@ public static class WorkspaceSharePacketTransposer
             memberAnchor: canonical.MemberAnchor,
             memberSignature: canonical.MemberSignature,
             section: canonical.Section,
-            libraries: canonical.Libraries);
+            libraries: canonical.Libraries,
+            sourceView: canonical.SourceView);
 
         var scenario = new ScenarioDefinition(
             InspectionDefinitionSchema.Version1,
@@ -985,7 +986,8 @@ public static class WorkspaceSharePacketTransposer
             view.MemberAnchor,
             view.MemberSignature,
             view.Section,
-            libraries);
+            libraries,
+            view.SourceView);
 
         if (!canonicalizeFormat1)
             return WorkspaceSharePacketProjectionResult.Success(packet);

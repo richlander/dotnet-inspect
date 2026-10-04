@@ -468,9 +468,12 @@ function declarationRequest(
 }
 
 function findingCensusRequest(
-  overrides: Partial<MemberFindingCensusRequest> = {},
+  overrides: Partial<
+    Extract<MemberFindingCensusRequest, { kind: "package" }>
+  > = {},
 ): MemberFindingCensusRequest {
   return {
+    kind: "package",
     signature: "annotated",
     packageId: "Example.Package",
     version: "1.2.3",

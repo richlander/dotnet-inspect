@@ -1,4 +1,4 @@
-using DotnetInspector.Vocabulary;
+using DotnetInspector.Sections;
 using Markout;
 
 namespace DotnetInspect.Cli.Views;

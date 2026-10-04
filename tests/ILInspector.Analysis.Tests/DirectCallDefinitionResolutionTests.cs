@@ -19,7 +19,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
     [Fact]
     public void ArrayPoolCallsResolveTheirExactFrameworkDefinitions()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             OwnershipFixturePath,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         ResolvedAssemblyReference assembly =
@@ -28,7 +28,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 AssemblyResolutionProvenance.Local(
                     "direct-call definition test"));
         var participant =
-            new CatalogCallGraphParticipant(index, assembly);
+            new CatalogCallGraphParticipant(index.CallGraph, assembly);
         var policy = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(
                 OwnershipFixturePath));
@@ -42,7 +42,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     cancellationToken:
                         TestContext.Current.CancellationToken));
 
-        Assert.Equal(index.DirectCalls.Length, completed.Results.Length);
+        Assert.Equal(index.CallGraph.DirectCalls.Length, completed.Results.Length);
         string frameworkAssembly =
             typeof(System.Buffers.ArrayPool<>)
                 .Assembly.GetName().Name!;
@@ -235,7 +235,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             ClassicAsyncFixtures
                 .ClassicGenericMethodSelfSiblingFixture)
             .Assembly.Location;
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         ResolvedAssemblyReference assembly =
@@ -249,7 +249,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 DirectCallDefinitionResolver.Resolve(
                     new AssemblyDependencyResolver(
                         new AssemblyDependencyResolutionOptions(path)),
-                    [new CatalogCallGraphParticipant(index, assembly)],
+                    [new CatalogCallGraphParticipant(index.CallGraph, assembly)],
                     cancellationToken:
                         TestContext.Current.CancellationToken));
 
@@ -1475,8 +1475,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
                             TestContext.Current.CancellationToken))
                 .Kind);
 
-        LibraryBodyIndex noEvidence =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution noEvidence =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "no-evidence.dll",
                 ImmutableArray.CreateRange(first.Image),
                 LibraryBodyAnalysisFeatures.None);
@@ -1486,7 +1486,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 DirectCallDefinitionResolutionOutcome.Rejected>(
                     DirectCallDefinitionResolver.Resolve(
                         first.Policy,
-                        [new(noEvidence, first.Participant.Assembly)],
+                        [new(noEvidence.CallGraph, first.Participant.Assembly)],
                         cancellationToken:
                             TestContext.Current.CancellationToken))
                 .Kind);
@@ -1541,13 +1541,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 () => new MemoryStream(first.Image, writable: false),
                 AssemblyResolutionProvenance.Local(
                     "second direct-call acquisition"))!;
-        LibraryBodyIndex secondIndex =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution secondIndex =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "RepeatedPhysicalImage-second.dll",
                 ImmutableArray.CreateRange(first.Image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         var second = new CatalogCallGraphParticipant(
-            secondIndex,
+            secondIndex.CallGraph,
             secondAssembly);
 
         DirectCallDefinitionResolutionOutcome.Completed completed =
@@ -1590,7 +1590,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
         ResolveOwnershipFixture(
             DirectCallDefinitionResolutionLimits? limits = null)
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             OwnershipFixturePath,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         ResolvedAssemblyReference assembly =
@@ -1604,7 +1604,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     new AssemblyDependencyResolver(
                         new AssemblyDependencyResolutionOptions(
                             OwnershipFixturePath)),
-                    [new CatalogCallGraphParticipant(index, assembly)],
+                    [new CatalogCallGraphParticipant(index.CallGraph, assembly)],
                     limits,
                     cancellationToken:
                         TestContext.Current.CancellationToken));
@@ -1614,8 +1614,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
         ResolveOwnershipFixture(ImmutableArray<byte> image)
     {
         byte[] bytes = image.ToArray();
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "MalformedOwnershipFlowFixtures.dll",
                 image,
                 LibraryBodyAnalysisFeatures.MethodEvidence);
@@ -1630,7 +1630,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     new AssemblyDependencyResolver(
                         new AssemblyDependencyResolutionOptions(
                             OwnershipFixturePath)),
-                    [new CatalogCallGraphParticipant(index, assembly)],
+                    [new CatalogCallGraphParticipant(index.CallGraph, assembly)],
                     cancellationToken:
                         TestContext.Current.CancellationToken));
     }
@@ -1907,13 +1907,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     writable: false),
                 AssemblyResolutionProvenance.Local(
                     "external direct-call caller"))!;
-        LibraryBodyIndex bodyIndex =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution bodyIndex =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 CallerAssemblyName + ".dll",
                 ImmutableArray.CreateRange(callerImage),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         var participant =
-            new CatalogCallGraphParticipant(bodyIndex, callerAssembly);
+            new CatalogCallGraphParticipant(bodyIndex.CallGraph, callerAssembly);
         return new(
             targetImage,
             targetAssembly,
@@ -2287,8 +2287,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local(
                     "synthetic direct-call definition test"))!;
-        LibraryBodyIndex bodyIndex =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution bodyIndex =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 options.AssemblyName + ".dll",
                 ImmutableArray.CreateRange(image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
@@ -2296,7 +2296,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             [assembly, CoreLibraryAssembly]);
         return new SyntheticParticipant(
             image,
-            new CatalogCallGraphParticipant(bodyIndex, assembly),
+            new CatalogCallGraphParticipant(bodyIndex.CallGraph, assembly),
             policy);
     }
 
@@ -2843,14 +2843,14 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local(
                     "interface direct-call definition test"))!;
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 assemblyName + ".dll",
                 ImmutableArray.CreateRange(image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         return new SyntheticParticipant(
             image,
-            new CatalogCallGraphParticipant(index, assembly),
+            new CatalogCallGraphParticipant(index.CallGraph, assembly),
             new ExactPolicy([assembly, CoreLibraryAssembly]));
     }
 
@@ -2967,15 +2967,15 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local(
                     "version-split interface caller"))!;
-        LibraryBodyIndex bodyIndex =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution bodyIndex =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 assemblyName + ".dll",
                 ImmutableArray.CreateRange(image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         return new(
             image,
             new CatalogCallGraphParticipant(
-                bodyIndex,
+                bodyIndex.CallGraph,
                 assembly),
             new ExactPolicy(
                 [

@@ -382,6 +382,8 @@ public sealed record BrowserTypeSurface(
     string DisplayName,
     string Namespace,
     string Kind,
+    string KindFacetId,
+    string[] TraitFacetIds,
     string Accessibility,
     string AccessibilityId,
     string Assembly,

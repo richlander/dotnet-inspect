@@ -919,10 +919,28 @@ public static class NavigationWorkspaceSnapshotEvaluation
         NavigationPackageEvaluation? package,
         ViewFacetRegistry registry,
         NavigationFacetAvailabilityProvider availability,
-        NavigationNonReadyPackageEvaluation? nonReadyPackage = null)
+        NavigationNonReadyPackageEvaluation? nonReadyPackage = null,
+        NavigationEcosystemEvaluation? ecosystem = null)
     {
         if (scope.Revision.Workspace != source.Workspace.Identity)
             throw new ArgumentException("Refresh requires the exact Workspace.", nameof(scope));
+        if (ecosystem is not null
+            && (package is not null || nonReadyPackage is not null))
+        {
+            throw new ArgumentException(
+                "Ecosystem refresh cannot be combined with ready or "
+                    + "non-ready Package facts.",
+                nameof(ecosystem));
+        }
+        if (ecosystem is not null
+            && !ReferenceEquals(
+                ecosystem.Occurrence.WorkspaceIdentity,
+                source.Workspace.Identity))
+        {
+            throw new ArgumentException(
+                "Ecosystem refresh requires the exact Workspace.",
+                nameof(ecosystem));
+        }
         if (nonReadyPackage is not null)
         {
             if (package is not null)
@@ -937,6 +955,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
             {
                 Scope = scope,
                 Package = package,
+                Ecosystem = ecosystem,
                 ActiveSubject = source.Workspace,
             },
             registry,
@@ -944,6 +963,13 @@ public static class NavigationWorkspaceSnapshotEvaluation
         NavigationRetainedSubjectContext? prior = source.RetainedContext;
         NavigationRetainedSubjectContext? context = fresh.RetainedContext;
         StructuralSubjectIdentity active = fresh.Workspace;
+        if (source.ActiveSubject
+                is StructuralSubjectIdentity.EcosystemSubject
+                    activeEcosystem
+            && fresh.Ecosystem == activeEcosystem)
+        {
+            active = fresh.Ecosystem;
+        }
         if (prior is not null && context?.Package == prior.Package)
         {
             NavigationTypeInventoryOutcome? retainedInventory =

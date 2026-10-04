@@ -34,17 +34,15 @@ public class FindOptionsParserTests
         });
 
     [Theory]
-    [InlineData("aspire", "Invalid ecosystem")]
-    [InlineData("ecosystem.Aspire", "Invalid ecosystem")]
     [InlineData("ecosystem.missing", "Unknown ecosystem")]
-    public async Task Ecosystem_RejectsNonCanonicalOrUnknownIds(
+    [InlineData("list", "Unknown ecosystem")]
+    public async Task Ecosystem_RejectsUnknownIds(
         string ecosystem,
         string expectedError)
     {
         var result = await Run(
             "find", "System.Object",
             "--ecosystem", ecosystem,
-            "--platform", "System.Runtime",
             "--tfm", "net10.0");
 
         Assert.Equal(1, result.ExitCode);
@@ -60,8 +58,7 @@ public class FindOptionsParserTests
         var result = await Run(
             "find", "System.Object",
             "--ecosystem", "ecosystem.aspire",
-            "--ecosystem", "ecosystem.aspire",
-            "--platform", "System.Runtime",
+            "--ecosystem", "ASPIRE",
             "--tfm", "net10.0");
 
         Assert.Equal(1, result.ExitCode);
@@ -69,6 +66,60 @@ public class FindOptionsParserTests
             "cannot be selected more than once",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("aspire")]
+    [InlineData("ECOSYSTEM.ASPIRE")]
+    public async Task Ecosystem_AcceptsShortAndCaseInsensitiveNames(string value)
+    {
+        var result = await Run("find", "AddProject", "--ecosystem", value, "-D");
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Unknown ecosystem", result.Error);
+    }
+
+    [Theory]
+    [InlineData("ai,blazor")]
+    [InlineData("AI,BlAzOr")]
+    [InlineData("all")]
+    public async Task Ecosystem_AcceptsCommaSeparatedSelections(string value)
+    {
+        var result = await Run("find", "AddProject", "--ecosystem", value, "-D");
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Unknown ecosystem", result.Error);
+    }
+
+    [Fact]
+    public async Task Ecosystem_RejectsCompositionWithPackage()
+    {
+        var result = await Run(
+            "find", "JsonSerializer", "--ecosystem", "aspire",
+            "--package", "System.Text.Json");
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("cannot be combined", result.Error);
+    }
+
+    [Fact]
+    public void Ecosystem_DisablesImplicitPlatform()
+    {
+        Assert.False(new FindOptions { Ecosystems = [EcosystemPackIds.Aspire] }
+            .UsesImplicitPlatform);
+    }
+
+    [Fact]
+    public void Ecosystem_EmptyNamedPopulationFailsBeforeAcquisition()
+    {
+        var id = EcosystemPackIds.MicrosoftExtensions;
+        var known = Assert.IsType<
+            EcosystemWorkspaceRegistrationSelectionResult.Known>(
+                EcosystemPackCatalog.SelectWorkspaceRegistration(id));
+        InvalidOperationException error = Assert.Throws<
+            InvalidOperationException>(() =>
+                FindCommand.EnsureNamedPopulations(
+                    [id], [(id, known.Declaration, false)]));
+        Assert.Contains("ecosystem.microsoft-extensions", error.Message);
+        Assert.Contains(
+            "--package-prefix Microsoft.Extensions.", error.Message);
     }
 
     [Fact]

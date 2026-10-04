@@ -7,8 +7,10 @@ Focused component design proposal for
 It defines the intended replacement for the semantic-selection portion of the
 existing umbrella design. The
 [composition map](item-and-line-limits.md#composition) adopts this component
-and retires the umbrella assignment. The implementation lives in
-`src/QuerySpace` under the `QuerySpace.Rows` namespace.
+and retires the umbrella assignment. The implementation lives under the
+`QuerySpace.Rows` namespace: intents, identities, and the stage-kind
+vocabulary in `src/QuerySpace.Primitives`, and plans, stages, evaluators, and
+results in `src/QuerySpace`.
 [QuerySpace Library Boundary](query-space-library.md) owns that physical and
 namespace composition without changing this component's semantics.
 

@@ -107,6 +107,53 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void TfmWideQueryRetainsOneExactTarget()
+    {
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("NET10.0", "linux-x64");
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery.TfmFilesWithFileList(
+                target,
+                ["ref/net10.0/Contoso.Json.dll"]);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            targetContext: target,
+            contentQuery: query);
+
+        var narrowing =
+            Assert.IsType<PackageHouseContentNarrowing.TfmWide>(
+                query.Narrowing);
+        Assert.Same(target, narrowing.Target);
+        Assert.Same(target, request.TargetContext);
+        Assert.Equal("net10.0", target.RequestedFramework);
+        Assert.Equal("linux-x64", target.RuntimeIdentifier);
+        Assert.IsType<PackageHouseContentTerminal.Files>(
+            query.Terminals[0]);
+        Assert.IsType<PackageHouseContentTerminal.FileList>(
+            query.Terminals[1]);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentNarrowing.TfmWide(
+                PackageHouseTargetContext.OwnerDefault()));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                targetContext:
+                    PackageHouseTargetContext.Exact("net10.0", "linux-x64"),
+                contentQuery: query));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                contentQuery: query));
+    }
+
+    [Fact]
     public void FrameworkReferenceDemandRequiresCompileRealization()
     {
         var demand = new PackageHouseDemand.Exact(Coordinate);

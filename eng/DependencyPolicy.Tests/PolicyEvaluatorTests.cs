@@ -633,6 +633,7 @@ public sealed class PolicyEvaluatorTests
     [Theory]
     [InlineData("Inspector.Resources")]
     [InlineData("TsJsExport.Contracts")]
+    [InlineData("QuerySpace.Primitives")]
     public void CheckedInPolicyTreatsContractFloorAsDependencyFree(
         string contractFloor)
     {
@@ -793,6 +794,38 @@ public sealed class PolicyEvaluatorTests
             "nuget-fetch-stays-independent",
             "NuGetFetch",
             "DotnetInspector.Packages");
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsVocabularyAtItsOwnerCatalogs()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == "vocabulary-dependencies");
+        Assert.Equal(
+            [
+                DependencyGraphKind.Project,
+                DependencyGraphKind.Assembly,
+            ],
+            rule.Graphs);
+        Assert.NotNull(rule.AllowOnly);
+        Assert.Equal(
+            [
+                "$platform",
+                "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
+                "ILInspector.Decompiler",
+                "QuerySpace.Primitives",
+            ],
+            rule.AllowOnly);
+
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "vocabulary-dependencies",
+            "DotnetInspector.Vocabulary",
+            "QuerySpace");
     }
 
     [Fact]
@@ -988,6 +1021,7 @@ public sealed class PolicyEvaluatorTests
                 "Inspector.Findings",
                 "Inspector.Text",
                 "QuerySpace",
+                "QuerySpace.Primitives",
             ],
             allowOnly);
         Assert.Null(rule.Deny);
@@ -1079,6 +1113,7 @@ public sealed class PolicyEvaluatorTests
                 "NuGet.Versioning",
                 "NuGetFetch",
                 "QuerySpace",
+                "QuerySpace.Primitives",
                 "System.CommandLine",
             ],
             allowOnly);

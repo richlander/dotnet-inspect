@@ -18,6 +18,8 @@ export type AuthoredDocumentationUnavailableReason = number;
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserDiffAnalysisPredicateOperator = "Contains" | "StartsWith" | number;
+
 export type BrowserDiffAnalysisSurface = "Member" | "Type" | "Library" | number;
 
 export type BrowserDiffAnalysisViews = string | number;
@@ -146,6 +148,12 @@ export interface BrowserCompileLibraryAvailability {
   readonly status: BrowserCompileLibraryStatus;
   readonly targetFramework: string | null;
   readonly message: string | null;
+}
+
+export interface BrowserDiffAnalysisPredicate {
+  readonly key: string;
+  readonly operator: BrowserDiffAnalysisPredicateOperator;
+  readonly value: string;
 }
 
 export interface BrowserExceptionSurface {
@@ -317,6 +325,7 @@ export interface BrowserLibraryApiDiffRequest {
   readonly views: BrowserDiffAnalysisViews;
   readonly typeNames: ReadonlyArray<string>;
   readonly memberTargetIdentities: ReadonlyArray<string>;
+  readonly predicate: BrowserDiffAnalysisPredicate | null;
 }
 
 export interface BrowserLibraryApiDiffResult {
@@ -704,6 +713,8 @@ export interface BrowserTypeSurface {
   readonly displayName: string;
   readonly namespace: string;
   readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
   readonly accessibility: string;
   readonly accessibilityId: string;
   readonly assembly: string;

@@ -20,6 +20,15 @@ internal sealed class HistoryTagAttribute(string value) : System.Attribute
     public string Value { get; } = value;
 }
 
+internal static class LiteralTransitions
+{
+    public static string Endpoint() =>
+        "https://new.example and https://shared.example";
+
+    public static string Embedded() =>
+        "prefix https://embedded.example";
+}
+
 public class HardChangedType
 {
     public int First() => 1;

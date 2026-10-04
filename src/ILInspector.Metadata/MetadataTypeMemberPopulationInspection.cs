@@ -96,7 +96,7 @@ public static class MetadataTypeMemberPopulationInspection
         ArgumentNullException.ThrowIfNull(bounds);
 
         ApiSurfaceExtractionResult extraction =
-            session.BoundedApiSurface(
+            session.BoundedCompatibilityApiSurface(
                 ApiSurfaceExtractionScope.IncludeAll,
                 bounds);
         if (extraction is ApiSurfaceExtractionResult.Exceeded exceeded)

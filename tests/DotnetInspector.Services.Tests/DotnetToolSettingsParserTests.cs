@@ -23,6 +23,11 @@ public class DotnetToolSettingsParserTests
         Assert.Equal("2", settings!.Version);
         Assert.True(settings.IsRidSpecificPointerPackage);
         Assert.Equal(["mytool"], settings.Commands);
+        DotnetToolCommand command =
+            Assert.Single(settings.CommandEntries!);
+        Assert.Equal("mytool", command.Name);
+        Assert.Equal("mytool.dll", command.EntryPoint);
+        Assert.Equal("dotnet", command.Runner);
         Assert.NotNull(settings.RuntimeIdentifierPackages);
         Assert.Collection(settings.RuntimeIdentifierPackages!,
             r => { Assert.Equal("win-x64", r.RuntimeIdentifier); Assert.Equal("MyTool.win-x64", r.PackageId); },
@@ -46,6 +51,9 @@ public class DotnetToolSettingsParserTests
         Assert.Equal("1", settings!.Version);
         Assert.False(settings.IsRidSpecificPointerPackage);
         Assert.Equal(["portabletool"], settings.Commands);
+        Assert.Equal(
+            "portabletool.dll",
+            Assert.Single(settings.CommandEntries!).EntryPoint);
         Assert.Null(settings.RuntimeIdentifierPackages);
     }
 
@@ -88,6 +96,65 @@ public class DotnetToolSettingsParserTests
     public void ParseContent_MalformedXml_ReturnsNullWithoutThrowing()
     {
         Assert.Null(DotnetToolSettingsParser.ParseContent("<DotNetCliTool Version=\"2\"><Commands>"));
+    }
+
+    [Theory]
+    [InlineData("", "Tool.Package")]
+    [InlineData(" ", "Tool.Package")]
+    [InlineData("linux-x64", "")]
+    [InlineData("linux-x64", " ")]
+    public void ParseContent_Version2RejectsEmptyRidPackageFields(
+        string runtimeIdentifier,
+        string packageId)
+    {
+        Assert.Null(
+            DotnetToolSettingsParser.ParseContent(
+                $"""
+                <DotNetCliTool Version="2">
+                  <RuntimeIdentifierPackages>
+                    <RuntimeIdentifierPackage RuntimeIdentifier="{runtimeIdentifier}" Id="{packageId}" />
+                  </RuntimeIdentifierPackages>
+                </DotNetCliTool>
+                """));
+    }
+
+    [Fact]
+    public void ProjectContents_DistinguishesInvalidAndDisagreeingManifests()
+    {
+        DotnetToolSettingsProjection invalid =
+            DotnetToolSettingsParser.ProjectContents(
+            [
+                new(
+                    "tools/DotnetToolSettings.xml",
+                    "<DotNetCliTool>"),
+            ]);
+        Assert.Equal(
+            DotnetToolSettingsProjectionStatus.Invalid,
+            invalid.Status);
+        Assert.Null(invalid.Settings);
+
+        DotnetToolSettingsProjection ambiguous =
+            DotnetToolSettingsParser.ProjectContents(
+            [
+                new(
+                    "tools/DotnetToolSettings.xml",
+                    """
+                    <DotNetCliTool Version="1">
+                      <Commands><Command Name="first" /></Commands>
+                    </DotNetCliTool>
+                    """),
+                new(
+                    "tools/net10.0/any/DotnetToolSettings.xml",
+                    """
+                    <DotNetCliTool Version="1">
+                      <Commands><Command Name="second" /></Commands>
+                    </DotNetCliTool>
+                    """),
+            ]);
+        Assert.Equal(
+            DotnetToolSettingsProjectionStatus.Ambiguous,
+            ambiguous.Status);
+        Assert.Null(ambiguous.Settings);
     }
 
     [Fact]
@@ -180,6 +247,15 @@ public class DotnetToolSettingsParserTests
         try
         {
             Assert.Null(DotnetToolSettingsParser.FindAndParse(root));
+            Assert.True(
+                DotnetToolSettingsParser.TryProject(
+                    root,
+                    out DotnetToolSettingsData? data,
+                    out DotnetToolSettingsProjectionStatus status));
+            Assert.Null(data);
+            Assert.Equal(
+                DotnetToolSettingsProjectionStatus.Missing,
+                status);
         }
         finally
         {
@@ -205,8 +281,12 @@ public class DotnetToolSettingsParserTests
             Assert.False(
                 DotnetToolSettingsParser.TryProject(
                     malformed,
-                    out DotnetToolSettingsData? malformedData));
+                    out DotnetToolSettingsData? malformedData,
+                    out DotnetToolSettingsProjectionStatus malformedStatus));
             Assert.Null(malformedData);
+            Assert.Equal(
+                DotnetToolSettingsProjectionStatus.Invalid,
+                malformedStatus);
 
             Directory.CreateDirectory(Path.Combine(ambiguous, "net8.0"));
             File.WriteAllText(
@@ -221,8 +301,12 @@ public class DotnetToolSettingsParserTests
             Assert.True(
                 DotnetToolSettingsParser.TryProject(
                     ambiguous,
-                    out DotnetToolSettingsData? equivalentData));
+                    out DotnetToolSettingsData? equivalentData,
+                    out DotnetToolSettingsProjectionStatus equivalentStatus));
             Assert.NotNull(equivalentData);
+            Assert.Equal(
+                DotnetToolSettingsProjectionStatus.Available,
+                equivalentStatus);
 
             File.WriteAllText(
                 Path.Combine(
@@ -237,8 +321,12 @@ public class DotnetToolSettingsParserTests
             Assert.False(
                 DotnetToolSettingsParser.TryProject(
                     ambiguous,
-                    out DotnetToolSettingsData? ambiguousData));
-            Assert.NotNull(ambiguousData);
+                    out DotnetToolSettingsData? ambiguousData,
+                    out DotnetToolSettingsProjectionStatus ambiguousStatus));
+            Assert.Null(ambiguousData);
+            Assert.Equal(
+                DotnetToolSettingsProjectionStatus.Ambiguous,
+                ambiguousStatus);
         }
         finally
         {
@@ -247,5 +335,25 @@ public class DotnetToolSettingsParserTests
             if (Directory.Exists(ambiguous))
                 Directory.Delete(ambiguous, recursive: true);
         }
+    }
+
+    [Fact]
+    public void EntryPointCorrespondenceIsCaseInsensitive()
+    {
+        DotnetToolSettingsData settings = Assert.IsType<DotnetToolSettingsData>(
+            DotnetToolSettingsParser.ParseContent(
+                """
+                <DotNetCliTool Version="1">
+                  <Commands>
+                    <Command Name="tool" EntryPoint="sub/TEST.TOOL.DLL" Runner="dotnet" />
+                  </Commands>
+                </DotNetCliTool>
+                """));
+
+        IReadOnlySet<string> entryPoints =
+            settings.CreateEntryPointFileNames();
+        Assert.Contains("Test.Tool.dll", entryPoints);
+        Assert.Contains("test.tool.dll", entryPoints);
+        Assert.DoesNotContain("Other.dll", entryPoints);
     }
 }

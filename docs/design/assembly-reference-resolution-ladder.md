@@ -98,8 +98,10 @@ rung evaluates its next eligible tier.
 
 The ladder neither weakens identity matching nor promotes an inactive or
 identity-ineligible candidate. It validates every delegated snapshot against
-the exact request and captured policy version. A foreign or changed snapshot
-cannot be interpreted as a miss.
+the exact request and policy version captured for that Workspace generation.
+An immutable-generation continuation retains both the predecessor snapshot and
+the fresh successor policy version; a foreign or changed snapshot cannot be
+interpreted as a miss.
 
 `NoNameOwner` is not candidate evidence. It only proves that one rung's
 complete frozen ownership rule does not own the requested name. The final
@@ -595,6 +597,16 @@ as the fast path. After that candidate misses, it uses complete selected-role
 filename inventory to nominate namesake files; boundary-aligned package-family
 prefix affinity ranks those fallback candidates.
 
+Before correlating one `AssemblyRef`, the Package owner issues a request-neutral
+route projection for one exact traversal root. Its eligibility receipt retains
+the exact ladder generation, focal-scope receipt, traversal, root occurrence,
+and prepared execution for every admitted resolved-candidate edge in
+root-relative order. Platform-delegated edges remain explicit in that receipt
+but are not Package candidates. A non-complete traversal or an admitted edge
+without exact candidate evidence produces typed incomplete projection evidence;
+missing, duplicate, foreign-root, or non-admitted executions are malformed
+correspondence and are rejected rather than interpreted as Package absence.
+
 Each `PackageDependencyAssemblyRoute` carries:
 
 - the exact referencing-origin association;
@@ -740,27 +752,47 @@ current group:
 3. a later authorized replacement demand acquires and realizes each owner's
    complete chosen unit, constructs a complete route map and binding policy,
    and prepares the replacement while the old generation remains active;
-4. the Workspace publishes the replacement through atomic cutover, which stops
-   new admission to the old generation while preserving its already-admitted
-   operations until drainage; and
+4. the Workspace publishes the replacement through the
+   `WorkspaceReplacementCoordinator`'s conditional atomic cutover, which
+   stops new admission to the old realization while preserving its
+   already-admitted operations until drainage; and
 5. the ladder continues the same logical request only after validating the
-   replacement receipt, fresh owner-issued binding occurrence, resolver
-   lineage, and new generation identity.
+   Workspace-issued replacement receipt, fresh owner-issued binding
+   occurrence, resolver lineage, and new realization generation identity.
 
 The continuation carries semantic request identity and consumed work. It does
 not reuse descriptors, binding occurrences, resolver lineages, policy
 snapshots, or query caches from the prior generation. The replacement
 Workspace issues fresh seed occurrences and continuations; the ladder validates
-their correspondence to the logical request rather than reconstructing lineage
-from a registration. A changed Workspace revision, focal-scope receipt,
-source-policy generation, route plan, external route set, or replacement
-correspondence ends the attempt as typed incomplete or rejected evidence. It
-does not silently restart under new user intent.
+their correspondence to the logical request rather than reconstructing
+lineage from a registration. The successor therefore has fresh Workspace,
+Scope, registration, physical-composition, request-origin, and binding-policy
+identities. The Workspace replacement receipt is the only currency that can
+correlate those fresh identities to the predecessor: it binds exact admitted
+predecessor and successor operation snapshots from one coordinator, requires
+the same Workspace plan and logically corresponding package Scope, and retains
+the exact selected external demand. A changed logical Workspace definition,
+focal scope, source policy, route selection, or replacement correspondence
+ends the attempt as typed incomplete or rejected evidence. It does not
+silently restart under new user intent.
 
 The Workspace owner decides the atomic replacement unit. The ladder cannot
 append one participant to a sealed group, shorten a package role to the one DLL
 that happened to match, or split a coherent platform realization. It consumes
-the owner-issued replacement context after publication.
+the owner-issued replacement context after publication. The shared
+continuation loop charges Workspace replacement before candidate work,
+constructs the complete successor while the predecessor remains active,
+conditionally cuts over against the exact predecessor definition, admits a
+successor operation, and requires the continued request to resolve from that
+successor's referencing context before it issues a completed external outcome.
+Cancellation, incompleteness, rejection, or failure observed after cutover
+retains the published successor and predecessor-retirement evidence; it is not
+reported as though publication never happened.
+
+Queries owns this generic Workspace continuation operation and its replacement
+currency. Research composition adapts the closed Package/Platform supplier
+result to the operation's exact selected-route demand; it does not reproduce
+candidate lifecycle, cutover, continuation, or work-ledger logic.
 
 This shared generation loop replaces host-specific acquire-and-rerun behavior.
 A call-graph consumer may restart its generation-bound graph session after a
@@ -784,9 +816,12 @@ The caller and host own the numeric policy. The ladder owns consistent charging
 and the rule that permissive scope is not unbounded execution.
 
 Work is charged before the operation that can consume it, with checked
-arithmetic. Owner-specific capacities may be narrower and retain their exact
-failure. Cancellation remains `OperationCanceledException`; it is not
-converted to a successful partial result.
+arithmetic, and charge admission observes the shared deadline. Deferred owner
+work receives cancellation bound to that deadline. Deadline cancellation
+returns typed exhaustion; caller cancellation remains
+`OperationCanceledException` and is not converted to a successful partial
+result. Owner-specific capacities may be narrower and retain their exact
+failure.
 
 Exhaustion returns `Incomplete` with the exact stage, configured maximum,
 consumed work, completed rung prefix, and any safely retained acquisition or

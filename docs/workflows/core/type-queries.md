@@ -50,7 +50,7 @@ What types are in the System.CommandLine package?
 ```
 
 ```bash
-dotnet-inspect type System.CommandLine@2.0.3 -v:q --tips q
+dotnet-inspect type System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
@@ -76,7 +76,7 @@ Source: NuGet
 ### 1b. Using `type` with table output
 
 ```bash
-dotnet-inspect type System.CommandLine@2.0.3 --table -t 5 --no-headers --tips q
+dotnet-inspect type System.CommandLine@2.0.3 --table -t 5 --no-headers
 ```
 
 ```expect-not
@@ -119,7 +119,7 @@ grep -o 'Kind\|Type\|Members' | wc -l | tr -d ' '
 ### 2a. Using `type` with platform library
 
 ```bash
-dotnet-inspect type System.Text.Json -v:q --tips q
+dotnet-inspect type System.Text.Json -v:q
 ```
 
 ```expect
@@ -194,7 +194,7 @@ Tell me about the JsonSerializer class.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --markdown -v:q --tips q
+dotnet-inspect type System.Text.Json JsonSerializer --markdown -v:q
 ```
 
 ```expect
@@ -221,7 +221,7 @@ methods-positive
 ### 4b. Using fully qualified type name
 
 ```bash
-dotnet-inspect System.Text.Json.JsonSerializer --markdown -v:q --tips q
+dotnet-inspect System.Text.Json.JsonSerializer --markdown -v:q
 ```
 
 ```expect
@@ -237,7 +237,7 @@ grep -o 'Kind: [a-z]*'
 ### 4c. Inspect Command type from System.CommandLine
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:q --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:q
 ```
 
 ```expect
@@ -279,7 +279,7 @@ grep -o 'Kind\|Name\|Return Type\|Detail' | wc -l | tr -d ' '
 ### 5a. Detailed verbosity (with descriptions)
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:d -n 30 --lines --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:d -n 30 --lines
 ```
 
 ```expect
@@ -300,7 +300,7 @@ Tips:
 ### 5a. Using `--tree`
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --tree --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --tree
 ```
 
 ```expect
@@ -325,7 +325,7 @@ grep -E '(Inherits|Implements|Properties|Methods)'
 ### 5b. Shape for a struct
 
 ```bash
-dotnet-inspect type System.Text.Json JsonElement --tree --tips q
+dotnet-inspect type System.Text.Json JsonElement --tree
 ```
 
 ```expect
@@ -422,7 +422,7 @@ positive
 ### 7a. Platform library (default for System.*)
 
 ```bash
-dotnet-inspect type System.Text.Json JsonDocument --markdown -v:q --tips q
+dotnet-inspect type System.Text.Json JsonDocument --markdown -v:q
 ```
 
 ```expect
@@ -440,7 +440,7 @@ grep -o 'Source: [A-Za-z]*'
 ### 7b. Force package resolution
 
 ```bash
-dotnet-inspect type --package System.Text.Json@10.0.0 JsonDocument --markdown -v:q --tips q
+dotnet-inspect type --package System.Text.Json@10.0.0 JsonDocument --markdown -v:q
 ```
 
 ```expect
@@ -462,7 +462,7 @@ grep -o 'Source: [A-Za-z]*'
 ### 9a. Using quoted generic syntax
 
 ```bash
-dotnet-inspect type --package System.Collections@4.3.0 'HashSet<T>' --markdown -v:q --tips q
+dotnet-inspect type --package System.Collections@4.3.0 'HashSet<T>' --markdown -v:q
 ```
 
 ```expect
@@ -473,7 +473,7 @@ Type Parameters: T
 ### 9b. Using backtick notation
 
 ```bash
-dotnet-inspect type --package Microsoft.Extensions.Options@10.0.2 'OptionsFactory`1' --markdown -v:q --tips q
+dotnet-inspect type --package Microsoft.Extensions.Options@10.0.2 'OptionsFactory`1' --markdown -v:q
 ```
 
 ```expect
@@ -503,7 +503,7 @@ Methods
 ### 10b. Filter to specific sections
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S Interfaces,Baseclass -n 15 --lines --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S Interfaces,Baseclass -n 15 --lines
 ```
 
 ```expect
@@ -542,7 +542,7 @@ grep -E 'Deserialize(Async)? \([0-9]+ overloads\)'
 
 ```bash
 dotnet-inspect type --package System.CommandLine@2.0.3 Command \
-  --table --no-headers -n 3 --tips q
+  --table --no-headers -n 3
 ```
 
 ```expect
@@ -559,7 +559,7 @@ Arguments
 > Goal: View where source code for a type can be found.
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S "Source Files" --rows 1..10 --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S "Source Files" --rows 1..10
 ```
 
 ```expect
@@ -625,7 +625,7 @@ wc -l | tr -d ' '
 > Goal: Select the current `Source Files` section for a pinned package type.
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command -S "Source Files" --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -S "Source Files"
 ```
 
 ```expect

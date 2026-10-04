@@ -265,6 +265,34 @@ of the published result and does not require `LibraryBodyIndex`.
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.
 
+`LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
+publishes Analysis's declared-source association for any method, including
+call targets and methods that make no calls. Focused consumers call it
+directly; `LibraryBodyIndex` does not forward it.
+
+- **Where Analysis authenticates the ultimate owner** (lifted lambdas, local
+  functions, and async `MoveNext`), it returns that owner. This is the same
+  association `DirectCall.Caller` carries.
+- **Async `MoveNext` ignores scope:** one whose ultimate owner authenticates is
+  associated module-wide, even when it lies outside a scoped result's body
+  scope.
+- **One exception, in an unscoped result:** an async `MoveNext` whose lifted
+  source's owner cannot be resolved maps to that immediate lifted source,
+  unless the source's compiler-generated name is malformed. The calls made by
+  that `MoveNext` keep the physical `MoveNext` as `DirectCall.Caller`.
+- **Scoped results withhold that fallback:** they return `null` for it, and for
+  lambdas and local functions outside the scope.
+- **Never associated:** sync iterators, and state-machine or display-class
+  constructors.
+
+Its first production consumer is Library Dependency Structure, which uses it to
+attribute call targets. Gates:
+
+- `DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource`: the module-wide
+  async association.
+- `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`:
+  the unscoped fallback and the scoped `null`, on the focused result.
+
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
 until their focused owner and consumer move. The adapter must not become the
@@ -874,9 +902,133 @@ Declaration-only surface construction remains independent of body Analysis.
 The slice preserves the existing `JsonWireContractFlow` producer, authenticated
 wire shapes, diagnostics, failure behavior, and one-read immutable-image path.
 It changes evidence ownership rather than JavaScript export semantics or
-rendering. Synthetic compatibility-index fixtures may adapt to the focused
-result while they migrate; no production JavaScript export caller accepts or
-acquires `LibraryBodyIndex`.
+rendering. Synthetic fixtures construct one focused execution and select its wire-contract
+result directly; no production JavaScript export caller accepts or acquires
+`LibraryBodyIndex`.
+
+### Direct-call compatibility retirement for #8945
+
+Production ownership, call-graph, Query, CLI, Research, and JavaScript export
+consumers obtain direct-call evidence from `LibraryCallGraphAnalysisResult`,
+whole-library ranking from `LibraryLeverageAnalysisResult`, and wire-contract
+flow from `LibraryJsonWireContractAnalysisResult`. `LibraryBodyIndex` no longer
+publishes direct calls, call incidence, call search, leverage ranking, call
+trees, focused call results, or call-graph cache controls. Catalog graph
+participants and tree operations accept only focused call-graph results.
+
+Compatibility-index implementation profiles delegate to
+`LibraryImplementationProfileAnalysisResult`; they do not retain a second
+profile projection over index-owned direct calls. Default compatibility-index
+acquisition preserves its legacy overload-relationship result through a
+result-owned compatibility projection over the focused call graph; an
+unrequested focused implementation-profile result remains constant-cost and
+empty. Synthetic tests construct `LibraryBodyAnalysisExecution` and retain the
+focused result they exercise.
+
+The Release solution build is the full absence gate for the deleted strongly
+typed surface. No source-scanning gate is added: the compiler proves that no
+consumer can bind the removed members, while ordinary design review preserves
+ownership for future code. This retirement changes no supported product
+terminal and makes no performance claim. Allocation and optimization
+compatibility, and complete
+implementation-profile compatibility remain separately owned migration work
+under #7553 and #8568.
+
+### Local-throw focused result and adoption for #7553 and #8568
+
+**Library Body Analysis Execution** publishes one
+`LibraryLocalThrowAnalysisResult` associated with its execution receipt.
+Requested results expose the existing physical `MethodLocalThrowEvidence`
+population, including unresolved sites and unavailable bodies. Access to that
+population when `LocalThrows` was not requested still fails explicitly; the
+result does not turn an unrequested producer into a complete empty result.
+
+`AssemblyContextMemberProjectionQuery` composes Annotated Source local-throw
+paths from that focused result and the same execution's focused call graph.
+The Browser/Wasm host continues only to select the feature and transport the
+Research-owned result. `LibraryBodyIndex` no longer publishes local-throw
+evidence, and the member projection no longer materializes a compatibility
+index.
+
+This slice changes evidence ownership, not local-throw qualification, bounded
+root-path semantics, output shape, or rendering. The Release
+`LocalThrowEvidenceTests` and
+`AssemblyContextResearchProjectionQueryTests` gates preserve those contracts;
+the Release solution build is the full absence gate for the deleted strongly
+typed compatibility accessor.
+
+### Safety-summary focused-result adoption for #7553 and #8568
+
+**Library Body Analysis Execution** publishes the Metadata-normalized module
+rules model and the whole-declaration caller-unsafe-mode breakdown on
+`LibrarySafetyAnalysisResult`, beside its existing unsafe evidence and
+occurrences. These summaries reuse producer-owned values; publication neither
+reinterprets the rules model nor introduces another census. `WasRequested`
+describes unsafe body-evidence and caller-mode-census participation. The
+normalized module rules remain available independently; reading
+`UnsafeModes` without that participation fails explicitly rather than
+presenting an unrequested census as complete zero counts.
+
+The temporary `ILInspector.Analysis.App` unsafe reporter consumes the focused
+safety, leverage, and call-graph results and invokes the existing
+`OpaqueUnsafe` and `HollowUnsafe` Analysis owners directly. `LibraryBodyIndex`
+no longer publishes memory-safety rules, the derived updated-rules Boolean,
+unsafe evidence or occurrences, unsafe-mode counts, or opaque/hollow
+projections. Callers inspect the typed rules state rather than replacing its
+unsupported, malformed, or conflicting outcomes with a Boolean.
+
+This slice changes evidence ownership, not rule normalization, caller-contract
+classification, counting, or reporter output. The Release Analysis
+memory-safety tests preserve those contracts and verify that focused access
+does not materialize the compatibility index. The Release solution build is
+the full absence gate for the deleted strongly typed compatibility members.
+
+### Generated-framework property retirement for #8568
+
+Production ranking, optimization, implementation-profile, Research, CLI, and
+Browser/Wasm consumers obtain generated-framework type identities from their
+focused Analysis results. The residual Analysis and Research tests consume
+`LibraryOptimizationAnalysisResult.GeneratedFrameworkTypes`, preserving the
+same shared classifier and execution receipt. `LibraryBodyIndex` no longer
+publishes a duplicate generated-framework type set.
+
+This slice deletes a compatibility property after its production drain; it
+does not change generated-type authentication, structural classification,
+suppression, output, or work. Focused generated-framework classification tests
+remain the semantic gates, and the Release solution build is the full absence
+gate for the deleted property. No product terminal or performance claim
+changes.
+
+### Optimization-classifier forwarder retirement for #8568
+
+`RepeatedScanAnalysis` owns LINQ, string-concatenation, and interface-enumerator
+classification. Allocation and optimization producers call that owner
+directly; no production or test consumer calls the duplicate
+`LibraryBodyIndex.IsStringConcat` or
+`LibraryBodyIndex.IsInterfaceEnumeratorAllocation` forwarders. The index also
+no longer carries unused private LINQ materializer and lazy-producer
+forwarders.
+
+This slice deletes only dead compatibility methods. It does not change
+classifier behavior, allocation occurrences, optimization opportunities,
+output, or work. Existing Release allocation and optimization tests preserve
+the semantic behavior, and the Release solution build is the full absence gate
+for the deleted public methods.
+
+The final static classifier-forwarder slice moves membership-scan boundary
+coverage onto the focused Optimization result using the existing netstandard
+facade and unsigned `System.Linq` fixtures. Supported-terminal vocabulary,
+parameterless-overload rejection, and the .NET Framework `System.Core`
+identity case bind `RepeatedScanAnalysis` directly through the existing
+Analysis test boundary; no new friend assembly or public test seam is added.
+`LibraryBodyIndex` no longer publishes any static classifier forwarder.
+
+This test-ownership move does not change classification, occurrence or
+opportunity production, output, or work. The focused fixture tests preserve
+facade recall and spoof precision, owner-bound tests preserve the classifier
+vocabulary, and the Release solution build is the full absence gate for the
+deleted compatibility method. No product terminal or performance claim
+changes.
 
 ### Production adoption for #8450
 
@@ -1101,8 +1253,9 @@ carry the same receipt and provides only the member-projection joins over those
 results. Path-backed production and immutable-image L1 production each execute
 Analysis once. `ResearchAssemblyContext` now derives its residual callee-
 evidence joins from that focused input; the L1 query retains a separate
-compatibility index only for its later call-relationship, invocation-
-destination, and local-throw migration.
+focused call-graph result for call relationships and invocation destinations
+and a focused local-throw result for local-throw paths. It no longer
+materializes a compatibility index.
 
 The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
 safety, and call-graph results from one exact receipt. CLI single-coordinate

@@ -1,6 +1,10 @@
 using System.Reflection;
 using System.Text;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformQueries;
+using DotnetInspector.Platforms;
+using DotnetInspector.Queries;
 using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
@@ -27,12 +31,60 @@ public sealed partial class PackageHouseExecutionTests
         var selected =
             Assert.IsType<PackageHouseFrameworkReferenceOutcome.Selected>(
                 PackageHouseFrameworkReferenceProjection.Project(acquired));
+        PackageRootBinding binding =
+            Assert.IsType<
+                PackageHouseRootContributionOutcome.Contributed>(
+                    PackageHouseRootContributionAdapter.Create(acquired))
+                .Contribution.Binding;
+        RealizedPackageDependencyContext root =
+            await RouteRootContextAsync(binding);
         Assert.Equal(
             "net8.0",
             selected.Evidence.SelectedTargetFramework);
         Assert.Equal(
             "Microsoft.AspNetCore.App",
             Assert.Single(selected.Evidence.References).Name);
+        var eligibility =
+            new PlatformAssemblyReferenceFamilyEligibility
+                .PackageFrameworkReference(
+                    selected.Evidence,
+                    Assert.Single(selected.Evidence.Occurrences),
+                    root);
+        Assert.Equal(
+            PlatformFamily.AspNetCore,
+            eligibility.Family);
+        Assert.Same(
+            selected.Evidence,
+            eligibility.Evidence);
+
+        PackageHouseSettlement.Acquired foreignAcquired =
+            await ExecuteFrameworkReferencesAsync(
+                PackageHouseTargetContext.Exact("net10.0"),
+                FrameworkArchive(
+                    """
+                    <group targetFramework="net8.0">
+                      <frameworkReference name="Microsoft.AspNetCore.App" />
+                    </group>
+                    """,
+                    ($"lib/net6.0/{MaterializedPackageId}.dll", [])));
+        RealizedPackageDependencyContext foreignRoot =
+            await RouteRootContextAsync(
+                Assert.IsType<
+                    PackageHouseRootContributionOutcome.Contributed>(
+                        PackageHouseRootContributionAdapter.Create(
+                            foreignAcquired))
+                    .Contribution.Binding);
+
+        Assert.Throws<ArgumentException>(
+            "root",
+            () =>
+            {
+                _ = new PlatformAssemblyReferenceFamilyEligibility
+                    .PackageFrameworkReference(
+                        selected.Evidence,
+                        Assert.Single(selected.Evidence.Occurrences),
+                        foreignRoot);
+            });
     }
 
     [Fact]

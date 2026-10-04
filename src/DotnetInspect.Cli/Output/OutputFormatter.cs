@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspect.Cli.Views;
 using System.Globalization;
 using System.Text.Json;
@@ -595,11 +596,16 @@ public static class OutputFormatter
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
 
+        bool packageInfoSelected =
+            options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(
+                PackageSections.PackageInfo);
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
             IncludeDescription = options.Verbosity != Verbosity.Quiet
-                && options.IncludeSections is not { Count: > 0 }
+                && (options.IncludeSections is not { Count: > 0 }
+                    || packageInfoSelected)
                 && !selectInfo,
             Projection = BuildProjection(options.Columns, options.Fields)
         };
@@ -640,6 +646,26 @@ public static class OutputFormatter
                 [input],
                 options,
                 pipeline);
+            return;
+        }
+
+        if (options.Format == OutputFormat.Mermaid
+            && options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(
+                SectionNames.DependencyStructure))
+        {
+            LibraryDependencyStructureQueryResult.Available available =
+                inspection.DependencyStructureQueryResult
+                    as LibraryDependencyStructureQueryResult.Available
+                ?? throw new InvalidOperationException(
+                    "The Library dependency structure was not acquired.");
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output =>
+                    LibraryDependencyStructureOutputAdapter.WriteMermaid(
+                        available,
+                        output));
             return;
         }
 

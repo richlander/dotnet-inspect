@@ -30,30 +30,30 @@ public partial class LibraryBodyIndexTests
     {
         string path = typeof(MalformedAsyncOwnershipFixture)
             .Assembly.Location;
-        LibraryBodyIndex full = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution full = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures
                 .OptimizationOpportunities);
         MethodIdentity poisonedGeneric = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name
                 == nameof(
                     MalformedAsyncOwnershipFixture
                         .PoisonedGenericBoxEquals));
         MethodIdentity poisonedInt = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name
                 == nameof(
                     MalformedAsyncOwnershipFixture
                         .PoisonedBoxedInt));
         MethodIdentity cleanGeneric = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name
                 == nameof(
                     MalformedAsyncOwnershipFixture
                         .CleanGenericBoxEquals));
         MethodIdentity cleanInt = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name
                 == nameof(
                     MalformedAsyncOwnershipFixture
@@ -62,14 +62,14 @@ public partial class LibraryBodyIndexTests
             CompilerGeneratedNames.RequiresDeclaredOwner(
                 poisonedGeneric));
         Assert.Contains(
-            full.Diagnostics,
+            full.Receipt.Diagnostics,
             diagnostic => diagnostic.MethodToken
                 == poisonedGeneric.MetadataToken);
 
-        foreach (LibraryBodyIndex index in new[]
+        foreach (LibraryBodyAnalysisExecution index in new[]
         {
             full,
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
@@ -80,7 +80,7 @@ public partial class LibraryBodyIndexTests
                     cleanGeneric.MetadataToken,
                     cleanInt.MetadataToken,
                 }),
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
@@ -90,27 +90,27 @@ public partial class LibraryBodyIndexTests
         })
         {
             Assert.Contains(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity =>
                     opportunity.Shape
                         == "generic-parameter-object-box"
                     && opportunity.Method.MetadataToken
                         == poisonedGeneric.MetadataToken);
             Assert.Contains(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity =>
                     opportunity.Shape == "box-value-type"
                     && opportunity.Method.MetadataToken
                         == poisonedInt.MetadataToken);
             Assert.Contains(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity =>
                     opportunity.Shape
                         == "generic-parameter-object-box"
                     && opportunity.Method.MetadataToken
                         == cleanGeneric.MetadataToken);
             Assert.Contains(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity =>
                     opportunity.Shape == "box-value-type"
                     && opportunity.Method.MetadataToken
@@ -121,9 +121,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_GenericObjectEqualsInLocalFunction_IsReported()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var row = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var row = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name.Contains(
                 nameof(OptimizationOpportunityFixtures.GenericObjectEqualsLocalFunction),
                 StringComparison.Ordinal)
@@ -149,26 +149,26 @@ public partial class LibraryBodyIndexTests
             unresolvedOwner,
             expectedReplacements: 2);
 
-        LibraryBodyIndex full =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution full =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "UnresolvedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities);
         MethodIdentity intermediate = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name == unresolvedOwner);
         MethodIdentity evidence = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name.StartsWith(
                 $"<{unresolvedOwner}>g__EqualsCore|",
                 StringComparison.Ordinal));
 
-        Assert.Null(full.ResolveDeclaredMethod(evidence));
-        foreach (LibraryBodyIndex index in new[]
+        Assert.Null(full.CallGraph.ResolveDeclaredMethod(evidence));
+        foreach (LibraryBodyAnalysisExecution index in new[]
         {
             full,
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "UnresolvedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
@@ -177,7 +177,7 @@ public partial class LibraryBodyIndexTests
                 {
                     intermediate.MetadataToken,
                 }),
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "UnresolvedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
@@ -188,7 +188,7 @@ public partial class LibraryBodyIndexTests
         })
         {
             Assert.DoesNotContain(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity => opportunity.Shape
                         == "generic-parameter-object-box"
                     && opportunity.Method.MetadataToken
@@ -211,35 +211,35 @@ public partial class LibraryBodyIndexTests
             new string('A', 20),
             "<Ultimate>g__Mid|0_0");
 
-        LibraryBodyIndex identities =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution identities =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "ResolvedNestedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity ultimate = Assert.Single(
-            identities.Methods,
+            identities.CallGraph.Methods,
             method => method.Name == "Ultimate"
                 && method.DeclaringType.Name.Contains(
                     nameof(
                         ResolvedNestedLiftedOwnerFixture),
                     StringComparison.Ordinal));
         MethodIdentity intermediate = Assert.Single(
-            identities.Methods,
+            identities.CallGraph.Methods,
             method => method.Name
                 == "<Ultimate>g__Mid|0_0");
         MethodIdentity evidence = Assert.Single(
-            identities.Methods,
+            identities.CallGraph.Methods,
             method => method.Name
                 == "<<Ultimate>g__Mid|0_0>g__Box|0_1");
 
-        foreach (LibraryBodyIndex index in new[]
+        foreach (LibraryBodyAnalysisExecution index in new[]
         {
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "ResolvedNestedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities),
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "ResolvedNestedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
@@ -248,7 +248,7 @@ public partial class LibraryBodyIndexTests
                 {
                     evidence.MetadataToken,
                 }),
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "ResolvedNestedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
@@ -260,7 +260,7 @@ public partial class LibraryBodyIndexTests
         {
             OptimizationOpportunity opportunity =
                 Assert.Single(
-                    index.OptimizationOpportunities,
+                    index.Optimization.Opportunities,
                     opportunity => opportunity.Shape
                             == "generic-parameter-object-box"
                         && opportunity.Method.MetadataToken
@@ -270,9 +270,9 @@ public partial class LibraryBodyIndexTests
                 opportunity.SourceOwner);
             Assert.Equal(
                 ultimate,
-                index.ResolveDeclaredMethod(evidence));
+                index.CallGraph.ResolveDeclaredMethod(evidence));
             DirectCall call = Assert.Single(
-                index.DirectCalls,
+                index.CallGraph.DirectCalls,
                 call => call.EvidenceMethod == evidence
                     && call.Callee.Name == "Equals");
             Assert.Equal(
@@ -286,8 +286,8 @@ public partial class LibraryBodyIndexTests
             intermediate.MetadataToken,
         })
         {
-            LibraryBodyIndex index =
-                LibraryBodyIndex.OpenFromPrefetchedImage(
+            LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                     "ResolvedNestedLiftedOwner.dll",
                     [.. image],
                     LibraryBodyAnalysisFeatures
@@ -298,7 +298,7 @@ public partial class LibraryBodyIndexTests
                             excludedScope,
                         });
             Assert.DoesNotContain(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity => opportunity.Method
                     .MetadataToken
                     == evidence.MetadataToken);
@@ -325,30 +325,30 @@ public partial class LibraryBodyIndexTests
             new string('C', intermediateName.Length),
             intermediateName);
 
-        LibraryBodyIndex identities =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution identities =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "GeneratedUltimateBox.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity ultimate = Assert.Single(
-            identities.Methods,
+            identities.CallGraph.Methods,
             method => method.Name == "GeneratedUltimate"
                 && method.DeclaringType.Name.Contains(
                     nameof(
                         GeneratedUltimateNestedFixture),
                     StringComparison.Ordinal));
         MethodIdentity evidence = Assert.Single(
-            identities.Methods,
+            identities.CallGraph.Methods,
             method => method.Name == evidenceName);
 
-        foreach (LibraryBodyIndex index in new[]
+        foreach (LibraryBodyAnalysisExecution index in new[]
         {
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "GeneratedUltimateBox.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities),
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "GeneratedUltimateBox.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
@@ -357,7 +357,7 @@ public partial class LibraryBodyIndexTests
                 {
                     evidence.MetadataToken,
                 }),
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "GeneratedUltimateBox.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures
@@ -369,9 +369,9 @@ public partial class LibraryBodyIndexTests
         {
             Assert.Equal(
                 ultimate,
-                index.ResolveDeclaredMethod(evidence));
+                index.CallGraph.ResolveDeclaredMethod(evidence));
             Assert.DoesNotContain(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity => opportunity.Shape
                         == "generic-parameter-object-box"
                     && opportunity.Method.MetadataToken
@@ -385,28 +385,28 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        LibraryBodyIndex identities = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution identities = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity ultimate = Assert.Single(
-            identities.Methods,
+            identities.CallGraph.Methods,
             method => method.Name
                 == nameof(
                     ClassicAsyncSiblingFixture
                         .GeneratedUltimateAsyncOwner));
         MethodIdentity child = Assert.Single(
-            identities.Methods,
+            identities.CallGraph.Methods,
             method => method.Name.StartsWith(
                 "<GeneratedUltimateAsyncOwner>g__Child|",
                 StringComparison.Ordinal));
 
-        foreach (LibraryBodyIndex index in new[]
+        foreach (LibraryBodyAnalysisExecution index in new[]
         {
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities),
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
@@ -414,7 +414,7 @@ public partial class LibraryBodyIndexTests
                 {
                     ultimate.MetadataToken,
                 }),
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 path,
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
@@ -425,9 +425,9 @@ public partial class LibraryBodyIndexTests
         {
             Assert.Equal(
                 ultimate,
-                index.ResolveDeclaredMethod(child));
+                index.CallGraph.ResolveDeclaredMethod(child));
             Assert.Contains(
-                index.DirectCalls,
+                index.CallGraph.DirectCalls,
                 call => call.Caller == ultimate
                     && call.EvidenceMethod.Name
                         == "MoveNext"
@@ -436,7 +436,7 @@ public partial class LibraryBodyIndexTests
                             ClassicAsyncSiblingFixture
                                 .GeneratedRead));
             Assert.DoesNotContain(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity => opportunity.Shape
                         == "sync-call-in-async"
                     && opportunity.Method.MetadataToken
@@ -447,11 +447,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void DirectCalls_AttributeLiftedBodiesButNotIterators()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             typeof(OptimizationOpportunityFixtures).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         DirectCall liftedCall = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call => call.Caller.Name
                     == nameof(OptimizationOpportunityFixtures
                         .GenericObjectEqualsLocalFunction)
@@ -464,7 +464,7 @@ public partial class LibraryBodyIndexTests
             liftedCall.EvidenceMethod);
 
         DirectCall iteratorCall = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call => call.Kind == CallKind.NewObject
                 && call.Caller.Name == "MoveNext"
                 && call.Caller.DeclaringType.Name.Contains(
@@ -479,7 +479,7 @@ public partial class LibraryBodyIndexTests
             iteratorCall.Caller,
             iteratorCall.EvidenceMethod);
 
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             typeof(OptimizationOpportunityFixtures).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyScope: new HashSet<int>
@@ -487,11 +487,11 @@ public partial class LibraryBodyIndexTests
                 liftedCall.Caller.MetadataToken,
             });
         Assert.Contains(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call.Caller == liftedCall.Caller
                 && call.EvidenceMethod == liftedCall.EvidenceMethod
                 && call.Callee == liftedCall.Callee);
-        var evidenceScoped = LibraryBodyIndex.Open(
+        var evidenceScoped = BodyAnalysisTestExecution.Open(
             typeof(OptimizationOpportunityFixtures).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyScope: new HashSet<int>
@@ -499,7 +499,7 @@ public partial class LibraryBodyIndexTests
                 liftedCall.EvidenceMethod.MetadataToken,
             });
         Assert.Contains(
-            evidenceScoped.DirectCalls,
+            evidenceScoped.CallGraph.DirectCalls,
             call => call.Caller == liftedCall.Caller
                 && call.EvidenceMethod == liftedCall.EvidenceMethod
                 && call.Callee == liftedCall.Callee);
@@ -511,16 +511,16 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(OptimizationOpportunityFixtures).Assembly.Location;
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity source = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method => method.Name
                 == nameof(OptimizationOpportunityFixtures
                     .YieldsPlainObjectAsync));
         DirectCall expected = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call => call.Kind == CallKind.NewObject
                 && call.Caller == source
                 && call.EvidenceMethod.Name == "MoveNext"
@@ -531,10 +531,10 @@ public partial class LibraryBodyIndexTests
 
         Assert.Equal(
             source,
-            index.ResolveDeclaredMethod(
+            index.CallGraph.ResolveDeclaredMethod(
                 expected.EvidenceMethod));
 
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyScope: new HashSet<int>
@@ -542,11 +542,11 @@ public partial class LibraryBodyIndexTests
                 source.MetadataToken,
             });
         Assert.Contains(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call == expected);
         Assert.Equal(
             source,
-            scoped.ResolveDeclaredMethod(
+            scoped.CallGraph.ResolveDeclaredMethod(
                 expected.EvidenceMethod));
     }
 
@@ -566,32 +566,32 @@ public partial class LibraryBodyIndexTests
                     nameof(OptimizationOpportunityFixtures
                         .YieldsPlainObjectAsync))));
 
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "RuntimeAsyncIteratorClaim.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity source = Assert.Single(
-            index.DeclaredMethods,
+            index.CallGraph.DeclaredMethods,
             method => method.Name
                 == nameof(OptimizationOpportunityFixtures
                     .YieldsPlainObjectAsync));
         MethodIdentity moveNext = Assert.Single(
-            index.Methods,
+            index.CallGraph.Methods,
             method => method.Name == "MoveNext"
                 && method.DeclaringType.Name.Contains(
                     source.Name,
                     StringComparison.Ordinal));
 
         Assert.Contains(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call => call.Kind == CallKind.NewObject
                 && call.Caller == moveNext
                 && call.EvidenceMethod == moveNext);
-        Assert.Null(index.ResolveDeclaredMethod(moveNext));
+        Assert.Null(index.CallGraph.ResolveDeclaredMethod(moveNext));
 
-        LibraryBodyIndex scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution scoped =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "RuntimeAsyncIteratorClaim.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence,
@@ -600,11 +600,11 @@ public partial class LibraryBodyIndexTests
                     source.MetadataToken,
                 });
         Assert.DoesNotContain(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                 == moveNext.MetadataToken);
         Assert.Null(
-            scoped.ResolveDeclaredMethod(moveNext));
+            scoped.CallGraph.ResolveDeclaredMethod(moveNext));
     }
 
     [Fact]
@@ -638,34 +638,34 @@ public partial class LibraryBodyIndexTests
                             StringComparison.Ordinal);
                 }));
 
-        LibraryBodyIndex full =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution full =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "RuntimeAsyncMoveNext.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity source = Assert.Single(
-            full.DeclaredMethods,
+            full.CallGraph.DeclaredMethods,
             method => method.Name
                 == nameof(ClassicAsyncSiblingFixture
                     .CallsSyncSiblingFromAsync));
         MethodIdentity moveNext = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name == "MoveNext"
                 && method.DeclaringType.Name.Contains(
                     source.Name,
                     StringComparison.Ordinal));
 
-        Assert.Null(full.ResolveDeclaredMethod(moveNext));
+        Assert.Null(full.CallGraph.ResolveDeclaredMethod(moveNext));
         Assert.Contains(
-            full.DirectCalls,
+            full.CallGraph.DirectCalls,
             call => call.EvidenceMethod == moveNext
                 && call.Caller == moveNext);
 
         MethodIdentity unrelated = Assert.Single(
-            full.DeclaredMethods,
+            full.CallGraph.DeclaredMethods,
             method => method.Name == "ExactPositiveA");
-        LibraryBodyIndex unrelatedScoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution unrelatedScoped =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "RuntimeAsyncMoveNext.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence,
@@ -674,10 +674,10 @@ public partial class LibraryBodyIndexTests
                     unrelated.MetadataToken,
                 });
         Assert.Null(
-            unrelatedScoped.ResolveDeclaredMethod(moveNext));
+            unrelatedScoped.CallGraph.ResolveDeclaredMethod(moveNext));
 
-        LibraryBodyIndex sourceScoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution sourceScoped =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "RuntimeAsyncMoveNext.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence,
@@ -686,9 +686,9 @@ public partial class LibraryBodyIndexTests
                     source.MetadataToken,
                 });
         Assert.Null(
-            sourceScoped.ResolveDeclaredMethod(moveNext));
+            sourceScoped.CallGraph.ResolveDeclaredMethod(moveNext));
         Assert.DoesNotContain(
-            sourceScoped.DirectCalls,
+            sourceScoped.CallGraph.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                 == moveNext.MetadataToken);
     }
@@ -706,13 +706,13 @@ public partial class LibraryBodyIndexTests
             image,
             Owner);
 
-        LibraryBodyIndex evidence =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution evidence =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "MalformedIteratorClaim.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence);
-        LibraryBodyIndex opportunities =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution opportunities =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "MalformedIteratorClaim.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence
@@ -721,10 +721,10 @@ public partial class LibraryBodyIndexTests
                         .OptimizationOpportunities);
 
         Assert.Equal(
-            evidence.DirectCalls,
-            opportunities.DirectCalls);
+            evidence.CallGraph.DirectCalls,
+            opportunities.CallGraph.DirectCalls);
         Assert.Contains(
-            evidence.Diagnostics,
+            evidence.Receipt.Diagnostics,
             diagnostic => diagnostic.Message.Contains(
                 "state-machine source",
                 StringComparison.Ordinal));
@@ -743,21 +743,21 @@ public partial class LibraryBodyIndexTests
             image,
             Owner);
 
-        LibraryBodyIndex full =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution full =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "OrderedMalformedIteratorClaim.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity moveNext = Assert.Single(
-            full.DeclaredMethods,
+            full.CallGraph.DeclaredMethods,
             method => method.Name == "MoveNext"
                 && method.DeclaringType
                     .ToQualifiedDisplayString()
                     .Contains(
                         $"<{Owner}>g__BuildAsync",
                         StringComparison.Ordinal));
-        LibraryBodyIndex scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution scoped =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "OrderedMalformedIteratorClaim.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence,
@@ -767,17 +767,17 @@ public partial class LibraryBodyIndexTests
                 });
 
         Assert.True(
-            scoped.Diagnostics.Length >= 2,
+            scoped.Receipt.Diagnostics.Length >= 2,
             string.Join(
                 Environment.NewLine,
-                scoped.Diagnostics.Select(
+                scoped.Receipt.Diagnostics.Select(
                     diagnostic =>
                         $"0x{diagnostic.MethodToken:X8} "
                         + diagnostic.Method)));
         Assert.Equal(
-            scoped.Diagnostics
+            scoped.Receipt.Diagnostics
                 .OrderBy(diagnostic => diagnostic.MethodToken),
-            scoped.Diagnostics);
+            scoped.Receipt.Diagnostics);
     }
 
     [Fact]
@@ -786,17 +786,17 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        LibraryBodyIndex full = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution full = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         const string Owner = "ScopedAsyncLocalAllocationOwner";
         MethodIdentity asyncSource = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name.StartsWith(
                 $"<{Owner}>g__BuildAsync|",
                 StringComparison.Ordinal));
         MethodIdentity moveNext = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name == "MoveNext"
                 && method.DeclaringType.Name.Contains(
                     asyncSource.Name,
@@ -858,25 +858,25 @@ public partial class LibraryBodyIndexTests
             image,
             Owner);
 
-        LibraryBodyIndex full =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution full =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "MalformedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence);
-        MethodIdentity lifted = full.DeclaredMethods
+        MethodIdentity lifted = full.CallGraph.DeclaredMethods
             .Where(method => method.Name.Contains(
                 $"<{Owner}>g__Core",
                 StringComparison.Ordinal))
             .OrderBy(method => method.MetadataToken)
             .Last();
-        Assert.Null(full.ResolveDeclaredMethod(lifted));
+        Assert.Null(full.CallGraph.ResolveDeclaredMethod(lifted));
 
-        MethodIdentity scopedOwner = full.DeclaredMethods
+        MethodIdentity scopedOwner = full.CallGraph.DeclaredMethods
             .Where(method => method.Name == Owner)
             .OrderBy(method => method.MetadataToken)
             .Last();
-        LibraryBodyIndex scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution scoped =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "MalformedLiftedOwner.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence,
@@ -885,15 +885,15 @@ public partial class LibraryBodyIndexTests
                     scopedOwner.MetadataToken,
                 });
 
-        Assert.Null(scoped.ResolveDeclaredMethod(lifted));
+        Assert.Null(scoped.CallGraph.ResolveDeclaredMethod(lifted));
         Assert.DoesNotContain(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call.EvidenceMethod == lifted);
         Assert.All(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => Assert.Contains(
                 call,
-                full.DirectCalls));
+                full.CallGraph.DirectCalls));
     }
 
     [Fact]
@@ -1198,18 +1198,18 @@ public partial class LibraryBodyIndexTests
             (reader.GetMethodDefinition(handle).Attributes
                 & MethodAttributes.MemberAccessMask)
             == MethodAttributes.Public);
-        var full = LibraryBodyIndex.Open(
+        var full = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         int selectedMoveNext = Assert.Single(
-            full.DirectCalls,
+            full.CallGraph.DirectCalls,
             call => call.Caller.MetadataToken
                     == MetadataTokens.GetToken(selected)
                 && call.EvidenceMethod.Name == "MoveNext"
                 && call.Callee.Name == "GetAwaiter")
             .EvidenceMethod.MetadataToken;
         int unselectedMoveNext = Assert.Single(
-            full.DirectCalls,
+            full.CallGraph.DirectCalls,
             call => call.Caller.MetadataToken
                     == MetadataTokens.GetToken(unselected)
                 && call.EvidenceMethod.Name == "MoveNext"
@@ -1259,11 +1259,11 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = LibraryBodyIndex.Open(
+        var full = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         DirectCall expected = Assert.Single(
-            full.DirectCalls,
+            full.CallGraph.DirectCalls,
             call => call.Caller.Name
                     == nameof(ClassicAsyncSiblingFixture
                         .ScopedAsyncLambdaOwner)
@@ -1273,7 +1273,7 @@ public partial class LibraryBodyIndexTests
                 && call.EvidenceMethod.Name == "MoveNext"
                 && call.Callee.Name == "GetAwaiter");
 
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyScope: new HashSet<int>
@@ -1282,7 +1282,7 @@ public partial class LibraryBodyIndexTests
             });
 
         Assert.Contains(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call.Caller == expected.Caller
                 && call.EvidenceMethod
                     == expected.EvidenceMethod
@@ -1295,11 +1295,11 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = LibraryBodyIndex.Open(
+        var full = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         DirectCall expected = Assert.Single(
-            full.DirectCalls,
+            full.CallGraph.DirectCalls,
             call => call.Caller.Name
                     == nameof(ClassicAsyncSiblingFixture
                         .AwaitTaskInAsyncLambda)
@@ -1308,7 +1308,7 @@ public partial class LibraryBodyIndexTests
                     StringComparison.Ordinal)
                 && call.Callee.Name == "Start");
 
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyTypeScope: type =>
@@ -1316,7 +1316,7 @@ public partial class LibraryBodyIndexTests
                     expected.EvidenceMethod.DeclaringType));
 
         Assert.Contains(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call.Caller == expected.Caller
                 && call.EvidenceMethod == expected.EvidenceMethod
                 && call.Callee == expected.Callee);
@@ -1328,22 +1328,22 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = LibraryBodyIndex.Open(
+        var full = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         DirectCall expected = Assert.Single(
-            full.DirectCalls,
+            full.CallGraph.DirectCalls,
             call => call.Caller.Name
                     == "ScopedCapturingAsyncLambdaOwner"
                 && call.EvidenceMethod.Name == "MoveNext"
                 && call.Callee.Name == "GetAwaiter");
         MethodIdentity kickoff = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name.StartsWith(
                 "<ScopedCapturingAsyncLambdaOwner>b__",
                 StringComparison.Ordinal));
 
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyTypeScope:
@@ -1351,7 +1351,7 @@ public partial class LibraryBodyIndexTests
                     kickoff.DeclaringType));
 
         Assert.Contains(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call.Caller == expected.Caller
                 && call.EvidenceMethod
                     == expected.EvidenceMethod
@@ -1366,21 +1366,21 @@ public partial class LibraryBodyIndexTests
             "ScopedAsyncLambdaRecommendationOwner";
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = LibraryBodyIndex.Open(path);
+        var full = BodyAnalysisTestExecution.Open(path);
         MethodIdentity owner = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name == ownerName);
         MethodIdentity kickoff = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name.StartsWith(
                 $"<{ownerName}>b__",
                 StringComparison.Ordinal));
         OptimizationOpportunity opportunity = Assert.Single(
-            full.OptimizationOpportunities,
+            full.Optimization.Opportunities,
             candidate => candidate.Shape == "sync-call-in-async"
                 && candidate.Method == kickoff);
         MethodIdentity evidence = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.MetadataToken
                 == Assert.IsType<int>(
                     opportunity.EvidenceMethodToken));
@@ -1388,32 +1388,32 @@ public partial class LibraryBodyIndexTests
         Assert.Equal("MoveNext", evidence.Name);
         Assert.Equal(
             owner,
-            full.ResolveDeclaredMethod(kickoff));
+            full.CallGraph.ResolveDeclaredMethod(kickoff));
         Assert.Equal(
             owner,
-            full.ResolveDeclaredMethod(evidence));
+            full.CallGraph.ResolveDeclaredMethod(evidence));
 
         DirectCall expectedCall = Assert.Single(
-            full.DirectCalls,
+            full.CallGraph.DirectCalls,
             call => call.Caller == owner
                 && call.EvidenceMethod == evidence
                 && call.Callee.Name
                     == nameof(ClassicAsyncSiblingFixture
                         .ReadValue));
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             bodyTypeScope:
                 type => type.Equals(
                     kickoff.DeclaringType));
 
         Assert.Contains(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call == expectedCall);
         Assert.Equal(
             owner,
-            scoped.ResolveDeclaredMethod(evidence));
+            scoped.CallGraph.ResolveDeclaredMethod(evidence));
         Assert.DoesNotContain(
-            scoped.OptimizationOpportunities,
+            scoped.Optimization.Opportunities,
             candidate => candidate.Shape
                     == opportunity.Shape
                 && candidate.Method == kickoff
@@ -1429,14 +1429,14 @@ public partial class LibraryBodyIndexTests
             "ScopedAllocationHotspotLambdaOwner";
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = LibraryBodyIndex.Open(path);
+        var full = BodyAnalysisTestExecution.Open(path);
         MethodIdentity kickoff = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name.StartsWith(
                 $"<{ownerName}>b__",
                 StringComparison.Ordinal));
         Assert.True(
-            full.GetAllocationOccurrences().TryGetValue(
+            full.Allocations.Occurrences.TryGetValue(
                 kickoff.MetadataToken,
                 out ImmutableArray<AllocationOccurrence>
                     fullAllocations));
@@ -1446,33 +1446,33 @@ public partial class LibraryBodyIndexTests
                     && allocation.InLoop) >= 16);
 
         Assert.DoesNotContain(
-            full.OptimizationOpportunities,
+            full.Optimization.Opportunities,
             candidate => candidate.Shape
                     == "allocation-hotspot"
                 && candidate.Method == kickoff);
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             candidate => candidate.Method == kickoff);
 
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             bodyTypeScope:
                 type => type.Equals(
                     kickoff.DeclaringType));
         Assert.True(
-            scoped.GetAllocationOccurrences().TryGetValue(
+            scoped.Allocations.Occurrences.TryGetValue(
                 kickoff.MetadataToken,
                 out ImmutableArray<AllocationOccurrence>
                     scopedAllocations));
         Assert.Equal(fullAllocations, scopedAllocations);
 
         Assert.DoesNotContain(
-            scoped.OptimizationOpportunities,
+            scoped.Optimization.Opportunities,
             candidate => candidate.Shape
                     == "allocation-hotspot"
                 && candidate.Method == kickoff);
         Assert.DoesNotContain(
-            scoped.AllocationFanoutOpportunities,
+            scoped.Optimization.AllocationFanoutOpportunities,
             candidate => candidate.Method == kickoff);
     }
 
@@ -1483,19 +1483,19 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(PdbContext).Assembly.Location;
-        var full = LibraryBodyIndex.Open(path);
-        var scoped = LibraryBodyIndex.Open(
+        var full = BodyAnalysisTestExecution.Open(path);
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             bodyTypeScope: _ => true);
 
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name.StartsWith(
                 "<EnumerateTypeDocuments>g__AddDocument|",
                 StringComparison.Ordinal));
         Assert.Equal(
-            full.AllocationFanoutOpportunities,
-            scoped.AllocationFanoutOpportunities);
+            full.Optimization.AllocationFanoutOpportunities,
+            scoped.Optimization.AllocationFanoutOpportunities);
     }
 
     [Fact]
@@ -1504,12 +1504,12 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = LibraryBodyIndex.Open(path);
-        var scoped = LibraryBodyIndex.Open(
+        var full = BodyAnalysisTestExecution.Open(path);
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             bodyTypeScope: _ => true);
         MethodIdentity generatedSource = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name == "StreamAsync"
                 && method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1517,7 +1517,7 @@ public partial class LibraryBodyIndexTests
                         "GeneratedAsyncIteratorOwner",
                         StringComparison.Ordinal));
         MethodIdentity generatedMoveNext = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name == "MoveNext"
                 && method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1525,14 +1525,14 @@ public partial class LibraryBodyIndexTests
                         "GeneratedAsyncIteratorOwner.<StreamAsync>",
                         StringComparison.Ordinal));
         var generatedSourceScoped =
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 path,
                 bodyTypeScope:
                     type => type.Equals(
                         generatedSource.DeclaringType));
 
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name == "MoveNext"
                 && opportunity.Method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1540,7 +1540,7 @@ public partial class LibraryBodyIndexTests
                         "ScopedAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name == "MoveNext"
                 && opportunity.Method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1548,7 +1548,7 @@ public partial class LibraryBodyIndexTests
                         "ScopedIteratorAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name == "MoveNext"
                 && opportunity.Method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1556,7 +1556,7 @@ public partial class LibraryBodyIndexTests
                         "ScopedIndirectAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name == "MoveNext"
                 && opportunity.Method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1564,7 +1564,7 @@ public partial class LibraryBodyIndexTests
                         "ScopedNestedAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name == "MoveNext"
                 && opportunity.Method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1572,7 +1572,7 @@ public partial class LibraryBodyIndexTests
                         "ScopedIteratorFinallyAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name == "MoveNext"
                 && opportunity.Method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1580,7 +1580,7 @@ public partial class LibraryBodyIndexTests
                         "ScopedGenericIteratorFinallyAsyncLocalAllocationOwner",
                         StringComparison.Ordinal));
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name == "MoveNext"
                 && opportunity.Method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1588,7 +1588,7 @@ public partial class LibraryBodyIndexTests
                         "GenericIteratorOwner",
                         StringComparison.Ordinal));
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             opportunity => opportunity.Method.Name == "MoveNext"
                 && opportunity.Method.DeclaringType
                     .ToQualifiedDisplayString()
@@ -1596,21 +1596,21 @@ public partial class LibraryBodyIndexTests
                         "GeneratedAsyncIteratorOwner",
                         StringComparison.Ordinal));
         Assert.DoesNotContain(
-            scoped.Diagnostics,
+            scoped.Receipt.Diagnostics,
             diagnostic => diagnostic.Method.Contains(
                 "GeneratedAsyncIteratorOwner",
                 StringComparison.Ordinal));
         Assert.Equal(
             generatedSource,
-            generatedSourceScoped.ResolveDeclaredMethod(
+            generatedSourceScoped.CallGraph.ResolveDeclaredMethod(
                 generatedMoveNext));
         Assert.Contains(
-            generatedSourceScoped.DirectCalls,
+            generatedSourceScoped.CallGraph.DirectCalls,
             call => call.EvidenceMethod
                 == generatedMoveNext);
         Assert.Equal(
-            full.AllocationFanoutOpportunities,
-            scoped.AllocationFanoutOpportunities);
+            full.Optimization.AllocationFanoutOpportunities,
+            scoped.Optimization.AllocationFanoutOpportunities);
     }
 
     [Fact]
@@ -1621,9 +1621,9 @@ public partial class LibraryBodyIndexTests
             "ScopedAsyncAllocationHotspotLambdaOwner";
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = LibraryBodyIndex.Open(path);
+        var full = BodyAnalysisTestExecution.Open(path);
         MethodIdentity kickoff = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name.StartsWith(
                 $"<{ownerName}>b__",
                 StringComparison.Ordinal)
@@ -1633,7 +1633,7 @@ public partial class LibraryBodyIndexTests
                         "System.Threading.Tasks.Task<",
                         StringComparison.Ordinal));
         OptimizationOpportunity shaped = Assert.Single(
-            full.OptimizationOpportunities,
+            full.Optimization.Opportunities,
             candidate => candidate.Shape
                     == "capturing-delegate"
                 && candidate.Method.Name == "MoveNext"
@@ -1644,7 +1644,7 @@ public partial class LibraryBodyIndexTests
                         StringComparison.Ordinal));
         MethodIdentity evidence = shaped.Method;
         Assert.True(
-            full.GetAllocationOccurrences().TryGetValue(
+            full.Allocations.Occurrences.TryGetValue(
                 evidence.MetadataToken,
                 out ImmutableArray<AllocationOccurrence>
                     fullAllocations));
@@ -1653,31 +1653,31 @@ public partial class LibraryBodyIndexTests
                 allocation => allocation.CountsAsHeapAllocation
                     && allocation.InLoop) >= 16);
         Assert.DoesNotContain(
-            full.OptimizationOpportunities,
+            full.Optimization.Opportunities,
             candidate => candidate.Shape
                     == "allocation-hotspot"
                 && candidate.Method == evidence);
         Assert.Contains(
-            full.AllocationFanoutOpportunities,
+            full.Optimization.AllocationFanoutOpportunities,
             candidate => candidate.Method == evidence);
 
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             bodyTypeScope:
                 type => type.Equals(
                     kickoff.DeclaringType));
         Assert.True(
-            scoped.GetAllocationOccurrences().TryGetValue(
+            scoped.Allocations.Occurrences.TryGetValue(
                 evidence.MetadataToken,
                 out ImmutableArray<AllocationOccurrence>
                     scopedAllocations));
         Assert.Equal(fullAllocations, scopedAllocations);
 
         Assert.DoesNotContain(
-            scoped.OptimizationOpportunities,
+            scoped.Optimization.Opportunities,
             candidate => candidate.Method == evidence);
         Assert.DoesNotContain(
-            scoped.AllocationFanoutOpportunities,
+            scoped.Optimization.AllocationFanoutOpportunities,
             candidate => candidate.Method == evidence);
     }
 
@@ -1687,11 +1687,11 @@ public partial class LibraryBodyIndexTests
     {
         string path =
             typeof(ClassicAsyncSiblingFixture).Assembly.Location;
-        var full = LibraryBodyIndex.Open(
+        var full = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity owner = Assert.Single(
-            full.DeclaredMethods,
+            full.CallGraph.DeclaredMethods,
             method => method.Name
                     == nameof(ClassicAsyncSiblingFixture
                         .ScopedAsyncLambdaOwner)
@@ -1699,11 +1699,11 @@ public partial class LibraryBodyIndexTests
                 && method.ParameterTypes[0].Equals(
                     TypeRef.CoreLib("System", "String")));
         MethodIdentity kickoff = Assert.Single(
-            full.Methods,
+            full.CallGraph.Methods,
             method => method.Name.StartsWith(
                 "<ScopedAsyncLambdaOwner>b__",
                 StringComparison.Ordinal));
-        var scoped = LibraryBodyIndex.Open(
+        var scoped = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyScope: new HashSet<int>
@@ -1711,13 +1711,13 @@ public partial class LibraryBodyIndexTests
                 kickoff.MetadataToken,
             });
         DirectCall call = Assert.Single(
-            scoped.DirectCalls,
+            scoped.CallGraph.DirectCalls,
             call => call.EvidenceMethod.Name == "MoveNext"
                 && call.Callee.Name == "GetAwaiter");
 
         Assert.Equal(
             owner,
-            scoped.ResolveDeclaredMethod(
+            scoped.CallGraph.ResolveDeclaredMethod(
                 call.EvidenceMethod));
     }
 
@@ -1861,32 +1861,32 @@ public partial class LibraryBodyIndexTests
             image[blob + 4] = genericParameterIndex;
         }
 
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "MalformedMethodSpec.dll",
                 ImmutableArray.Create(image),
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities);
 
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             row =>
                 row.Shape == "generic-parameter-object-box"
                 && row.Method.Name.Contains(
                     nameof(OptimizationOpportunityFixtures
                         .GenericObjectEqualsLocalFunction),
                     StringComparison.Ordinal));
-        Assert.NotEmpty(index.Diagnostics);
+        Assert.NotEmpty(index.Receipt.Diagnostics);
 
-        LibraryBodyIndex scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution scoped =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "MalformedMethodSpec.dll",
                 ImmutableArray.Create(image),
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
                 bodyScope: new HashSet<int> { liftedToken });
         Assert.Single(
-            scoped.Diagnostics.Where(
+            scoped.Receipt.Diagnostics.Where(
                 diagnostic => diagnostic.Method.Contains(
                     "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
                     StringComparison.Ordinal)));
@@ -1901,8 +1901,8 @@ public partial class LibraryBodyIndexTests
                 out int sourceToken,
                 out int liftedToken);
 
-        LibraryBodyIndex scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution scoped =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "NestedLiftedInvalidAsyncSource.dll",
                 [.. image],
                 LibraryBodyAnalysisFeatures.MethodEvidence,
@@ -1910,7 +1910,7 @@ public partial class LibraryBodyIndexTests
                     new HashSet<int> { liftedToken });
 
         AnalysisDiagnostic diagnostic = Assert.Single(
-            scoped.Diagnostics.Where(
+            scoped.Receipt.Diagnostics.Where(
                 candidate =>
                     candidate.MethodToken == liftedToken));
         Assert.Contains(
@@ -2376,10 +2376,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_TopLevelLocalFunction_IsReported()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath());
 
-        var row = Assert.Single(index.OptimizationOpportunities.Where(
+        var row = Assert.Single(index.Optimization.Opportunities.Where(
             opportunity =>
                 opportunity.Shape == "generic-parameter-object-box"
                 && opportunity.Method.Name.Contains(
@@ -2392,10 +2392,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_AsyncTopLevelLocalFunction_IsReported()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisTopLevelAsync.AssemblyPath());
 
-        var row = Assert.Single(index.OptimizationOpportunities.Where(
+        var row = Assert.Single(index.Optimization.Opportunities.Where(
             opportunity =>
                 opportunity.Shape == "generic-parameter-object-box"
                 && opportunity.Method.Name.Contains(
@@ -2429,9 +2429,9 @@ public partial class LibraryBodyIndexTests
                     == "System.Runtime.CompilerServices.AsyncStateMachineAttribute");
         }
 
-        var index = LibraryBodyIndex.Open(path);
+        var index = BodyAnalysisTestExecution.Open(path);
 
-        var row = Assert.Single(index.OptimizationOpportunities.Where(
+        var row = Assert.Single(index.Optimization.Opportunities.Where(
             opportunity =>
                 opportunity.Shape == "generic-parameter-object-box"
                 && opportunity.Method.Name.Contains(
@@ -2485,10 +2485,10 @@ public partial class LibraryBodyIndexTests
                 "Program.<<Main>$>d__0");
             File.WriteAllBytes(path, image);
 
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
             Assert.DoesNotContain(
-                index.OptimizationOpportunities,
+                index.Optimization.Opportunities,
                 opportunity =>
                     opportunity.Shape == "generic-parameter-object-box"
                     && opportunity.Method.Name.Contains(
@@ -2525,9 +2525,9 @@ public partial class LibraryBodyIndexTests
             }
             File.WriteAllBytes(path, image);
 
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
-            Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+            Assert.DoesNotContain(index.Optimization.Opportunities, opportunity =>
                 opportunity.Shape == "generic-parameter-object-box"
                 && opportunity.Method.Name.Contains(
                     "TopLevelEqual",
@@ -2542,9 +2542,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_SourceGeneratedLiftedMethods_AreNotReported()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, opportunity =>
             opportunity.Shape == "generic-parameter-object-box"
             && (opportunity.Method.Name.Contains(
                     nameof(OptimizationOpportunityFixtures.SourceGeneratedLocalFunction),
@@ -2571,7 +2571,7 @@ public partial class LibraryBodyIndexTests
                     nameof(CompilerGeneratedOwnerContainer.CompilerGeneratedTypeOwner),
                     StringComparison.Ordinal)));
 
-        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+        Assert.Contains(index.Optimization.Opportunities, opportunity =>
             opportunity.Shape == "generic-parameter-object-box"
             && opportunity.Method.Name.Contains(
                 "AuthoredCore",
@@ -2597,8 +2597,8 @@ public partial class LibraryBodyIndexTests
                 "<Owner>g__Core|0_0");
             File.WriteAllBytes(path, image);
 
-            var index = LibraryBodyIndex.Open(path);
-            var rows = index.OptimizationOpportunities
+            var index = BodyAnalysisTestExecution.Open(path);
+            var rows = index.Optimization.Opportunities
                 .Where(opportunity =>
                     opportunity.Shape == "generic-parameter-object-box"
                     && opportunity.Method.DeclaringType.Name.Contains(
@@ -2638,8 +2638,8 @@ public partial class LibraryBodyIndexTests
                 "<Owner>g__Core|0_0");
             File.WriteAllBytes(path, image);
 
-            var index = LibraryBodyIndex.Open(path);
-            var rows = index.OptimizationOpportunities
+            var index = BodyAnalysisTestExecution.Open(path);
+            var rows = index.Optimization.Opportunities
                 .Where(opportunity =>
                     opportunity.Shape == "generic-parameter-object-box"
                     && opportunity.Method.DeclaringType.Name.Contains(
@@ -2694,9 +2694,9 @@ public partial class LibraryBodyIndexTests
                 metadata.AddNestedType(b, a);
             }));
 
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
-            Assert.Empty(index.OptimizationOpportunities);
+            Assert.Empty(index.Optimization.Opportunities);
             cancellationToken.ThrowIfCancellationRequested();
         }
         finally

@@ -40,7 +40,7 @@ The target experience has independent, explicit dimensions:
 | Cell or field projection | `--columns` and `--fields` |
 | Presentation | Shape-native default or `--format <name>` |
 | Work authorization | Explicit network, source, exhaustive, or operation-specific capability gesture |
-| Companion output | `-E`, `-E tips`, or `-E references` |
+| Companion output | `-E`, `-E .tips`, or `-E .references` |
 | Host diagnostics | `--progress` and `--trace` |
 
 There is no gesture whose generic meaning is "show more."

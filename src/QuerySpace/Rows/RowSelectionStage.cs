@@ -1,13 +1,5 @@
 namespace QuerySpace.Rows;
 
-public enum RowSelectionStageKind
-{
-    Head,
-    Tail,
-    Window,
-    Top
-}
-
 public sealed class RowSelectionStage<TOrder>
     where TOrder : notnull
 {

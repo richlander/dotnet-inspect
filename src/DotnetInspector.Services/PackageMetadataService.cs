@@ -270,10 +270,9 @@ public static class PackageMetadataService
                 sawIndeterminate |=
                     registrationResult.Presence == SourcePresence.Indeterminate;
             }
-            catch (Exception ex) when (ex is not NetworkPolicyException
-                && ex is (JsonException
-                    or InvalidOperationException
-                    or UriFormatException))
+            catch (Exception ex) when (ex is JsonException
+                or InvalidOperationException
+                or UriFormatException)
             {
                 log?.Invoke(
                     $"Invalid registration metadata from {source.Name} ({ex.GetType().Name}).");
@@ -342,7 +341,7 @@ public static class PackageMetadataService
                         break;
                     }
                 }
-                catch (Exception ex) when (ex is not NetworkPolicyException)
+                catch (Exception ex)
                 {
                     log?.Invoke(
                         $"Error fetching search metadata from "
@@ -387,7 +386,7 @@ public static class PackageMetadataService
                         result.Vulnerabilities);
                     break;
                 }
-                catch (Exception ex) when (ex is not NetworkPolicyException)
+                catch (Exception ex)
                 {
                     log?.Invoke(
                         $"Error fetching vulnerability data from "
@@ -1192,7 +1191,7 @@ public static class PackageMetadataService
                     vuln.Severity = char.ToUpper(sev[0]) + sev[1..].ToLower();
             }
         }
-        catch (Exception ex) when (ex is not NetworkPolicyException)
+        catch (Exception ex)
         {
             log?.Invoke($"Error fetching GitHub advisory: {ex.Message}");
         }

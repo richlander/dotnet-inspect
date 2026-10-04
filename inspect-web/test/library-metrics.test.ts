@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderLibraryMetricsSurface, type LibraryMetricsOptions } from "../src/library-metrics.ts";
 import type { BrowserLibraryMetrics } from "../src/facades/inspect-web-analysis.d.ts";
-import { projectTypeLeverage } from "../src/type-leverage.ts";
 
 const data: BrowserLibraryMetrics = {
   outcome: "available",
@@ -67,10 +66,6 @@ function render(overrides: Partial<LibraryMetricsOptions> = {}) {
     loading: false,
     error: "",
     data,
-    salienceLoading: true,
-    salienceError: "",
-    salience: null,
-    selectedSalienceNamespace: null,
     escapeHtml: value => String(value).replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -108,162 +103,22 @@ test("renders the complexity and relationship visual evidence", () => {
   assert.match(html, /Example\.Core\.Store/);
 });
 
-test("renders owner-issued structural salience orders and qualification", () => {
-  const salience = projectTypeLeverage({
-    schemaVersion: 1,
-    outcome: "available",
-    methodologyVersion: "structural-salience.v2",
-    evidenceMode: "signature",
-    namespaceIndex: {
-      disposition: "Qualified",
-      coverage: { considered: 5, examined: 4, unavailable: 1, limited: 0 },
-      namespaces: [{
-        namespace: "Example.Core",
-        typeCount: 2,
-        externalIncomingSourceTypeCount: 6,
-        topLeverage: true,
-      }],
-      diagnostics: ["One signature was unavailable."],
-    },
-    typeLeverageShards: [{
-      namespace: "Example.Core",
-      disposition: "complete",
-      coverage: { considered: 2, examined: 2, unavailable: 0, limited: 0 },
-      types: [{
-        typeDefinitionId: "Example.Core.Engine",
-        typeDisplay: "Example.Core.Engine",
-        designationEligible: true,
-        signatureIncomingDegree: 6,
-        signatureOutgoingDegree: 2,
-        role: "foundation",
-        pole: "SeaLevel",
-      }, {
-        typeDefinitionId: "Example.Core.Store",
-        typeDisplay: "Example.Core.Store",
-        designationEligible: true,
-        signatureIncomingDegree: 1,
-        signatureOutgoingDegree: 5,
-        role: "orchestrator",
-        pole: "MountainPeak",
-      }],
-      seaLevelOrder: ["Example.Core.Engine", "Example.Core.Store"],
-      mountainPeakOrder: ["Example.Core.Store", "Example.Core.Engine"],
-      diagnostics: [],
-    }],
-    failure: null,
-    compileLibrary: data.compileLibrary,
-  });
-  const html = render({
-    salienceLoading: false,
-    salience,
-  });
-
-  assert.match(html, /Structural Salience/);
-  assert.match(html, /Example\.Core · 6 external source Types · top leverage/);
-  assert.match(html, /Incoming peers/);
-  assert.match(html, /Engine/);
-  assert.match(html, /6 incoming peers · foundation/);
-  assert.match(html, /6 incoming peers · foundation · sea level/);
-  assert.match(html, /Outgoing peers/);
-  assert.match(html, /5 outgoing peers · orchestrator/);
-  assert.match(html, /5 outgoing peers · orchestrator · mountain peak/);
-  assert.match(html, /metrics-salience-type sea-level/);
-  assert.match(html, /metrics-salience-type mountain-peak/);
-  assert.match(html, /item-achievement-glyph sea-level/);
-  assert.match(html, /item-achievement-glyph mountain-peak/);
-  assert.match(html, /Structural salience is qualified/);
-  assert.match(html, /One signature was unavailable\./);
-  assert.match(html, /data-metrics-salience-retry>Retry/);
-  assert.match(
+test("keeps structural salience out of the Metrics presentation", () => {
+  const html = render();
+  assert.doesNotMatch(
     html,
-    /data-metrics-salience-type-key="Example\.Core\.Engine"/,
+    /Structural Salience|metrics-salience|data-type-leverage/,
   );
 });
 
-test("structural salience remains available when body metrics fail", () => {
-  const html = render({
-    error: "Body metrics failed.",
-    data: null,
-    salienceLoading: true,
-  });
-
-  assert.match(html, /Structural Salience/);
-  assert.match(html, /Body metrics failed\./);
-});
-
-test("a sole zero-leverage namespace remains explicitly selectable", () => {
-  const zeroLeverageIndex = {
-    schemaVersion: 1,
-    outcome: "available",
-    methodologyVersion: "structural-salience.v2",
-    evidenceMode: "signature",
-    namespaceIndex: {
-      disposition: "complete",
-      coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
-      namespaces: [{
-        namespace: "Only",
-        typeCount: 4,
-        externalIncomingSourceTypeCount: 0,
-        topLeverage: false,
-      }],
-      diagnostics: [],
-    },
-    typeLeverageShards: [{
-      namespace: "Only",
-      disposition: "complete",
-      coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
-      types: [],
-      seaLevelOrder: [],
-      mountainPeakOrder: [],
-      diagnostics: [],
-    }],
-    failure: null,
-    compileLibrary: data.compileLibrary,
-  } as const;
-  const salience = projectTypeLeverage(zeroLeverageIndex);
-  const html = render({
-    salienceLoading: false,
-    salience,
-  });
-
-  assert.match(
-    html,
-    /<option value="Only" selected>/,
-  );
-  assert.equal(
-    [...html.matchAll(/0 owner-issued rows/g)].length,
-    2,
-  );
-  assert.match(html, /1 exact namespace analyzed/);
-
-  const globalHtml = render({
-    salienceLoading: false,
-    salience: projectTypeLeverage({
-      ...zeroLeverageIndex,
-      namespaceIndex: {
-        ...zeroLeverageIndex.namespaceIndex,
-        namespaces: [{
-          ...zeroLeverageIndex.namespaceIndex.namespaces[0],
-          namespace: "",
-        }],
-      },
-      typeLeverageShards: [{
-        ...zeroLeverageIndex.typeLeverageShards[0],
-        namespace: "",
-      }],
-    }),
-  });
-  assert.match(
-    globalHtml,
-    /<option value="" selected>\(global namespace\)/,
-  );
-});
-
-test("keeps detailed distributions out of the website presentation", () => {
+test("keeps detailed distributions and redundant summary copy out of Metrics", () => {
   const html = render();
 
   assert.doesNotMatch(html, /Detailed distributions|metrics-table/);
-  assert.match(html, /Compiled IL metrics for <strong>Example\.Core<\/strong>/);
+  assert.doesNotMatch(
+    html,
+    /Compiled IL metrics for|not authored-source complexity/,
+  );
 });
 
 test("treemap cells expose exact type activation and evidence semantics", () => {
@@ -388,6 +243,58 @@ test("relationship topology keeps same-display generic arities distinct", () => 
   assert.match(html, /2 most connected types/);
 });
 
+test("relationship arcs expose exact selection evidence and a detail surface", () => {
+  const html = render();
+
+  assert.match(
+    html,
+    /data-metrics-relationship data-relationship-rank="1" data-source-type-key="Example\.Core\.Engine" data-source-type-display="Example\.Core\.Engine" data-target-type-key="Example\.Core\.Store" data-target-type-display="Example\.Core\.Store" data-call-site-count="4"[^>]*tabindex="0" role="button" aria-pressed="false"/,
+  );
+  assert.match(html, /data-metrics-relationship-detail aria-live="polite"/);
+  assert.match(html, /data-metrics-relationship-source/);
+  assert.match(html, /data-metrics-relationship-target/);
+  assert.match(html, /data-metrics-relationship-rank/);
+  assert.match(html, /Relationship depth/);
+  assert.match(html, />Rank<\/span>/);
+  assert.match(html, /Select an arc for details/);
+});
+
+test("relationship disclosure defaults to half capped at 24 and expands by quartiles", () => {
+  const types = Array.from({ length: 9 }, (_, index) => `Type${index}`);
+  const relationships = types.flatMap(source => types
+    .filter(target => target !== source)
+    .map(target => ({
+      sourceTypeKey: `Example.${source}`,
+      sourceTypeDisplay: `Example.${source}`,
+      targetTypeKey: `Example.${target}`,
+      targetTypeDisplay: `Example.${target}`,
+      sourceDegree: 8,
+      targetDegree: 8,
+    }))).map((relationship, index, all) => ({
+      ...relationship,
+      callSiteCount: all.length - index,
+    }));
+  const html = render({
+    data: {
+      ...data,
+      entangledRelationships: relationships,
+    },
+  });
+  const edgeTags = [...html.matchAll(
+    /<path class="metrics-relationship-edge"[^>]*>/g,
+  )].map(match => match[0]);
+
+  assert.equal(edgeTags.length, 72);
+  assert.equal(edgeTags.filter(tag => !tag.includes(" hidden")).length, 24);
+  assert.match(
+    html,
+    /data-metrics-relationship-limit data-limit-levels="18,24,36,54,72"/,
+  );
+  assert.match(html, /type="range" min="0" max="4" value="1"/);
+  assert.match(html, /Showing top <span[^>]*>24<\/span> of 72/);
+  assert.match(html, /data-relationship-rank="72"[^>]* hidden/);
+});
+
 test("reciprocal relationships use distinct geometry independent of insertion lanes", () => {
   const relationships = [
     ["A", "B"],
@@ -428,7 +335,7 @@ test("relationship topology renders the complete Research projection", () => {
     sourceTypeDisplay: "Example.Hub",
     targetTypeKey: `Example.Leaf${index}`,
     targetTypeDisplay: `Example.Leaf${index}`,
-    callSiteCount: index + 1,
+    callSiteCount: 16 - index,
     sourceDegree: 16,
     targetDegree: 1,
   }));
@@ -443,5 +350,8 @@ test("relationship topology renders the complete Research projection", () => {
     html.match(/class="metrics-relationship-edge"/g)?.length,
     relationships.length,
   );
-  assert.match(html, /17 most connected types · 16 retained relationships/);
+  assert.match(
+    html,
+    /17 most connected types · Showing top <span[^>]*>8<\/span> of 16 retained relationships/,
+  );
 });

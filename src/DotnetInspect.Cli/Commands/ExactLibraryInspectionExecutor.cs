@@ -97,6 +97,7 @@ internal sealed class ExactLibraryInspectionSession(
         InspectionEnvelope<MemberDocumentInspectionOutcome>?>
         ExecuteMemberDocumentAsync(
             MemberDocumentInspectionPlan plan,
+            MemberSourceAttachmentProvider? sourceProvider,
             CancellationToken cancellationToken)
     {
         LibraryOperationLeaseIssueOutcome leaseIssue =
@@ -114,18 +115,21 @@ internal sealed class ExactLibraryInspectionSession(
         return await MemberDocumentInspectionOperation.ExecuteAsync(
                 new(reference, plan),
                 lease,
-                (ids, demand, token) =>
-                    DirectLibraryDocumentationQuery.ExecuteManyAsync(
-                        reference,
-                        owner,
-                        ids,
-                        demand,
-                        ApiSurfaceExtractionScope
-                            .PublicWithNonPublicTypes,
-                        plan.Bounds,
-                        s_documentationLimits,
-                        TimeSpan.FromSeconds(10),
-                        token),
+                plan.Documentation is null
+                    ? null
+                    : (ids, demand, token) =>
+                        DirectLibraryDocumentationQuery.ExecuteManyAsync(
+                            reference,
+                            owner,
+                            ids,
+                            demand,
+                            ApiSurfaceExtractionScope
+                                .PublicWithNonPublicTypes,
+                            plan.Bounds,
+                            s_documentationLimits,
+                            TimeSpan.FromSeconds(10),
+                            token),
+                sourceProvider,
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -295,6 +299,7 @@ internal static class ExactLibraryInspectionExecutor
         string assemblyPath,
         string provenanceLabel,
         Func<ExactLibraryInspectionSession, ValueTask<T?>> inspect,
+        bool includeCompiledDocumentation,
         CancellationToken cancellationToken,
         AssemblyContextLibraryRole role =
             AssemblyContextLibraryRole.ApiOnly)
@@ -324,7 +329,9 @@ internal static class ExactLibraryInspectionExecutor
         }
 
         AssemblyContextLibraryCompiledXml? compiledXml =
-            ReadCompiledXml(assemblyPath);
+            includeCompiledDocumentation
+                ? ReadCompiledXml(assemblyPath)
+                : null;
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
         AssemblyContextLibraryInspectionRun<T>? run = null;

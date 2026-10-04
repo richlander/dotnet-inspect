@@ -21,6 +21,210 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+test("Type filters expose counted Namespace, Accessibility, Kind, and Trait selectors", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    namespace: "Hidden",
+    kind: "interface",
+    kindFacetId: "api.type-kind.interface",
+    traitFacetIds: [],
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal interface Example.Neighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal],
+    typeKinds: [
+      {
+        id: "api.type-kind.class",
+        singularLabel: "class",
+        pluralLabel: "classes",
+        weight: 100,
+        count: 1,
+        isDefault: true,
+      },
+      {
+        id: "api.type-kind.interface",
+        singularLabel: "interface",
+        pluralLabel: "interfaces",
+        weight: 300,
+        count: 1,
+        isDefault: true,
+      },
+    ],
+    typeTraits: surface.typeTraits.map(trait => ({
+      ...trait,
+      count: trait.id === "api.type-trait.object" ? 1 : 0,
+    })),
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator(".type-filter-selects .member-filter-select > span"))
+    .toHaveText(["Namespace", "Accessibility", "Kind", "Trait"]);
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Example · 1",
+    ]);
+  await expect(page.locator("[data-type-access-filter] option"))
+    .toHaveText([
+      "all · 2",
+      "public · 1",
+      "internal · 1",
+    ]);
+  await expect(page.locator("[data-type-kind-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "class · 1",
+      "interface · 0",
+    ]);
+  await expect(page.locator("[data-type-trait-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "abstract · 0",
+      "static · 0",
+      "object · 1",
+    ]);
+
+  await page.locator("#namespace-jump").selectOption("Example");
+  await page.locator("[data-type-access-filter]")
+    .selectOption("internal");
+  await expect(page.locator("#namespace-jump")).toHaveValue("");
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Hidden · 1",
+    ]);
+  await expect(page.locator("[data-type-kind-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "class · 0",
+      "interface · 1",
+    ]);
+  await expect(page.locator("[data-type-trait-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "abstract · 0",
+      "static · 0",
+      "object · 0",
+    ]);
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("Neighbor");
+
+  await page.locator("[data-type-trait-filter]")
+    .selectOption("api.type-trait.abstract");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+  await page.locator("[data-type-trait-filter]")
+    .selectOption("api.type-trait.object");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+});
+
+test("non-public Type deep links select the exact accessibility bucket", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Example.Neighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal],
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+  await page.locator("[data-type-access-filter]").selectOption("internal");
+  await page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  ).click();
+  const internalTypeUrl = page.url();
+
+  await page.goto(root);
+  await page.goto(internalTypeUrl);
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator("[data-type-access-filter]"))
+    .toHaveValue("internal");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  )).toBeVisible();
+  await expect(page.locator(
+    `#type-list [data-type="${publicType.id}"]`,
+  )).toHaveCount(0);
+});
+
+test("internal-only Library navigation selects one exact accessibility bucket", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    namespace: "Hidden",
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Hidden.Neighbor",
+  };
+  const privateType = {
+    ...surface.types[1]!,
+    id: `${surface.types[1]!.id}:private`,
+    definitionId: "Hidden.PrivateNeighbor",
+    queryId: "Hidden.PrivateNeighbor",
+    metadataId: "Hidden.PrivateNeighbor",
+    name: "PrivateNeighbor",
+    displayName: "Hidden.PrivateNeighbor",
+    namespace: "Hidden",
+    accessibility: "private",
+    accessibilityId: "private",
+    signature: "private class Hidden.PrivateNeighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal, privateType],
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+      { id: "private", label: "Private", order: 5, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator("[data-type-access-filter]"))
+    .toHaveValue("internal");
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Hidden · 1",
+    ]);
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  )).toBeVisible();
+  await expect(page.locator(
+    `#type-list [data-type="${privateType.id}"]`,
+  )).toHaveCount(0);
+});
+
 test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));
@@ -189,7 +393,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
 
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(overview.locator(
-    ".package-overview-summary .section-title h2"))
+    ".package-info-section > .section-title h2"))
     .toHaveText("Package Info");
 });
 
@@ -261,7 +465,8 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator("#package-version")).toBeVisible();
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
-    await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
+    await expect(page.locator(".overview-surface-head p"))
+      .toHaveText("Type Count unavailable · Member Count unavailable");
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "Example.Package@1.0.0", "net10.0",
     ]);
@@ -272,7 +477,7 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator(".comparison-target-policy"))
       .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
     await expect(overview.locator(
-      ".package-overview-summary .section-title h2"))
+      ".package-info-section > .section-title h2"))
       .toHaveText("Package Info");
     await expect(overview.locator(
       ".package-overview-resources .section-title h2"))
@@ -591,7 +796,6 @@ test("metadata accessors retain their established overload detail route", async 
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-spelling]").selectOption("metadata");
   await chooseSubject(page, "member", "Member");
-  await page.locator(".member-surface-list .overload-row").click();
 
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
@@ -602,13 +806,14 @@ test("metadata accessors retain their established overload detail route", async 
     .toContainText("int Example.Widget.get_Value()");
 });
 
-test("non-public overload navigation retains its established detail route", async ({
+test("filtered non-public overload navigation retains its established detail route", async ({
   page,
 }) => {
-  const hidden = [1, 2].map(index => ({
+  const hidden = [1, 2, 3].map(index => ({
     ...run,
     signature: `private void Hidden(int value${index})`,
     name: "Hidden",
+    isStatic: index !== 2,
     accessibility: "private",
     stableSelector: `Hidden:${index}`,
     anchorDigest: `widget-hidden-${index}`,
@@ -635,16 +840,27 @@ test("non-public overload navigation retains its established detail route", asyn
     '#type-list [data-type="asset:core:Example.Widget"]').click();
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-access-filter]").selectOption("private");
+  await page.locator("[data-member-trait-filter]").selectOption("static");
   await chooseSubject(page, "member", "Member");
-  await page.locator('[data-nav-overload="1"]').click();
+  await page.locator('[data-nav-overload="2"]').click();
 
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
   )).toBeNull();
-  await expect(page.locator('[data-nav-overload="1"]'))
+  await expect(page.locator('[data-nav-overload="2"]'))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface"))
-    .toContainText("void Example.Widget.Hidden(int value2)");
+    .toContainText("void Example.Widget.Hidden(int value3)");
+
+  await page.locator("[data-nav-member]").filter({ hasText: "Hidden" }).click();
+  const pickerRows = page.locator(".member-surface-list .overload-row");
+  await expect(pickerRows).toHaveCount(2);
+  await expect(pickerRows.nth(1)).toContainText("value3");
+  await pickerRows.nth(1).click();
+  await expect(page.locator('[data-nav-overload="2"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".member-surface"))
+    .toContainText("void Example.Widget.Hidden(int value3)");
 });
 
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
@@ -679,29 +895,27 @@ test("aggregate Library remains active through Spotlight Type and Member results
     .toHaveValue("public");
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
   expect(await page.locator("html").getAttribute(
     "data-member-group-document-request",
   )).toBeNull();
 
   await page.keyboard.press("1");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
 
   await page.keyboard.press("ArrowRight");
-  await expect(subjectTab(page, "type"))
+  await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("ArrowLeft");
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
 
-  await page.locator(".member-surface-list .overload-row").click();
   await page.keyboard.press("Backspace");
-  await expect(page.locator("#member-surface-title")).toHaveText("Run");
-  await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
 
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(".subject-path-segment").nth(1))
@@ -949,6 +1163,14 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const instanceMember = {
     ...run,
     signature: "public void Run(int value)",
+    parameters: [{
+      name: "value",
+      type: "int",
+      modifier: null,
+      hasDefault: false,
+      defaultValue: null,
+      description: null,
+    }],
     metadataToken: 0x06000002,
     declarationMetadataToken: 0x06000002,
     stableSelector: "Run:2",
@@ -1003,7 +1225,9 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const trait = page.locator("[data-member-trait-filter]");
   await expect(kind).toBeVisible();
   await expect(page.locator("[data-member-spelling]")).toBeVisible();
-  await expect(page.locator(".member-filter-select > span"))
+  await expect(page.locator(
+    "[data-member-filter-disclosure] .member-filter-select > span",
+  ))
     .toHaveText(["Kind", "Accessibility", "Trait", "Spelling"]);
   await expect(kind.locator('option[value="all"]')).toHaveText("all kinds · 2");
   await expect(kind.locator('option[value="method"]')).toHaveText("method · 2");
@@ -1070,9 +1294,49 @@ test("Member filters use dropdowns and request all accessibility buckets", async
 
   await filteredRun.click();
   await expect(page.locator(".member-surface-head"))
-    .toContainText("Exact declaration 2");
+    .toContainText("method · 2 of 2");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(0);
   await expect(page.locator(".signature-code"))
     .toContainText("public void Run(int value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Run","Run:2",100663298,false\]$/,
+  );
+  await expect(page.getByText(
+    "M:Example.Widget.Run(System.Int32)",
+    { exact: true },
+  )).toBeVisible();
+
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("#inspector-panel [data-member]").click();
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(2);
+
+  await page.locator("[data-member-trait-filter]")
+    .selectOption("instance");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("method · 2 of 2");
+  await expect(page.locator(".signature-code"))
+    .toContainText("public void Run(int value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Run","Run:2",100663298,false\]$/,
+  );
+  await expect(page.locator("#type-list [data-nav-overload]"))
+    .toHaveCount(0);
+  await expect(page.locator(
+    '#type-list [data-nav-member] .family-count',
+  )).toHaveCount(0);
+  await expect(page.locator(
+    '#type-list [data-nav-member] .type-name',
+  )).toContainText("Run(int)");
 });
 
 for (const width of [900, 390]) {
@@ -1221,6 +1485,8 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
   await page.goBack();
@@ -1289,6 +1555,8 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await selectLibrary(page, core.id);
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Package");
+  await chooseSubject(page, "library", "Library");
   await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
 
   await page.goBack();

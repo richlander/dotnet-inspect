@@ -9,8 +9,8 @@ public class UnsafetyFindingDiffTests
     [Fact]
     public void Compare_SurfacesAddedUnsafeOperation()
     {
-        var oldIndex = LibraryBodyIndex.Open(FixtureCatalog.DiffPair.OldAssemblyPath());
-        var newIndex = LibraryBodyIndex.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
+        var oldIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var newIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
 
         var comparison = Compare(oldIndex, newIndex);
 
@@ -23,7 +23,7 @@ public class UnsafetyFindingDiffTests
     [Fact]
     public void Compare_SelfDiffHasNoChanges()
     {
-        var index = LibraryBodyIndex.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
 
         var comparison = Compare(index, index);
 
@@ -35,10 +35,10 @@ public class UnsafetyFindingDiffTests
     {
         var method1 = DiffMethod(TypeRef.Definition("Asm", "Ns", "Box`1"), "Use");
         var method2 = DiffMethod(TypeRef.Definition("Asm", "Ns", "Box`2"), "Use");
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [method1],
             [new UnsafeEvidence(method1, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method2],
             [new UnsafeEvidence(method2, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
 
@@ -56,10 +56,10 @@ public class UnsafetyFindingDiffTests
         var method1 = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
         var method2 = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use")
             with { GenericArity = 1, GenericParameterNames = ["T"] };
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [method1],
             [new UnsafeEvidence(method1, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method2],
             [new UnsafeEvidence(method2, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
 
@@ -75,10 +75,10 @@ public class UnsafetyFindingDiffTests
     public void Compare_PreservesCountOfRepeatedUnsafeOperations()
     {
         var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [
                 new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 0, null),
@@ -96,13 +96,13 @@ public class UnsafetyFindingDiffTests
     public void Compare_AttributesPrependedOffsetAdditionToNewOffset()
     {
         var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [
                 new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 10, null),
                 new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 20, null),
             ]);
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [
                 new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 5, null),
@@ -121,13 +121,13 @@ public class UnsafetyFindingDiffTests
     public void Compare_OffsetShiftWithAddedOperation_DoesNotEmitRemoveAddFlood()
     {
         var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [
                 new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 10, null),
                 new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 20, null),
             ]);
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [
                 new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 5, null),
@@ -146,10 +146,10 @@ public class UnsafetyFindingDiffTests
     public void Compare_DoesNotMatchMemberEvidenceToBodyEvidence()
     {
         var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", null, null)]);
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 4, null)]);
 
@@ -167,7 +167,7 @@ public class UnsafetyFindingDiffTests
     public void Compare_ReorderedOperationsDoNotBecomeRemoveAddChanges()
     {
         var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
-        var oldIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [],
             unsafetyOccurrences: new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>
@@ -178,7 +178,7 @@ public class UnsafetyFindingDiffTests
                     new(method, 4, UnsafetyKind.Deref, "int"),
                 ],
             });
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [],
             unsafetyOccurrences: new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>
@@ -199,8 +199,8 @@ public class UnsafetyFindingDiffTests
     public void Compare_DefiniteOperationSuppressesBroaderEvidenceAtSameOffset()
     {
         var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
-        var oldIndex = LibraryBodyIndex.FromEvidence([method], []);
-        var newIndex = LibraryBodyIndex.FromEvidence(
+        var oldIndex = BodyAnalysisTestExecution.FromEvidence([method], []);
+        var newIndex = BodyAnalysisTestExecution.FromEvidence(
             [method],
             [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 4, null)],
             unsafetyOccurrences: new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>
@@ -220,8 +220,8 @@ public class UnsafetyFindingDiffTests
     }
 
     static ResearchComparison Compare(
-        LibraryBodyIndex oldIndex,
-        LibraryBodyIndex newIndex)
+        LibraryBodyAnalysisExecution oldIndex,
+        LibraryBodyAnalysisExecution newIndex)
         => ResearchDiff.Compare(
             new ResearchDiffInput([])
             {

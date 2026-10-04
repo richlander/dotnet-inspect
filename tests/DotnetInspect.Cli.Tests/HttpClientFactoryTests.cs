@@ -650,7 +650,7 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal("GET", tags["http.request.method"]);
         Assert.Equal("shared", tags["dotnet_inspect.http.client_kind"]);
         Assert.Equal("package-download", tags["dotnet_inspect.network.kind"]);
-        Assert.Equal(true, tags["dotnet_inspect.network.policy.allowed"]);
+        Assert.DoesNotContain("dotnet_inspect.network.policy.allowed", tags.Keys);
         var url = Assert.IsType<string>(tags["url.full"]);
         // The whole query goes, not the parameters a name list recognizes: a
         // feed picks the names too, so "ok=1" is no safer than "access_token".
@@ -683,7 +683,6 @@ public class HttpClientFactoryTests : IDisposable
             "Network traffic [source-fetch]: GET https://example.test/source.cs?REDACTED",
             stderr);
         Assert.DoesNotContain("ok=1", stderr);
-        Assert.DoesNotContain("Network policy error", stderr);
         Assert.DoesNotContain("secret", stderr);
         Assert.DoesNotContain("user:password", stderr);
     }
@@ -718,8 +717,12 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal("GET", observation.Method);
     }
 
-    [Fact]
-    public async Task NetworkPolicy_BlocksUnallowedVulnerabilityTrafficAfterRecordingIt()
+    [Theory]
+    [InlineData(NetworkTrafficKind.VulnerabilityData, "vulnerability-data")]
+    [InlineData(NetworkTrafficKind.AdvisoryData, "advisory-data")]
+    public async Task EnableNetworkTrafficLogging_ObservesEnrichmentTrafficWithoutBlocking(
+        NetworkTrafficKind trafficKind,
+        string telemetryName)
     {
         using var error = new StringWriter();
         var transport = new StubHttpMessageHandler();
@@ -727,95 +730,18 @@ public class HttpClientFactoryTests : IDisposable
         using (var client = new HttpClient(new NetworkTelemetryHandler(
             transport,
             NetworkClientKinds.Shared)))
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.VulnerabilityData))
-        {
-            var exception = await Assert.ThrowsAsync<NetworkPolicyException>(() => client.GetAsync(
-                "https://api.nuget.org/v3/vulnerabilities/index.json",
-                TestContext.Current.CancellationToken));
-            Assert.Contains("requires explicit capability authorization", exception.Message);
-        }
-
-        var stderr = error.ToString();
-        Assert.Contains(
-            "Network traffic [vulnerability-data]: GET https://api.nuget.org/v3/vulnerabilities/index.json",
-            stderr);
-        Assert.Contains(
-            "Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section",
-            stderr);
-        Assert.Equal(0, transport.RequestCount);
-    }
-
-    [Fact]
-    public async Task EnableNetworkTrafficLogging_DoesNotPrintPolicyErrorForAllowedVulnerabilityTraffic()
-    {
-        var stderr = await CaptureTrafficLogAsync(
-            NetworkTrafficKind.VulnerabilityData,
-            allowTrafficKind: true);
-
-        Assert.Contains(
-            "Network traffic [vulnerability-data]: GET https://api.nuget.org/v3/vulnerabilities/index.json",
-            stderr);
-        Assert.DoesNotContain("Network policy error", stderr);
-    }
-
-    [Fact]
-    public async Task NetworkPolicy_VulnerabilityCapabilityAllowsAdvisoryTraffic()
-    {
-        using var error = new StringWriter();
-        var transport = new StubHttpMessageHandler();
-        using (DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
-        using (var client = new HttpClient(new NetworkTelemetryHandler(
-            transport,
-            NetworkClientKinds.Shared)))
-        using (NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData))
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.AdvisoryData))
+        using (NetworkTelemetry.Scope(trafficKind))
         using (var response = await client.GetAsync(
-            "https://api.github.com/advisories/GHSA-test",
+            "https://api.nuget.org/v3/vulnerabilities/index.json",
             TestContext.Current.CancellationToken))
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
-        Assert.DoesNotContain("Network policy error", error.ToString());
+        Assert.Contains(
+            $"Network traffic [{telemetryName}]: GET https://api.nuget.org/v3/vulnerabilities/index.json",
+            error.ToString());
         Assert.Equal(1, transport.RequestCount);
-    }
-
-    [Fact]
-    public async Task NetworkPolicy_BlocksAdvisoryTrafficWithoutVulnerabilityCapability()
-    {
-        var transport = new StubHttpMessageHandler();
-        using var client = new HttpClient(new NetworkTelemetryHandler(
-            transport,
-            NetworkClientKinds.Shared));
-        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.AdvisoryData);
-
-        await Assert.ThrowsAsync<NetworkPolicyException>(() => client.GetAsync(
-            "https://api.github.com/advisories/GHSA-test",
-            TestContext.Current.CancellationToken));
-        Assert.Equal(0, transport.RequestCount);
-    }
-
-    private static async Task<string> CaptureTrafficLogAsync(
-        NetworkTrafficKind trafficKind,
-        bool allowTrafficKind)
-    {
-        using var error = new StringWriter();
-        using (DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
-        {
-            using var client = new HttpClient(new NetworkTelemetryHandler(
-                new StubHttpMessageHandler(),
-                NetworkClientKinds.Shared));
-
-            using var trafficScope = NetworkTelemetry.Scope(trafficKind);
-            using var allowScope = allowTrafficKind ? NetworkTelemetry.Allow(trafficKind) : null;
-            using var response = await client.GetAsync(
-                "https://api.nuget.org/v3/vulnerabilities/index.json",
-                TestContext.Current.CancellationToken);
-
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
-
-        return error.ToString();
     }
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler

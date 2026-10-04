@@ -54,6 +54,7 @@ type PackageOperationName =
   | "prefetchPlatformPacks"
   | "queryPackage"
   | "queryPackageRoot"
+  | "queryPackageSummary"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
@@ -107,7 +108,9 @@ type AnalysisOperationName =
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
   | "queryPackageTypeImplementationHeat"
+  | "queryPackageTypeMethodLeverage"
   | "queryPlatformTypeImplementationHeat"
+  | "queryPlatformTypeMethodLeverage"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformPerformance";
@@ -124,7 +127,8 @@ type SourceOperationName =
   | "cancelMethodBodyComparison"
   | "queryMemberSourceComparison"
   | "cancelMemberSourceComparison"
-  | "queryMemberFindingCensus";
+  | "queryMemberFindingCensus"
+  | "queryPlatformMemberFindingCensus";
 
 type CallGraphOperationName =
   | "queryMemberCallGraph"
@@ -149,6 +153,7 @@ type CatalogOperationName =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
@@ -1091,6 +1096,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageRoot"]>
       ) => facades.package.queryPackageRoot(...args),
     ),
+    queryPackageSummary: valueOperation(
+      "ordinary-package-query-package-summary",
+      3,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageSummary"]>
+      ) => facades.package.queryPackageSummary(...args),
+    ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
       2,
@@ -1492,6 +1505,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.analysis.queryPackageTypeImplementationHeat(...args),
     ),
+    queryPackageTypeMethodLeverage: valueOperation(
+      "ordinary-analysis-query-package-type-method-leverage",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageTypeMethodLeverage"]
+        >
+      ) => facades.analysis.queryPackageTypeMethodLeverage(...args),
+    ),
     queryPlatformTypeImplementationHeat: valueOperation(
       "ordinary-analysis-query-platform-type-implementation-heat",
       5,
@@ -1501,6 +1524,16 @@ export const engineWorkerOrdinaryOperations = {
           AnalysisFacade["queryPlatformTypeImplementationHeat"]
         >
       ) => facades.analysis.queryPlatformTypeImplementationHeat(...args),
+    ),
+    queryPlatformTypeMethodLeverage: valueOperation(
+      "ordinary-analysis-query-platform-type-method-leverage",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPlatformTypeMethodLeverage"]
+        >
+      ) => facades.analysis.queryPlatformTypeMethodLeverage(...args),
     ),
     queryMemberFacts: valueOperation(
       "ordinary-analysis-query-member-facts",
@@ -1598,7 +1631,7 @@ export const engineWorkerOrdinaryOperations = {
   source: {
     queryMemberSource: valueOperation(
       "ordinary-source-query-member",
-      9,
+      11,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberSource"]>
@@ -1606,7 +1639,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberSource: valueOperation(
       "ordinary-source-query-platform-member",
-      10,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryPlatformMemberSource"]>
@@ -1703,6 +1736,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<SourceFacade["queryMemberFindingCensus"]>
       ) => facades.source.queryMemberFindingCensus(...args),
+    ),
+    queryPlatformMemberFindingCensus: valueOperation(
+      "ordinary-source-query-platform-member-finding-census",
+      12,
+      (
+        facades,
+        ...args: Parameters<SourceFacade["queryPlatformMemberFindingCensus"]>
+      ) => facades.source.queryPlatformMemberFindingCensus(...args),
     ),
   },
   callGraph: {
@@ -1909,6 +1950,29 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["observeRetainedWorkspaceSettlement"]
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
+    ),
+    prepareEcosystemWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-ecosystem-workspace-definition",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareEcosystemWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareEcosystemWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected Ecosystem Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
     ),
     preparePackageQueryWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-package-query-workspace-definition",
@@ -2134,6 +2198,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageRoot: bind(
         engineWorkerOrdinaryOperations.package.queryPackageRoot,
       ),
+      queryPackageSummary: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageSummary,
+      ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,
       ),
@@ -2269,9 +2336,17 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageTypeImplementationHeat,
       ),
+      queryPackageTypeMethodLeverage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageTypeMethodLeverage,
+      ),
       queryPlatformTypeImplementationHeat: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformTypeImplementationHeat,
+      ),
+      queryPlatformTypeMethodLeverage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformTypeMethodLeverage,
       ),
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,
@@ -2360,6 +2435,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberFindingCensus: bind(
         engineWorkerOrdinaryOperations.source.queryMemberFindingCensus,
       ),
+      queryPlatformMemberFindingCensus: bind(
+        engineWorkerOrdinaryOperations.source
+          .queryPlatformMemberFindingCensus,
+      ),
     },
     callGraph: {
       queryMemberCallGraph: bind(
@@ -2445,6 +2524,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      prepareEcosystemWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareEcosystemWorkspaceDefinition,
       ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

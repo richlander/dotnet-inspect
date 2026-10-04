@@ -150,6 +150,10 @@ public sealed class LibraryCallGraphAnalysisResult
         _directCallsByEvidenceMethod ??=
             DirectCallIncidence.ByEvidenceMethod(DirectCalls);
 
+    /// <summary>Finds direct calls whose target matches the supplied pattern.</summary>
+    public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern) =>
+        [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
+
     /// <summary>
     /// The Analysis-issued target of one direct call from this result. Calls
     /// through generic instantiations of current-module types resolve by
@@ -207,7 +211,28 @@ public sealed class LibraryCallGraphAnalysisResult
         _rootPathGraph ??=
             LibraryBodyRootPathAnalysis.BuildLocalGraph(this);
 
-    internal MethodIdentity? ResolveDeclaredMethod(
+    /// <summary>
+    /// The Analysis-issued declared source of a compiler-lifted body (a lambda,
+    /// local function, or async <c>MoveNext</c>), or <see langword="null"/> when
+    /// Analysis publishes no association for <paramref name="caller"/>. For
+    /// lambdas, local functions, and async <c>MoveNext</c> whose ultimate owner
+    /// Analysis authenticates, this is that owner, the same association
+    /// <see cref="DirectCall.Caller"/> carries. An async <c>MoveNext</c> whose
+    /// ultimate owner authenticates is associated module-wide, even when it is
+    /// outside a scoped result's body scope
+    /// (<c>DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource</c>). One
+    /// exception: in an unscoped result, an async <c>MoveNext</c> whose lifted
+    /// source's owner cannot be resolved maps to that immediate lifted source
+    /// (unless the source's compiler-generated name is malformed), while
+    /// <see cref="DirectCall.Caller"/> for its calls stays the physical
+    /// <c>MoveNext</c>. Scoped results withhold that fallback and return
+    /// <see langword="null"/> for it, and for lambdas and local functions
+    /// outside the scope
+    /// (<c>OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes</c>).
+    /// Sync iterators and state-machine or display-class constructors are never
+    /// associated.
+    /// </summary>
+    public MethodIdentity? ResolveDeclaredMethod(
         MethodIdentity caller)
     {
         if (_declaredSources.TryGetValue(

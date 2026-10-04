@@ -469,6 +469,120 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
         };
 
     /// <summary>
+    /// Compares a TypeRef to an exact structured name without materializing
+    /// metadata-authored strings.
+    /// </summary>
+    public static MetadataTypeDefinitionNameMatchResult Matches(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        MetadataTypeDefinitionName name,
+        out MetadataTypeNameFailure? failure) =>
+        MetadataTypeDefinitionNameReader.Matches(
+            reader,
+            handle,
+            name,
+            out failure) switch
+        {
+            MetadataTypeDefinitionNameMatch.NoMatch =>
+                MetadataTypeDefinitionNameMatchResult.NoMatch,
+            MetadataTypeDefinitionNameMatch.Match =>
+                MetadataTypeDefinitionNameMatchResult.Match,
+            MetadataTypeDefinitionNameMatch.Rejected =>
+                MetadataTypeDefinitionNameMatchResult.Rejected,
+            _ => throw new InvalidOperationException(
+                "unknown metadata type-name match result"),
+        };
+
+    /// <summary>
+    /// Finds every TypeDef whose leaf name exactly matches one simple ASCII
+    /// name, without materializing unrelated metadata-authored strings.
+    /// </summary>
+    public static MetadataTypeDefinitionNameSearchResult
+        FindDefinitionsBySimpleName(
+            MetadataReader reader,
+            string simpleName)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentException.ThrowIfNullOrWhiteSpace(simpleName);
+        if (simpleName.Length
+                > MetadataSafetyPolicy.MaxTypeNameCharacters
+            || simpleName.Any(static character =>
+                !char.IsAsciiLetterOrDigit(character)
+                && character is not ('_' or '`')))
+        {
+            throw new ArgumentException(
+                "A simple metadata Type name must contain only ASCII "
+                    + "letters, digits, '_', or '`'.",
+                nameof(simpleName));
+        }
+        if (reader.TypeDefinitions.Count
+            > MetadataSafetyPolicy.MaxTypeDeclarationRows)
+        {
+            return new MetadataTypeDefinitionNameSearchResult
+                .BudgetExceeded(
+                    "The exact TypeDef lookup exceeded its metadata-row "
+                        + "budget.");
+        }
+
+        byte[] expected = Encoding.UTF8.GetBytes(simpleName);
+        var matches =
+            ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            try
+            {
+                TypeDefinition definition =
+                    reader.GetTypeDefinition(handle);
+                BlobReader actual =
+                    reader.GetBlobReader(definition.Name);
+                if (actual.Length != expected.Length)
+                    continue;
+
+                bool equal = true;
+                for (int index = 0; index < expected.Length; index++)
+                {
+                    byte left = actual.ReadByte();
+                    byte right = expected[index];
+                    if (left is >= (byte)'A' and <= (byte)'Z')
+                        left += (byte)('a' - 'A');
+                    if (right is >= (byte)'A' and <= (byte)'Z')
+                        right += (byte)('a' - 'A');
+                    if (left != right)
+                    {
+                        equal = false;
+                        break;
+                    }
+                }
+                if (!equal)
+                    continue;
+            }
+            catch (Exception exception) when (
+                exception is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                return new MetadataTypeDefinitionNameSearchResult.Rejected(
+                    MetadataTypeNameFailure.Malformed(
+                        handle,
+                        exception.Message));
+            }
+
+            MetadataTypeDefinitionNameReadResult result =
+                Read(reader, handle);
+            if (result
+                is MetadataTypeDefinitionNameReadResult.Rejected rejected)
+            {
+                return new MetadataTypeDefinitionNameSearchResult.Rejected(
+                    rejected.Failure);
+            }
+            matches.Add(
+                ((MetadataTypeDefinitionNameReadResult.Read)result).Name);
+        }
+
+        return new MetadataTypeDefinitionNameSearchResult.Found(
+            matches.ToImmutable());
+    }
+
+    /// <summary>
     /// Parses a reflection-serialized type name into exact metadata definition
     /// identity while rejecting assembly-qualified and constructed forms.
     /// Gated by
@@ -601,6 +715,23 @@ public abstract record MetadataTypeDefinitionNameReadResult
         MetadataTypeDefinitionNameReadResult;
 }
 
+public abstract record MetadataTypeDefinitionNameSearchResult
+{
+    private protected MetadataTypeDefinitionNameSearchResult()
+    {
+    }
+
+    public sealed record Found(
+        ImmutableArray<MetadataTypeDefinitionName> Names) :
+        MetadataTypeDefinitionNameSearchResult;
+
+    public sealed record Rejected(MetadataTypeNameFailure Failure) :
+        MetadataTypeDefinitionNameSearchResult;
+
+    public sealed record BudgetExceeded(string Detail) :
+        MetadataTypeDefinitionNameSearchResult;
+}
+
 internal enum MetadataTypeDefinitionNameMatch
 {
     NoMatch,
@@ -670,6 +801,43 @@ internal static class MetadataTypeDefinitionNameReader
         }
 
         return MatchChain<TypeDefinitionHandle, TypeDefinitionNameRow>(
+            reader,
+            rootToLeaf[..consumedNodes],
+            name,
+            out failure);
+    }
+
+    internal static MetadataTypeDefinitionNameMatch Matches(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        MetadataTypeDefinitionName name,
+        out MetadataTypeNameFailure? failure)
+    {
+        if (!LeafMatches<TypeReferenceHandle, TypeReferenceNameRow>(
+                reader,
+                handle,
+                name,
+                out MetadataTypeDefinitionNameMatch leafResult,
+                out failure))
+        {
+            return leafResult;
+        }
+
+        Span<TypeReferenceHandle> rootToLeaf =
+            stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                rootToLeaf,
+                out int consumedNodes,
+                out _,
+                out RelationshipTraversalRejection? rejection))
+        {
+            failure = MetadataTypeNameFailure.From(rejection!);
+            return MetadataTypeDefinitionNameMatch.Rejected;
+        }
+
+        return MatchChain<TypeReferenceHandle, TypeReferenceNameRow>(
             reader,
             rootToLeaf[..consumedNodes],
             name,

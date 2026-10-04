@@ -930,6 +930,31 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void ForeachDelegationIterator_WithConditionalYieldBreak_ReconstructsBoth()
+    {
+        var function = Raised(nameof(CfgSampleClass.YieldEachUnless));
+
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void ForeachDelegationIterator_WithConditionalYieldBreak_RendersBoth()
+    {
+        var output = Print(nameof(CfgSampleClass.YieldEachUnless));
+
+        Assert.Contains("if (stop)", output);
+        Assert.Contains("yield break;", output);
+        Assert.Contains("foreach (", output);
+        Assert.Contains("yield return", output);
+        Assert.DoesNotContain("GetEnumerator", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
     public void NestedForeachDelegationIterator_ReconstructsIndexedForAndForeachLoops()
     {
         var function = Raised(

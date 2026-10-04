@@ -1,13 +1,5 @@
 import type { BrowserLibraryMetrics } from "./facades/inspect-web-analysis.d.ts";
-import type {
-  TypeLeveragePresentation,
-  TypeLeverageShardPresentation,
-} from "./type-leverage.ts";
-import { typeLeveragePole } from "./type-leverage.ts";
-import {
-  renderItemAchievementRail,
-  type ItemAchievement,
-} from "./item-achievements.ts";
+import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
 const TREEMAP_WIDTH = 900;
 const TREEMAP_HEIGHT = 360;
@@ -15,8 +7,8 @@ const TREEMAP_LIMIT = 72;
 const RELATIONSHIP_WIDTH = 900;
 const RELATIONSHIP_HEIGHT = 480;
 const RELATIONSHIP_LABEL_SPACE = 190;
-const SALIENCE_ORDER_LIMIT = 8;
 const RECIPROCAL_BEND_SEPARATION = 16;
+const RELATIONSHIP_INITIAL_LIMIT = 24;
 const RELATIONSHIP_COLORS = [
   "#b9aaee", "#7ed8dc", "#9cc8f1", "#e5b567", "#d98a70",
   "#8ebb76", "#c795e9", "#87aeca",
@@ -33,17 +25,11 @@ export interface LibraryMetricsOptions {
   loading: boolean;
   error: string;
   data: BrowserLibraryMetrics | null;
-  salienceLoading: boolean;
-  salienceError: string;
-  salience: TypeLeveragePresentation | null;
-  selectedSalienceNamespace: string | null;
   escapeHtml: (value: unknown) => string;
 }
 
 export interface LibraryMetricsInteractionActions {
   activateType: (typeKey: string) => void;
-  selectSalienceNamespace: (exactNamespace: string) => void;
-  retrySalience: () => void;
 }
 
 function shortTypeName(typeId: string): string {
@@ -64,104 +50,6 @@ function formatCount(
   plural = `${singular}s`,
 ): string {
   return `${formatNumber(value)} ${value === 1 ? singular : plural}`;
-}
-
-function namespaceDisplay(exactNamespace: string): string {
-  return exactNamespace || "(global namespace)";
-}
-
-function renderSalienceOrder(
-  title: string,
-  rows: TypeLeverageShardPresentation["seaLevelOrder"],
-  degree: "signatureIncomingDegree" | "signatureOutgoingDegree",
-  escapeHtml: (value: unknown) => string,
-): string {
-  const visible = rows.slice(0, SALIENCE_ORDER_LIMIT);
-  const items = visible.map(row => {
-    const pole = typeLeveragePole(row.pole);
-    const poleText = pole === "sea-level"
-      ? "sea level"
-      : pole === "mountain-peak" ? "mountain peak" : "";
-    const achievements: readonly ItemAchievement[] = pole
-      ? [{ kind: pole, description: `${poleText} Type` }]
-      : [];
-    return `<button type="button" class="metrics-salience-type${pole ? ` ${pole}` : ""}" data-metrics-salience-type-key="${escapeHtml(row.typeDefinitionId)}">
-      ${renderItemAchievementRail(achievements, escapeHtml)}
-      <span class="metrics-salience-type-name">${escapeHtml(shortTypeName(row.typeDisplay))}</span>
-      <small>${formatNumber(row[degree])} ${degree === "signatureIncomingDegree" ? "incoming" : "outgoing"} peers · ${escapeHtml(row.role)}${poleText ? ` · ${poleText}` : ""}</small>
-    </button>`;
-  }).join("");
-  const disclosure = rows.length > visible.length
-    ? `Top ${visible.length.toLocaleString()} of ${rows.length.toLocaleString()} owner-issued rows`
-    : `${rows.length.toLocaleString()} owner-issued rows`;
-  return `<section class="metrics-salience-order">
-    <h3>${escapeHtml(title)}</h3>
-    <div class="metrics-salience-types">${items}</div>
-    <p>${escapeHtml(disclosure)}</p>
-  </section>`;
-}
-
-function renderStructuralSalience(
-  options: Pick<
-    LibraryMetricsOptions,
-    | "salienceLoading"
-    | "salienceError"
-    | "salience"
-    | "selectedSalienceNamespace"
-    | "escapeHtml"
-  >,
-): string {
-  const {
-    salienceLoading, salienceError, salience,
-    selectedSalienceNamespace, escapeHtml,
-  } = options;
-  if (salienceError) {
-    return `<section class="document-section metrics-salience-section metadata-warning">
-      <strong>Structural salience failed</strong>
-      <p>${escapeHtml(salienceError)}</p>
-      <button type="button" class="tiny-button" data-metrics-salience-retry>Retry</button>
-    </section>`;
-  }
-  if (!salience) {
-    return `<section class="document-section metrics-salience-section">
-      <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>The complete signature-surface document is loading independently from implementation metrics.</p></div>
-      ${salienceLoading ? `<span class="loader"></span>` : ""}
-    </section>`;
-  }
-
-  const defaultNamespace = salience.namespaceOrder.find(row =>
-    row.topLeverage)?.namespace
-    ?? salience.namespaceOrder[0]?.namespace
-    ?? null;
-  const exactNamespace = selectedSalienceNamespace !== null
-    && salience.shardsByNamespace.has(selectedSalienceNamespace)
-    ? selectedSalienceNamespace
-    : defaultNamespace;
-  const shard = exactNamespace === null
-    ? null
-    : salience.shardsByNamespace.get(exactNamespace) ?? null;
-  const namespaceOptions = salience.namespaceOrder.map(row =>
-    `<option value="${escapeHtml(row.namespace)}"${row.namespace === exactNamespace ? " selected" : ""}>${escapeHtml(namespaceDisplay(row.namespace))} · ${formatCount(row.externalIncomingSourceTypeCount, "external source Type")}${row.topLeverage ? " · top leverage" : ""}</option>`)
-    .join("");
-  const optionsHtml = exactNamespace === null
-    ? `<option value="__choose_namespace__" selected disabled>Choose a namespace</option>${namespaceOptions}`
-    : namespaceOptions;
-  const qualification = salience.disposition.toLowerCase() === "complete"
-    ? ""
-    : `<div class="metadata-warning"><strong>Structural salience is qualified</strong><p>${escapeHtml(salience.disposition)} · ${formatNumber(salience.coverage.examined)} of ${formatNumber(salience.coverage.considered)} signature sites examined.</p>${salience.diagnostics.length ? `<ul>${salience.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}<button type="button" class="tiny-button" data-metrics-salience-retry>Retry</button></div>`;
-  const orders = shard
-    ? `<div class="metrics-salience-orders">
-        ${renderSalienceOrder("Incoming peers", shard.seaLevelOrder, "signatureIncomingDegree", escapeHtml)}
-        ${renderSalienceOrder("Outgoing peers", shard.mountainPeakOrder, "signatureOutgoingDegree", escapeHtml)}
-      </div>`
-    : `<p class="metrics-salience-loading">Choose an exact namespace to load its Type orders.</p>`;
-  return `<section class="document-section metrics-salience-section">
-    <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>Namespace leverage identifies important areas. The two Type orders preserve raw direction; baseline and peak cues show the single owner-issued pole.</p></div>
-    <label class="metrics-salience-namespace"><span>Namespace</span><select data-metrics-salience-namespace>${optionsHtml}</select></label>
-    ${qualification}
-    ${orders}
-    <p class="metrics-visual-caption">${formatCount(salience.namespaceOrder.length, "exact namespace")} analyzed · ${escapeHtml(salience.methodologyVersion)} · ${escapeHtml(salience.evidenceMode)}</p>
-  </section>`;
 }
 
 interface TreemapItem {
@@ -310,6 +198,21 @@ function relationshipDirectionKey(source: string, target: string): string {
   return JSON.stringify([source, target]);
 }
 
+function initialRelationshipCount(total: number): number {
+  return Math.min(RELATIONSHIP_INITIAL_LIMIT, Math.ceil(total / 2));
+}
+
+function relationshipLimitLevels(total: number): number[] {
+  const initial = initialRelationshipCount(total);
+  return [...new Set([
+    Math.ceil(total / 4),
+    Math.ceil(total / 2),
+    Math.ceil(total * 3 / 4),
+    total,
+    initial,
+  ])].sort((left, right) => left - right);
+}
+
 function renderRelationshipCrossing(
   data: BrowserLibraryMetrics,
   escapeHtml: (value: unknown) => string,
@@ -345,6 +248,9 @@ function renderRelationshipCrossing(
     && selected.has(relationship.targetTypeKey));
   const directions = new Set(edges.map(edge =>
     relationshipDirectionKey(edge.sourceTypeKey, edge.targetTypeKey)));
+  const initialCount = initialRelationshipCount(edges.length);
+  const limitLevels = relationshipLimitLevels(edges.length);
+  const initialLevel = limitLevels.indexOf(initialCount);
   const positions = new Map(
     types.map((type, index) => [
       type.typeKey,
@@ -353,6 +259,8 @@ function renderRelationshipCrossing(
   );
   const baseline = RELATIONSHIP_HEIGHT - RELATIONSHIP_LABEL_SPACE;
   const arcs = edges.map((edge, index) => {
+    const rank = index + 1;
+    const hidden = rank > initialCount ? " hidden" : "";
     const source = positions.get(edge.sourceTypeKey) ?? 0;
     const target = positions.get(edge.targetTypeKey) ?? 0;
     const reciprocal = directions.has(relationshipDirectionKey(
@@ -367,7 +275,12 @@ function renderRelationshipCrossing(
     const bend = 34 + Math.abs(target - source) * .36 + bendOffset;
     const color = RELATIONSHIP_COLORS[index % RELATIONSHIP_COLORS.length];
     const tooltip = `${edge.sourceTypeDisplay} calls ${edge.targetTypeDisplay} at ${formatCount(edge.callSiteCount, "retained site")}`;
-    return `<path class="metrics-relationship-edge" d="M ${source.toFixed(1)} ${baseline} C ${source.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${baseline}" stroke="${color}" stroke-width="${Math.min(8, 1.5 + Math.log2(edge.callSiteCount + 1))}"><title>${escapeHtml(tooltip)}</title></path>`;
+    const path = `M ${source.toFixed(1)} ${baseline} C ${source.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${baseline}`;
+    const strokeWidth = Math.min(
+      8,
+      1.5 + Math.log2(edge.callSiteCount + 1),
+    );
+    return `<path class="metrics-relationship-edge" d="${path}" data-metrics-relationship data-relationship-rank="${rank}" data-source-type-key="${escapeHtml(edge.sourceTypeKey)}" data-source-type-display="${escapeHtml(edge.sourceTypeDisplay)}" data-target-type-key="${escapeHtml(edge.targetTypeKey)}" data-target-type-display="${escapeHtml(edge.targetTypeDisplay)}" data-call-site-count="${edge.callSiteCount}" stroke="transparent" stroke-width="${Math.max(14, strokeWidth + 8)}" tabindex="0" role="button" aria-pressed="false" aria-label="${escapeHtml(`Inspect relationship ${rank} of ${edges.length}. ${tooltip}`)}"${hidden}><title>${escapeHtml(tooltip)}</title></path><path class="metrics-relationship-line" d="${path}" stroke="${color}" stroke-width="${strokeWidth}" aria-hidden="true"${hidden}></path>`;
   }).join("");
   const nodes = types.map(type => {
     const x = positions.get(type.typeKey) ?? 0;
@@ -376,10 +289,42 @@ function renderRelationshipCrossing(
     const anchor = onRight ? "end" : "start";
     return `<g class="metrics-relationship-node"><circle cx="${x.toFixed(1)}" cy="${baseline}" r="4"></circle><text x="${x.toFixed(1)}" y="${baseline + 17}" text-anchor="${anchor}" transform="rotate(${angle} ${x.toFixed(1)} ${baseline + 17})">${escapeHtml(shortTypeName(type.typeDisplay))}</text><title>${escapeHtml(type.typeDisplay)} · ${formatNumber(type.typeDegree)} connected types</title></g>`;
   }).join("");
+  const limitControl = limitLevels.length > 1
+    ? `<label class="metrics-relationship-limit">
+        <span>Visible arcs <output data-metrics-relationship-limit-output>${formatNumber(initialCount)} / ${formatNumber(edges.length)}</output></span>
+        <input type="range" min="0" max="${limitLevels.length - 1}" value="${initialLevel}" step="1" data-metrics-relationship-limit data-limit-levels="${limitLevels.join(",")}" aria-label="Visible relationship arcs" aria-valuetext="${formatNumber(initialCount)} of ${formatNumber(edges.length)} arcs">
+      </label>`
+    : "";
   return `<section class="document-section metrics-visual-section">
-    <div class="metrics-visual-copy"><h2>Relationship Crossing</h2><p>The most entangled types are placed on one line; arcs reveal how often their implementations cross. Each color follows one retained relationship so dense crossings remain separable.</p></div>
-    <svg class="metrics-relationship-crossing" viewBox="0 0 ${RELATIONSHIP_WIDTH} ${RELATIONSHIP_HEIGHT}" role="img" aria-label="Relationship Crossing diagram">${arcs}${nodes}</svg>
-    <p class="metrics-visual-caption">${formatNumber(types.length)} most connected types · ${formatNumber(edges.length)} retained relationships · Hover an arc or type for evidence.</p>
+    <div class="metrics-relationship-heading">
+      <div class="metrics-visual-copy"><h2>Relationship Crossing</h2><p>The most entangled types are placed on one line; arcs reveal how often their implementations cross. Each color follows one retained relationship so dense crossings remain separable.</p></div>
+      ${limitControl}
+    </div>
+    <svg class="metrics-relationship-crossing" viewBox="0 0 ${RELATIONSHIP_WIDTH} ${RELATIONSHIP_HEIGHT}" role="group" aria-label="Relationship Crossing diagram">${arcs}${nodes}</svg>
+    <div class="metrics-relationship-detail" data-metrics-relationship-detail aria-live="polite">
+      <p class="metrics-relationship-detail-empty" data-metrics-relationship-detail-empty>Select an arc to inspect its endpoint types and retained depth.</p>
+      <div class="metrics-relationship-detail-selection" data-metrics-relationship-detail-selection hidden>
+        <div>
+          <p class="metrics-relationship-detail-label">Selected relationship</p>
+          <div class="metrics-relationship-route">
+            <button type="button" class="metrics-relationship-type-link" data-metrics-relationship-source></button>
+            <span class="metrics-relationship-arrow" aria-hidden="true">&rarr;</span>
+            <button type="button" class="metrics-relationship-type-link" data-metrics-relationship-target></button>
+          </div>
+        </div>
+        <div class="metrics-relationship-measures">
+          <div class="metrics-relationship-measure">
+            <span>Rank</span>
+            <strong data-metrics-relationship-rank></strong>
+          </div>
+          <div class="metrics-relationship-measure">
+            <span>Relationship depth</span>
+            <strong data-metrics-relationship-depth></strong>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="metrics-visual-caption">${formatNumber(types.length)} most connected types · Showing top <span data-metrics-relationship-visible-count>${formatNumber(initialCount)}</span> of ${formatNumber(edges.length)} retained relationships · Select an arc for details.</p>
   </section>`;
 }
 
@@ -419,20 +364,127 @@ export function bindLibraryMetricsInteractions(
     });
   }
 
-  const namespaceSelect = root.querySelector<HTMLSelectElement>(
-    "[data-metrics-salience-namespace]",
+  const relationshipDetail = root.querySelector<HTMLElement>(
+    "[data-metrics-relationship-detail]",
   );
-  namespaceSelect?.addEventListener("change", () =>
-    actions.selectSalienceNamespace(namespaceSelect.value));
-  root.querySelector<HTMLElement>(
-    "[data-metrics-salience-retry]",
-  )?.addEventListener("click", actions.retrySalience);
-  for (const button of root.querySelectorAll<HTMLElement>(
-    "[data-metrics-salience-type-key]",
-  )) {
-    const typeKey = button.dataset.metricsSalienceTypeKey;
-    if (typeKey)
-      button.addEventListener("click", () => actions.activateType(typeKey));
+  const relationshipDetailEmpty = relationshipDetail
+    ?.querySelector<HTMLElement>("[data-metrics-relationship-detail-empty]");
+  const relationshipDetailSelection = relationshipDetail
+    ?.querySelector<HTMLElement>(
+      "[data-metrics-relationship-detail-selection]",
+    );
+  const relationshipSource = relationshipDetail
+    ?.querySelector<HTMLButtonElement>("[data-metrics-relationship-source]");
+  const relationshipTarget = relationshipDetail
+    ?.querySelector<HTMLButtonElement>("[data-metrics-relationship-target]");
+  const relationshipDepth = relationshipDetail
+    ?.querySelector<HTMLElement>("[data-metrics-relationship-depth]");
+  const relationshipRank = relationshipDetail
+    ?.querySelector<HTMLElement>("[data-metrics-relationship-rank]");
+  const relationshipEdges = root.querySelectorAll<SVGPathElement>(
+    "[data-metrics-relationship]",
+  );
+  const relationshipLimit = root.querySelector<HTMLInputElement>(
+    "[data-metrics-relationship-limit]",
+  );
+  const relationshipLimitOutput = root.querySelector<HTMLOutputElement>(
+    "[data-metrics-relationship-limit-output]",
+  );
+  const relationshipVisibleCount = root.querySelector<HTMLElement>(
+    "[data-metrics-relationship-visible-count]",
+  );
+  const clearRelationship = () => {
+    for (const candidate of relationshipEdges) {
+      candidate.setAttribute("aria-pressed", "false");
+    }
+    if (relationshipDetailEmpty) relationshipDetailEmpty.hidden = false;
+    if (relationshipDetailSelection) {
+      relationshipDetailSelection.hidden = true;
+    }
+  };
+  const selectRelationship = (edge: SVGPathElement) => {
+    for (const candidate of relationshipEdges) {
+      candidate.setAttribute(
+        "aria-pressed",
+        candidate === edge ? "true" : "false",
+      );
+    }
+    const sourceKey = edge.dataset.sourceTypeKey ?? "";
+    const sourceDisplay = edge.dataset.sourceTypeDisplay ?? sourceKey;
+    const targetKey = edge.dataset.targetTypeKey ?? "";
+    const targetDisplay = edge.dataset.targetTypeDisplay ?? targetKey;
+    const callSiteCount = Number(edge.dataset.callSiteCount ?? 0);
+    const rank = Number(edge.dataset.relationshipRank ?? 0);
+    if (relationshipSource) {
+      relationshipSource.textContent = sourceDisplay;
+      relationshipSource.dataset.metricsTypeKey = sourceKey;
+      relationshipSource.setAttribute("aria-label", `Open ${sourceDisplay}`);
+    }
+    if (relationshipTarget) {
+      relationshipTarget.textContent = targetDisplay;
+      relationshipTarget.dataset.metricsTypeKey = targetKey;
+      relationshipTarget.setAttribute("aria-label", `Open ${targetDisplay}`);
+    }
+    if (relationshipDepth) {
+      relationshipDepth.textContent = formatCount(
+        callSiteCount,
+        "retained call site",
+      );
+    }
+    if (relationshipRank) {
+      relationshipRank.textContent =
+        `${formatNumber(rank)}/${formatNumber(relationshipEdges.length)} most connected`;
+    }
+    if (relationshipDetailEmpty) relationshipDetailEmpty.hidden = true;
+    if (relationshipDetailSelection) {
+      relationshipDetailSelection.hidden = false;
+    }
+  };
+  for (const edge of relationshipEdges) {
+    edge.addEventListener("click", () => selectRelationship(edge));
+    edge.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectRelationship(edge);
+    });
+  }
+  relationshipLimit?.addEventListener("input", () => {
+    const levels = relationshipLimit.dataset.limitLevels
+      ?.split(",").map(Number) ?? [];
+    const visible = levels[Number(relationshipLimit.value)];
+    if (visible === undefined) return;
+    let selectedWasHidden = false;
+    for (const edge of relationshipEdges) {
+      const hidden = Number(edge.dataset.relationshipRank) > visible;
+      edge.toggleAttribute("hidden", hidden);
+      if (edge.getAttribute("aria-pressed") === "true" && hidden) {
+        selectedWasHidden = true;
+      }
+      const line = edge.nextElementSibling;
+      if (line instanceof SVGPathElement
+          && line.classList.contains("metrics-relationship-line")) {
+        line.toggleAttribute("hidden", hidden);
+      }
+    }
+    if (selectedWasHidden) clearRelationship();
+    const visibleText = formatNumber(visible);
+    const totalText = formatNumber(relationshipEdges.length);
+    if (relationshipLimitOutput) {
+      relationshipLimitOutput.textContent = `${visibleText} / ${totalText}`;
+    }
+    if (relationshipVisibleCount) {
+      relationshipVisibleCount.textContent = visibleText;
+    }
+    relationshipLimit.setAttribute(
+      "aria-valuetext",
+      `${visibleText} of ${totalText} arcs`,
+    );
+  });
+  for (const endpoint of [relationshipSource, relationshipTarget]) {
+    endpoint?.addEventListener("click", () => {
+      const typeKey = endpoint.dataset.metricsTypeKey;
+      if (typeKey) actions.activateType(typeKey);
+    });
   }
 }
 
@@ -440,10 +492,8 @@ export function renderLibraryMetricsSurface(
   options: LibraryMetricsOptions,
 ): string {
   const {
-    libraryName, assemblyIdentity, assetPath, coordinate,
-    requireLibrary, pickerHtml, fresh, loading, error, data, escapeHtml,
+    requireLibrary, fresh, loading, error, data, escapeHtml,
   } = options;
-  const salienceContent = renderStructuralSalience(options);
   let status: string;
   let content: string;
   if (requireLibrary) {
@@ -451,18 +501,18 @@ export function renderLibraryMetricsSurface(
     content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Pick a library to measure</h2><p>Choose a .NET platform library above to summarize compiled implementation metrics.</p></section>`;
   } else if (loading && fresh) {
     status = "Measuring library\u2026";
-    content = `${salienceContent}<section class="document-section source-progress"><span class="loader"></span><h2>Measuring library&hellip;</h2><p>Computing Research-owned structural distributions across this library's method bodies.</p></section>`;
+    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Measuring library&hellip;</h2><p>Computing Research-owned structural distributions across this library's method bodies.</p></section>`;
   } else if (fresh && error) {
     status = "Metrics failed";
-    content = `${salienceContent}<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Metrics failed</h2><p>${escapeHtml(error)}</p></section>`;
+    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Metrics failed</h2><p>${escapeHtml(error)}</p></section>`;
   } else {
     const resolved = fresh ? data : null;
     if (!resolved) {
       status = "Loading\u2026";
-      content = `${salienceContent}<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
+      content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
     } else if (resolved.outcome !== "available") {
       status = resolved.outcome === "failed" ? "Metrics failed" : "Metrics unavailable";
-      content = `${salienceContent}<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>${escapeHtml(status)}</h2><p>${escapeHtml(resolved.failure || "The Research document could not be produced.")}</p></section>`;
+      content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>${escapeHtml(status)}</h2><p>${escapeHtml(resolved.failure || "The Research document could not be produced.")}</p></section>`;
     } else {
       const population = resolved.population;
       status = `${(population?.completeProfileCount ?? 0).toLocaleString()} complete bodies`;
@@ -487,25 +537,9 @@ export function renderLibraryMetricsSurface(
         }</section>`
         : "";
       content = `${incomplete}
-        ${salienceContent}
         ${renderTreemap(resolved, escapeHtml)}
-        ${renderRelationshipCrossing(resolved, escapeHtml)}
-        <section class="document-section">
-          <p>Compiled IL metrics for <strong>${escapeHtml(libraryName)}</strong>. These are structural implementation measures, not authored-source complexity.</p>
-        </section>`;
+        ${renderRelationshipCrossing(resolved, escapeHtml)}`;
     }
   }
-  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
-  return `<section class="library-analysis-surface${pickerHtml ? " library-analysis-with-controls" : ""}" aria-labelledby="library-metrics-title">
-    <header class="api-surface-head">
-      <h1 id="library-metrics-title">Complexity Explorer</h1>
-      <p title="${escapeHtml(status)}">${escapeHtml(status)}</p>
-    </header>
-    ${pickerHtml ? `<section class="library-analysis-controls" aria-label="Metrics library">${pickerHtml}</section>` : ""}
-    <div class="library-analysis-scroll">${content}</div>
-    <footer class="metadata-surface-footer">
-      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-    </footer>
-  </section>`;
+  return renderAnalysisInspector(options, "metrics", status, content);
 }

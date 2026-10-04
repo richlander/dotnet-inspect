@@ -304,6 +304,42 @@ internal sealed class EcosystemPackRegistry
         return result.ToImmutable();
     }
 
+    internal ImmutableArray<EcosystemPackId> OrderLayeredFind(
+        IEnumerable<EcosystemPackId> selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        EcosystemPackId[] selected = [.. selection];
+        ImmutableArray<EcosystemPackId> union = ExpandLineages(selected);
+        var ranks = new Dictionary<EcosystemPackId, int>();
+        for (int i = 0; i < selected.Length; i++)
+        {
+            foreach (EcosystemPackId id in _packsById[selected[i]].Descriptor.Lineage)
+                ranks.TryAdd(id, i);
+        }
+
+        var remainingChildren = union.ToDictionary(id => id, _ => 0);
+        foreach (EcosystemPackId id in union)
+        {
+            if (_packsById[id].Descriptor.DependsOn is { } parent)
+                remainingChildren[parent]++;
+        }
+
+        var ordered = ImmutableArray.CreateBuilder<EcosystemPackId>(union.Length);
+        while (ordered.Count < union.Length)
+        {
+            EcosystemPackId next = remainingChildren.Keys
+                .Where(id => remainingChildren[id] == 0)
+                .OrderBy(id => ranks[id])
+                .ThenBy(id => _packsById[id].Descriptor.Order)
+                .First();
+            remainingChildren.Remove(next);
+            ordered.Add(next);
+            if (_packsById[next].Descriptor.DependsOn is { } parent)
+                remainingChildren[parent]--;
+        }
+        return ordered.ToImmutable();
+    }
+
     internal EcosystemPackLookupResult Lookup(EcosystemPackId id)
     {
         ArgumentNullException.ThrowIfNull(id);

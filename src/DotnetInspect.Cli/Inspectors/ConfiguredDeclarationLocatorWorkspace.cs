@@ -167,25 +167,27 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
         }
     }
 
-    internal async Task<TypeDeclarationLocatorSectionResult> LocateAsync(
+    internal async Task<TypeDeclarationLocatorInspectionExecution> LocateAsync(
         IReadOnlyList<string> patterns,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(patterns);
-        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
-            await TypeDeclarationLocatorInspection.ExecuteAsync(
-                _workspace,
-                [
-                    .. patterns.Select(
-                        static pattern =>
-                            new TypeDeclarationLocatorRequest.Pattern(
-                                pattern)),
-                ],
-                // Find applies its compatibility visibility policy later from
-                // the same Metadata-issued declaration facts.
-                TypeDeclarationLocatorSectionPlan.All,
-                cancellationToken).ConfigureAwait(false);
-        TypeDeclarationLocatorSectionResult section = inspection.Content;
+        TypeDeclarationLocatorInspectionExecution execution =
+            await TypeDeclarationLocatorInspection.ExecuteWithResultAsync(
+                    _workspace,
+                    [
+                        .. patterns.Select(
+                            static pattern =>
+                                new TypeDeclarationLocatorRequest.Pattern(
+                                    pattern)),
+                    ],
+                    // Find applies its compatibility visibility policy later from
+                    // the same Metadata-issued declaration facts.
+                    TypeDeclarationLocatorSectionPlan.All,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        TypeDeclarationLocatorSectionResult section =
+            execution.Inspection.Content;
         HasFailures |= section switch
         {
             TypeDeclarationLocatorSectionResult.Rejected => true,
@@ -196,8 +198,8 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                 "Unknown declaration locator section result."),
         };
         WriteLocatorFailures(section);
-        _inspections.Add(inspection);
-        return section;
+        _inspections.Add(execution.Inspection);
+        return execution;
     }
 
     internal string SourceFor(

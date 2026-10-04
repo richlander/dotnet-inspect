@@ -165,9 +165,7 @@ public class SearchScopeResolutionTests
         var (defaultExit, defaultOutput, defaultError) = await RunAppAsync(
             command,
             target,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, defaultExit);
         Assert.Empty(defaultError);
@@ -195,9 +193,7 @@ public class SearchScopeResolutionTests
             target,
             source.Option,
             source.Value,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.True(
             string.IsNullOrWhiteSpace(output) || output.Trim() == "0",
@@ -218,9 +214,7 @@ public class SearchScopeResolutionTests
             "--bin",
             missingDirectory,
             "-n",
-            "1",
-            "--tips",
-            "q");
+            "1");
 
         Assert.Equal(0, exit);
         Assert.Empty(output);
@@ -239,9 +233,7 @@ public class SearchScopeResolutionTests
             "System.Console",
             "--library",
             missingLibrary,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -257,9 +249,7 @@ public class SearchScopeResolutionTests
         var (exit, output, error) = await RunAppAsync(
             "depends",
             "System.Runtime",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

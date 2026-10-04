@@ -34,7 +34,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         [
             "package", $"{NewtonsoftId}@{NewtonsoftVersion}", "--source", FirstFeed,
             "--path", "README.md", "--content", "--out", outputPath,
-            "--verbose", "--tips", "q",
+            "--verbose",
         ];
 
         var cold = await RunCommandAsync(export);
@@ -83,7 +83,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ["package", $"{NewtonsoftId}@{NewtonsoftVersion}", "--source", FirstFeed,
                 "--path", "README.md", "--content", "--raw",
                 "--prefer-rendered-urls",
-                "--verbose", "--tips", "q"]);
+                "--verbose"]);
 
         Assert.True(stdout.Exit == 0, stdout.Error);
         Assert.Equal(
@@ -101,7 +101,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var blocks = await RunCommandAsync(
             ["package", $"{NewtonsoftId}@{NewtonsoftVersion}", "--source", FirstFeed,
                 "--path", "README.md", "--content",
-                "--verbose", "--tips", "q"]);
+                "--verbose"]);
 
         Assert.True(blocks.Exit == 0, blocks.Error);
         Assert.Contains(
@@ -116,7 +116,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var jsonl = await RunCommandAsync(
             ["package", $"{NewtonsoftId}@{NewtonsoftVersion}", "--source", FirstFeed,
                 "--path", "README.md", "--content", "--jsonl",
-                "--verbose", "--tips", "q"]);
+                "--verbose"]);
 
         Assert.True(jsonl.Exit == 0, jsonl.Error);
         using JsonDocument json = JsonDocument.Parse(jsonl.Output);
@@ -149,7 +149,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(
             ["package", $"{NewtonsoftId}@{NewtonsoftVersion}", "--source", FirstFeed,
                 "--path", "README.md", "--content", "--out", outputPath,
-                "--verbose", "--tips", "q"]);
+                "--verbose"]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains("RangeIgnored", result.Error, StringComparison.Ordinal);
@@ -192,7 +192,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "--path", "skills/demo/SKILL.md", "--content", "--raw",
-                "--verbose", "--tips", "q"]);
+                "--verbose"]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Equal(Skill.Trim(), result.Output.Trim());
@@ -205,7 +205,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var export = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "--path", "skills/demo/SKILL.md", "--content", "--out", outputPath,
-                "--tips", "q"]);
+                ]);
 
         Assert.True(export.Exit == 0, export.Error);
         Assert.Empty(export.Output);
@@ -231,7 +231,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "--path", "skills/missing/SKILL.md", "--content", "--out", outputPath,
-                "--tips", "q"]);
+                ]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);

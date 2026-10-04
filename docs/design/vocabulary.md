@@ -46,8 +46,10 @@ not implement a command-local substitute.
 Markdown, plain text, table, TSV, JSONL, and projected JSON lower one typed
 `VocabularyView` through `MarkoutSerializer` and
 `VocabularyViewContext`. Runtime-named sections and runtime-column tables keep
-`VocabularyCatalog` authoritative for names, field labels, stable field IDs,
-and row order. Each runtime section carries its summary as an ordinary
+the composed snapshot authoritative for names, field labels, stable field IDs,
+and row order; today that snapshot is `VocabularyCatalog`, and after
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) it is the
+host-composed snapshot described under [Ownership](#ownership). Each runtime section carries its summary as an ordinary
 Markout paragraph because unwrapped child sections lower their content rather
 than their `DescriptionProperty` metadata. `VocabularyCommandTests` gates these
 formats in Release, including
@@ -82,19 +84,51 @@ removes the former `categories` member from structured vocabulary sections.
 
 ## Ownership
 
-`DotnetInspector.Vocabulary` composes existing owner catalogs; it does not
-reclassify their values:
+Each vocabulary is declared by the owner of its terms as one immutable
+`VocabularyDefinition` beside that owner's catalog. A host composes the
+declarations it ships into one exactly identified snapshot, under the tier-1
+composition rule the
+[QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
+states. No component owns the complete list of product vocabularies.
 
-- `ApiAccessibility` owns accessibility identity, order, defaults, and
-  classification.
-- `StyleOptionCatalog` owns C# style tiers, selectable choices, conflicts,
-  endorsement, and byte-divergence properties.
-- `BodyShapeSearch.SupportedKinds` owns searchable body-kind identity and order;
-  `AnnotatedSourceNodeKinds` owns their display labels.
+The term owners, and therefore the declaring owners, are:
 
-CLI and browser/WASM consume the same `VocabularyCatalog` and `VocabularyJson`
-projection. Hosts may select a section for a purpose-specific control, but they
-do not restate its values, labels, order, defaults, or selection semantics.
+- `ApiAccessibility` in `DotnetInspector.Queries` owns accessibility identity,
+  order, defaults, and classification.
+- `StyleOptionCatalog` in `ILInspector.Decompiler` owns C# style tiers,
+  selectable choices, conflicts, endorsement, and byte-divergence properties.
+- `BodyShapeSearch.SupportedKinds` in `ILInspector.Decompiler` owns searchable
+  body-kind identity and order; `AnnotatedSourceNodeKinds` owns their display
+  labels.
+
+The declaration type lives in the `QuerySpace.Primitives` floor under the
+[QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers),
+so an `ILInspector` owner can declare without referencing any product
+assembly. A facet that is bounded by a vocabulary names it by identity on its
+facet descriptor, through the opaque value-vocabulary identity that
+[Query Space Composition](query-space-composition.md) already defines; after
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 5 the
+Body Shapes `Kind` facet names `csharp.body-kinds`, and today no facet sets
+one. The product vocabulary document, its sections, fields,
+operators, rows, and wire projection are declared section schemas owned by
+`DotnetInspector.Sections`.
+
+CLI and browser/WASM compose the same declarations and consume the same
+snapshot and wire projection. Hosts may select a section for a purpose-specific
+control, but they do not restate its values, labels, order, defaults, or
+selection semantics. Equal declaration lists yield one snapshot identity, so
+drift between the hosts is detectable by identity; the shared equal-identity
+test that [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
+step 5 adds is the gate that observes it. Until then both hosts run one
+composition and the CLI suite's pinned digest is the only identity gate.
+
+Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) lands,
+`DotnetInspector.Vocabulary` composes the owner catalogs itself and therefore
+references `ILInspector.Decompiler`; the `vocabulary-dependencies` policy rule
+records that interim edge, and the project retires with the migration. The
+declaration types already live in `QuerySpace.Primitives` and the document
+and wire types in `DotnetInspector.Sections`; the interim project holds only
+the composition and the compatibility projection.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected

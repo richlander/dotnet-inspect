@@ -17,6 +17,8 @@ internal static class LibrarySectionCardinality
                 SectionCardinalityDeclaration.Scalar,
             [SectionNames.NameFamilies] =
                 SectionCardinalityDeclaration.Inventory,
+            [SectionNames.DependencyStructure] =
+                SectionCardinalityDeclaration.Inventory,
         };
 
     public static IReadOnlyDictionary<

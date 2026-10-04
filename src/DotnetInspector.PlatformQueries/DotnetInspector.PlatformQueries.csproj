@@ -18,6 +18,7 @@
     <ProjectReference Include="../CSharpText/CSharpText.csproj" />
     <ProjectReference Include="../DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
     <ProjectReference Include="../DotnetInspector.DocumentationHouse.Platform/DotnetInspector.DocumentationHouse.Platform.csproj" />
+    <ProjectReference Include="../DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Execution/DotnetInspector.PlatformHouse.Execution.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Execution.Packages/DotnetInspector.PlatformHouse.Execution.Packages.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />

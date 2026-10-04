@@ -17,6 +17,32 @@ public abstract class PackageHouseContentNarrowing
         {
         }
     }
+
+    /// <summary>
+    /// The compile surface and corresponding implementation selected for one
+    /// exact package target.
+    /// </summary>
+    public sealed class TfmWide : PackageHouseContentNarrowing
+    {
+        public TfmWide(PackageHouseTargetContext target)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            if (target is not
+                {
+                    Mode: PackageHouseTargetSelectionMode.Exact,
+                    RequestedFramework: not null,
+                })
+            {
+                throw new ArgumentException(
+                    "TFM-wide content narrowing requires an exact package target.",
+                    nameof(target));
+            }
+
+            Target = target;
+        }
+
+        public PackageHouseTargetContext Target { get; }
+    }
 }
 
 /// <summary>One result requested from a narrowed package-entry space.</summary>
@@ -120,20 +146,53 @@ internal sealed record PackageHouseFilesResolution(
     IReadOnlyList<string> AmbiguousEntries);
 
 /// <summary>
-/// The complete validated physical entry inventory returned by a File List
-/// terminal.
+/// The complete validated physical entry inventory returned from one resolved
+/// package-content narrowing by a File List terminal.
 /// </summary>
 public sealed class PackageHouseFileList
 {
     internal PackageHouseFileList(
+        PackageHouseContentNarrowingReceipt narrowing,
         IReadOnlyList<PackageContentEntry> entries)
     {
+        Narrowing = narrowing
+            ?? throw new ArgumentNullException(nameof(narrowing));
         Entries = entries
             ?? throw new ArgumentNullException(nameof(entries));
     }
 
+    /// <summary>
+    /// The package generation and resolved narrowing that issued this list.
+    /// </summary>
+    public PackageHouseContentNarrowingReceipt Narrowing { get; }
+
     /// <summary>Every package entry, in archive-directory order.</summary>
     public IReadOnlyList<PackageContentEntry> Entries { get; }
+
+    /// <summary>
+    /// Creates a later exact Files query from entries issued by this exact
+    /// narrowed inventory.
+    /// </summary>
+    public PackageHouseContentQuery CreateFilesQuery(
+        IEnumerable<PackageContentEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        PackageContentEntry[] selected = [.. entries];
+        if (selected.Any(entry => !Entries.Contains(entry)))
+        {
+            throw new ArgumentException(
+                "Every exact file reference must belong to this File List.",
+                nameof(entries));
+        }
+
+        return new PackageHouseContentQuery(
+            Narrowing.Narrowing,
+            [
+                new PackageHouseContentTerminal.Files(
+                    selected.Select(static entry => entry.Path)),
+            ],
+            this);
+    }
 }
 
 /// <summary>
@@ -145,6 +204,14 @@ public sealed class PackageHouseContentQuery
     public PackageHouseContentQuery(
         PackageHouseContentNarrowing narrowing,
         IEnumerable<PackageHouseContentTerminal> terminals)
+        : this(narrowing, terminals, retainedFileList: null)
+    {
+    }
+
+    internal PackageHouseContentQuery(
+        PackageHouseContentNarrowing narrowing,
+        IEnumerable<PackageHouseContentTerminal> terminals,
+        PackageHouseFileList? retainedFileList)
     {
         ArgumentNullException.ThrowIfNull(narrowing);
         ArgumentNullException.ThrowIfNull(terminals);
@@ -169,9 +236,19 @@ public sealed class PackageHouseContentQuery
                 "A content query cannot repeat a result terminal kind.",
                 nameof(terminals));
         }
+        if (retainedFileList is not null
+            && !ReferenceEquals(
+                retainedFileList.Narrowing.Narrowing,
+                narrowing))
+        {
+            throw new ArgumentException(
+                "Retained File List evidence must describe this query's narrowing.",
+                nameof(retainedFileList));
+        }
 
         Narrowing = narrowing;
         Terminals = Array.AsReadOnly(values);
+        RetainedFileList = retainedFileList;
         FilesTerminal = values
             .OfType<PackageHouseContentTerminal.Files>()
             .SingleOrDefault();
@@ -190,6 +267,8 @@ public sealed class PackageHouseContentQuery
 
     internal PackageHouseContentTerminal.FileList? FileListTerminal { get; }
 
+    internal PackageHouseFileList? RetainedFileList { get; }
+
     /// <summary>Creates a package-wide exact Files query.</summary>
     public static PackageHouseContentQuery PackageFiles(
         IEnumerable<string> entries) =>
@@ -205,6 +284,35 @@ public sealed class PackageHouseContentQuery
         IEnumerable<string> entries) =>
         new(
             new PackageHouseContentNarrowing.PackageWide(),
+            [
+                new PackageHouseContentTerminal.Files(entries),
+                new PackageHouseContentTerminal.FileList(),
+            ]);
+
+    /// <summary>Creates a TFM-wide exact Files query.</summary>
+    public static PackageHouseContentQuery TfmFiles(
+        PackageHouseTargetContext target,
+        IEnumerable<string> entries) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [new PackageHouseContentTerminal.Files(entries)]);
+
+    /// <summary>Creates a TFM-wide physical File List query.</summary>
+    public static PackageHouseContentQuery TfmFileList(
+        PackageHouseTargetContext target) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [new PackageHouseContentTerminal.FileList()]);
+
+    /// <summary>
+    /// Creates one TFM-wide query for exact Files content and the complete
+    /// physical File List over the same resolved target space.
+    /// </summary>
+    public static PackageHouseContentQuery TfmFilesWithFileList(
+        PackageHouseTargetContext target,
+        IEnumerable<string> entries) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
             [
                 new PackageHouseContentTerminal.Files(entries),
                 new PackageHouseContentTerminal.FileList(),

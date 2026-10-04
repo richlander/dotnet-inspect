@@ -56,7 +56,7 @@ public static class FindOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(FindOptions Options, Verbosity Verbosity, TipLevel TipLevel) : FindParseResult;
+    public record Success(FindOptions Options, Verbosity Verbosity, CompanionOutput CompanionOutput) : FindParseResult;
 
     /// <summary>
     /// Parses find command options asynchronously (due to package prefix resolution).
@@ -74,6 +74,21 @@ public static class FindOptionsParser
                 args.EcosystemOption,
                 out EcosystemPackId[]? ecosystems))
         {
+            return new Invalid();
+        }
+        if (ecosystems is not null
+            && (parseResult.GetResult(args.PackageOption) is { Implicit: false }
+                || parseResult.GetResult(args.AssemblyOption) is { Implicit: false }
+                || parseResult.GetResult(args.PlatformOption) is { Implicit: false }
+                || parseResult.GetResult(args.PlatformLibraryOption) is { Implicit: false }
+                || parseResult.GetResult(args.ExtensionsOption) is { Implicit: false }
+                || parseResult.GetResult(args.AspNetCoreOption) is { Implicit: false }
+                || parseResult.GetResult(args.ProjectOption) is { Implicit: false }
+                || parseResult.GetResult(args.BinOption) is { Implicit: false }
+                || parseResult.GetResult(args.PackagePrefixOption) is { Implicit: false }))
+        {
+            CommandError.Write(
+                "--ecosystem cannot be combined with another Find source selector.");
             return new Invalid();
         }
         bool packagePrefixSpecified =
@@ -150,11 +165,11 @@ public static class FindOptionsParser
             TypeFilter = typeFilter,
             QueryPlan = queryPlan,
             Count = parseResult.GetValue(opts.Count),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            JsonOutput = opts.ResolveFormat(parseResult, OutputFormat.Tsv) == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
-            Tabular = opts.ResolveTabular(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
+            Tabular = opts.ResolveTabular(parseResult, OutputFormat.Tsv),
+            Tsv = opts.ResolveTsv(parseResult, OutputFormat.Tsv),
+            Jsonl = opts.ResolveJsonl(parseResult, OutputFormat.Tsv),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
@@ -168,9 +183,9 @@ public static class FindOptionsParser
             SourceOptions = sourceOptions
         };
 
-        var tipLevel = opts.ParseTipLevel(parseResult);
+        var companionOutput = opts.ParseCompanionOutput(parseResult);
 
-        return new Success(options, verbosity, tipLevel);
+        return new Success(options, verbosity, companionOutput);
     }
 
     private static bool TryParseEcosystems(
@@ -186,15 +201,51 @@ public static class FindOptionsParser
 
         var selected = new List<EcosystemPackId>();
         var seen = new HashSet<EcosystemPackId>();
-        foreach (string value in parseResult.GetValue(option) ?? [])
+        var packs = EcosystemPackCatalog.Discover();
+        string[] values =
+        [
+            .. (parseResult.GetValue(option) ?? [])
+                .SelectMany(value => value.Split(','))
+                .Select(value => value.Trim()),
+        ];
+        if (values.Any(string.IsNullOrEmpty))
         {
-            if (!EcosystemPackId.TryCreate(value, out EcosystemPackId? id))
+            CommandError.Write(
+                "--ecosystem requires one or more comma-separated ecosystem names.");
+            ecosystems = null;
+            return false;
+        }
+        if (values.Any(value =>
+                value.Equals("all", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (values.Length != 1)
             {
                 CommandError.Write(
-                    $"Invalid ecosystem '{value}'. Use a canonical ID such as ecosystem.aspire.");
+                    "'all' cannot be combined with other --ecosystem values.");
                 ecosystems = null;
                 return false;
             }
+
+            values = [.. packs.Select(pack => pack.Id.Value)];
+        }
+
+        foreach (string value in values)
+        {
+            if (!EcosystemCommand.TryResolveFocus(
+                    value, packs, out var pack))
+            {
+                ecosystems = null;
+                return false;
+            }
+            if (pack is null)
+            {
+                CommandError.Write(
+                    $"Unknown ecosystem '{value}'. Use a short name such as aspire "
+                    + "or a canonical ID such as ecosystem.aspire.");
+                ecosystems = null;
+                return false;
+            }
+            EcosystemPackId id = pack.Id;
             if (!seen.Add(id))
             {
                 CommandError.Write(

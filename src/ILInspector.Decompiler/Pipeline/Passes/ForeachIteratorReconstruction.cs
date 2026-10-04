@@ -33,10 +33,12 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// <para>The stripped body is now a reducible enumerator loop, so the structurer forms
 /// <c>e = source.GetEnumerator(); while (e.MoveNext()) { … }</c>; a final raise folds that
-/// hidden-enumerator loop into a <see cref="ForeachStatement"/>. Sound by validation: if the
-/// restructured body still carries raw control flow, an unresolved state-machine field, no
-/// yield, or no recovered <c>foreach</c>, the match is rejected and the iterator falls
-/// through to honest acknowledgment.</para>
+/// hidden-enumerator loop into a <see cref="ForeachStatement"/>. A pre-loop authored
+/// <c>yield break</c> is retained from its non-default false-return exit; the final
+/// false-return completion remains implicit. Sound by validation: if the restructured body
+/// still carries raw control flow, an unresolved state-machine field, no yield, or no
+/// recovered <c>foreach</c>, the match is rejected and the iterator falls through to honest
+/// acknowledgment.</para>
 ///
 /// <para>The same owner also handles one narrowly authenticated authored-<c>using</c>
 /// iterator shape: exactly two enumerators acquired once in source order, advanced by one
@@ -802,6 +804,23 @@ internal static class ForeachIteratorReconstruction
         if (dispatchEnd >= blocks.Count)
             return false;
 
+        int normalCompletionExit = -1;
+        for (var i = dispatchEnd; i < blocks.Count; i++)
+        {
+            if (blocks[i].Children.Any(statement =>
+                    statement is StoreLocal
+                    {
+                        Index: var index,
+                        Value: Constant { Value: 0 },
+                    } && index == returnLocal)
+                && blocks[i].Children.Any(static statement => statement is Leave))
+            {
+                normalCompletionExit = i;
+            }
+        }
+        if (normalCompletionExit < 0)
+            return false;
+
         var receiver = FindCapturedReceiver(work, kickoff, handoff);
         StoreLocal? receiverStore = null;
         if (work.Descendants.Any(node =>
@@ -872,6 +891,14 @@ internal static class ForeachIteratorReconstruction
                     case ExpressionStatement { Expression: Call { Callee.Name: var callee } }
                         when callee.StartsWith("<>m__Finally", StringComparison.Ordinal):
                         continue;  // the dispose-on-normal-completion call
+                    case StoreLocal
+                    {
+                        Index: var index,
+                        Value: Constant { Value: 0 },
+                    } when index == returnLocal:
+                        if (i != normalCompletionExit)
+                            rebuilt.Add(new YieldBreak());
+                        continue;
                     case StoreLocal returnStore when returnStore.Index == returnLocal && returnStore.Value is Constant:
                         continue;  // the bool return-value marker
                     case Leave:

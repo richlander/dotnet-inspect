@@ -42,7 +42,7 @@ test("adaptive navigation preserves complete inventories and manual activation",
     inspector: "tabs",
   });
   await expect(page.locator("[data-subject-tab]")).toHaveCount(4);
-  await expect(page.locator("[data-inspector-tab]")).toHaveCount(5);
+  await expect(page.locator("[data-inspector-tab]")).toHaveCount(4);
   await expect(page.locator("[data-slide-strip-allocation]")).toHaveCount(0);
   await expect(page.locator("[data-slide-strip]")).toHaveCount(0);
   await expect(page.locator("[data-slide-strip-representation]")).toHaveCount(0);
@@ -325,10 +325,10 @@ test("dual Choosers share constrained width and keep full accessible labels", as
   expect(menuBox!.x).toBeGreaterThanOrEqual(8);
   expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(212);
   await menu
-    .getByRole("menuitemradio", { name: "Annotated source" })
+    .getByRole("menuitemradio", { name: "Call graph" })
     .click();
-  await expect(trigger).toHaveAccessibleName("Annotated source");
-  await expect(trigger).toHaveAttribute("title", "Annotated source");
+  await expect(trigger).toHaveAccessibleName("Call graph");
+  await expect(trigger).toHaveAttribute("title", "Call graph");
   expect(await trigger.locator("span").first().evaluate(element =>
     element.scrollWidth > element.clientWidth)).toBe(true);
 });

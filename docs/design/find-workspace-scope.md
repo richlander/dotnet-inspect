@@ -299,9 +299,9 @@ cold and one warm sample per Package.
    named-platform-Library acquisition seams with PackageHouse and PlatformHouse
    realization.
 3. **`--ecosystem` as a selector,** with short names and the empty-population
-   failure, together with the search-scope-resolution amendment. Lineage
-   expansion and layered order arrive in [Ecosystem hierarchy slice
-   2](ecosystem-hierarchy.md#adoption-plan). Demo:
+   failure, implemented with [Ecosystem hierarchy slice
+   2a](ecosystem-hierarchy.md#adoption-plan). Composition with other source
+   selectors is rejected until a later slice. Demo:
    `find '.Add*' --ecosystem aspire -n 20`.
 4. **`--workspace` for `find`**, with the packet-completeness verification
    above.

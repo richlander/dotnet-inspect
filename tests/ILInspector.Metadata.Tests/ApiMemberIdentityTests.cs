@@ -12,6 +12,30 @@ namespace ILInspector.Metadata.Tests;
 public class ApiMemberIdentityTests
 {
     [Theory]
+    [InlineData("method", ApiMemberAnchorKind.Method)]
+    [InlineData("constructor", ApiMemberAnchorKind.Method)]
+    [InlineData("operator", ApiMemberAnchorKind.Method)]
+    [InlineData("finalizer", ApiMemberAnchorKind.Method)]
+    [InlineData(
+        "explicit-interface-implementation",
+        ApiMemberAnchorKind.Method)]
+    [InlineData("extension-method", ApiMemberAnchorKind.Method)]
+    [InlineData("property", ApiMemberAnchorKind.Property)]
+    [InlineData("field", ApiMemberAnchorKind.Field)]
+    [InlineData("event", ApiMemberAnchorKind.Event)]
+    public void ApiMemberHandle_RetainsTypedAnchorKind(
+        string memberKind,
+        ApiMemberAnchorKind expected)
+    {
+        var handle = new ApiMemberHandle(
+            new ApiType(),
+            new ApiMember { Kind = memberKind },
+            Anchor: null);
+
+        Assert.Equal(expected, handle.AnchorKind);
+    }
+
+    [Theory]
     [InlineData(".ctor", false, ".ctor")]
     [InlineData("op_Addition", false, "operator:op_Addition")]
     [InlineData("IFoo.Bar", false, "explicit:IFoo.Bar")]

@@ -135,7 +135,10 @@ public sealed record NavigationEvaluationFacts(
     WorkspaceScopeSnapshot Scope,
     NavigationPackageEvaluation? Package,
     NavigationFacetAvailabilityProvider Availability,
-    NavigationNonReadyPackageEvaluation? NonReadyPackage = null);
+    NavigationNonReadyPackageEvaluation? NonReadyPackage = null)
+{
+    public NavigationEcosystemEvaluation? Ecosystem { get; init; }
+}
 
 public sealed record NavigationInitialization(
     StructuralSubjectIdentity? Subject = null,

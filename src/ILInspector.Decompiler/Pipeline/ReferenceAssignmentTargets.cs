@@ -13,6 +13,27 @@ internal readonly record struct ReferenceAssignmentTargets(
         => CoercionRendering.IsProvenReference(target, shapes)
             && (AnyReference || Types.Contains(target));
 
+    internal static bool CanAssignNullLiteralTo(
+        IrExpression value,
+        TypeRef target,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => value is Constant { Value: null } && Any.Contains(target, shapes);
+
+    internal static bool CanAssignStorageTo(
+        IrExpression value,
+        TypeRef target,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (CanAssignNullLiteralTo(value, target, shapes))
+            return true;
+        if (value is Conditional conditional)
+            return conditional.CanAssignReferenceArmsTo(target, shapes);
+        if (value is Coalesce)
+            return ForType(value.AssignmentType, shapes).Contains(target, shapes);
+        return target.Equals(ObjectType)
+            && CoercionRendering.IsProvenReference(value.AssignmentType, shapes);
+    }
+
     internal static ReferenceAssignmentTargets ForArms(
         Conditional conditional, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {

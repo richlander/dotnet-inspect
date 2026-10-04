@@ -111,6 +111,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     prefetchPlatformPacks: () => unexpected("prefetchPlatformPacks"),
     queryPackage: () => unexpected("queryPackage"),
     queryPackageRoot: () => unexpected("queryPackageRoot"),
+    queryPackageSummary: () => unexpected("queryPackageSummary"),
     loadRuntimePack: () => unexpected("loadRuntimePack"),
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
@@ -178,8 +179,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     queryMemberFacts: () => unexpected("queryMemberFacts"),
     queryPackageTypeImplementationHeat: () =>
       unexpected("queryPackageTypeImplementationHeat"),
+    queryPackageTypeMethodLeverage: () =>
+      unexpected("queryPackageTypeMethodLeverage"),
     queryPlatformTypeImplementationHeat: () =>
       unexpected("queryPlatformTypeImplementationHeat"),
+    queryPlatformTypeMethodLeverage: () =>
+      unexpected("queryPlatformTypeMethodLeverage"),
     queryPackageIntegrations: () =>
       unexpected("queryPackageIntegrations"),
     queryPlatformIntegrations: () =>
@@ -223,6 +228,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("cancelMemberSourceComparison"),
     queryMemberFindingCensus: () =>
       unexpected("queryMemberFindingCensus"),
+    queryPlatformMemberFindingCensus: () =>
+      unexpected("queryPlatformMemberFindingCensus"),
   },
   callGraph: {
     queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
@@ -267,6 +274,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    prepareEcosystemWorkspaceDefinition: () =>
+      unexpected("prepareEcosystemWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
@@ -405,6 +414,8 @@ function retainedDetailSurface(
       displayName: typeId,
       namespace: typeId.split(".").slice(0, -1).join("."),
       kind: "class",
+      kindFacetId: "api.type-kind.class",
+      traitFacetIds: ["api.type-trait.object"],
       accessibility: "public",
       accessibilityId: "public",
       assembly: assemblyName,
@@ -414,6 +425,36 @@ function retainedDetailSurface(
       signature: `public class ${typeId}`,
       api: [],
       platformPack,
+    }],
+    typeKinds: [{
+      id: "api.type-kind.class",
+      singularLabel: "class",
+      pluralLabel: "classes",
+      weight: 100,
+      count: 1,
+      isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract",
+      singularLabel: "abstract",
+      pluralLabel: "abstract",
+      weight: 100,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.static",
+      singularLabel: "static",
+      pluralLabel: "static",
+      weight: 200,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.object",
+      singularLabel: "object",
+      pluralLabel: "objects",
+      weight: 300,
+      count: 1,
+      isDefault: false,
     }],
     accessibility: [{
       id: "public",
@@ -1269,7 +1310,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -1280,6 +1321,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
   );
   const libraryDiffCancellation =
@@ -1368,7 +1410,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(libraryDiffArguments, [
     "operation-1",
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -1379,6 +1421,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
   ]);
   assert.deepEqual(libraryDiffCancelArguments, [
@@ -1405,6 +1448,8 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     assemblies: [],
     types: [],
+    typeKinds: [],
+    typeTraits: [],
     accessibility: [],
     totalMembers: 0,
     documents: [],
@@ -1473,6 +1518,27 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "NoCompileAssets",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: null,
+        libraries: [],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
     surface,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
@@ -1506,6 +1572,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       diagnostics: [],
     },
     packageInfo: null,
+    packageChildren: null,
     surface: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({
@@ -1570,11 +1637,16 @@ test("ordinary source transport preserves member parts and flat graph source", a
         end: 19,
       }],
     }],
+    diagnostics: [],
   } satisfies BrowserMemberSource;
   const state = fixture({
     source: {
-      queryMemberSource: async () => member,
-      queryPlatformMemberSource: async () => member,
+      queryMemberSource: async () => ({
+        value: member, error: null, diagnostics: [],
+      }),
+      queryPlatformMemberSource: async () => ({
+        value: member, error: null, diagnostics: [],
+      }),
       queryTypeMemberSource: async () => flat,
     },
   });
@@ -1588,7 +1660,9 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "M",
     "selector",
     0x06000001,
+    0,
     "[]",
+    "source",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
     "Example",
@@ -1610,13 +1684,19 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "Clone",
     "Clone()",
     0x06000001,
+    0,
     "[]",
+    "source",
     "platform-context",
   );
   await state.environment.flushAsync();
 
-  assert.deepEqual(await memberResult, member);
-  assert.deepEqual(await platformMemberResult, member);
+  assert.deepEqual(await memberResult, {
+    value: member, error: null, diagnostics: [],
+  });
+  assert.deepEqual(await platformMemberResult, {
+    value: member, error: null, diagnostics: [],
+  });
   assert.deepEqual(await graphResult, flat);
   state.host.dispose();
 });
@@ -2221,6 +2301,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageDependencies",
       "queryPackagePruning",
       "queryPackageRoot",
+      "queryPackageSummary",
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
@@ -2260,18 +2341,21 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageOpportunities",
       "queryPackagePerformance",
       "queryPackageTypeImplementationHeat",
+      "queryPackageTypeMethodLeverage",
       "queryPlatformIntegrations",
       "queryPlatformLibraryMetrics",
       "queryPlatformLibraryStructuralSalience",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
       "queryPlatformTypeImplementationHeat",
+      "queryPlatformTypeMethodLeverage",
     ],
     source: [
       "cancelMemberSourceComparison",
       "cancelMethodBodyComparison",
       "cancelSourceQuery",
       "queryMemberFindingCensus",
+      "queryPlatformMemberFindingCensus",
       "queryMemberSource",
       "queryMemberSourceComparison",
       "queryMethodBodyComparison",
@@ -2304,6 +2388,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "prepareEcosystemWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
@@ -2326,7 +2411,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 104);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 109);
 
   const state = fixture();
   const groups = [

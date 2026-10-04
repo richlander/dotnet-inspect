@@ -24,80 +24,23 @@ test("complexity cells disclose evidence and activate exact type keys", async ({
   await expect(activation).toHaveText("Example.B");
 });
 
-test("structural salience preserves issued orders and exact interactions", async ({
-  page,
-}, testInfo) => {
-  await page.setViewportSize({ width: 1100, height: 800 });
-  await page.goto("/browser/library-metrics.html");
-  const salience = page.locator(".metrics-salience-section");
-  await expect(salience).toContainText("Structural Salience");
-  await expect(salience).toContainText("Example · 7 external source Types");
-  await expect(salience.locator(".metrics-salience-order").first())
-    .toContainText("Incoming peers");
-  await expect(salience.locator(".metrics-salience-order").first())
-    .toContainText("A");
-  await expect(salience.locator(".metrics-salience-order").first())
-    .toContainText("7 incoming peers · foundation");
-  await expect(salience.locator(".metrics-salience-order").nth(1))
-    .toContainText("Outgoing peers");
-  await expect(salience.locator(".metrics-salience-order").nth(1))
-    .toContainText("6 outgoing peers · orchestrator");
-  await expect(salience.locator(".metrics-salience-type.sea-level").first())
-    .toContainText("sea level");
-  await expect(
-    salience.locator(".metrics-salience-type.mountain-peak").first(),
-  ).toContainText("mountain peak");
-  await expect(salience.locator(".sea-level.mountain-peak")).toHaveCount(0);
-  const seaMask = await salience.locator(
-    ".sea-level .item-achievement-glyph",
-  ).first().evaluate(
-    element => getComputedStyle(element).maskImage,
-  );
-  const mountainMask = await salience.locator(
-    ".mountain-peak .item-achievement-glyph",
-  ).first().evaluate(
-    element => getComputedStyle(element).maskImage,
-  );
-  expect(seaMask).not.toBe("none");
-  expect(mountainMask).not.toBe("none");
-  expect(seaMask).not.toBe(mountainMask);
-  await expect(salience.locator(
-    ".item-achievement-rail[aria-hidden=true] .item-achievement-glyph",
-  )).toHaveCount(0);
-  await salience.screenshot({
-    path: testInfo.outputPath("structural-salience-poles.png"),
-  });
-
-  await salience.locator(
-    '[data-metrics-salience-type-key="Example.B"]',
-  ).first().click();
-  await expect(page.locator("#metrics-activated-type"))
-    .toHaveText("Example.B");
-
-  await salience.locator("[data-metrics-salience-namespace]")
-    .selectOption("Example.Tools");
-  await expect(page.locator("#metrics-selected-namespace"))
-    .toHaveText("Example.Tools");
-});
-
-test("a sole zero-leverage namespace remains selected", async ({
-  page,
-}) => {
-  await page.goto("/browser/library-metrics.html?zero-top");
-  const select = page.locator("[data-metrics-salience-namespace]");
-  await expect(select).toHaveValue("Only");
-  await select.selectOption("Only");
-  await expect(page.locator("#metrics-selected-namespace"))
-    .toHaveText("Only");
-});
-
 test("reciprocal relationship evidence remains independently reachable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1100, height: 700 });
   await page.goto("/browser/library-metrics.html");
   const edges = page.locator("path.metrics-relationship-edge");
-  await expect(edges).toHaveCount(20);
+  const visibleEdges = page.locator(
+    "path.metrics-relationship-edge:not([hidden])",
+  );
+  const activation = page.locator("#metrics-activated-type");
+  const limit = page.locator("[data-metrics-relationship-limit]");
+  const limitOutput = page.locator(
+    "[data-metrics-relationship-limit-output]",
+  );
+  await expect(edges).toHaveCount(30);
+  await expect(visibleEdges).toHaveCount(15);
+  await expect(limitOutput).toHaveText("15 / 30");
   await page.locator("svg.metrics-relationship-crossing")
     .scrollIntoViewIfNeeded();
 
@@ -129,6 +72,61 @@ test("reciprocal relationship evidence remains independently reachable", async (
     expect(reachable, `${title} should own at least one pointer position`)
       .toBe(true);
   }
+
+  const detail = page.locator("[data-metrics-relationship-detail]");
+  const forwardEdge = edges.filter({ hasText: forward });
+  const forwardPoint = await forwardEdge.evaluate(element => {
+    if (!(element instanceof SVGPathElement))
+      throw new Error("Relationship edge is not an SVG path.");
+    const matrix = element.getScreenCTM();
+    if (matrix === null) throw new Error("Relationship edge has no screen CTM.");
+    const point = element.getPointAtLength(element.getTotalLength() / 2);
+    const screen = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+    return { x: screen.x, y: screen.y };
+  });
+  await page.mouse.click(forwardPoint.x, forwardPoint.y);
+  await expect(forwardEdge).toHaveAttribute("aria-pressed", "true");
+  await expect(detail.locator("[data-metrics-relationship-source]"))
+    .toHaveText("Example.A");
+  await expect(detail.locator("[data-metrics-relationship-target]"))
+    .toHaveText("Example.B");
+  await expect(detail.locator("[data-metrics-relationship-depth]"))
+    .toHaveText("1 retained call site");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("1/30 most connected");
+
+  await detail.locator("[data-metrics-relationship-target]").click();
+  await expect(activation).toHaveText("Example.B");
+
+  const reverseEdge = edges.filter({ hasText: reverse });
+  await reverseEdge.focus();
+  await reverseEdge.press("Enter");
+  await expect(reverseEdge).toHaveAttribute("aria-pressed", "true");
+  await expect(forwardEdge).toHaveAttribute("aria-pressed", "false");
+  await expect(detail.locator("[data-metrics-relationship-source]"))
+    .toHaveText("Example.B");
+  await expect(detail.locator("[data-metrics-relationship-target]"))
+    .toHaveText("Example.A");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("6/30 most connected");
+
+  await limit.focus();
+  await limit.press("End");
+  await expect(visibleEdges).toHaveCount(30);
+  await expect(limitOutput).toHaveText("30 / 30");
+
+  const lastEdge = edges.nth(29);
+  await lastEdge.focus();
+  await lastEdge.press("Enter");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("30/30 most connected");
+
+  await limit.focus();
+  await limit.press("Home");
+  await expect(visibleEdges).toHaveCount(8);
+  await expect(limitOutput).toHaveText("8 / 30");
+  await expect(detail.locator("[data-metrics-relationship-detail-empty]"))
+    .toBeVisible();
 
   const svg = page.locator("svg.metrics-relationship-crossing");
   const viewport = await svg.boundingBox();

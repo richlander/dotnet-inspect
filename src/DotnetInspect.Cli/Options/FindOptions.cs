@@ -21,6 +21,10 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 
     internal EcosystemPackId[]? Ecosystems { get; init; }
 
+    internal Action<TypeFindResult>? OnTypeRow { get; init; }
+
+    internal Action<MemberFindResult>? OnMemberRow { get; init; }
+
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.
     /// </summary>
@@ -218,7 +222,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         PackagePrefix is not null;
 
     internal bool UsesImplicitPlatform =>
-        SourceSelection?.UsesImplicitPlatform ?? !HasAnyScope;
+        Ecosystems is null
+        && (SourceSelection?.UsesImplicitPlatform ?? !HasAnyScope);
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
