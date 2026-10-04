@@ -60,6 +60,11 @@ public class FidelityGateTests
         // valid nested-if form re-lowers with direct returns rather than csc's
         // original result-temp convergence.
         "GuardedTypeAfterSibling",
+        // #9248: the facade-forwarded cascade witness (XmlTextReader/XmlReader
+        // through System.Xml.ReaderWriter) keeps its if-cascade and shared
+        // `return -1`; the valid form re-lowers through direct returns and
+        // inverted guard polarity rather than csc's original convergence.
+        "GuardedXmlReaderCascade",
         // #3840: retaining the externally entered shared return makes the
         // compiler-backed coalesce witness valid, but the structured form
         // materializes the non-null value in a local before returning it.
