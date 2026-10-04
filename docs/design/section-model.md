@@ -856,7 +856,9 @@ writes one stderr line: `This section (<name>) produced no output.`
 ## Output shapes
 
 A concrete section owns a row schema and can be rendered in document or
-row-oriented formats when that schema permits.
+row-oriented formats when that schema permits. Which formats a section
+supports, and which is native when it is selected alone, follow from its
+declared shape under [Section shapes](section-shapes.md).
 
 A category may be heterogeneous. Markdown and JSON document output can
 represent multiple section schemas. Table, TSV, and JSONL require a homogeneous

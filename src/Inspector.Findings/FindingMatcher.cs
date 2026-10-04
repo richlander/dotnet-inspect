@@ -667,7 +667,7 @@ public static class FindingMatcher
         }
     }
 
-    // Same construction and tiebreak as ILInspector.Instructions.IlBodyDiff so the committed
+    // Same construction and tiebreak as ILInspector.ILDiff.IlBodyDiff so the committed
     // core reproduces the existing IL sequence diff exactly on move-free inputs.
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(
         FindingKey[] oldStream,
