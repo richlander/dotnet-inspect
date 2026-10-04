@@ -719,7 +719,7 @@ rules to the pass.
 local function — immediately after `CoercionInsertionPass` and before
 `ScalarSelfUpdatePass`, in every pipeline that includes
 `SlotMaterializationPass` (`Default`, `Lowered`, and the capturing-lambda
-splits) and in none that excludes it: the `ForReconstruction` pipelines leave
+completion split) and in none that excludes it: the `ForReconstruction` pipelines leave
 their slot nodes for the host's tail, which binds the transplanted body. It is
 the last pass that may observe a stack-slot node. The position is chosen so
 the pass sees exactly the tree the printer sees today in that pipeline: the
@@ -741,13 +741,20 @@ and exempts `LoadStackSlot` values, so a freshly minted `LoadLocal` or
 `StoreLocal` at an in-domain typed sink would otherwise sit unwrapped, which
 `CoercionInvariant.Check` reports as a violation and which the printer, with
 its slot-transparent `CoerceText` branch deleted, would spell through its
-ordinary cast path. The pass therefore ends by applying the shared insertion
-decision (`RequiresCoercion`, the same rule `CoercionInsertionPass` and the
-checker use) to exactly the occurrences it minted and to no other node. This
-is the graduation the [invariant section](#the-invariant) reserves for slot
-loads: the slot-load residual category retires and the gates keep asserting
-zero violations. The discharge adds `Coerce` nodes only; it moves no
-expression and changes no binding.
+ordinary cast path. Binding also retypes non-minted ancestors: a `Binary`,
+`Unary`, or `Coalesce` takes its result type from its operands, so an operand
+that becomes a narrower bound local can put its parent out of agreement with
+a sink insertion had left bare. The pass therefore ends by re-applying the
+shared insertion decision (`RequiresCoercion`, the same rule
+`CoercionInsertionPass` and the checker use) over the whole body, deepest
+sink first. Nothing runs between insertion and binding and a sink already
+under a `Coerce` is excluded by that rule, so the re-application is
+idempotent: it wraps exactly the enumerated sinks whose value is or contains
+a minted occurrence and nothing else. This is the graduation the
+[invariant section](#the-invariant) reserves for slot loads: the slot-load
+residual category retires and the gates keep asserting zero violations. The
+discharge adds `Coerce` nodes only; it moves no expression and changes no
+binding.
 
 **Policy is the printer's, ported verbatim and frozen.** The pass applies the
 residual policy `CSharpPrinter.CollectStackSlotNames` and
@@ -760,7 +767,7 @@ residual policy `CSharpPrinter.CollectStackSlotNames` and
    requires it to fail visibly rather than fall back; the pass raises the same
    typed failure.
 1. **Unified.** The candidate set is every load's node type, every
-   `StoreElement` element target whose stored value is a load of the slot
+   `StoreElement` element type whose stored value is a load of the slot
    and whose web has at least one store, all of them conditionals renderable
    for that element type, and every store's result type, in that order. The first candidate every store
    can be assigned to (exact type, implicit numeric assignment, renderable
@@ -775,10 +782,11 @@ residual policy `CSharpPrinter.CollectStackSlotNames` and
    `S_n` for the first distinct type in occurrence order and `S_n_k` for each
    later one. This is the printer's existing split key; it is not a live-range
    or store-ordered split, and no pass proves it.
-   A `Fixed` statement whose local is a stack slot resolves to the bound local
-   whose split key matches its slot and declared slot type; a `Fixed` with no
-   matching bound local is a visible pass failure rather than the printer's
-   bare `S_n` fallback.
+   No producer at this head sets `Fixed.LocalIsStackSlot`, so the printer's
+   slot-keyed `FixedLocalName` branch is dead; the flag and every reader branch
+   (`UnsafeAwaitBoundaryPass`, `ArrayLiteralFromStoresPass`,
+   `LocalDeclarationPlan`, the printer) are deleted as unreachable in the same
+   slice, with that evidence stated, rather than rebound by this pass.
 3. **Untyped.** Any local that steps 1 and 2 would issue without a type — a
    whole web with no node type, or the `<unknown>`-keyed piece of a split web
    whose store or load carries none — is a visible pass failure. The printer
@@ -791,9 +799,10 @@ tree as it stands at the pass position: node result and assignment types,
 including the `Coerce` wrappers insertion has already placed on slot stores;
 `StoreElement` element targets; the conditional, coalesce, and constant store
 shapes above; `Conditional.ReferenceAssignments` and `IPrimitiveJoin`
-primitive targets as the binding passes have just bound them; the body's
-return type for the Boolean sink rule; and the function's type shapes and enum
-backing. That inventory is closed. The pass does not read materialization
+primitive targets as the binding passes have just bound them; for the Boolean
+sink rule, each load's parent shape and consuming sink target (field type,
+setter parameter, `Box` type, `StoreLocal` type, element target, or the
+body's return type); and the function's type shapes and enum backing. That inventory is closed. The pass does not read materialization
 testimony to choose a type (the testimony reaches it only through the
 `Coerce` wrappers insertion owns), does not infer a join, hierarchy, or
 variance conversion, and does not gain an admission rule when a class fails
@@ -828,10 +837,14 @@ implementation slice.
 `StackSlotTargetType`, `StackSlotRenderType`, `CollectStackSlotNames`,
 `CollectResidualStackSlotDeclaringStores`, `ResidualSlotUpdateKind`,
 `EnsureNoResidualManagedReferenceSlots` (subsumed by the general boundary),
-`FixedLocalName`'s stack-slot branch and the `Fixed.LocalIsStackSlot` flag,
+`FixedLocalName`'s stack-slot branch and, beyond the printer family, the
+unproduced `Fixed.LocalIsStackSlot` flag and its reader branches,
 and every rendering branch keyed on `StoreStackSlot`/`LoadStackSlot`,
-including `CoerceText`'s slot-transparent branch, leave the printer family;
-the discharge above replaces that branch's role. The slot-store sink case in
+including the `LoadStackSlot` disjunct of `CoerceText`'s transparent
+merge-node branch (the `Conditional` and `Coalesce` disjuncts stay), leave the
+printer family; for enumerated wrappable sinks the discharge above replaces
+that disjunct's role, and at printer-owned sinks the bound local spells
+through the ordinary path. The slot-store sink case in
 `CoercionInsertionPass` and the
 `StoreStackSlot` unsafe-run case in `LocalDeclarationPlan` remain until the
 implementation slice measures that they are unreachable at the boundary, and
@@ -845,11 +858,13 @@ output, independent of the `IrInvariants` switch, following the existing
 unconditional `EnsureNoResidualManagedReferenceSlots` precedent. When
 `IrInvariants` is enabled, a residual-binding correspondence check, a sibling
 of the [storage-rewrite check](#storage-rewrite-validation) rather than a
-reuse of it, verifies that each web's occurrences are partitioned exactly by
-its declared binding (one local for a unified web, one per rendered type for a
-split web), that each local's table type equals the type its binding declares,
-that locals are fresh and not shared across webs, and that non-slot nodes
-retain identity and ordered structure. The storage-rewrite check keeps its
+reuse of it, brackets the binding step alone, before the discharge, and
+verifies that each web's occurrences are partitioned exactly by its declared
+binding (one local for a unified web, one per rendered type for a split web),
+that each local's table type equals the type its binding declares, that
+locals are fresh and not shared across webs, and that non-slot nodes retain
+identity and ordered structure. The discharge is then checked by
+`CoercionInvariant.Check` itself, which it must leave at zero violations. The storage-rewrite check keeps its
 materialization-only scope: one local per converted web at its testified type.
 Focused Release tests pin one fixture per binding kind and one per
 `SlotMaterializationVeto` value reachable at the pass position, plus the
@@ -886,9 +901,12 @@ produced; same-place update spelling for bound locals (`x += y`), now issued
 by `ScalarSelfUpdatePass` under its own contract instead of the printer's
 `ResidualSlotUpdateKind`, which reused that pass's classifier; coerced
 bound-occurrence spelling, where a sink that today renders a slot load
-transparently now carries the `Coerce` the shared decision issues for the
-bound local, so an implicit IL narrowing such as an `int` carrier stored to a
-`short` field gains its explicit cast; and untyped webs and managed-reference
+transparently now spells the bound local through the printer's ordinary
+coercion path, whether the discharge wrapped it or the sink is one the
+printer owns (`Box` operands, `StoreIndirect` targets, compound-assignment
+operands, merge-node arms), so an implicit IL narrowing such as an `int`
+carrier stored to a `short` field gains its explicit cast; and untyped webs
+and managed-reference
 webs moving from invalid or renderer-fallback output to visible failure. The
 pass moves no expression; the only nodes it adds are the discharge's `Coerce`
 wrappers. Render A/B over the fixed corpus classifies every changed method
@@ -1028,7 +1046,8 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    printer-spelled (`EnumConstantText`): `SwitchSection` holds them outside the
    rewritable tree.
 3. **Turn the invariant on.** Landed: the `Coerce` node,
-   `CoercionInsertionPass` (pipeline-last), and `CoercionInvariant.Check`, with
+   `CoercionInsertionPass` (then pipeline-last; `ScalarSelfUpdatePass` and
+   `ParameterNameAllocationPass` now follow it), and `CoercionInvariant.Check`, with
    one shared `RequiresCoercion` decision so pass and checker cannot drift.
    Corpus evidence: 15 assemblies, 134,373 methods — 0 violations, 7,954
    `Coerce` nodes routed across 3,225 methods (active, not vacuous), and a
