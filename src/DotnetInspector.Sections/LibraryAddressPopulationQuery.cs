@@ -144,6 +144,27 @@ public static class LibraryAddressPopulationQuery
         QuerySpaceTerminalRequirement terminal)
     {
         ArgumentNullException.ThrowIfNull(rows);
+        if (ReferenceEquals(rows, RowSelectionIntent<string>.Empty))
+        {
+            return terminal switch
+            {
+                QuerySpaceTerminalRequirement.Rows =>
+                    Canonical.RowsRequest,
+                QuerySpaceTerminalRequirement.Count =>
+                    Canonical.CountRequest,
+                _ => CreateRequestCore(rows, terminal),
+            };
+        }
+        return CreateRequestCore(rows, terminal);
+    }
+
+    public static QuerySpaceRequest CreateHeadOneExistsRequest() =>
+        Canonical.HeadOneExistsRequest;
+
+    private static QuerySpaceRequest CreateRequestCore(
+        RowSelectionIntent<string> rows,
+        QuerySpaceTerminalRequirement terminal)
+    {
         PortableQueryIntent rowIntent =
             PortableQueryIntent.Create(
                 [],
@@ -169,7 +190,20 @@ public static class LibraryAddressPopulationQuery
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+        if (ReferenceEquals(request, Canonical.RowsRequest))
+            return Canonical.RowsPlan;
+        if (ReferenceEquals(request, Canonical.CountRequest))
+            return Canonical.CountPlan;
+        if (ReferenceEquals(request, Canonical.HeadOneExistsRequest))
+            return Canonical.HeadOneExistsPlan;
 
+        return ResolveRequestCore(request, cancellationToken);
+    }
+
+    private static LibraryAddressPopulationQueryResolution ResolveRequestCore(
+        QuerySpaceRequest request,
+        CancellationToken cancellationToken)
+    {
         if (!request.QuerySpace.Equals(
                 QuerySpaceIdentity,
                 StringComparison.Ordinal))
@@ -242,6 +276,46 @@ public static class LibraryAddressPopulationQuery
                 request.Terminal)
             : new LibraryAddressPopulationQueryResolution.RowIntentRejected(
                 rows.Failure!);
+    }
+
+    private static class Canonical
+    {
+        internal static readonly QuerySpaceRequest RowsRequest =
+            CreateRequestCore(
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Rows);
+        internal static readonly QuerySpaceRequest CountRequest =
+            CreateRequestCore(
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Count);
+        internal static readonly QuerySpaceRequest HeadOneExistsRequest =
+            CreateRequestCore(
+                RowSelectionIntent<string>.Create(
+                    [RowSelectionIntentOperation<string>.Head(1)]),
+                QuerySpaceTerminalRequirement.Exists);
+        internal static readonly
+            LibraryAddressPopulationQueryResolution.Accepted RowsPlan =
+                Accepted(ResolveRequestCore(
+                    RowsRequest,
+                    CancellationToken.None));
+        internal static readonly
+            LibraryAddressPopulationQueryResolution.Accepted CountPlan =
+                Accepted(ResolveRequestCore(
+                    CountRequest,
+                    CancellationToken.None));
+        internal static readonly
+            LibraryAddressPopulationQueryResolution.Accepted
+                HeadOneExistsPlan =
+                    Accepted(ResolveRequestCore(
+                        HeadOneExistsRequest,
+                        CancellationToken.None));
+
+        private static LibraryAddressPopulationQueryResolution.Accepted
+            Accepted(LibraryAddressPopulationQueryResolution result) =>
+            result
+                as LibraryAddressPopulationQueryResolution.Accepted
+            ?? throw new InvalidOperationException(
+                "Canonical Library Address population plan was rejected.");
     }
 
     private readonly record struct Predicate;

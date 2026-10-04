@@ -16,6 +16,58 @@ namespace DotnetInspector.Sections.Tests;
 public sealed class LibraryAddressInspectionOperationTests
 {
     [Fact]
+    public void PopulationQueryCachesCanonicalRequestsAndPlans()
+    {
+        QuerySpaceRequest rows =
+            LibraryAddressPopulationQuery.CreateRequest(
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Rows);
+        QuerySpaceRequest count =
+            LibraryAddressPopulationQuery.CreateRequest(
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Count);
+        QuerySpaceRequest headOneExists =
+            LibraryAddressPopulationQuery
+                .CreateHeadOneExistsRequest();
+
+        Assert.Same(
+            rows,
+            LibraryAddressPopulationQuery.CreateRequest(
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Rows));
+        Assert.Same(
+            count,
+            LibraryAddressPopulationQuery.CreateRequest(
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Count));
+        Assert.Same(
+            headOneExists,
+            LibraryAddressPopulationQuery
+                .CreateHeadOneExistsRequest());
+        Assert.Same(
+            LibraryAddressPopulationQuery.ResolveRequest(
+                rows,
+                TestContext.Current.CancellationToken),
+            LibraryAddressPopulationQuery.ResolveRequest(
+                rows,
+                TestContext.Current.CancellationToken));
+        Assert.Same(
+            LibraryAddressPopulationQuery.ResolveRequest(
+                count,
+                TestContext.Current.CancellationToken),
+            LibraryAddressPopulationQuery.ResolveRequest(
+                count,
+                TestContext.Current.CancellationToken));
+        Assert.Same(
+            LibraryAddressPopulationQuery.ResolveRequest(
+                headOneExists,
+                TestContext.Current.CancellationToken),
+            LibraryAddressPopulationQuery.ResolveRequest(
+                headOneExists,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ExactIlAddressUsesRealImplementation()
     {
         byte[] implementation =

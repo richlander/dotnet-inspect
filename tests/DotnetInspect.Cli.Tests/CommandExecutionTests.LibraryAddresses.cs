@@ -1232,9 +1232,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--library",
                 relativeLibraryPath,
-                "--count",
-                "--tips",
-                "q");
+                "--count");
             Assert.Equal(0, count.Exit);
             Assert.Empty(count.Error);
             Assert.Equal("2", count.Output.Trim());
@@ -1251,9 +1249,7 @@ public partial class CommandExecutionTests
                 "-n",
                 "1",
                 "--head",
-                "--count",
-                "--tips",
-                "q");
+                "--count");
             Assert.Equal(0, exists.Exit);
             Assert.Empty(exists.Error);
             Assert.Equal("1", exists.Output.Trim());
@@ -1705,9 +1701,7 @@ public partial class CommandExecutionTests
                     "-D",
                     "Context: Member",
                     "--effective",
-                    "--count",
-                    "--tips",
-                    "q");
+                    "--count");
             var (packageCountExit, packageCountOutput, packageCountError) =
                 await RunAppAsync(
                     "library",
@@ -1721,9 +1715,7 @@ public partial class CommandExecutionTests
                     "-D",
                     "Context: Member",
                     "--effective",
-                    "--count",
-                    "--tips",
-                    "q");
+                    "--count");
 
             Assert.Equal(0, localCountExit);
             Assert.Empty(localCountError);

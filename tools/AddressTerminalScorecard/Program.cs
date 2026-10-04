@@ -647,9 +647,12 @@ static class AddressColumns
                 _ => QuerySpaceTerminalRequirement.Rows,
             };
         QuerySpaceRequest request =
-            LibraryAddressPopulationQuery.CreateRequest(
-                Selection(closing, shape),
-                terminal);
+            closing is ScorecardClosing.Exists
+                ? LibraryAddressPopulationQuery
+                    .CreateHeadOneExistsRequest()
+                : LibraryAddressPopulationQuery.CreateRequest(
+                    Selection(closing, shape),
+                    terminal);
         var resolved =
             LibraryAddressPopulationQuery.ResolveRequest(request)
                 as LibraryAddressPopulationQueryResolution.Accepted

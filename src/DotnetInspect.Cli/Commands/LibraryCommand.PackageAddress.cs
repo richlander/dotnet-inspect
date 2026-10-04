@@ -221,9 +221,11 @@ public partial class LibraryCommand
                 : IsSingleHeadOne(rows)
                     ? QuerySpaceTerminalRequirement.Exists
                     : QuerySpaceTerminalRequirement.Count;
-        return LibraryAddressPopulationQuery.CreateRequest(
-            rows,
-            terminal);
+        return terminal is QuerySpaceTerminalRequirement.Exists
+            ? LibraryAddressPopulationQuery.CreateHeadOneExistsRequest()
+            : LibraryAddressPopulationQuery.CreateRequest(
+                rows,
+                terminal);
     }
 
     private static bool IsSingleHeadOne(
