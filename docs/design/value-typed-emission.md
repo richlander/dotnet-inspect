@@ -605,8 +605,8 @@ wrappable sinks plus a visible residual ledger for the rest; each residual is
 printer-owned — rendered by its own `CoerceText` branch — until it graduates
 into the enumeration and its count goes to zero. Slot loads graduate through
 [Residual storage binding](#residual-storage-binding): once every leftover
-web is a bound local, the pass discharges the shared insertion decision over
-the occurrences it minted, and the slot-load residual category retires.
+web is a bound local, the pass re-runs the shared insertion decision over the
+bound body to a fixpoint, and the slot-load residual category retires.
 
 This proves **routing, not rendering**: the invariant guarantees every sink *reaches*
 the one coercion function, collapsing the leak surface from ~12 sites to one — but it
@@ -744,17 +744,22 @@ its slot-transparent `CoerceText` branch deleted, would spell through its
 ordinary cast path. Binding also retypes non-minted ancestors: a `Binary`,
 `Unary`, or `Coalesce` takes its result type from its operands, so an operand
 that becomes a narrower bound local can put its parent out of agreement with
-a sink insertion had left bare. The pass therefore ends by re-applying the
-shared insertion decision (`RequiresCoercion`, the same rule
+a sink insertion had left bare. Sink targets can also derive from a minted
+occurrence: a checked binary's operand target is computed from both operand
+types and is absent while one is untyped, and an element-store target reads
+the array operand's type. The pass therefore ends by re-running the shared
+sink enumeration and insertion decision (`RequiresCoercion`, the same rule
 `CoercionInsertionPass` and the checker use) over the whole body, deepest
-sink first. Nothing runs between insertion and binding and a sink already
-under a `Coerce` is excluded by that rule, so the re-application is
-idempotent: it wraps exactly the enumerated sinks whose value is or contains
-a minted occurrence and nothing else. This is the graduation the
-[invariant section](#the-invariant) reserves for slot loads: the slot-load
-residual category retires and the gates keep asserting zero violations. The
-discharge adds `Coerce` nodes only; it moves no expression and changes no
-binding.
+sink first, with targets recomputed from the bound tree, and repeats until a
+run adds no wrapper; each run can only wrap a sink the previous run retyped,
+so the repetition is bounded by tree depth. Nothing runs between insertion
+and binding and a sink already under a `Coerce` is excluded by the rule, so
+the fixpoint wraps the enumerated sinks whose value contains a bound
+occurrence or whose target derives from one, and nothing else. This is the
+graduation the [invariant section](#the-invariant) reserves for slot loads:
+the slot-load residual category retires and the gates keep asserting zero
+violations. The discharge adds `Coerce` nodes only; it moves no expression
+and changes no binding.
 
 **Policy is the printer's, ported verbatim and frozen.** The pass applies the
 residual policy `CSharpPrinter.CollectStackSlotNames` and
@@ -785,7 +790,8 @@ residual policy `CSharpPrinter.CollectStackSlotNames` and
    No producer at this head sets `Fixed.LocalIsStackSlot`, so the printer's
    slot-keyed `FixedLocalName` branch is dead; the flag and every reader branch
    (`UnsafeAwaitBoundaryPass`, `ArrayLiteralFromStoresPass`,
-   `LocalDeclarationPlan`, the printer) are deleted as unreachable in the same
+   `LocalDeclarationPlan`, `IrNode.NodeBindsLocalSlot`, both printer sites)
+   are deleted as unreachable in the same
    slice, with that evidence stated, rather than rebound by this pass.
 3. **Untyped.** Any local that steps 1 and 2 would issue without a type — a
    whole web with no node type, or the `<unknown>`-keyed piece of a split web
@@ -800,9 +806,11 @@ including the `Coerce` wrappers insertion has already placed on slot stores;
 `StoreElement` element targets; the conditional, coalesce, and constant store
 shapes above; `Conditional.ReferenceAssignments` and `IPrimitiveJoin`
 primitive targets as the binding passes have just bound them; for the Boolean
-sink rule, each load's parent shape and consuming sink target (field type,
-setter parameter, `Box` type, `StoreLocal` type, element target, or the
-body's return type); and the function's type shapes and enum backing. That inventory is closed. The pass does not read materialization
+sink rule, each load's parent shape and the consuming sink target
+`CoercionSinks.SemanticLoadSinkTargetType` derives (field type, setter
+parameter, `Box` type, `StoreLocal` type, argument store type, indirect store
+type, element target, or the body's return type); and the function's type
+shapes and enum backing. That inventory is closed. The pass does not read materialization
 testimony to choose a type (the testimony reaches it only through the
 `Coerce` wrappers insertion owns), does not infer a join, hierarchy, or
 variance conversion, and does not gain an admission rule when a class fails
@@ -903,10 +911,14 @@ by `ScalarSelfUpdatePass` under its own contract instead of the printer's
 bound-occurrence spelling, where a sink that today renders a slot load
 transparently now spells the bound local through the printer's ordinary
 coercion path, whether the discharge wrapped it or the sink is one the
-printer owns (`Box` operands, `StoreIndirect` targets, compound-assignment
-operands, merge-node arms), so an implicit IL narrowing such as an `int`
-carrier stored to a `short` field gains its explicit cast; and untyped webs
-and managed-reference
+printer owns (for example `Box` operands, `StoreIndirect` targets,
+compound-assignment operands, merge-node arms, event and `using` values), so
+an implicit IL narrowing such as an `int` carrier stored to a `short` field
+gains its explicit cast, and a sibling operand whose checked-operand or
+element-store target the bound occurrence completed gains the same wrapper;
+multi-dimensional index text for two split pieces of one slot, which the
+printer's slot-keyed `HasRepeatedStackSlot` rule spells today; and untyped
+webs and managed-reference
 webs moving from invalid or renderer-fallback output to visible failure. The
 pass moves no expression; the only nodes it adds are the discharge's `Coerce`
 wrappers. Render A/B over the fixed corpus classifies every changed method
