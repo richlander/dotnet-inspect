@@ -278,14 +278,14 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await expect(page.locator("#inspector-panel")).toContainText("Runs the widget.");
 
   await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
-  const familyOverload = page.locator('[data-overload="1"]');
-  await expect(familyOverload).toBeVisible();
-  await expect(page.locator(".member-surface-head p"))
-    .toContainText("1 overload");
+  await expect(page.locator("#member-surface-title")).toHaveText("Run");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("method · 1 of 1");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(0);
   expect(await page.locator("html").getAttribute(
     "data-member-group-document-request",
   )).toBeNull();
-  await familyOverload.click();
   await expect(page.locator("#inspector-panel")).toContainText(
     "Runs the widget.");
 });
