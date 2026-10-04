@@ -129,9 +129,9 @@ public static class OptimizationOpportunityRowSpace
 
     public static OptimizationOpportunityCuratedQuery PerformanceTriage
     { get; } =
-        new(
+        Curated(
             "performance-triage",
-            PortableQueryIntent.Empty);
+            kind: null);
 
     public static OptimizationOpportunityCuratedQuery Boxing { get; } =
         Curated("performance-boxing", OptimizationOpportunityKind.Boxing);
@@ -369,35 +369,59 @@ public static class OptimizationOpportunityRowSpace
 
     private static OptimizationOpportunityCuratedQuery Curated(
         string identity,
-        OptimizationOpportunityKind kind) =>
+        OptimizationOpportunityKind? kind) =>
         new(
             identity,
             PortableQueryIntent.Create(
                 [
-                    new(
-                        KindKey,
-                        PortableQueryOperator.Equal,
-                        KindToken(kind)),
+                    .. kind is { } value
+                        ? new[]
+                        {
+                            new PortableQueryTerm(
+                                KindKey,
+                                PortableQueryOperator.Equal,
+                                KindToken(value)),
+                        }
+                        : [],
                 ],
                 [],
                 [],
-                []));
+                [
+                    PortableQueryOrderOperation.Named(
+                        PortableQueryOrderRole.Baseline,
+                        TriageOrderKey,
+                        PortableQueryDirection.Descending),
+                ]));
 
     private static PortableQueryIntent Compose(
         OptimizationOpportunityCuratedQuery query,
         PortableQueryIntent intent)
     {
-        if (query.Intent.Terms.Count == 0)
-            return intent;
+        bool suppressCuratedBaseline =
+            intent.Order.Any(operation => operation.Role.IsBaseline)
+            || intent.Stages.Any(
+                stage => stage.Kind is RowSelectionStageKind.Top);
 
         return PortableQueryIntent.Create(
             [
                 .. query.Intent.Terms,
                 .. intent.Terms,
             ],
-            intent.Bounds,
-            intent.Stages,
-            intent.Order);
+            [
+                .. query.Intent.Bounds,
+                .. intent.Bounds,
+            ],
+            [
+                .. query.Intent.Stages,
+                .. intent.Stages,
+            ],
+            [
+                .. query.Intent.Order.Where(
+                    operation =>
+                        !suppressCuratedBaseline
+                        || !operation.Role.IsBaseline),
+                .. intent.Order,
+            ]);
     }
 
     private static RowQueryKey<OptimizationOpportunity>[] CreateKeys() =>

@@ -28,6 +28,19 @@ public sealed class OptimizationOpportunityRowSpaceTests
         Assert.Contains(
             scope.Vocabulary.Keys,
             key => key.Key == OptimizationOpportunityRowSpace.KindKey);
+
+        PortableQueryOrderOperation curatedOrder =
+            Assert.Single(
+                OptimizationOpportunityRowSpace.PerformanceTriage
+                    .Intent.Order);
+        Assert.True(curatedOrder.Role.IsBaseline);
+        Assert.Equal(PortableQueryOrderKind.Named, curatedOrder.Kind);
+        Assert.Equal(
+            OptimizationOpportunityRowSpace.TriageOrderKey,
+            curatedOrder.Reference);
+        Assert.Equal(
+            PortableQueryDirection.Descending,
+            curatedOrder.Direction);
     }
 
     [Fact]
@@ -91,15 +104,22 @@ public sealed class OptimizationOpportunityRowSpaceTests
         RowSelectionResult<OptimizationOpportunity> result =
             OptimizationOpportunityRowSpace.Apply(
                 [
-                    Opportunity("Box", "box-value-type"),
+                    Opportunity(
+                        "LowerBox",
+                        "box-value-type",
+                        confidence: "low"),
                     Opportunity("Array", "small-array"),
+                    Opportunity(
+                        "HigherBox",
+                        "box-value-type",
+                        confidence: "high"),
                 ],
                 [],
                 plan);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(
-            ["Box"],
+            ["HigherBox", "LowerBox"],
             result.Values.Select(row => row.Method.Name));
     }
 
@@ -157,6 +177,7 @@ public sealed class OptimizationOpportunityRowSpaceTests
                 OptimizationOpportunityRowSpace.Resolve(
                     OptimizationOpportunityRowSpace.PerformanceTriage,
                     intent).Plan);
+        Assert.Null(plan.BaselineOrder);
 
         RowSelectionResult<OptimizationOpportunity> result =
             OptimizationOpportunityRowSpace.Apply(

@@ -190,19 +190,22 @@ internal static class PerformanceTriageRowQuery
         }
         else
         {
-            order.Add(
-                !string.IsNullOrWhiteSpace(options.OrderBy)
-                    ? LowerOrder(
+            if (!string.IsNullOrWhiteSpace(options.OrderBy))
+            {
+                order.Add(
+                    LowerOrder(
                         PortableQueryOrderRole.Baseline,
-                        orderTerms)
-                    : PortableQueryOrderOperation.Named(
+                        orderTerms));
+            }
+            else if (options.IncludesAllocationFanout)
+            {
+                order.Add(
+                    PortableQueryOrderOperation.Named(
                         PortableQueryOrderRole.Baseline,
-                        options.IncludesAllocationFanout
-                            ? Analysis.OptimizationOpportunityRowSpace
-                                .AllocationFanoutOrderKey
-                            : Analysis.OptimizationOpportunityRowSpace
-                                .TriageOrderKey,
+                        Analysis.OptimizationOpportunityRowSpace
+                            .AllocationFanoutOrderKey,
                         PortableQueryDirection.Descending));
+            }
         }
 
         return PortableQueryIntent.Create(
