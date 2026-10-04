@@ -9390,7 +9390,17 @@ function activeRetainedEcosystemId(): string | null {
 
 function ecosystemPackageDiscoveryVisible(): boolean {
   return state.workspaceSubjectOpen
+    && state.engineReady
     && !state.home
+    && !state.credits
+    && !state.packageQueryOpen
+    && !state.packageActivityOpen
+    && !state.typeExplorerOpen
+    && !state.explorer?.open
+    && !state.error
+    && !isDiagnosticsPath(location.pathname)
+    && !isProductEcosystemsPath(location.pathname)
+    && !isProductHomeDemosPath(location.pathname)
     && state.package === null
     && activeRetainedEcosystemId() !== null;
 }
@@ -19724,7 +19734,6 @@ async function openPackageQueryRow(
     return;
   }
   if (origin === "query") packageQueryController.cancel();
-  else ecosystemPackageQueryController.cancel();
   packageChangesController.cancel("disposed");
   if (origin === "query") {
     discardPackageQueryTermEditors();

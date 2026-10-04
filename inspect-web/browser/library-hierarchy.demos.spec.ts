@@ -271,6 +271,17 @@ test("Ecosystems is a first-class product catalog destination", async ({
     "[data-ecosystem-package-open]");
   await expect(discoveredPackages).toHaveCount(24);
   await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
+  const initialOperation = await page.locator("html").getAttribute(
+    "data-ecosystem-package-query");
+  await discoveredPackages.first().click();
+  await expect(page.locator(".query-error")).toHaveText(
+    "Fixture package activation failed.");
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query",
+    initialOperation ?? "",
+  );
   await page.locator(
     '[data-ecosystem-package-capacity="48"]',
   ).click();
@@ -298,8 +309,26 @@ test("Ecosystems is a first-class product catalog destination", async ({
     name: ecosystemTitle,
     exact: true,
   })).toBeVisible();
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-ecosystem-package-query",
+    initialOperation ?? "",
+  );
   await page.goForward();
   await expect(page).toHaveURL("/");
+  await page.goBack();
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(discoveredPackages).toHaveCount(24);
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator('[data-product-destination="query"]').click();
+  await expect(page).toHaveURL("/query");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query-cancellations",
+    "1",
+  );
 
   await page.goto("/");
   await page.getByRole("link", { name: "Ecosystems", exact: true }).click();

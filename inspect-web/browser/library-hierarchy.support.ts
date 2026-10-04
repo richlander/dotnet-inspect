@@ -995,6 +995,11 @@ async function installFacades(
       export function cancelPackageQuery(operationId, reason) {
         const operation = packageQueryOperations.get(operationId);
         if (!operation) return { kind: "NotActive", reason: null };
+        document.documentElement.dataset.ecosystemPackageQueryCancellations =
+          String(Number(
+            document.documentElement.dataset
+              .ecosystemPackageQueryCancellations ?? "0",
+          ) + 1);
         operation.cancelled = true;
         operation.reason = reason;
         operation.wake?.();
@@ -3150,6 +3155,18 @@ async function installFacades(
           },
           posting: null,
           failure: null,
+        };
+      }
+      export async function preparePackageQueryWorkspaceDefinition() {
+        return {
+          status: "failed",
+          receipt: null,
+          preparation: null,
+          posting: null,
+          failure: {
+            kind: "PackageUnavailable",
+            message: "Fixture package activation failed.",
+          },
         };
       }
       export async function commitRetainedWorkspaceActivation() {
