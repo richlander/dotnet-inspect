@@ -999,6 +999,37 @@ remain the semantic gates, and the Release solution build is the full absence
 gate for the deleted property. No product terminal or performance claim
 changes.
 
+### Optimization-classifier forwarder retirement for #8568
+
+`RepeatedScanAnalysis` owns LINQ, string-concatenation, and interface-enumerator
+classification. Allocation and optimization producers call that owner
+directly; no production or test consumer calls the duplicate
+`LibraryBodyIndex.IsStringConcat` or
+`LibraryBodyIndex.IsInterfaceEnumeratorAllocation` forwarders. The index also
+no longer carries unused private LINQ materializer and lazy-producer
+forwarders.
+
+This slice deletes only dead compatibility methods. It does not change
+classifier behavior, allocation occurrences, optimization opportunities,
+output, or work. Existing Release allocation and optimization tests preserve
+the semantic behavior, and the Release solution build is the full absence gate
+for the deleted public methods.
+
+The final static classifier-forwarder slice moves membership-scan boundary
+coverage onto the focused Optimization result using the existing netstandard
+facade and unsigned `System.Linq` fixtures. Supported-terminal vocabulary,
+parameterless-overload rejection, and the .NET Framework `System.Core`
+identity case bind `RepeatedScanAnalysis` directly through the existing
+Analysis test boundary; no new friend assembly or public test seam is added.
+`LibraryBodyIndex` no longer publishes any static classifier forwarder.
+
+This test-ownership move does not change classification, occurrence or
+opportunity production, output, or work. The focused fixture tests preserve
+facade recall and spoof precision, owner-bound tests preserve the classifier
+vocabulary, and the Release solution build is the full absence gate for the
+deleted compatibility method. No product terminal or performance claim
+changes.
+
 ### Production adoption for #8450
 
 The counted implementation path is:

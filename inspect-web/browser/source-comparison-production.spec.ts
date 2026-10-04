@@ -226,13 +226,19 @@ test.describe("published authored Source comparison transport", () => {
           body.memberName,
           body.selectorKey,
           body.token,
+          0,
           "[]",
           "source",
         );
+        if (result.value === null) {
+          throw new Error(
+            result.error ?? "System.Text.Json member source inspection failed.",
+          );
+        }
         return {
           framework: surface.activeFramework,
           member: body.memberName,
-          result,
+          result: result.value,
         };
       });
       const partText = (
@@ -510,10 +516,13 @@ test.describe("published authored Source comparison transport", () => {
         const selected = await memberRequest(targetPage, name, version, typeName);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
-          return source.queryMemberSource(
+          const result = await source.queryMemberSource(
             request.packageId, request.beforeVersion, request.framework,
             request.assembly, request.typeIdentity, request.memberName,
-            request.selectorKey, request.metadataToken, "[]", request.view);
+            request.selectorKey, request.metadataToken, 0, "[]", request.view);
+          if (result.value === null)
+            throw new Error(result.error ?? "Member source inspection failed.");
+          return result.value;
         }, { ...selected, view });
       }
 
@@ -687,9 +696,18 @@ test.describe("published authored Source comparison transport", () => {
       });
       await decompiledSource.click();
       await expect(decompiledSource).toHaveAttribute("aria-pressed", "true");
-      await expect(selector).toHaveCount(0);
+      await expect(selector).toHaveValue("Body");
+      const decompiledBody = decompiledMember.parts.find(
+        part => part.kind === "Body");
+      expect(decompiledBody).toBeDefined();
+      if (!decompiledBody) throw new Error("Missing decompiled Body part.");
+      const expectedDecompiledBody = decompiledBody.spans
+        .map(span =>
+          span.leadingIndentation
+          + decompiledMember.source.text.slice(span.start, span.end))
+        .join("\n");
       await expect.poll(() => sourceCode.textContent())
-        .toBe(decompiledMember.source.text);
+        .toBe(expectedDecompiledBody);
       await authoredSource.click();
       await expect(authoredSource).toHaveAttribute("aria-pressed", "true");
       await expect(selector).toHaveValue("Body");
@@ -978,7 +996,8 @@ test.describe("published authored Source comparison transport", () => {
       expect(fallbackMember.source.text).toContain("Value");
       expect(fallbackMember.source.pdbSourceLimitation).toBeTruthy();
       expect(fallbackMember.source.url).toBeNull();
-      expect(fallbackMember.parts).toEqual([]);
+      expect(fallbackMember.parts.map(part => part.kind)).toEqual(
+        ["Member", "Signature", "Body"]);
 
       expect(authoredType.kind).toBe("Succeeded");
       expect(authoredType.value?.kind).toBe("source");

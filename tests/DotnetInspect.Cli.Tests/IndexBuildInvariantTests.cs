@@ -21,11 +21,11 @@ namespace DotnetInspect.Cli.Tests;
 public class IndexBuildGuardCollection;
 
 /// <summary>
-/// Guards the "build the analysis index once per command" invariant delivered by the #2139 perf
-/// work (PRs #2187 member, #2199 type, #2210 library): every index-backed section of one command
-/// shares a single <see cref="Analysis.LibraryBodyIndex"/> build. A new section that opens its own
-/// <see cref="MethodBodyInspectionSession"/> instead of the shared one would silently reintroduce a
-/// per-section rebuild — these tests fail immediately if that happens.
+/// Guards the "execute body analysis once per command" invariant delivered by the #2139 perf
+/// work (PRs #2187 member, #2199 type, #2210 library): every analysis-backed section of one command
+/// shares a single <see cref="Analysis.LibraryBodyAnalysisExecution"/>. A new section that opens its
+/// own <see cref="MethodBodyInspectionSession"/> instead of the shared one would silently
+/// reintroduce per-section execution — these tests fail immediately if that happens.
 /// </summary>
 [Collection("IndexBuildGuard")]
 public class IndexBuildInvariantTests

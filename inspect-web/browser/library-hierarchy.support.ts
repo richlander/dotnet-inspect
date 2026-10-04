@@ -2254,6 +2254,7 @@ async function installFacades(
         member,
         selector,
         token,
+        documentBaselineOrdinal,
         taste,
         view,
         contextId
@@ -2268,11 +2269,12 @@ async function installFacades(
             member,
             selector,
             token,
+            documentBaselineOrdinal,
             taste,
             view,
             contextId,
           ]);
-        return {
+        const value = {
           source: {
             provider: "decompiled",
             provenance: "fixture platform implementation",
@@ -2281,7 +2283,9 @@ async function installFacades(
             text: "public void Run() {}",
           },
           parts: [],
+          diagnostics: [],
         };
+        return { value, error: null, diagnostics: [] };
       }
       export async function queryTypeSource() {
         return {

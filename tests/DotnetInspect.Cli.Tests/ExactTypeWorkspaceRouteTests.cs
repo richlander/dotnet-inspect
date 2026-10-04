@@ -119,10 +119,12 @@ public sealed class ExactTypeWorkspaceRouteTests
             Environment.NewLine,
             StringSplitOptions.RemoveEmptyEntries);
         string derivedPacket = errorLines[0];
-        Assert.Contains("Tips:", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
+        int firstTip = error.IndexOf("member ApiType", StringComparison.Ordinal);
+        Assert.True(firstTip >= 0);
         Assert.True(
             error.IndexOf(derivedPacket, StringComparison.Ordinal)
-                < error.IndexOf("Tips:", StringComparison.Ordinal));
+                < firstTip);
         WorkspaceSharePacket derived =
             WorkspaceSharePacketCodec.Decode(
                 derivedPacket,
@@ -1062,7 +1064,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Equal(0, withExit);
         Assert.Equal(withoutOutput, withOutput);
         Assert.Empty(withoutError);
-        Assert.Contains("Tips:", withError, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tips:", withError, StringComparison.Ordinal);
         Assert.Contains(
             "member ApiType",
             withError,

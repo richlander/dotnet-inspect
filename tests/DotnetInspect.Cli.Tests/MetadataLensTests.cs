@@ -384,7 +384,7 @@ public partial class CommandExecutionTests
     public async Task ReadyToRunLens_EffectiveDiscoveryIgnoresPreLensCache()
     {
         const string legacyCategory = "effective-v28";
-        const string currentCategory = "effective-v29";
+        const string currentCategory = "effective-v30";
         string directory = Path.Combine(
             Path.GetTempPath(), $"r2r-effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);

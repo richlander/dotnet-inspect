@@ -577,7 +577,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
-        Assert.Contains("Tips:", error);
+        Assert.DoesNotContain("Tips:", error);
+        Assert.Contains("package dependency-evidence", error);
     }
 
     [Fact]

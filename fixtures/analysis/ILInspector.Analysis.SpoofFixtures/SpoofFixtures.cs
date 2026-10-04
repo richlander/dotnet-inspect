@@ -8,11 +8,30 @@ namespace System.Linq
     public static class Enumerable
     {
         public static int[] ToArray(IEnumerable<int> values) => new int[0];
+
+        public static bool Any(
+            IEnumerable<int> values,
+            System.Func<int, bool> predicate)
+            => false;
     }
 
     public static class Spoofer
     {
         public static int[] CallsFakeEnumerableToArray(IEnumerable<int> values)
             => Enumerable.ToArray(values);
+
+        public static int CallsFakeEnumerableAnyInLoop(
+            IEnumerable<int> values,
+            int[] keys)
+        {
+            int matches = 0;
+            foreach (int key in keys)
+            {
+                if (Enumerable.Any(values, value => value == key))
+                    matches++;
+            }
+
+            return matches;
+        }
     }
 }

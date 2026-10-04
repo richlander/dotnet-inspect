@@ -27,6 +27,7 @@ import type {
 import type {
   BrowserLibraryStructuralSalience as LibraryStructuralSalience,
   BrowserPackageIntegrations as PackageIntegrations,
+  BrowserTypeMethodLeverage as TypeMethodLeverage,
 } from "../src/facades/inspect-web-analysis.js";
 import type {
   BrowserWorkspaceShareEncodeResult,
@@ -580,6 +581,20 @@ declare global {
         assembly: string,
         pack: string,
       ): Promise<LibraryStructuralSalience>;
+      queryPackageTypeMethodLeverage(
+        packageId: string,
+        version: string,
+        framework: string,
+        assembly: string,
+        typeDefinitionId: string,
+      ): Promise<TypeMethodLeverage>;
+      queryPlatformTypeMethodLeverage(
+        framework: string,
+        version: string,
+        assembly: string,
+        pack: string,
+        typeDefinitionId: string,
+      ): Promise<TypeMethodLeverage>;
       queryPlatformDocumentation(
         framework: string,
         platformVersion: string,
@@ -679,6 +694,32 @@ async function boot(page: Page): Promise<void> {
         pack,
       ) => client.analysis.queryPlatformLibraryStructuralSalience(
         framework, platformVersion, assembly, pack),
+      queryPackageTypeMethodLeverage: (
+        packageId,
+        pkgVersion,
+        framework,
+        assembly,
+        typeDefinitionId,
+      ) => client.analysis.queryPackageTypeMethodLeverage(
+        packageId,
+        pkgVersion,
+        framework,
+        assembly,
+        typeDefinitionId,
+      ),
+      queryPlatformTypeMethodLeverage: (
+        framework,
+        platformVersion,
+        assembly,
+        pack,
+        typeDefinitionId,
+      ) => client.analysis.queryPlatformTypeMethodLeverage(
+        framework,
+        platformVersion,
+        assembly,
+        pack,
+        typeDefinitionId,
+      ),
       queryPlatformDocumentation: (
         framework,
         platformVersion,
@@ -720,6 +761,20 @@ function driver(page: Page): {
   queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
   queryLibraryStructuralSalience(packageId: string, version: string, framework: string, libraryId: string): Promise<LibraryStructuralSalience>;
   queryPlatformLibraryStructuralSalience(framework: string, version: string, assembly: string, pack: string): Promise<LibraryStructuralSalience>;
+  queryPackageTypeMethodLeverage(
+    packageId: string,
+    version: string,
+    framework: string,
+    assembly: string,
+    typeDefinitionId: string,
+  ): Promise<TypeMethodLeverage>;
+  queryPlatformTypeMethodLeverage(
+    framework: string,
+    version: string,
+    assembly: string,
+    pack: string,
+    typeDefinitionId: string,
+  ): Promise<TypeMethodLeverage>;
   queryPlatformDocumentation(
     framework: string,
     platformVersion: string,
@@ -807,6 +862,44 @@ function driver(page: Page): {
         coordinates.pack,
       ),
       { framework, platformVersion, assembly, pack },
+    ),
+    queryPackageTypeMethodLeverage: (
+      packageId,
+      pkgVersion,
+      framework,
+      assembly,
+      typeDefinitionId,
+    ) => page.evaluate(
+      coordinates => window.__adoption!.queryPackageTypeMethodLeverage(
+        coordinates.packageId,
+        coordinates.version,
+        coordinates.framework,
+        coordinates.assembly,
+        coordinates.typeDefinitionId,
+      ),
+      {
+        packageId,
+        version: pkgVersion,
+        framework,
+        assembly,
+        typeDefinitionId,
+      },
+    ),
+    queryPlatformTypeMethodLeverage: (
+      framework,
+      platformVersion,
+      assembly,
+      pack,
+      typeDefinitionId,
+    ) => page.evaluate(
+      coordinates => window.__adoption!.queryPlatformTypeMethodLeverage(
+        coordinates.framework,
+        coordinates.platformVersion,
+        coordinates.assembly,
+        coordinates.pack,
+        coordinates.typeDefinitionId,
+      ),
+      { framework, platformVersion, assembly, pack, typeDefinitionId },
     ),
     queryPlatformDocumentation: (
       framework,
@@ -3508,6 +3601,7 @@ test.describe("bounded network-backed Worker smoke", () => {
         lens: "library:overview", type: null,
         memberAnchor: null, memberSignature: null, section: null,
         libraries: ['["netcore.app","System.Xml.dll"]'],
+        sourceView: null,
       },
     }));
     expect(encoded.succeeded, encoded.failure?.message).toBe(true);
@@ -3754,6 +3848,63 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(flattened).toContain("AddHttpClient");
   });
 
+  test("projects exact all-access Type method leverage into the UI", async ({
+    page,
+  }, testInfo) => {
+    await page.goto(
+      "/?package=System.Text.Json&version=10.0.0&framework=net10.0",
+      { waitUntil: "domcontentloaded" },
+    );
+    await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("button").filter({
+      hasText: /^20System\.Text\.Json$/,
+    }).click();
+    await page.locator("[data-type]").filter({
+      hasText: "JsonSerializerOptions",
+    }).first().click();
+    await page.getByRole("button", {
+      name: "Show Top Leverage",
+      exact: true,
+    }).click();
+
+    const control = page.locator(".member-leverage-control");
+    await expect(control).toContainText(
+      "1 browsable Top Leverage member",
+      { timeout: 180_000 },
+    );
+    const runnerUp = page.locator(".api-row[data-member]").filter({
+      hasText: "AllowDuplicateProperties",
+    });
+    await expect(runnerUp).toBeVisible();
+    await expect(
+      runnerUp.locator(".item-achievement-glyph.top-leverage"),
+    ).toHaveCount(0);
+    await expect(
+      page.locator(".item-achievement-glyph.top-leverage"),
+    ).toHaveCount(0);
+
+    await page.locator("[data-member-filter-disclosure] summary").click();
+    await page.locator("[data-member-access-filter]").selectOption("all");
+    const winner = page.locator(".api-row[data-member]").filter({
+      hasText: "VerifyMutable",
+    });
+    await expect(winner).toBeVisible({ timeout: 180_000 });
+    await expect(
+      winner.locator(".item-achievement-glyph.top-leverage"),
+    ).toHaveCount(1);
+    await expect(
+      winner.locator(".item-achievement-rail"),
+    ).toHaveAttribute("aria-label", /Top Leverage; 31 direct callers/);
+
+    await page.locator("[data-method-leverage-filter]")
+      .selectOption("top-leverage");
+    await expect(winner).toBeVisible();
+    await expect(runnerUp).toHaveCount(0);
+    await page.locator("#subject-panel").screenshot({
+      path: testInfo.outputPath("method-leverage-filtered.png"),
+    });
+  });
+
   test("measures exhaustive structural salience over real Wasm", async ({
     page,
   }) => {
@@ -3770,6 +3921,33 @@ test.describe("bounded network-backed Worker smoke", () => {
     if (library === undefined) {
       throw new Error("Expected the System.Text.Json Library descriptor.");
     }
+    const optionsType = surface.types.find(
+      candidate =>
+        candidate.definitionId
+          === "System.Text.Json.JsonSerializerOptions",
+    );
+    if (optionsType === undefined) {
+      throw new Error("Expected JsonSerializerOptions in the package surface.");
+    }
+    const methodLeverage = await engine.queryPackageTypeMethodLeverage(
+      "System.Text.Json",
+      "10.0.0",
+      "net10.0",
+      optionsType.assemblyId,
+      optionsType.definitionId,
+    );
+    expect(methodLeverage.outcome).toBe("available");
+    expect(methodLeverage.content?.winningRank?.directCallerCount).toBe(31);
+    expect(methodLeverage.content?.winnerCount).toBe(1);
+    expect(methodLeverage.content?.anchoredWinners).toHaveLength(1);
+    expect(
+      methodLeverage.content?.anchoredWinners[0]?.stableSelector,
+    ).toContain("VerifyMutable");
+    expect(
+      methodLeverage.content?.anchoredWinners.some(
+        winner => winner.stableSelector.includes(
+          "AllowDuplicateProperties")),
+    ).toBe(false);
     const querySalience = () => engine.queryLibraryStructuralSalience(
       "System.Text.Json",
       "10.0.0",
@@ -3904,6 +4082,24 @@ test.describe("bounded network-backed Worker smoke", () => {
         measurements.map(measurement => measurement.milliseconds),
       ),
     }));
+    await page.evaluate(() => window.__adoption!.dispose());
+  });
+
+  test("answers platform Type method leverage over real Wasm", async ({
+    page,
+  }) => {
+    await boot(page);
+    const engine = driver(page);
+    const methodLeverage = await engine.queryPlatformTypeMethodLeverage(
+      "net11.0",
+      "11.0.0-rc.1.26425.128",
+      "System.Private.CoreLib.dll",
+      "netcore.app",
+      "System.String",
+    );
+    expect(methodLeverage.outcome).toBe("available");
+    expect(methodLeverage.content?.typeDefinitionId).toBe("System.String");
+    expect(methodLeverage.content?.methodCount).toBeGreaterThan(0);
     await page.evaluate(() => window.__adoption!.dispose());
   });
 

@@ -151,6 +151,28 @@ Automatic verbosity still uses only the route's base `@Member` union; selecting
 an exact domain category or exact section name is the gesture that enters the
 additional evidence.
 
+### Overview cost
+
+An overview is a cheap summary of one subject: a Library's `Library Info`
+section and its compact `-v:q` summary, and a Type's overview. It shows only
+facts read from metadata: table row counts, flags, names, and per-row reads
+that match a custom attribute's type or read a fixed-size attribute value in
+place. It does not read a method body, decode IL, or materialize per-row
+signature or attribute text. A fact that needs that work belongs to an
+on-demand section, and the overview does not count it.
+
+Cost decides membership before value. A row whose producer reads bodies leaves
+the overview, or narrows to the part of its fact that metadata declares, even
+when the full fact is useful. The Library Info Switches row narrowed this way
+(decided 2026-10-03).
+
+The enforcing gate is `OverviewCostTests`. It runs `library` at `-v:m`,
+`-v:q`, and `-S "Library Info"` over a fixture that calls
+`AppContext.TryGetSwitch`, and `type` at `-v:m` for a type in that fixture and
+for a platform type. It asserts that no method body is read and no body
+session opens. Per-row signature and attribute-text materialization is not
+gated and is unverified.
+
 ## Categories
 
 Base categories define ordinary command evidence. Domain categories are
@@ -442,12 +464,14 @@ policy. Its rules about request provenance and host preflight still apply.
 Only the policy that decides which capabilities a gesture requests has
 changed.
 
-Adoption status: this policy leads the implementation. Today the CLI requests
-`PdbAcquire` only on exact section selection, `-v:d`, or explicit effective
-discovery. Package descriptions already show by default; a single type's docs
-and a single subject's source do not yet. Until adoption
-([#8729](https://github.com/richlander/dotnet-inspect/issues/8729)) lands,
-the current behavior is what ships.
+Adoption status: `--offline` is the only network prohibition in code. Network
+telemetry observes requests and never blocks them, so any producer that needs
+PDB facts may acquire a missing PDB outside `--offline`. Today the CLI requests
+`PdbAcquire` when a PDB-dependent section is selected exactly, at `-v:d`, or by
+explicit effective discovery; the gesture that selects such a section moves to
+facet selection under the
+[CLI verbosity retirement](cli-verbosity-retirement.md). Package descriptions
+already show by default; a single type's docs do not yet.
 
 ### Capability machinery
 

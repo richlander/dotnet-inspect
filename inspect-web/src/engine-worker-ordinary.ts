@@ -107,7 +107,9 @@ type AnalysisOperationName =
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
   | "queryPackageTypeImplementationHeat"
+  | "queryPackageTypeMethodLeverage"
   | "queryPlatformTypeImplementationHeat"
+  | "queryPlatformTypeMethodLeverage"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformPerformance";
@@ -1493,6 +1495,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.analysis.queryPackageTypeImplementationHeat(...args),
     ),
+    queryPackageTypeMethodLeverage: valueOperation(
+      "ordinary-analysis-query-package-type-method-leverage",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageTypeMethodLeverage"]
+        >
+      ) => facades.analysis.queryPackageTypeMethodLeverage(...args),
+    ),
     queryPlatformTypeImplementationHeat: valueOperation(
       "ordinary-analysis-query-platform-type-implementation-heat",
       5,
@@ -1502,6 +1514,16 @@ export const engineWorkerOrdinaryOperations = {
           AnalysisFacade["queryPlatformTypeImplementationHeat"]
         >
       ) => facades.analysis.queryPlatformTypeImplementationHeat(...args),
+    ),
+    queryPlatformTypeMethodLeverage: valueOperation(
+      "ordinary-analysis-query-platform-type-method-leverage",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPlatformTypeMethodLeverage"]
+        >
+      ) => facades.analysis.queryPlatformTypeMethodLeverage(...args),
     ),
     queryMemberFacts: valueOperation(
       "ordinary-analysis-query-member-facts",
@@ -1599,7 +1621,7 @@ export const engineWorkerOrdinaryOperations = {
   source: {
     queryMemberSource: valueOperation(
       "ordinary-source-query-member",
-      10,
+      11,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberSource"]>
@@ -1607,7 +1629,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberSource: valueOperation(
       "ordinary-source-query-platform-member",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryPlatformMemberSource"]>
@@ -2278,9 +2300,17 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageTypeImplementationHeat,
       ),
+      queryPackageTypeMethodLeverage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageTypeMethodLeverage,
+      ),
       queryPlatformTypeImplementationHeat: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformTypeImplementationHeat,
+      ),
+      queryPlatformTypeMethodLeverage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformTypeMethodLeverage,
       ),
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,

@@ -227,7 +227,7 @@ public class LibraryInspectionView
         Resources = _data.ResourceInspection.FindingCount(),
         Signed = fields.Signed ? "Yes" : null,
         Source = _data.Source,
-        Switches = CountSwitches(_data),
+        Switches = _data.SwitchCount,
         TargetFramework = fields.TargetFramework,
         TypeForwarders = _data.TypeForwarderInspection.FindingCount(),
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
@@ -308,6 +308,21 @@ public class LibraryInspectionView
                 projection.HierarchyRows,
                 markWindowedFragments: true)
             : null;
+
+    [MarkoutIgnore]
+    public bool HasDependencyStructure =>
+        _data.DependencyStructureQueryResult
+            is LibraryDependencyStructureQueryResult.Available;
+
+    [MarkoutSection(
+        Name = SectionNames.DependencyStructure,
+        EmptyText = "No internal namespace dependencies.",
+        ShowWhenProperty = nameof(HasDependencyStructure))]
+    public Markout.Graph? DependencyStructureSection =>
+        _data.DependencyStructureQueryResult
+            is LibraryDependencyStructureQueryResult.Available available
+                ? LibraryDependencyStructureOutputAdapter.ToGraph(available)
+                : null;
 
     private EcosystemDependencyRecognitionDocument? RecognitionDocument =>
         _data.EcosystemDependencyRecognitionInspection?.Content switch
@@ -1731,12 +1746,6 @@ public class LibraryInspectionView
             return inspection.IntegrationCount;
 
         return LibraryIntegrationCatalog.CountPresence(inspection);
-    }
-
-    private static int CountSwitches(LibraryInspection inspection)
-    {
-        var count = inspection.SwitchInspection.FindingCount();
-        return count > 0 ? count : inspection.SwitchCount;
     }
 
     private List<(string Kind, string Name, string Shape)> Signals(

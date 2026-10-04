@@ -166,6 +166,7 @@ public partial class LibraryCommand
             JsonArray = options.JsonArray,
             Rows = options.CloneCandidateRowSelection is null
                 && options.NameFamilyRowSelection is null
+                && options.DependencyStructureRowSelection is null
                 ? options.Rows
                 : null,
             CloneCandidateRowSelection =
@@ -175,6 +176,8 @@ public partial class LibraryCommand
                 options.EcosystemDependencyRowSelection,
             NameFamilyPopulation = options.NameFamilyPopulation,
             NameFamilyRowSelection = options.NameFamilyRowSelection,
+            DependencyStructureRowSelection =
+                options.DependencyStructureRowSelection,
             PerformanceTriage = options.PerformanceTriage,
             BodyKindQuery = options.BodyKindQuery,
             CloneCandidateQuery = options.CloneCandidateQuery,

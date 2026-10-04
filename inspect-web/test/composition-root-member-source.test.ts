@@ -752,7 +752,7 @@ test("moving between members keeps sections sticky without section-driven profil
     /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
   assert.match(
     openMemberGroupBody,
-    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex =\s*memberNavOverloadSourceIndex\(group, 0\);[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     openMemberGroupBody,
     /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
@@ -783,7 +783,7 @@ test("moving between members keeps sections sticky without section-driven profil
     ?? "";
   assert.match(
     selectEntryBody,
-    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
+    /entry\.group\.key === state\.selectedMemberKey[\s\S]*selectMemberFamilyParent\(state, entry\.group\)[\s\S]*clearMemberContentCache\(\);\s*render\(\)/);
 });
 
 test("every overload-specific member loader leaves a multi-overload picker inert", () => {
@@ -797,7 +797,10 @@ test("every overload-specific member loader leaves a multi-overload picker inert
     const body =
       appSource.match(new RegExp(`async function ${name}\\(\\)[\\s\\S]*?\\n}`))?.[0]
       ?? "";
-    assert.match(body, /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
+    assert.match(body, /selectedMemberOverload\(type, member\)/);
+    assert.doesNotMatch(
+      body,
+      /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
     assert.match(
       body,
       name === "loadSelectedMemberAnnotatedSource"
@@ -835,13 +838,17 @@ test("source requests carry exact type and member identities", () => {
     ?? "";
   assert.match(
     memberBridge,
-    /typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson/);
+    /typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson/);
   assert.match(
     platformMemberBridge,
-    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson, view, contextId/);
+    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson, view, contextId/);
   assert.match(
     memberLoader,
     /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformAssemblyRequest\(row\)[\s\S]*pack: row\.pack,[\s\S]*contextId: platformDemoContextIdFor\(pkg\)[\s\S]*kind: "package"/);
+  assert.match(
+    memberLoader,
+    /documentBaselineOrdinal:[\s\S]*overload\.baselineOrdinal/);
+  assert.doesNotMatch(memberLoader, /overload\.anchorDigest/);
   assert.doesNotMatch(memberLoader, /signature:/);
 });
 

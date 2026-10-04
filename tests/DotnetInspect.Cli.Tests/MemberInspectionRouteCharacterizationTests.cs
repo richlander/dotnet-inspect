@@ -189,11 +189,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     packageDiscoveryDemand),
                 packagePipeline,
                 packageSections,
-                "focus:vulnerability-traffic="
-                    + PackageCommand.AllowsVulnerabilityTraffic(packageOptions)
-                    + ";discovery:vulnerability-traffic="
-                    + PackageCommand.AllowsVulnerabilityTraffic(
-                        packageProducerOptions)),
+                "focus:package-metadata="
+                    + PackageCommand.RequiresPackageMetadata(
+                        packageOptions,
+                        packagePipeline)
+                    + ";discovery:package-metadata="
+                    + PackageCommand.RequiresPackageMetadata(
+                        packageProducerOptions,
+                        packagePipeline)),
             Observe(
                 "package-single-library",
                 await ObservePackageLibraryDiscoveryAsync(),
@@ -260,13 +263,13 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "Package[schema:61:4FD76B6F9943]",
                 "focus=SourceLink: Availability->SourceLink availability;"
                     + "discovery=none",
-                "focus:vulnerability-traffic=True;"
-                    + "discovery:vulnerability-traffic=False"),
+                "focus:package-metadata=True;"
+                    + "discovery:package-metadata=False"),
             new(
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
                     + "effective-after-package-acquisition",
-                "Library[schema:138:9C300A900259]",
+                "Library[schema:139:3986B1CE315A]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Method classification (Library Info counts),"
@@ -279,7 +282,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:138:9C300A900259]",
+                "Library[schema:139:3986B1CE315A]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Method classification (Library Info counts),"
@@ -290,7 +293,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:140:35B0515E3EF6]",
+                "Library[schema:141:F5BD90FC3236]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Method classification (Library Info counts),"
