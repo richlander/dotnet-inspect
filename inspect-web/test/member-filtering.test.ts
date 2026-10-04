@@ -12,10 +12,14 @@ import {
   memberMatchesTrait,
   memberGroupMatches,
   memberNavTargetIndex,
+  memberOverloadSourceIndex,
+  memberOverloadVisibleIndex,
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectMemberFamilyParent,
   selectedConcreteOverload,
+  selectedSourceOverload,
 } from "../src/member-filtering.ts";
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
@@ -207,6 +211,7 @@ test("member filters compose locally after managed accessibility selection", () 
   const staticGroup = staticGroups[0];
   assert.ok(staticGroup);
   assert.equal(staticGroup.overloads.length, 1);
+  assert.equal(staticGroup.sourceOverloadCount, 2);
   assert.match(staticGroup.overloads[0]?.signature ?? "", /static/);
 
   const instanceGroups = filterMemberGroups(groups, {
@@ -219,7 +224,51 @@ test("member filters compose locally after managed accessibility selection", () 
   const instanceGroup = instanceGroups[0];
   assert.ok(instanceGroup);
   assert.equal(instanceGroup.overloads.length, 1);
+  assert.equal(instanceGroup.sourceOverloadCount, 2);
   assert.doesNotMatch(instanceGroup.overloads[0]?.signature ?? "", /static/);
+});
+
+test("filtered member overloads retain their exact source index", () => {
+  const source = [{
+    key: "property:Item",
+    overloads: [
+      { stableSelector: "Item~0" },
+      { stableSelector: "Item~1" },
+      { stableSelector: "Item~2" },
+    ],
+  }];
+  const filtered = {
+    key: source[0]!.key,
+    overloads: [{ stableSelector: "Item~2" }],
+    sourceOverloadCount: 3,
+  };
+
+  assert.equal(memberOverloadSourceIndex(source, filtered, 0), 2);
+  assert.equal(memberOverloadVisibleIndex(source, filtered, 2), 0);
+  assert.equal(
+    selectedSourceOverload(source, filtered, 2),
+    source[0]?.overloads[2],
+  );
+  assert.equal(selectedSourceOverload(source, filtered, null), undefined);
+  assert.throws(
+    () => memberOverloadVisibleIndex(source, filtered, 1),
+    /Source overload 1 .* is not visible/);
+});
+
+test("selecting a filtered source-family parent clears its exact child", () => {
+  const state = { selectedOverloadIndex: 1 };
+  assert.equal(selectMemberFamilyParent(state, {
+    overloads: [{ stableSelector: "Item~1" }],
+    sourceOverloadCount: 2,
+  }), true);
+  assert.equal(state.selectedOverloadIndex, null);
+
+  const single = { selectedOverloadIndex: 0 };
+  assert.equal(selectMemberFamilyParent(single, {
+    overloads: [{ stableSelector: "Count" }],
+    sourceOverloadCount: 1,
+  }), false);
+  assert.equal(single.selectedOverloadIndex, 0);
 });
 
 test("member traits use the complete selector vocabulary", () => {

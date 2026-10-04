@@ -757,6 +757,41 @@ export interface BrowserTypeImplementationHeatContent {
   readonly apiSurfaceInspectionFailures: ReadonlyArray<BrowserImplementationProfileApiSurfaceFailure>;
 }
 
+export interface BrowserTypeMethodLeverage {
+  readonly schemaVersion: number;
+  readonly outcome: string;
+  readonly subject: BrowserImplementationProfileSubject | null;
+  readonly content: BrowserTypeMethodLeverageContent | null;
+  readonly failure: BrowserImplementationProfileFailure | null;
+  readonly share: BrowserAnalysisInspectionShare | null;
+  readonly diagnostics: ReadonlyArray<BrowserAnalysisInspectionDiagnostic>;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
+}
+
+export interface BrowserTypeMethodLeverageContent {
+  readonly typeDefinitionId: string;
+  readonly methodCount: number;
+  readonly winnerCount: number;
+  readonly winningRank: BrowserTypeMethodLeverageRank | null;
+  readonly anchoredWinners: ReadonlyArray<BrowserTypeMethodLeverageWinner>;
+  readonly analysisDiagnostics: ReadonlyArray<BrowserImplementationProfileAnalysisDiagnostic>;
+  readonly apiSurfaceInspectionFailures: ReadonlyArray<BrowserImplementationProfileApiSurfaceFailure>;
+}
+
+export interface BrowserTypeMethodLeverageRank {
+  readonly directCallerCount: number;
+  readonly rootReach: number;
+  readonly fanout: number;
+  readonly loopCallCount: number;
+  readonly maxDepth: number;
+}
+
+export interface BrowserTypeMethodLeverageWinner {
+  readonly typeDefinitionId: string;
+  readonly stableSelector: string;
+  readonly methodTokens: ReadonlyArray<number>;
+}
+
 type $ManagedExports = {
   readonly "DotnetInspect": {
     readonly "Web": {
@@ -772,6 +807,7 @@ type $ManagedExports = {
             readonly "QueryPackageOpportunities.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackagePerformance.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageTypeImplementationHeat.1330709314": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string) => Promise<string>;
+            readonly "QueryPackageTypeMethodLeverage.1330709314": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string) => Promise<string>;
             readonly "QueryPlatformImplementationProfiles.1825815599": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string, stableSelectors: string[]) => Promise<string>;
             readonly "QueryPlatformIntegrations.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformLibraryMetrics.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
@@ -779,6 +815,7 @@ type $ManagedExports = {
             readonly "QueryPlatformOpportunities.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformPerformance.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformTypeImplementationHeat.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string) => Promise<string>;
+            readonly "QueryPlatformTypeMethodLeverage.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string) => Promise<string>;
           };
         };
       };
@@ -943,6 +980,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Analysis");
     value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPackageTypeMethodLeverage.1330709314");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageTypeMethodLeverage.1330709314\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
     value = $ownDataProperty(value, "QueryPlatformImplementationProfiles.1825815599");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformImplementationProfiles.1825815599\u0027 is not callable.");
@@ -1018,6 +1067,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryPlatformTypeImplementationHeat.1330709314");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformTypeImplementationHeat.1330709314\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPlatformTypeMethodLeverage.1330709314");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformTypeMethodLeverage.1330709314\u0027 is not callable.");
     }
   }
 }
@@ -1125,6 +1186,12 @@ export async function queryPackageTypeImplementationHeat(packageId: string, vers
   return $parsed as BrowserTypeImplementationHeat;
 }
 
+export async function queryPackageTypeMethodLeverage(packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string): Promise<BrowserTypeMethodLeverage> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageTypeMethodLeverage.1330709314"](packageId, version, targetFramework, assemblyName, typeDefinitionId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeMethodLeverage;
+}
+
 export async function queryPlatformImplementationProfiles(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string, stableSelectors: string[]): Promise<BrowserImplementationProfiles> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformImplementationProfiles.1825815599"](targetFramework, platformVersion, assemblyFileName, pack, typeDefinitionId, stableSelectors);
   const $parsed: unknown = JSON.parse($result);
@@ -1163,5 +1230,11 @@ export async function queryPlatformTypeImplementationHeat(targetFramework: strin
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformTypeImplementationHeat.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, typeDefinitionId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeImplementationHeat;
+}
+
+export async function queryPlatformTypeMethodLeverage(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string): Promise<BrowserTypeMethodLeverage> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformTypeMethodLeverage.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, typeDefinitionId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeMethodLeverage;
 }
 

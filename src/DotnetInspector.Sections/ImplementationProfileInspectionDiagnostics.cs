@@ -13,7 +13,8 @@ internal static class ImplementationProfileInspectionDiagnostics
         Func<TContent, ImmutableArray<AnalysisDiagnostic>>
             analysisDiagnostics,
         Func<TContent, ImmutableArray<ApiSurfaceInspectionFailure>>
-            apiSurfaceFailures)
+            apiSurfaceFailures,
+        string codePrefix = "implementation-profiles")
     {
         var diagnostics =
             ImmutableArray.CreateBuilder<InspectionDiagnostic>();
@@ -22,7 +23,7 @@ internal static class ImplementationProfileInspectionDiagnostics
             case AssemblyContextEntry<TContent>.Rejected rejected:
                 diagnostics.Add(
                     new InspectionDiagnostic(
-                        "implementation-profiles.participant-rejected",
+                        $"{codePrefix}.participant-rejected",
                         InspectionDiagnosticSeverity.Warning,
                         rejected.Failure.Detail,
                         rejected.Subject.Identity.Name));
@@ -30,7 +31,7 @@ internal static class ImplementationProfileInspectionDiagnostics
             case AssemblyContextEntry<TContent>.Failed failed:
                 diagnostics.Add(
                     new InspectionDiagnostic(
-                        "implementation-profiles.participant-failed",
+                        $"{codePrefix}.participant-failed",
                         InspectionDiagnosticSeverity.Error,
                         failed.Error.Message,
                         failed.Subject.Identity.Name));
@@ -41,7 +42,7 @@ internal static class ImplementationProfileInspectionDiagnostics
                 {
                     diagnostics.Add(
                         new InspectionDiagnostic(
-                            "implementation-profiles.analysis-incomplete",
+                            $"{codePrefix}.analysis-incomplete",
                             InspectionDiagnosticSeverity.Warning,
                             diagnostic.Message,
                             $"0x{diagnostic.MethodToken:X8}"));
@@ -51,7 +52,7 @@ internal static class ImplementationProfileInspectionDiagnostics
                 {
                     diagnostics.Add(
                         new InspectionDiagnostic(
-                            "implementation-profiles.api-surface-incomplete",
+                            $"{codePrefix}.api-surface-incomplete",
                             InspectionDiagnosticSeverity.Warning,
                             $"{failure.Operation}: {failure.Detail}",
                             $"0x{failure.SubjectToken:X8}"));
