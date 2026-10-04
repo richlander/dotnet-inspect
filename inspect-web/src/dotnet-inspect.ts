@@ -25931,10 +25931,13 @@ window.addEventListener("popstate", () => {
     const subjectKind =
       activeRetainedWorkspacePosting.navigation.snapshot.activeSubject.kind
         .toLowerCase();
+    const restoredLocation =
+      subjectKind === "ecosystem" ? null : await parseLocation();
     state.credits = false;
     state.home = false;
     state.workspaceSubjectOpen =
-      subjectKind === "ecosystem" || state.package === null;
+      subjectKind === "ecosystem"
+      || restoredLocation?.workspaceSubjectOpen === true;
     render({ synchronizeUrl: false });
     return;
   }
