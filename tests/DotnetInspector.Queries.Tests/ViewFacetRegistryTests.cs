@@ -18,6 +18,59 @@ public sealed class ViewFacetRegistryTests
         Assert.Equal(ViewFacetRole.MemberOverview, descriptor.Role);
     }
 
+    [Theory]
+    [InlineData(StructuralSubjectKind.Workspace, "overview", "workspace.overview")]
+    [InlineData(StructuralSubjectKind.Ecosystem, "overview", "ecosystem.overview")]
+    [InlineData(StructuralSubjectKind.Package, "dependencies", "package.dependencies")]
+    [InlineData(StructuralSubjectKind.Library, "compare", "library.compare")]
+    [InlineData(StructuralSubjectKind.Type, "compare", "type.compare")]
+    [InlineData(StructuralSubjectKind.Member, "compare", "member.compare")]
+    public void ResolveRelativeName_ReturnsCanonicalSubjectFacetId(
+        StructuralSubjectKind kind,
+        string name,
+        string expected)
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+
+        ViewFacetId resolved = registry.ResolveRelativeName(kind, name);
+
+        Assert.Equal(expected, resolved.Value);
+    }
+
+    [Theory]
+    [InlineData(".compare")]
+    [InlineData("Compare")]
+    [InlineData("compare*")]
+    [InlineData(" compare")]
+    [InlineData("compare ")]
+    [InlineData("")]
+    public void ResolveRelativeName_RejectsNonCanonicalName(string name)
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+
+        Assert.Throws<ArgumentException>(
+            () => registry.ResolveRelativeName(
+                StructuralSubjectKind.Type,
+                name));
+    }
+
+    [Fact]
+    public void ResolveRelativeName_DoesNotSearchOtherKindsOrKnownSuffixes()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetId unknown =
+            registry.ResolveRelativeName(
+                StructuralSubjectKind.Package,
+                "compare");
+
+        Assert.Equal("package.compare", unknown.Value);
+        Assert.IsType<ViewFacetResolution.Unknown>(
+            registry.Resolve(
+                unknown.Value,
+                PackageTarget(),
+                ThrowingFacts.Instance));
+    }
+
     [Fact]
     public void Catalog_IsCompleteUniqueAndDeterministicallyOrdered()
     {
