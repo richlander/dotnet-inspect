@@ -92,8 +92,7 @@
         "assembly"
       ],
       "targets": [
-        "DotnetInspect.Web",
-        "DotnetInspect.Web.*"
+        "DotnetInspect.Web*"
       ],
       "projectPaths": [
         "src/DotnetInspect.Web*/*.csproj"

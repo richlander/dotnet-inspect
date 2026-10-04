@@ -844,7 +844,7 @@ public sealed class PolicyEvaluatorTests
                 DependencyGraphKind.Assembly,
             ],
             rule.Graphs);
-        Assert.Equal(["DotnetInspect.Web", "DotnetInspect.Web.*"], rule.Targets);
+        Assert.Equal(["DotnetInspect.Web*"], rule.Targets);
         Assert.NotNull(rule.Deny);
         Assert.Equal(
             [
