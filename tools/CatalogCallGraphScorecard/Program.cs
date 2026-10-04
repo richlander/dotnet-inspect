@@ -42,6 +42,30 @@ if (options.Command == Command.Check)
 using TextWriter output = options.TsvPath is null
     ? Console.Out
     : File.CreateText(options.TsvPath);
+if (options.Command == Command.Memory)
+{
+    output.WriteLine(
+        "asset\tsample\tmanaged_before_b\t"
+        + "managed_with_scope_b\tretained_b");
+    foreach (Asset asset in assets)
+    {
+        int sample = 0;
+        foreach (RetainedMeasurement measurement
+            in asset.MeasureRetained(options.Iterations))
+        {
+            sample++;
+            output.WriteLine(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{asset.Name}\t{sample}\t"
+                    + $"{measurement.ManagedBeforeBytes}\t"
+                    + $"{measurement.ManagedWithScopeBytes}\t"
+                    + $"{measurement.RetainedBytes}"));
+        }
+    }
+    return 0;
+}
+
 output.WriteLine(
     "asset\toperation\tmedian_us\tp95_us\t"
     + "allocated_median_b\tallocated_p95_b\t"
@@ -76,6 +100,7 @@ static class ScorecardConstants
 enum Command
 {
     Check,
+    Memory,
     Time,
 }
 
@@ -104,7 +129,7 @@ sealed record Options(
         if (args.Length == 0)
         {
             error =
-                "usage: check|time [--iterations N]"
+                "usage: check|memory|time [--iterations N]"
                 + " [--operation Build|Callers|Callees|Census]"
                 + " [--tsv path] <assembly>...";
             return false;
@@ -113,6 +138,7 @@ sealed record Options(
         Command command = args[0] switch
         {
             "check" => Command.Check,
+            "memory" => Command.Memory,
             "time" => Command.Time,
             _ => (Command)(-1),
         };
@@ -170,7 +196,7 @@ sealed record Options(
             }
         }
 
-        if (command == Command.Check && operation is not null)
+        if (command != Command.Time && operation is not null)
         {
             error = "--operation is valid only for the time command.";
             return false;
@@ -371,6 +397,44 @@ sealed class Asset
             _ = MeasureCensus(scope, 1);
             yield return MeasureCensus(scope, iterations);
         }
+    }
+
+    internal ImmutableArray<RetainedMeasurement> MeasureRetained(int samples)
+    {
+        using (CatalogCallGraphScope warm = CreateScope())
+            _ = warm.StorageEdgeCount;
+
+        var measurements =
+            ImmutableArray.CreateBuilder<RetainedMeasurement>(samples);
+        for (int sample = 0; sample < samples; sample++)
+        {
+            long before = CollectManagedBytes();
+            using CatalogCallGraphScope scope = CreateScope();
+            _ = scope.StorageEdgeCount;
+            long withScope = CollectManagedBytes();
+            GC.KeepAlive(scope);
+            measurements.Add(new(
+                before,
+                withScope,
+                withScope - before));
+        }
+        return measurements.MoveToImmutable();
+    }
+
+    static long CollectManagedBytes()
+    {
+        GC.Collect(
+            GC.MaxGeneration,
+            GCCollectionMode.Forced,
+            blocking: true,
+            compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(
+            GC.MaxGeneration,
+            GCCollectionMode.Forced,
+            blocking: true,
+            compacting: true);
+        return GC.GetTotalMemory(forceFullCollection: false);
     }
 
     Measurement MeasureBuild(int iterations) =>
@@ -731,6 +795,11 @@ sealed class Asset
     }
 
 }
+
+readonly record struct RetainedMeasurement(
+    long ManagedBeforeBytes,
+    long ManagedWithScopeBytes,
+    long RetainedBytes);
 
 sealed record Measurement(
     string Operation,

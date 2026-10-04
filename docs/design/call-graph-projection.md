@@ -523,7 +523,10 @@ regression in any measured operation before the next product graph adopts the
 same shape. Correctness checks and timed samples run in separate processes so
 fingerprint construction cannot contaminate elapsed-time or peak-RSS evidence.
 The timed host can isolate Build, Callers, Callees, or Census in its own process
-when a mixed-process high-water mark requires attribution.
+when a mixed-process high-water mark requires attribution. Its memory lane
+compares live managed bytes before and while retaining one fully constructed
+scope after forced full collections, so GC cadence is not mistaken for retained
+index size.
 
 `DotnetInspector.ResearchQueries.AnnotatedMemberDocumentQuery` is the first
 non-rendering consumer of this progressive seam. It accepts an already-acquired
