@@ -942,7 +942,7 @@ public sealed class BrowserMemberDeclarationTests
                 "PointerFreeUnsafeMethod",
                 source.Source.Text,
                 StringComparison.Ordinal);
-            Assert.Empty(source.Parts);
+            Assert.NotEmpty(source.Parts);
             string censusJson =
                 await SourceExports.QueryPlatformMemberFindingCensus(
                     framework,
@@ -1014,7 +1014,7 @@ public sealed class BrowserMemberDeclarationTests
                 "PointerFreeUnsafeMethod",
                 documentSource.Source.Text,
                 StringComparison.Ordinal);
-            Assert.Empty(documentSource.Parts);
+            Assert.NotEmpty(documentSource.Parts);
             Assert.Equal(requests, handler.Requests);
         }
         finally

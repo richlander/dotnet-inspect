@@ -2182,16 +2182,62 @@ test("member source part selection resets across request signatures and absent p
   assert.equal(selector.select("second", authored, "Attributes"), true);
 });
 
-test("decompiled member source has no authored selector", () => {
+test("decompiled member source offers every available source part", () => {
+  const text = "[DebuggerStepThrough]\npublic void M() { }";
   const memberSource: BrowserMemberSource = {
     source: {
       provider: "decompiled",
       provenance: inertStringFixture("decompiled"),
       url: null,
       pdbSourceLimitation: "No PDB",
-      text: "public void M() { }",
+      text,
     },
-    parts: [],
+    parts: [
+      {
+        kind: "Member",
+        spans: [{
+          start: 0,
+          length: text.length,
+          startLine: 1,
+          endLine: 2,
+          leadingIndentation: "",
+          end: text.length,
+        }],
+      },
+      {
+        kind: "Attributes",
+        spans: [{
+          start: 0,
+          length: 21,
+          startLine: 1,
+          endLine: 1,
+          leadingIndentation: "",
+          end: 21,
+        }],
+      },
+      {
+        kind: "Signature",
+        spans: [{
+          start: 22,
+          length: 15,
+          startLine: 2,
+          endLine: 2,
+          leadingIndentation: "",
+          end: 37,
+        }],
+      },
+      {
+        kind: "Body",
+        spans: [{
+          start: 38,
+          length: 3,
+          startLine: 2,
+          endLine: 2,
+          leadingIndentation: "",
+          end: 41,
+        }],
+      },
+    ],
     diagnostics: [],
   };
   const html = renderSourcePageActions({
@@ -2201,7 +2247,12 @@ test("decompiled member source has no authored selector", () => {
     escapeHtml,
   });
 
-  assert.doesNotMatch(html, /member-source-part/);
+  assert.match(html, /member-source-part/);
+  assert.match(html, />Member<\/option>/);
+  assert.match(html, />Attributes<\/option>/);
+  assert.match(html, />Signature<\/option>/);
+  assert.match(html, />Body<\/option>/);
+  assert.doesNotMatch(html, />XML docs<\/option>/);
   assert.match(html, /id="copy-source"/);
   assert.equal(
     memberSourceText(memberSource, "Member"),
