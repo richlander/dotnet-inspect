@@ -168,6 +168,12 @@ function preparedPosting(
 }
 
 class ActivationClient implements RetainedWorkspaceActivationClient {
+  readonly ecosystemRequests: Array<{
+    retainedDefinitionId: string;
+    label: string;
+    canonicalLocation: string;
+    ecosystemId: string;
+  }> = [];
   readonly packageQueryRequests: Array<{
     retainedDefinitionId: string;
     label: string;
@@ -302,6 +308,21 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
       canonicalLocation,
       packageId,
       version,
+    });
+    return this.prepareRetainedWorkspaceDefinition();
+  }
+
+  prepareEcosystemWorkspaceDefinition(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    ecosystemId: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult> {
+    this.ecosystemRequests.push({
+      retainedDefinitionId,
+      label,
+      canonicalLocation,
+      ecosystemId,
     });
     return this.prepareRetainedWorkspaceDefinition();
   }
@@ -531,6 +552,32 @@ test("package-query definitions use their owner-issued preparation path", async 
       packageId: "System.Text.Json",
       version: "10.0.0",
     },
+  });
+
+  test("Ecosystem definitions use their owner-issued preparation path", async () => {
+    const fixture = createFixture();
+    const definition = fixture.controller.retain({
+      label: "Aspire",
+      canonicalLocation: "/ecosystems/ecosystem.aspire",
+      ecosystem: {
+        id: "ecosystem.aspire",
+      },
+    });
+
+    const activation = fixture.controller.activate(definition.id);
+    fixture.client.activations[0]!.resolve({
+      status: "activated",
+      posting: posting(definition.id, "realization-ecosystem"),
+      failure: null,
+    });
+    await activation;
+
+    assert.deepEqual(fixture.client.ecosystemRequests, [{
+      retainedDefinitionId: definition.id,
+      label: "Aspire",
+      canonicalLocation: "/ecosystems/ecosystem.aspire",
+      ecosystemId: "ecosystem.aspire",
+    }]);
   });
 
   const activation = fixture.controller.activate(definition.id);

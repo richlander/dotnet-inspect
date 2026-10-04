@@ -223,7 +223,9 @@ import {
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
 import {
+  isProductEcosystemId,
   isProductEcosystemsPath,
+  productEcosystemCatalog,
   productEcosystemsViewHtml,
   setProductEcosystemCatalog,
 } from "./product-ecosystems.ts";
@@ -16866,8 +16868,121 @@ function renderProductEcosystemsPage(): void {
     }, escapeHtml)}`);
   bindHomeShell(document, homeShellActions);
   bindLibraryOpenEvents();
+  bindProductEcosystemEvents();
   bindSettingsPanelEvents();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
+}
+
+function bindProductEcosystemEvents(): void {
+  document.querySelectorAll<HTMLButtonElement>(
+    "[data-ecosystem-open]",
+  ).forEach(button => button.addEventListener("click", () => {
+    const ecosystemId = button.dataset.ecosystemOpen;
+    if (isProductEcosystemId(ecosystemId)) {
+      observeAsync(
+        openProductEcosystem(ecosystemId),
+        "Opening the Ecosystem",
+      );
+    }
+  }));
+}
+
+async function openProductEcosystem(ecosystemId: string): Promise<void> {
+  const ecosystem = productEcosystemCatalog().find(
+    candidate => candidate.id === ecosystemId);
+  if (ecosystem === undefined || !ecosystem.hasWorkspaceRegistration) {
+    throw new Error(
+      `Ecosystem '${ecosystemId}' is not available as a Workspace.`,
+    );
+  }
+  if (!canPublishRetainedWorkspace()) {
+    appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
+    render({ synchronizeUrl: false });
+    return;
+  }
+
+  const navigationSeq = navigationSequence.begin();
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  const controller = requireRetainedWorkspaceActivation();
+  if (controller.state.activeDefinitionId === null
+    && retainedWorkspaces.activeWorkspaceId !== null) {
+    workspaceLocation.replace(location.href, history.state);
+  }
+  const destination = new URL(
+    `/ecosystems/${encodeURIComponent(ecosystem.id)}`,
+    location.origin,
+  ).toString();
+  const locationIntent = retainedLocationIntents.admitNonBrowser(
+    "push",
+    installedRetainedLocation,
+    history,
+  );
+  const definition = controller.retain({
+    label: ecosystem.title,
+    canonicalLocation: destination,
+    ecosystem: { id: ecosystem.id },
+  });
+  issuedManagedRetainedDefinitionIds.add(definition.id);
+
+  let result: BrowserRetainedWorkspaceActivationResult;
+  try {
+    const activation = controller.activate(
+      definition.id,
+      () =>
+        navigationSequence.isCurrent(navigationSeq)
+        && retainedLocationIntents.currentIntentId === locationIntent.id,
+      posting => installRetainedWorkspacePosting(posting, locationIntent),
+      undefined,
+      undefined,
+      posting => retainedLocationPresentationCurrent(
+        locationIntent,
+        posting.canonicalLocation,
+      ),
+    );
+    render({ synchronizeUrl: false });
+    result = await activation;
+  } catch (error) {
+    failedManagedRetainedDefinitionId = definition.id;
+    realignRetainedLocationIntent(locationIntent, "failed");
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    appendQueryNotice(
+      errorMessage(error)
+        || `Couldn’t open ${ecosystem.title} as a Workspace.`,
+      null,
+    );
+    render({ synchronizeUrl: false });
+    return;
+  }
+
+  if (result.status === "failed") {
+    failedManagedRetainedDefinitionId = definition.id;
+    realignRetainedLocationIntent(locationIntent, "failed");
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    appendQueryNotice(
+      result.failure?.message
+        ?? `Couldn’t open ${ecosystem.title} as a Workspace.`,
+      null,
+    );
+    render({ synchronizeUrl: false });
+    return;
+  }
+  if (result.status === "activated" || result.status === "noEffect") {
+    failedManagedRetainedDefinitionId = null;
+    completeRetainedActivationPresentation(
+      result,
+      locationIntent,
+      navigationSeq,
+    );
+    clearWorkspaceFeedIdentity();
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  appendQueryNotice(
+    `Opening ${ecosystem.title} was superseded before the Workspace could be activated.`,
+    null,
+  );
+  render({ synchronizeUrl: false });
 }
 
 function renderProductDemosPage(): void {
@@ -25727,7 +25842,6 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (restoredActiveManagedWorkspace
-    && activeRetainedWorkspacePosting?.canonicalPacket !== null
     && activeRetainedWorkspacePosting?.canonicalLocation === location.href) {
     state.credits = false;
     state.home = false;

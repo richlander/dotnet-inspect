@@ -152,6 +152,7 @@ type CatalogOperationName =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
@@ -1941,6 +1942,29 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
     ),
+    prepareEcosystemWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-ecosystem-workspace-definition",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareEcosystemWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareEcosystemWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected Ecosystem Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
+    ),
     preparePackageQueryWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-package-query-workspace-definition",
       5,
@@ -2488,6 +2512,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      prepareEcosystemWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareEcosystemWorkspaceDefinition,
       ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

@@ -138,6 +138,7 @@ type CatalogOperations =
   | "listEcosystems"
   | "listHomeDemos"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"

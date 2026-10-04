@@ -1493,10 +1493,10 @@ test("browser history reuses available identities and publishes only unavailable
     /managedHistoryWorkspaceAvailable[\s\S]*selectBrowserEntry\(\{[\s\S]*retainedDefinitionId: historyWorkspaceId[\s\S]*activate\(\s*historyWorkspaceId,[\s\S]*installRetainedWorkspacePosting\([\s\S]*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
   assert.match(
     history,
-    /let restoredActiveManagedWorkspace = false;[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*restoredActiveManagedWorkspace = true;[\s\S]*if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(isPackageQueryPath\(location\.pathname\)\)[\s\S]*if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\)[\s\S]*if \(restoredActiveManagedWorkspace[\s\S]*canonicalPacket !== null[\s\S]*canonicalLocation === location\.href\)[\s\S]*const loc = await parseLocation\(\)/);
+    /let restoredActiveManagedWorkspace = false;[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*restoredActiveManagedWorkspace = true;[\s\S]*if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(isPackageQueryPath\(location\.pathname\)\)[\s\S]*if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\)[\s\S]*if \(restoredActiveManagedWorkspace[\s\S]*canonicalLocation === location\.href\)[\s\S]*const loc = await parseLocation\(\)/);
   assert.match(
     history,
-    /restoredActiveManagedWorkspace\s*&& activeRetainedWorkspacePosting\?\.canonicalPacket !== null\s*&& activeRetainedWorkspacePosting\?\.canonicalLocation === location\.href/);
+    /restoredActiveManagedWorkspace\s*&& activeRetainedWorkspacePosting\?\.canonicalLocation === location\.href/);
   assert.match(
     history,
     /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable/);
