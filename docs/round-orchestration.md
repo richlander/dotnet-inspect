@@ -487,7 +487,9 @@ response in the terminal, filling every field and choosing exactly one feedback
 classification. Do not emit it through a shell command such as `printf`, leave
 it only in tool output, collapse it behind a tool-call summary, or replace it
 with a shorter completion summary. Do not put it in an interactive approval
-prompt:
+prompt. Emit it once at that boundary; after merge, do not replay it or collect
+earlier reports into the forward-looking
+[theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff):
 
 ```text
 Round <n> is complete for PR <number>.
