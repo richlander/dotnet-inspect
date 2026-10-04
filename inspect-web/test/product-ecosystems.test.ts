@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  isProductEcosystemId,
   isProductEcosystemsPath,
   productEcosystemCatalog,
   productEcosystemsViewHtml,
@@ -31,6 +32,18 @@ const ecosystems = [{
   hasScanner: true,
   hasPopulationLoader: false,
   hasWorkspaceRegistration: true,
+}, {
+  id: "ecosystem.fixture-unavailable",
+  title: "Unavailable fixture",
+  summary: "Synthetic catalog-only Ecosystem.",
+  corePackageCount: 0,
+  namespaceRootCount: 0,
+  toolPackageCount: 0,
+  demoCount: 0,
+  hasPackageSet: false,
+  hasScanner: false,
+  hasPopulationLoader: false,
+  hasWorkspaceRegistration: false,
 }] as const;
 
 test("Ecosystems renders managed catalog order and capability metadata", () => {
@@ -41,7 +54,7 @@ test("Ecosystems renders managed catalog order and capability metadata", () => {
   assert.match(html, /<h1 id="ecosystems-heading" tabindex="-1">Ecosystems<\/h1>/);
   assert.match(
     html,
-    /data-ecosystem="ecosystem.fixture-platform"[\s\S]*data-ecosystem="ecosystem.fixture-package"/);
+    /data-ecosystem="ecosystem.fixture-platform"[\s\S]*data-ecosystem="ecosystem.fixture-package"[\s\S]*data-ecosystem="ecosystem.fixture-unavailable"/);
   assert.match(html, /Synthetic platform-backed Ecosystem/);
   assert.match(html, /3 core packages/);
   assert.match(html, /1 tool/);
@@ -50,7 +63,18 @@ test("Ecosystems renders managed catalog order and capability metadata", () => {
   assert.match(html, /Platform libraries/);
   assert.match(html, /Workspace-ready/);
   assert.doesNotMatch(html, /0 core packages|0 tools/);
-  assert.doesNotMatch(html, /button|href=|Open|Load more/);
+  assert.equal(
+    html.match(/data-ecosystem-open=/g)?.length,
+    ecosystems.filter(ecosystem => ecosystem.hasWorkspaceRegistration).length);
+  assert.match(
+    html,
+    /data-ecosystem-open="ecosystem.fixture-platform"[\s\S]*>Open<\/button>/);
+  assert.doesNotMatch(
+    html,
+    /data-ecosystem-open="ecosystem.fixture-unavailable"/);
+  assert.doesNotMatch(html, /href=|Load more/);
+  assert.equal(isProductEcosystemId("ecosystem.fixture-package"), true);
+  assert.equal(isProductEcosystemId("ecosystem.not-in-catalog"), false);
 });
 
 test("Ecosystems distinguishes an empty catalog from a visible failure", () => {
