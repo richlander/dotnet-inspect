@@ -111,6 +111,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     prefetchPlatformPacks: () => unexpected("prefetchPlatformPacks"),
     queryPackage: () => unexpected("queryPackage"),
     queryPackageRoot: () => unexpected("queryPackageRoot"),
+    queryPackageSummary: () => unexpected("queryPackageSummary"),
     loadRuntimePack: () => unexpected("loadRuntimePack"),
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
@@ -1521,6 +1522,27 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "NoCompileAssets",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: null,
+        libraries: [],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
     surface,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
@@ -1554,6 +1576,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       diagnostics: [],
     },
     packageInfo: null,
+    packageChildren: null,
     surface: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({
@@ -2282,6 +2305,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageDependencies",
       "queryPackagePruning",
       "queryPackageRoot",
+      "queryPackageSummary",
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
@@ -2393,7 +2417,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 110);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 111);
 
   const state = fixture();
   const groups = [

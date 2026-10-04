@@ -752,27 +752,47 @@ current group:
 3. a later authorized replacement demand acquires and realizes each owner's
    complete chosen unit, constructs a complete route map and binding policy,
    and prepares the replacement while the old generation remains active;
-4. the Workspace publishes the replacement through atomic cutover, which stops
-   new admission to the old generation while preserving its already-admitted
-   operations until drainage; and
+4. the Workspace publishes the replacement through the
+   `WorkspaceReplacementCoordinator`'s conditional atomic cutover, which
+   stops new admission to the old realization while preserving its
+   already-admitted operations until drainage; and
 5. the ladder continues the same logical request only after validating the
-   replacement receipt, fresh owner-issued binding occurrence, resolver
-   lineage, and new generation identity.
+   Workspace-issued replacement receipt, fresh owner-issued binding
+   occurrence, resolver lineage, and new realization generation identity.
 
 The continuation carries semantic request identity and consumed work. It does
 not reuse descriptors, binding occurrences, resolver lineages, policy
 snapshots, or query caches from the prior generation. The replacement
 Workspace issues fresh seed occurrences and continuations; the ladder validates
-their correspondence to the logical request rather than reconstructing lineage
-from a registration. A changed Workspace revision, focal-scope receipt,
-source-policy generation, route plan, external route set, or replacement
-correspondence ends the attempt as typed incomplete or rejected evidence. It
-does not silently restart under new user intent.
+their correspondence to the logical request rather than reconstructing
+lineage from a registration. The successor therefore has fresh Workspace,
+Scope, registration, physical-composition, request-origin, and binding-policy
+identities. The Workspace replacement receipt is the only currency that can
+correlate those fresh identities to the predecessor: it binds exact admitted
+predecessor and successor operation snapshots from one coordinator, requires
+the same Workspace plan and logically corresponding package Scope, and retains
+the exact selected external demand. A changed logical Workspace definition,
+focal scope, source policy, route selection, or replacement correspondence
+ends the attempt as typed incomplete or rejected evidence. It does not
+silently restart under new user intent.
 
 The Workspace owner decides the atomic replacement unit. The ladder cannot
 append one participant to a sealed group, shorten a package role to the one DLL
 that happened to match, or split a coherent platform realization. It consumes
-the owner-issued replacement context after publication.
+the owner-issued replacement context after publication. The shared
+continuation loop charges Workspace replacement before candidate work,
+constructs the complete successor while the predecessor remains active,
+conditionally cuts over against the exact predecessor definition, admits a
+successor operation, and requires the continued request to resolve from that
+successor's referencing context before it issues a completed external outcome.
+Cancellation, incompleteness, rejection, or failure observed after cutover
+retains the published successor and predecessor-retirement evidence; it is not
+reported as though publication never happened.
+
+Queries owns this generic Workspace continuation operation and its replacement
+currency. Research composition adapts the closed Package/Platform supplier
+result to the operation's exact selected-route demand; it does not reproduce
+candidate lifecycle, cutover, continuation, or work-ledger logic.
 
 This shared generation loop replaces host-specific acquire-and-rerun behavior.
 A call-graph consumer may restart its generation-bound graph session after a
