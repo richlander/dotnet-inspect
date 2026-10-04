@@ -561,8 +561,23 @@ Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
-dotted token, for up to three contextual suggestions on `stderr`. Bare `-E`
-and `-E .references` are reserved and currently fail before acquisition.
+dotted token, for up to three contextual suggestions on `stderr`. Member also
+admits two complete contextual-explanation forms:
+
+```bash
+dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
+```
+
+Command-level `member --explain` is acquisition-free. Subject-bearing
+`--explain` resolves exactly one Member and writes the explanation as the
+terminal stdout document instead of ordinary inspection output. Exact-subject
+bare `-E` preserves ordinary stdout byte-for-byte, flushes it, then writes the
+same explanation Content to `stderr`. `--explain -E` is a duplicate and is
+rejected; exact-subject `--explain -E .tips` is valid. Bare `-E` remains
+reserved on other commands, and `-E .references` remains reserved everywhere.
 Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
 `-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
 unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
@@ -597,6 +612,7 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
+| Explain the Member command or one exact Member | `member --explain`, exact `member ... --explain`, or exact `member ... -E` |
 | Show contextual tips | `-E .tips` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
@@ -1326,6 +1342,9 @@ dotnet-inspect type string --tree
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
+dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json

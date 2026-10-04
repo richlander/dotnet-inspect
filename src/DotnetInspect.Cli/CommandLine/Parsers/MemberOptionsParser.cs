@@ -299,7 +299,9 @@ public static class MemberOptionsParser
         Option<string?> AtOption,
         Option<string?> RouterDeferredTargetOption,
         Option<bool> SourcePartsOption,
-        Option<string?> SourcePartOption);
+        Option<string?> SourcePartOption,
+        Option<bool> ExplainOption,
+        Option<string?> CompanionOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -658,6 +660,7 @@ public static class MemberOptionsParser
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Focus = parseResult.GetValue(opts.Focus),
+            Explain = parseResult.GetValue(args.ExplainOption),
             Print = parseResult.GetValue(opts.Print),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
@@ -730,7 +733,9 @@ public static class MemberOptionsParser
 
         options = options with
         {
-            CompanionOutput = opts.ParseCompanionOutput(parseResult)
+            CompanionOutput = opts.ParseCompanionOutput(
+                parseResult,
+                args.CompanionOption)
         };
 
         ResolvedMemberInspectionPlan plan =

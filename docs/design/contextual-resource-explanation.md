@@ -8,14 +8,16 @@ the reusable `--references` projection proposed by
 [#8148](https://github.com/richlander/dotnet-inspect/issues/8148), and the
 compact related-gesture `-E .tips` projection.
 
-The first composition slice is implemented for Member: host-neutral
+The first two composition slices are implemented for Member: host-neutral
 related-operation affordance identities join to lazy CLI-owned bindings for
-`-E .tips`. Other commands retain their existing imperative tip construction
-until adopted one owner at a time. The
+`-E .tips`, and one lazy paired registration admits command-level
+`--explain`, exact-subject `--explain`, and exact-subject bare `-E`. Other
+commands retain their existing imperative tip construction and reserved bare
+`-E` behavior until adopted one owner at a time. The
 [companion-family grammar](view-facet-query-composition.md#companion-family)
-is independently owned: `-E .tips` is available, while bare `-E` and
-`-E .references` remain reserved with visible pre-acquisition failures until
-their semantic owners are ready. Product-resource explanation for the complete
+is independently owned: `-E .tips` is available broadly, Member admits bare
+`-E` for one exact subject, and `-E .references` remains reserved with a
+visible pre-acquisition failure. Product-resource explanation for the complete
 Library structural domain is already implemented by
 [Resource Explanation](resource-explanation.md). Reusable inspection-reference
 identity remains owned and staged by
@@ -569,11 +571,15 @@ replacement diagnostics. Lowercase `-e`, repeated `-E`, unknown dotted
 children, and attached or inline forms such as `-E.tips` and `-E=.tips` are
 invalid and fail before acquisition.
 
-This implementation slice admits only `-E .tips`. Bare `-E` and
-`-E .references` remain reserved and fail visibly until contextual explanation
-and reusable reference identity, respectively, are production-ready. The
-canonical companion grammar, stream framing, and publication order remain
-owned by
+Member admits bare `-E` only after its paired command-resource and
+exact-subject mappings are registered. It requires one exactly resolved Member,
+uses the same host-neutral Content as `--explain`, and writes that complete
+document after unchanged ordinary stdout. `--explain -E` is rejected as a
+duplicate full explanation, while exact-subject `--explain -E .tips` remains a
+valid primary explanation plus compact continuation. Other commands retain the
+reserved bare-`-E` failure. `-E .references` remains reserved until reusable
+reference identity is production-ready. The canonical companion grammar,
+stream framing, and publication order remain owned by
 [View Facet and Query Composition](view-facet-query-composition.md#companion-family).
 
 ### `-E .tips`
@@ -688,6 +694,14 @@ dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 \
   Serialize:1 --explain
 ```
 
+The same complete exact-subject explanation can follow unchanged ordinary
+output on `stderr`:
+
+```console
+dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 \
+  Serialize:1 -E
+```
+
 The same subject can request a compact continuation without changing stdout:
 
 ```console
@@ -760,6 +774,7 @@ The pathological neighboring cases are:
 | Applicable CLI gestures have deterministic ordering and a fixed maximum of three. | Permuted-registration test covering equal ordering preferences, stable binding-identity tie-breaking, more than three applicable bindings, and repeated equal projections. |
 | Invalid legacy, lowercase, undotted, attached, inline, unknown, and repeated spellings are rejected without stealing positional or required-option-value input. | CLI parser matrix covering `-T`, `--tips`, `--tips q`, `-e`, `-T:q`, `-E tips`, `-E references`, `-E.tips`, `-E=.tips`, `-E:.tips`, an unknown dotted child, repeated `-E`, commands where an unrelated undotted token following bare `-E` remains owned by ordinary positional grammar, and option-like filenames such as `--out --tips` that remain owned by their required option. |
 | Explicit `-E .tips` preserves stdout byte-for-byte, completes and flushes stdout before the first tip write, and writes only one bounded final gesture projection to stderr across every output format. | Production-host before/after test over the authentic Member scenario, structured and raw output representatives, and instrumented output writers recording stdout completion and flush before the first stderr tip write. |
+| Member bare `-E` preserves ordinary stdout byte-for-byte and writes the same exact-subject explanation Content as `--explain` only after ordinary success. | Authentic exact-Member before/after test plus command-level/exact-subject explanation contracts and duplicate/full-plus-tips option cases. |
 | Explicit binding, containment, materialization, or destination-write failure is visible and cannot become success-shaped empty output. | CLI failure matrix with the first, middle, and final candidate failing during lazy resolution, containment, or materialization before the destination write, asserting empty related-gesture stderr, plus the output sink's existing visible destination-write failure gate. |
 
 Until its named Release gate ships, each property is **unverified**.
@@ -779,7 +794,7 @@ replacement, retry, or scheduling semantics.
    fail-fast no-demand gate. **Implemented by #9191.**
 4. Register the Member command-level product resource, add its exact-subject
    contextual explanation handoff, and admit bare `-E` only when both mappings
-   exist. **Tracked as the second #9191 stack slice.**
+   exist. **Implemented by the second #9191 stack slice.**
 5. Have #7916 define the reusable reference and subject-affordance contracts,
    including shell-safe generic identity.
 6. Add Member Index `-E .references` as the first row projection and demonstrate
