@@ -366,7 +366,17 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             Assert.Single(
                 Required(population.Rows).Items,
                 row => row.Name == "Changed").Category);
-        Assert.Equal(1, Required(population.SelectorCounts).Traits.Interface);
+        Assert.Equal(
+            MetadataTypeMemberGroupCategory.Property,
+            Assert.Single(
+                Required(population.Rows).Items,
+                row => row.Name == "ExplicitValue").Category);
+        Assert.Equal(
+            MetadataTypeMemberGroupCategory.Event,
+            Assert.Single(
+                Required(population.Rows).Items,
+                row => row.Name == "ExplicitChanged").Category);
+        Assert.Equal(4, Required(population.SelectorCounts).Traits.Interface);
     }
 
     [Fact]
@@ -389,14 +399,33 @@ public sealed class MetadataTypeMemberGroupPopulationTests
 
         Assert.DoesNotContain(
             Required(visible.Rows).Items,
-            row => row.Name is "PublicOverride" or "Value" or "Changed");
+            row => row.Name is
+                "PublicOverride" or
+                "Value" or
+                "Changed" or
+                "Mixed");
         Assert.Equal(
             MetadataTypeMemberGroupCategory.ExplicitInterfaceImplementation,
             Assert.Single(
                 Required(visible.Rows).Items,
                 row => row.Name == "Explicit").Category);
+        Assert.Contains(
+            Required(visible.Rows).Items,
+            row => row.Name == "ExplicitValue");
+        Assert.Contains(
+            Required(visible.Rows).Items,
+            row => row.Name == "ExplicitChanged");
         Assert.All(
-            new[] { "PublicOverride", "Value", "Changed", "Explicit" },
+            new[]
+            {
+                "PublicOverride",
+                "Value",
+                "Changed",
+                "Mixed",
+                "Explicit",
+                "ExplicitValue",
+                "ExplicitChanged",
+            },
             name => Assert.Contains(
                 Required(all.Rows).Items,
                 row => row.Name == name));
@@ -734,6 +763,8 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             (byte[])[0x20, 0x00, 0x08]);
         BlobHandle instanceVoidObject = metadata.GetOrAddBlob(
             (byte[])[0x20, 0x01, 0x01, 0x1c]);
+        BlobHandle instanceVoidInt = metadata.GetOrAddBlob(
+            (byte[])[0x20, 0x01, 0x01, 0x08]);
 
         AddMethod(
             metadata,
@@ -777,6 +808,43 @@ public sealed class MetadataTypeMemberGroupPopulationTests
                 | MethodAttributes.SpecialName
                 | MethodAttributes.HideBySig,
             instanceVoidObject);
+        MethodDefinitionHandle mixedGetter = AddMethod(
+            metadata,
+            "get_Mixed",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            instanceInt);
+        MethodDefinitionHandle mixedSetter = AddMethod(
+            metadata,
+            "set_Mixed",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            instanceVoidInt);
+        MethodDefinitionHandle explicitGetter = AddMethod(
+            metadata,
+            "get_ExplicitValue",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            instanceInt);
+        MethodDefinitionHandle explicitAdder = AddMethod(
+            metadata,
+            "add_ExplicitChanged",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            instanceVoidObject);
 
         metadata.AddMethodImplementation(
             target,
@@ -806,6 +874,27 @@ public sealed class MetadataTypeMemberGroupPopulationTests
                 contract,
                 metadata.GetOrAddString("add_Changed"),
                 instanceVoidObject));
+        metadata.AddMethodImplementation(
+            target,
+            mixedSetter,
+            metadata.AddMemberReference(
+                contract,
+                metadata.GetOrAddString("set_Mixed"),
+                instanceVoidInt));
+        metadata.AddMethodImplementation(
+            target,
+            explicitGetter,
+            metadata.AddMemberReference(
+                contract,
+                metadata.GetOrAddString("get_ExplicitValue"),
+                instanceInt));
+        metadata.AddMethodImplementation(
+            target,
+            explicitAdder,
+            metadata.AddMemberReference(
+                contract,
+                metadata.GetOrAddString("add_ExplicitChanged"),
+                instanceVoidObject));
 
         PropertyDefinitionHandle property = metadata.AddProperty(
             PropertyAttributes.None,
@@ -816,6 +905,26 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             property,
             MethodSemanticsAttributes.Getter,
             getter);
+        PropertyDefinitionHandle mixedProperty = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Mixed"),
+            metadata.GetOrAddBlob((byte[])[0x28, 0x00, 0x08]));
+        metadata.AddMethodSemantics(
+            mixedProperty,
+            MethodSemanticsAttributes.Getter,
+            mixedGetter);
+        metadata.AddMethodSemantics(
+            mixedProperty,
+            MethodSemanticsAttributes.Setter,
+            mixedSetter);
+        PropertyDefinitionHandle explicitProperty = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("ExplicitValue"),
+            metadata.GetOrAddBlob((byte[])[0x28, 0x00, 0x08]));
+        metadata.AddMethodSemantics(
+            explicitProperty,
+            MethodSemanticsAttributes.Getter,
+            explicitGetter);
         EventDefinitionHandle @event = metadata.AddEvent(
             EventAttributes.None,
             metadata.GetOrAddString("Changed"),
@@ -825,6 +934,14 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             @event,
             MethodSemanticsAttributes.Adder,
             adder);
+        EventDefinitionHandle explicitEvent = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("ExplicitChanged"),
+            objectType);
+        metadata.AddMethodSemantics(
+            explicitEvent,
+            MethodSemanticsAttributes.Adder,
+            explicitAdder);
         AddEditorBrowsableNever(
             metadata,
             publicOverride,
@@ -839,7 +956,19 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             editorBrowsableConstructor);
         AddEditorBrowsableNever(
             metadata,
+            mixedProperty,
+            editorBrowsableConstructor);
+        AddEditorBrowsableNever(
+            metadata,
+            explicitProperty,
+            editorBrowsableConstructor);
+        AddEditorBrowsableNever(
+            metadata,
             @event,
+            editorBrowsableConstructor);
+        AddEditorBrowsableNever(
+            metadata,
+            explicitEvent,
             editorBrowsableConstructor);
 
         var image = new BlobBuilder();

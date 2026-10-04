@@ -321,8 +321,9 @@ public static partial class ApiSurfaceExtractor
     /// <summary>
     /// A hidden (<c>EditorBrowsable(Never)</c>) property or event is omitted
     /// from the public-facing population. An explicit implementation, one whose
-    /// private accessor is a MethodImpl body, is exempt, as its accessor methods
-    /// are. Public MethodImpl accessors remain ordinary declarations.
+    /// present accessors are all private MethodImpl bodies, is exempt, as its
+    /// accessor methods are. A mixed ordinary/explicit owner remains subject to
+    /// hidden admission.
     /// </summary>
     static bool IsHiddenAccessorOwner(
         MetadataReader reader,
@@ -331,15 +332,29 @@ public static partial class ApiSurfaceExtractor
         MethodDefinitionHandle firstAccessor,
         MethodDefinitionHandle secondAccessor,
         Action<int>? beforeMaterialize = null)
-        => !(IsExplicitInterfaceImplementationBody(
+        => !IsExplicitInterfaceAccessorOwner(
+                reader,
+                explicitImplementationBodies,
+                firstAccessor,
+                secondAccessor)
+            && IsHiddenMember(reader, attributes, beforeMaterialize);
+
+    static bool IsExplicitInterfaceAccessorOwner(
+        MetadataReader reader,
+        HashSet<MethodDefinitionHandle> explicitImplementationBodies,
+        MethodDefinitionHandle firstAccessor,
+        MethodDefinitionHandle secondAccessor)
+        => !(firstAccessor.IsNil && secondAccessor.IsNil)
+            && (firstAccessor.IsNil
+                || IsExplicitInterfaceImplementationBody(
                     reader,
                     firstAccessor,
-                    explicitImplementationBodies)
+                    explicitImplementationBodies))
+            && (secondAccessor.IsNil
                 || IsExplicitInterfaceImplementationBody(
                     reader,
                     secondAccessor,
-                    explicitImplementationBodies))
-            && IsHiddenMember(reader, attributes, beforeMaterialize);
+                    explicitImplementationBodies));
 
     /// <summary>
     /// A hidden (<c>EditorBrowsable(Never)</c>) property, field, or event is
