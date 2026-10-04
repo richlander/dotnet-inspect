@@ -52,10 +52,10 @@ Decompiler adoption sequence.
 
 `ILInspector.ILDiff` is a separate consumer above Instructions. It owns
 operation canonicalization, body and member alignment, Finding projection,
-typed diff failures, and producer-owned display. Its public types retain the
-`ILInspector.Instructions` namespace for source compatibility, but the assembly
-and project-reference boundary is authoritative: Instructions does not depend
-on ILDiff, Findings, or Text.
+typed diff failures, and producer-owned display. Its public types use the
+`ILInspector.ILDiff` namespace, so the assembly, namespace, and family
+classification agree; the assembly and project-reference boundary is
+authoritative: Instructions does not depend on ILDiff, Findings, or Text.
 `LayeringTests.InstructionDiff_DoesNotExpandInstructionSubstrate` gates that
 dependency direction and the assembly owner.
 

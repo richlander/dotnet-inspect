@@ -12,6 +12,8 @@ using ILInspector.MetadataPrimitives;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>

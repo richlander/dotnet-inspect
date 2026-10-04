@@ -4,6 +4,8 @@ using DotnetInspector.Queries;
 using ILInspector.Instructions;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspector.RoundTripCompilation;
 
 public enum RoundTripScopeComparisonStatus

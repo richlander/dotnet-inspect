@@ -212,11 +212,19 @@ export interface FamilyHeat {
   readonly methods: ReadonlyMap<number, AnalyzedMethodHeat>;
 }
 
-/** Overloads at or above this share of the family maximum are tinted. */
+/** Overloads above this share of the family maximum may be tinted. */
 const heatThreshold = 0.5;
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function median(values: ReadonlyArray<number>): number {
+  const ordered = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 === 0
+    ? (ordered[middle - 1]! + ordered[middle]!) / 2
+    : ordered[middle]!;
 }
 
 /**
@@ -244,6 +252,9 @@ export function projectFamilyHeat(
       || measured.every(method => method.isTrivial)
       ? "suppressed"
       : "shown";
+  const familyMedian = status === "shown"
+    ? median(measured.map(method => method.size!))
+    : null;
 
   const methods = new Map(family.methods.map(method => {
     const token = method.metadataToken;
@@ -266,7 +277,9 @@ export function projectFamilyHeat(
     const heatStrength = status === "shown"
       && size !== null
       && maximum !== null
-      && size >= maximum * heatThreshold
+      && familyMedian !== null
+      && size > maximum * heatThreshold
+      && size > familyMedian
       ? Math.sqrt(size / maximum)
       : null;
     return [token, {

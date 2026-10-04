@@ -8,6 +8,8 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using Inspector.Text;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 [Flags]
