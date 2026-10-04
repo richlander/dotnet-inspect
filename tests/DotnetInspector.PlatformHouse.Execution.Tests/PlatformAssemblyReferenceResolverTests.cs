@@ -305,6 +305,7 @@ public sealed class PlatformAssemblyReferenceResolverTests
             await CompletePlatformRouteAsync(
                 input.Request,
                 platform,
+                request,
                 packageRoutes: package.Route);
 
         var missing = Assert.IsType<
