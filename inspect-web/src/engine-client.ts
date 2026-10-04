@@ -44,6 +44,7 @@ type PackageOperations =
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
   | "queryPackageRoot"
+  | "queryPackageSummary"
   | "queryPackageDependencies"
   | "queryPackagePruning"
   | "queryPackageVersions"

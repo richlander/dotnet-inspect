@@ -84,12 +84,14 @@ internal static class BrowserPackageWireProjection
                     result.Asset.TargetFramework,
                     result.Asset.Kind switch
                     {
-                        PackageCompileAssetKind.Reference =>
+                        ExactLibraryApiAssetKind.Reference =>
                             BrowserExactLibraryApiAssetKind.Reference,
-                        PackageCompileAssetKind.Library =>
+                        ExactLibraryApiAssetKind.Library =>
                             BrowserExactLibraryApiAssetKind.Library,
+                        ExactLibraryApiAssetKind.Tool =>
+                            BrowserExactLibraryApiAssetKind.Tool,
                         _ => throw new InvalidOperationException(
-                            "Unknown package compile-asset kind."),
+                            "Unknown exact Library asset kind."),
                     }),
             result.Assembly is null
                 ? null
@@ -287,6 +289,40 @@ internal static class BrowserPackageWireProjection
                 content.Detail?.ToString(),
                 content.UnavailableReason?.ToString(),
                 content.HasSelectedSlice),
+            Project(inspection.Share),
+            [.. inspection.Diagnostics.Select(Project)]);
+    }
+
+    internal static BrowserPackageChildrenInspection Project(
+        InspectionEnvelope<PackageChildrenDocument> inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+        PackageChildrenDocument content = inspection.Content;
+        return new(
+            new(
+                content.Kind.ToString(),
+                content.Status.ToString(),
+                content.Subject.PackageId.ToString(),
+                content.Subject.PackageVersion.ToString(),
+                content.Subject.TargetFramework?.ToString(),
+                [
+                    .. content.Libraries.Select(
+                        static library =>
+                            new BrowserPackageLibraryChild(
+                                library.AssetId.ToString(),
+                                library.AssetPath.ToString(),
+                                library.AssemblyName.ToString(),
+                                library.Role.ToString())),
+                ],
+                [
+                    .. content.RuntimeIdentifierPackages.Select(
+                        static package =>
+                            new BrowserPackageRuntimeIdentifierChild(
+                                package.RuntimeIdentifier.ToString(),
+                                package.PackageId.ToString())),
+                ],
+                content.Detail?.ToString(),
+                content.IsComplete),
             Project(inspection.Share),
             [.. inspection.Diagnostics.Select(Project)]);
     }

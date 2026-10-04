@@ -136,12 +136,14 @@ import {
   type WorkspaceFeedRollbackTransfer,
 } from "./workspace-feed-activation.ts";
 import {
+  aggregateKnownPackageLibraryCount,
   createAppMemberSurface,
   createAppTypeSurface,
   createPackageAcquisition,
   createNuGetPackageModel,
   createRuntimePackageModel,
   mergeRuntimePackageSurface,
+  packageLibrariesForModel,
   createUploadedLibraryModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
@@ -839,8 +841,9 @@ let inspectMemberDocumentation:
   EngineClient["package"]["queryMemberDocumentation"];
 let inspectPlatformMemberDocumentation:
   EngineClient["package"]["queryPlatformMemberDocumentation"];
-let inspectPackage: EngineClient["package"]["queryPackage"];
+let inspectPackageSurface: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
+let inspectPackageSummary: EngineClient["package"]["queryPackageSummary"];
 let inspectOpenUploadedLibrary:
   EngineClient["library"]["openUploadedLibrary"];
 let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
@@ -1051,8 +1054,9 @@ async function loadEngineModule() {
       queryMemberDocumentation: inspectMemberDocumentation,
       queryPlatformMemberDocumentation:
         inspectPlatformMemberDocumentation,
-      queryPackage: inspectPackage,
+      queryPackage: inspectPackageSurface,
       queryPackageRoot: inspectPackageRoot,
+      queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
       queryPackagePruning: inspectPackagePruning,
       queryPackageVersions: inspectPackageVersions,
@@ -4030,7 +4034,7 @@ function applyView(view: WorkspaceView) {
   if (view.platform) state.platformSelection = { ...view.platform };
   state.libraryScope = restoreLibraryScope(
     view.libraryScope,
-    pkg.assemblies.map(assembly => assembly.id));
+    packageLibrariesForModel(pkg).map(library => library.id));
   const type = pkg.types.find(item => item.id === view.selectedTypeId);
   state.lens = view.lens;
   const forwarder = currentPlatformForwarderView()?.forwarders.find(
@@ -4895,6 +4899,7 @@ const spotlight = createSpotlight({
   commandContext: () => !state.home && state.package
     ? { command: state.spotlightQuery, package: state.package }
     : null,
+  prepareResults: prepareSpotlightResults,
   schedulePackageFetch: () => spotlightPackageSearch.schedule(),
   resetPackageSearch: () => spotlightPackageSearch.reset(),
   resetTypeSearch: () => spotlightTypeFind.reset(),
@@ -5643,21 +5648,15 @@ function libraryKey(item: InspectedTypeSurface | null | undefined) {
 }
 
 // Libraries admitted by the selected package coordinate, sorted alphabetically
-// by name. Assembly descriptors keep libraries with no public types visible
-// instead of deriving the package inventory from type rows.
+// by name. Package children own the inventory even when broad surface projection
+// cannot provide a descriptor for one of them.
 function packageLibraryInventory() {
   if (!state.package) return [];
-  const libraries = state.package.assemblies.map(assembly => ({
-    id: assembly.id,
-    name: assembly.name.replace(/\.dll$/i, ""),
-    asset: assembly.asset,
-    version: assembly.version,
-    culture: assembly.culture,
-    publicKeyToken: assembly.publicKeyToken,
-    types: assembly.publicTypes,
-    members: assembly.publicMembers,
-    platformPack: assembly.platformPack,
-  }));
+  const libraries = packageLibrariesForModel(state.package)
+    .map(library => ({
+      ...library,
+      name: library.name.replace(/\.dll$/i, ""),
+    }));
   return alphabetizeLibrarySubjects(libraries);
 }
 
@@ -5774,7 +5773,8 @@ function selectedTypeMetadataLibraryIdentity() {
 
 function selectDefaultPackageSubject(pkg: AppPackage) {
   state.workspaceSubjectOpen = false;
-  state.atLibraryRoot = Boolean(pkg.assemblyId);
+  state.atLibraryRoot =
+    pkg.assemblies.length > 0 && Boolean(pkg.assemblyId);
   state.atPackageRoot = !state.atLibraryRoot;
   state.libraryScope = null;
   state.packageLens = "overview";
@@ -5785,8 +5785,7 @@ function selectLibrarySubject(
   key: string,
   options: { preserveView?: boolean; preserveLens?: boolean } = {},
 ) {
-  const descriptor = resolvePackageLibrary(state.package?.assemblies ?? [], key);
-  const library = packageLibraries().find(candidate => candidate.id === descriptor?.id);
+  const library = resolvePackageLibrary(packageLibraries(), key);
   if (!library) {
     appendQueryNotice(`The library '${key}' is not uniquely available in this package.`);
     render();
@@ -9192,6 +9191,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   if (state.rootKind !== "library") {
     maybeAutoLoadVisibleSource();
     maybeAutoLoadTypeMetadata();
+    maybeAutoLoadPackageSurfaceForLibraryNavigation();
     maybeAutoLoadLibraryApi();
     maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
@@ -9792,7 +9792,11 @@ function renderScopeBar(
   availableScopes ??= [
     ...rootScopes,
     ...(libraryScopeAvailable ? ["library" as const] : []),
-    ...(selected || selectedForwarder() ? ["type" as const] : []),
+    ...(selected
+      || selectedForwarder()
+      || packageSurfaceCanLoadTypes(state.package)
+        ? ["type" as const]
+        : []),
     ...(selected && memberGroups(selected).length ? ["member" as const] : []),
   ];
   const showMemberScope =
@@ -9883,12 +9887,19 @@ function renderPackageView() {
 }
 
 function libraryIdentity(library: NonNullable<ReturnType<typeof selectedLibrary>>) {
+  if (!library.surfaceAvailable) return "Assembly identity unavailable";
   return `${library.name}, Version=${library.version}, Culture=${library.culture || "neutral"}, PublicKeyToken=${library.publicKeyToken || "null"}`;
 }
 
 function libraryHeading() {
   const library = selectedLibrary();
   if (!library) return "";
+  const types = library.types === null
+    ? "Count unavailable"
+    : library.types.toLocaleString();
+  const members = library.members === null
+    ? "Count unavailable"
+    : library.members.toLocaleString();
   return `<header class="type-heading">
     <div class="type-badge">◫</div>
     <div>
@@ -9896,7 +9907,7 @@ function libraryHeading() {
       <h1>${escapeHtml(library.name)}</h1>
       <code class="type-signature">${escapeHtml(libraryIdentity(library))}</code>
     </div>
-    <div class="type-metrics"><span><strong>${library.types}</strong> types</span><span><strong>${library.members.toLocaleString()}</strong> members</span></div>
+    <div class="type-metrics"><span><strong>${types}</strong> types</span><span><strong>${members}</strong> members</span></div>
   </header>`;
 }
 
@@ -11338,6 +11349,149 @@ function maybeAutoLoadLibraryApi() {
     `Loading ${library.name} public API`);
 }
 
+const packageSurfaceLoads = new WeakMap<AppPackage, Promise<boolean>>();
+const packageSurfaceSettlements = new WeakSet<AppPackage>();
+
+function packageSurfaceCanLoadTypes(
+  pkg: AppPackage | null | undefined,
+): pkg is AppPackage {
+  return Boolean(
+    pkg
+    && pkg.source.kind === "nuget.org"
+    && pkg.assemblies.length === 0
+    && packageLibrariesForModel(pkg).length > 0);
+}
+
+function loadPackageSurface(pkg: AppPackage): Promise<boolean> {
+  const pending = packageSurfaceLoads.get(pkg);
+  if (pending) return pending;
+  if (packageSurfaceSettlements.has(pkg)) {
+    return Promise.resolve(pkg.assemblies.length > 0);
+  }
+  const operation = (async () => {
+    try {
+      const load = await inspectPackageSurface(
+        pkg.id,
+        pkg.version,
+        pkg.activeFramework,
+      );
+      if (!load.surface) {
+        throw new Error(
+          `The broad Package surface for ${pkg.id} is unavailable.`);
+      }
+      const expanded = pkg.packageChildren
+        ? createNuGetPackageModel(load.surface, pkg.packageChildren)
+        : createNuGetPackageModel(load.surface);
+      Object.assign(pkg, {
+        ...expanded,
+        versionSettlement: pkg.versionSettlement,
+        packageInfo: pkg.packageInfo,
+        packageChildren: pkg.packageChildren ?? expanded.packageChildren,
+      });
+      if (state.package === pkg && state.accessibilityFilter.size === 0) {
+        setTypeAccessibilityFilter(
+          defaultAccessibilityFilter(pkg),
+          "exact");
+      }
+      packageSurfaceSettlements.add(pkg);
+      return true;
+    } catch (error) {
+      appendQueryNotice(
+        `Type navigation for ${pkg.id} Libraries is unavailable: ${
+          errorMessage(error)
+        }`,
+        null,
+      );
+      packageSurfaceSettlements.add(pkg);
+      render({ synchronizeUrl: false });
+      return false;
+    } finally {
+      packageSurfaceLoads.delete(pkg);
+      if (state.package === pkg && state.atLibraryRoot) {
+        renderPreservingContentFrameFocus();
+      }
+    }
+  })();
+  packageSurfaceLoads.set(pkg, operation);
+  return operation;
+}
+
+function prepareSpotlightResults() {
+  const query = state.spotlightQuery.trim();
+  const requestsTypes = state.spotlightScope === "commands"
+    ? /^type(?:\s|$)/i.test(query)
+    : Boolean(query)
+      && (state.spotlightScope === "all"
+        || state.spotlightScope === "types"
+        || state.spotlightScope === "members");
+  if (!state.spotlightOpen || !requestsTypes) return;
+  const candidates = (state.spotlightScope === "commands"
+      ? state.package ? [state.package] : []
+      : state.packages)
+    .filter(packageSurfaceCanLoadTypes)
+    .filter(pkg =>
+      !packageSurfaceLoads.has(pkg)
+      && !packageSurfaceSettlements.has(pkg));
+  if (candidates.length === 0) return;
+  observeAsync(
+    Promise.all(candidates.map(loadPackageSurface)).then(loaded => {
+      if (loaded.some(Boolean) && state.spotlightOpen) {
+        spotlight.updateResults();
+      }
+      return undefined;
+    }),
+    "Loading Type and Member search choices");
+}
+
+async function enterTypeSubjectFromPackageSummary(
+  pkg: AppPackage,
+  navigationSeq: number,
+) {
+  if (!await loadPackageSurface(pkg)
+    || state.package !== pkg
+    || !navigationSequence.isCurrent(navigationSeq)) {
+    return;
+  }
+  state.selectedTypeId = defaultVisibleTypeId(pkg);
+  const type = selectedType();
+  if (!type || !enterTypeSubject(type)) {
+    render();
+    return;
+  }
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  render();
+  loadCurrentSelectionData("Loading the selected Type");
+}
+
+async function loadDeepPackageSurface(
+  pkg: AppPackage,
+  deep: ParsedLocation | undefined,
+  librarySelection: LoadPackageOptions["librarySelection"],
+) {
+  const requestsType = Boolean(deep?.type || deep?.member);
+  const requestsLibrary =
+    Boolean(deep?.atLibraryRoot || deep?.library)
+    || (librarySelection?.activate === true
+      && Boolean(librarySelection.id || librarySelection.name));
+  if ((requestsType || requestsLibrary) && packageSurfaceCanLoadTypes(pkg)) {
+    await loadPackageSurface(pkg);
+  }
+}
+
+function maybeAutoLoadPackageSurfaceForLibraryNavigation() {
+  const pkg = state.package;
+  if (!pkg
+    || !state.atLibraryRoot
+    || !packageSurfaceCanLoadTypes(pkg)) {
+    return;
+  }
+  observeAsync(
+    loadPackageSurface(pkg),
+    `Loading ${pkg.id} Type navigation for its selected Library`);
+}
+
 function libraryEnablementsRequest(
   pkg: AppPackage,
   library: ReturnType<typeof packageLibraries>[number],
@@ -11443,6 +11597,7 @@ function renderPackageOverview() {
           <div class="section-title"><h2>Package info</h2></div>
           <p class="empty-list">Package metadata is unavailable for this coordinate.</p>
         </section>`,
+    packageChildrenHtml: renderPackageChildren(pkg),
     comparisonHtml,
     documentsHtml: documentsSection,
   });
@@ -11461,6 +11616,65 @@ function renderPackageOverview() {
     contentHtml,
     escapeHtml,
   });
+}
+
+function renderPackageChildren(pkg: AppPackage) {
+  const children = pkg.packageChildren?.content;
+  if (!children) {
+    return `<section class="document-section package-children">
+      <div class="section-title"><h2>Children</h2></div>
+      <p class="empty-list">Package children are unavailable for this coordinate.</p>
+    </section>`;
+  }
+
+  if (children.runtimeIdentifierPackages.length) {
+    return `<section class="document-section package-children">
+      <div class="section-title"><h2>RID Packages</h2><span>${children.runtimeIdentifierPackages.length}</span></div>
+      <ol class="package-child-tree" role="tree" aria-label="RID Packages">
+        ${children.runtimeIdentifierPackages.map(child =>
+          `<li role="none"><button type="button" class="package-child-row" role="treeitem" data-package-child-package="${escapeHtml(child.packageId)}" data-package-child-version="${escapeHtml(children.packageVersion)}">
+            <span class="kind-icon">P</span>
+            <span class="package-child-name">${escapeHtml(child.packageId)}</span>
+            <small>${escapeHtml(child.runtimeIdentifier)}</small>
+          </button></li>`).join("")}
+      </ol>
+    </section>`;
+  }
+
+  if (children.libraries.length) {
+    const libraryNameCounts = new Map<string, number>();
+    for (const library of children.libraries) {
+      const key = library.assemblyName.toLowerCase();
+      libraryNameCounts.set(key, (libraryNameCounts.get(key) ?? 0) + 1);
+    }
+    return `<section class="document-section package-children">
+      <div class="section-title"><h2>Libraries</h2><span>${children.libraries.length}</span></div>
+      <ol class="package-child-tree" role="tree" aria-label="Libraries">
+        ${children.libraries.map(library => {
+          const entryPoint = library.role === "ToolEntryPoint"
+            ? "<small>entry point</small>"
+            : "";
+          const displayName =
+            (libraryNameCounts.get(library.assemblyName.toLowerCase()) ?? 0) > 1
+              ? library.assetPath
+              : library.assemblyName;
+          return `<li role="none"><button type="button" class="package-child-row" role="treeitem" data-package-child-library="${escapeHtml(library.assetId)}">
+            <span class="kind-icon">L</span>
+            <span class="package-child-name">${escapeHtml(displayName)}</span>
+            ${entryPoint}
+          </button></li>`;
+        }).join("")}
+      </ol>
+    </section>`;
+  }
+
+  const heading = children.kind === "NoManagedLibraries"
+    ? "Libraries"
+    : "Children";
+  return `<section class="document-section package-children">
+    <div class="section-title"><h2>${heading}</h2></div>
+    <p class="empty-list">${escapeHtml(children.detail ?? "No Package children are available for this coordinate.")}</p>
+  </section>`;
 }
 
 function renderLibraryCompositionOverview(
@@ -11492,6 +11706,11 @@ function renderLibraryCompositionOverview(
         row => platformLibraryMatchesDescriptor(row, descriptor))
     : null;
   const role = catalogRow?.kind === "facade" ? "Facade assembly" : null;
+  const unavailableSurfaceDetail = packageSurfaceCanLoadTypes(pkg)
+    ? packageSurfaceSettlements.has(pkg)
+      ? "Library surface details are unavailable."
+      : "Library surface details are loading."
+    : null;
   const kindChips = pkg.typeKinds
     .filter(kind => kinds.has(kind.id))
     .map(kind => {
@@ -11515,12 +11734,12 @@ function renderLibraryCompositionOverview(
     typeKindsHtml: `
       <section class="document-section">
         <div class="section-title"><h2>Type kinds</h2></div>
-        <div class="type-chip-list">${kindChips || '<span class="empty-list">No public types.</span>'}</div>
+        <div class="type-chip-list">${kindChips || `<span class="empty-list">${unavailableSurfaceDetail ?? "No public types."}</span>`}</div>
       </section>`,
     namespacesHtml: `
       <section class="document-section">
         <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
-        <div class="type-chip-list">${namespaceChips || '<span class="empty-list">No public namespaces.</span>'}${nsOverflow}</div>
+        <div class="type-chip-list">${namespaceChips || `<span class="empty-list">${unavailableSurfaceDetail ?? "No public namespaces."}</span>`}${nsOverflow}</div>
       </section>`,
   });
 
@@ -11537,11 +11756,19 @@ function renderLibraryCompositionOverview(
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
     totalTypes: library
-      ? library.types + forwarders.length
-      : libraries.reduce((sum, candidate) => sum + candidate.types, 0),
+      ? library.types === null
+        ? null
+        : library.types + forwarders.length
+      : aggregateKnownPackageLibraryCount(
+        libraries,
+        pkg.packageChildren?.content.isComplete ?? true,
+        candidate => candidate.types),
     totalMembers: library
       ? library.members
-      : libraries.reduce((sum, candidate) => sum + candidate.members, 0),
+      : aggregateKnownPackageLibraryCount(
+        libraries,
+        pkg.packageChildren?.content.isComplete ?? true,
+        candidate => candidate.members),
     contentHtml: `${platformForwarderInventoryStatus()}${contentHtml}`,
     escapeHtml,
   });
@@ -12285,6 +12512,19 @@ function annotatedSourceHighlighter(
 }
 
 const packageViewActions: PackageViewBindingActions = {
+  onPackageChildLibrarySelect: assetId => {
+    if (!assetId) return;
+    navigationSequence.begin();
+    if (!selectLibrarySubject(assetId)) return;
+    showContentDetailAfterRender();
+    render();
+  },
+  onRuntimeIdentifierPackageLoad: (packageId, packageVersion) => {
+    if (!packageId || !packageVersion) return;
+    observeAsync(
+      openRuntimeIdentifierPackage(packageId, packageVersion),
+      "Opening a RID Package");
+  },
   onDependencyGroupSelect: index => {
     if (state.dependenciesGroupIndex === index) return;
     state.dependenciesGroupIndex = index;
@@ -12896,9 +13136,9 @@ function bindScopeBarEvents() {
         showPlatformRoot();
         return;
       }
+      const navigationSeq = navigationSequence.begin();
       contentFramePane = "detail";
       if (target === "workspace") {
-        navigationSequence.begin();
         state.workspaceSubjectOpen = true;
         state.atPackageRoot = true;
         state.atLibraryRoot = false;
@@ -12912,6 +13152,12 @@ function bindScopeBarEvents() {
       } else if (target === "library") {
         if (!enterRetainedLibrarySubject({ preserveView: true })) return;
       } else if (target === "type") {
+        if (!selectedType() && packageSurfaceCanLoadTypes(state.package)) {
+          observeAsync(
+            enterTypeSubjectFromPackageSummary(state.package, navigationSeq),
+            `Loading ${state.package.id} Type navigation`);
+          return;
+        }
         state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the
         // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
@@ -15238,17 +15484,24 @@ async function pickSpotlight(
   packageResult: { id: string; version: string; activeFramework?: string },
   typeId: string,
 ) {
+  const navigationSeq = navigationSequence.begin();
   const pkg = state.packages.find(item =>
     item.id === packageResult.id
     && item.version === packageResult.version
     && (!packageResult.activeFramework
       || item.activeFramework === packageResult.activeFramework));
-  const type = pkg?.types?.find(item => item.id === typeId);
+  if (pkg
+    && packageSurfaceCanLoadTypes(pkg)
+    && !await loadPackageSurface(pkg)) {
+    closeSpotlight();
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const type = pkg?.types.find(item => item.id === typeId);
   if (!pkg || !type) {
     closeSpotlight();
     return;
   }
-  const navigationSeq = navigationSequence.begin();
   if (!await spotlightPlatformTypeIsAvailable(
       pkg,
       type,
@@ -15631,6 +15884,30 @@ function installManagedSpotlightType(
   );
 }
 
+async function executeTypeCommand(
+  pkg: AppPackage,
+  argument: string,
+  result: CommandPaletteResult | null,
+) {
+  const navigationSeq = navigationSequence.begin();
+  if (packageSurfaceCanLoadTypes(pkg)) {
+    await loadPackageSurface(pkg);
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const match = result?.targetTypeId
+    ? pkg.types.find(item => item.id === result.targetTypeId)
+    : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
+      || pkg.types.find(item =>
+        item.name.toLowerCase().includes(argument.toLowerCase()));
+  if (!match) return;
+  enterTypeSubject(match);
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetMemberFilters();
+  await loadSelectionData();
+}
+
 function executeCommand(
   value: string,
   result: CommandPaletteResult | null = null,
@@ -15641,19 +15918,7 @@ function executeCommand(
   const argument = rest.join(" ");
   let operation;
   if (verb === "type") {
-    const match = result?.targetTypeId
-      ? pkg.types.find(item => item.id === result.targetTypeId)
-      : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
-        || pkg.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
-    if (match) {
-      navigationSequence.begin();
-      enterTypeSubject(match);
-      state.selectedMemberKey = "";
-      state.memberBrowseTypeId = "";
-      state.selectedOverloadIndex = null;
-      resetMemberFilters();
-      operation = loadSelectionData();
-    }
+    operation = executeTypeCommand(pkg, argument, result);
   } else if (verb === "show") {
     const match = availableTypeLenses()
       .find(([id, label]) =>
@@ -20990,6 +21255,24 @@ async function openDependencyPackage(
   }
 }
 
+async function openRuntimeIdentifierPackage(
+  packageId: string,
+  packageVersion: string,
+) {
+  closeGraphExplorerForNavigation();
+  const navigationSeq = navigationSequence.begin();
+  const model = await loadPackage(
+    packageId,
+    packageVersion,
+    "",
+    { navigationSeq });
+  if (!model || !navigationSequence.isCurrent(navigationSeq)) return;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.packageLens = "overview";
+  render();
+}
+
 async function loadSelectedMemberCallGraph() {
   const type = selectedType();
   const member = selectedMember(type);
@@ -23108,6 +23391,14 @@ async function loadPackage(
     });
     if (!packageModel) return null;
     if (background) return packageModel;
+    await loadDeepPackageSurface(
+      packageModel,
+      options.location,
+      options.librarySelection);
+    if (navigationSeq != null
+      && !navigationSequence.isCurrent(navigationSeq)) {
+      return null;
+    }
     if (options.invalidateWorkspaceShareBasis)
       state.workspaceShareBasis = null;
     activatePackage(packageModel, { resetAccessibility: true });
@@ -23136,7 +23427,7 @@ async function loadPackage(
       if (options.librarySelection) {
         const { id, name, asset, lens, activate } = options.librarySelection;
         const library = resolveReplacementPackageLibrary(
-          packageModel.assemblies,
+          packageLibrariesForModel(packageModel),
           { id, name, asset });
         if (!id && !name && !packageModel.isRuntimePack) {
           state.libraryScope = null;
@@ -23326,8 +23617,8 @@ function isRuntimePackId(id: string | null | undefined) {
 }
 
 const packageAcquisition = createPackageAcquisition({
-  queryPackage: (packageId, version, framework) =>
-    inspectPackage(packageId, version, framework),
+  queryPackageSummary: (packageId, version, framework) =>
+    inspectPackageSummary(packageId, version, framework),
   queryPackageRoot: rootRequest => inspectPackageRoot(rootRequest),
   loadRuntimePack: (framework, platformVersion) =>
     inspectLoadRuntimePack(framework, platformVersion),
@@ -24018,6 +24309,8 @@ async function restoreWorkspaceFromLocation(
 
   const targetModel = loadedTargetModel ?? state.packages.find(matchesTarget);
   if (targetModel) {
+    await loadDeepPackageSurface(targetModel, loc, undefined);
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     activatePackage(targetModel, { resetAccessibility: true });
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library. Called
@@ -24825,6 +25118,8 @@ async function navigateWithinCurrentWorkspace(
   }
   const pkg = state.package;
   if (!pkg) return;
+  await loadDeepPackageSurface(pkg, loc, undefined);
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const libraryFailure = applyLoadedPackageLibraryScope(pkg, loc.library);
   applyLocationView(loc);
   const viewFailure = loc.shareState
@@ -26159,7 +26454,9 @@ function applyLoadedPackageLibraryScope(
     state.libraryScope = null;
     return null;
   }
-  const matchingLibrary = resolvePackageLibrary(pkg.assemblies, requested);
+  const matchingLibrary = resolvePackageLibrary(
+    packageLibrariesForModel(pkg),
+    requested);
   if (!matchingLibrary) {
     return `The shared library '${requestedLibraryKey}' is not uniquely available in ${pkg.id}.`;
   }

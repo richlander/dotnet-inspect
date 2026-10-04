@@ -393,7 +393,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
 
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(overview.locator(
-    ".package-overview-summary .section-title h2"))
+    ".package-info-section > .section-title h2"))
     .toHaveText("Package Info");
 });
 
@@ -465,7 +465,8 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator("#package-version")).toBeVisible();
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
-    await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
+    await expect(page.locator(".overview-surface-head p"))
+      .toHaveText("Type Count unavailable · Member Count unavailable");
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "Example.Package@1.0.0", "net10.0",
     ]);
@@ -476,7 +477,7 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator(".comparison-target-policy"))
       .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
     await expect(overview.locator(
-      ".package-overview-summary .section-title h2"))
+      ".package-info-section > .section-title h2"))
       .toHaveText("Package Info");
     await expect(overview.locator(
       ".package-overview-resources .section-title h2"))
@@ -1484,6 +1485,8 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
   await page.goBack();
@@ -1552,6 +1555,8 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await selectLibrary(page, core.id);
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Package");
+  await chooseSubject(page, "library", "Library");
   await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
 
   await page.goBack();
