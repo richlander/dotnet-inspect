@@ -44,7 +44,7 @@ public class MemberOptionsParserTests
         var indexOption = new Option<int?>("--index");
         var sourcePartsOption = new Option<bool>("--source-parts");
         var sourcePartOption = new Option<string?>("--part");
-        var explainOption = new Option<bool>("--explain");
+        var explainOption = SharedOptions.CreateExplanationOption();
         var companionOption =
             SharedOptions.CreateCompanionOption(
                 allowBareExplanation: true);
@@ -458,6 +458,31 @@ public class MemberOptionsParserTests
 
         Assert.False(options.FormatExplicitlySet);
         Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
+    }
+
+    [Theory]
+    [InlineData(null, ExplanationProjection.Complete)]
+    [InlineData(".tips", ExplanationProjection.Tips)]
+    public async Task Explain_ParsesSharedProjection(
+        string? projection,
+        ExplanationProjection expected)
+    {
+        List<string> arguments =
+        [
+            "member",
+            "JsonSerializer",
+            "--package",
+            "System.Text.Json",
+            "Serialize:1",
+            "--explain",
+        ];
+        if (projection is not null)
+            arguments.Add(projection);
+
+        MemberOptions options =
+            await ParseSuccessAsync([.. arguments]);
+
+        Assert.Equal(expected, options.Explanation);
     }
 
     [Fact]
