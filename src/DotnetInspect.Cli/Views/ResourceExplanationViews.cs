@@ -33,6 +33,18 @@ public sealed class ResourceExplanationView
         init => field = LibraryViewText.Contain(value);
     } = "";
 
+    public string? Shape
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? Cardinality
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
     public string? Identity
     {
         get;
@@ -269,6 +281,8 @@ public sealed class ResourceExplanationView
             Kind = rootRow.Kind,
             Name = rootRow.Name,
             Owner = rootRow.Owner,
+            Shape = details.Shape,
+            Cardinality = details.Cardinality,
             Identity = details.Identity,
             Summary = details.Summary,
             Key = details.Key,
@@ -360,12 +374,21 @@ public sealed class ResourceExplanationView
         List<string> Examples,
         List<string> Effects,
         string? ConsumerKind,
-        string? Gesture)
+        string? Gesture,
+        string? Shape = null,
+        string? Cardinality = null)
     {
         internal static RootDetails Create(
             ResourceExplanationDetail details) =>
             details switch
             {
+                ResourceExplanationDetail.StructuralSectionDetails value =>
+                    Empty() with
+                    {
+                        Shape = value.Shape?.ToString().ToLowerInvariant(),
+                        Cardinality =
+                            value.Cardinality?.ToString().ToLowerInvariant(),
+                    },
                 ResourceExplanationDetail.InspectionDocumentDetails value =>
                     Empty(
                         value.Identity,
