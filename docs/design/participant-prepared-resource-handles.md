@@ -63,12 +63,13 @@ scan or caller convention, the enforcement gate.
 ### Preparation
 
 A preparation operation supplies an exact `AssemblyContextParticipant`,
-cancellation, producer input, and a callback. The handle:
+cancellation, producer input, and a settlement callback. The handle:
 
 1. validates and admits the exact participant-resource pair;
-2. obtains snapshot access through that admitted borrow;
-3. invokes the producer callback with its state and the immutable snapshot;
-4. keeps the borrow live through callback completion; and
+2. attempts snapshot access through that admitted borrow;
+3. for a settled access, invokes the callback exactly once with its state and
+   either the immutable snapshot or the typed acquisition rejection;
+4. keeps the borrow live through outcome mapping and publication; and
 5. releases the temporary borrow on every return or failure path.
 
 Participant validation and resource admission are one InspectionSpace
@@ -78,12 +79,15 @@ or retire the producer state until the callback and its borrow finish.
 
 The producer callback owns preparation keys, single-flight or retry policy,
 typed ready and failure outcomes, diagnostics, and publication of physical
-state. Publication while the callback holds the borrow is within the admitted
-lifetime. InspectionSpace does not interpret or cache the callback result.
+state. It maps both available and rejected snapshot access to the producer's
+settled outcome before the borrow closes. Publication while the callback holds
+the borrow is within the admitted lifetime. InspectionSpace does not interpret
+or cache the callback result.
 
-Snapshot acquisition rejection remains a typed `AssemblyImageAccessResult`
-that the producer maps to its own outcome. Cancellation and callback failures
-remain visible; the handle does not turn them into settled success.
+Cancellation before settlement and callback failures remain visible; the
+handle does not turn them into settled success. Snapshot acquisition rejection
+remains typed but cannot be returned for later publication outside the
+admitted lifetime.
 
 ### Reusable execution
 
@@ -129,12 +133,21 @@ AssemblyContextParticipantResource<TState>
         TInput input,
         Func<TInput, TState> create);
 
-AssemblyImageAccessResult<TResult>
-    AssemblyContextParticipantResource<TState>.Prepare<TInput, TResult>(
+TResult AssemblyContextParticipantResource<TState>.Prepare<TInput, TResult>(
         AssemblyContextParticipant participant,
         CancellationToken cancellationToken,
         TInput input,
-        Func<TState, AssemblyImageSnapshot, TInput, TResult> callback);
+        Func<
+            TState,
+            AssemblyContextParticipantPreparationAccess,
+            TInput,
+            TResult> settle);
+
+abstract record AssemblyContextParticipantPreparationAccess
+{
+    sealed record Available(AssemblyImageSnapshot Snapshot);
+    sealed record Rejected(CandidateOpenFailure Failure);
+}
 
 AssemblyContextParticipantResourceBorrow<TState>
     AssemblyContextParticipantResource<TState>.Borrow(
@@ -171,7 +184,10 @@ already checks admission closure, admitted-work survival, final-pair
 retirement, resource-before-snapshot ordering, retained accounting, sibling
 independence, and eventual release. This API does not change those semantics,
 so it does not claim a new model result. Runtime gates must continue to exercise
-the same properties through the typed handle.
+the same properties through the typed handle. A direct gate additionally races
+an unreadable-image rejection with participant release while a sibling keeps
+the group alive, proving that rejection publication finishes before retirement
+and that no settled outcome can publish after participant cleanup.
 
 The pattern rollout is three independently mergeable slices: this design, then
 the two implementation stages:
@@ -191,7 +207,7 @@ witness. Each adoption preserves its own typed outcomes and exact NativeAOT
 terminal evidence.
 
 The first planned CLI and Browser/Wasm enablement follows the existing
-18-step [Subject Relations adoption
+19-step [Subject Relations adoption
 plan](subject-relations-workflows.md#adoption-and-retirement). Its Metadata
 hierarchy adapters are step 9, shared section and Markout projection is step
 14, CLI adoption is step 16, and Inspect Web/Browser-Wasm adoption is step 17.
