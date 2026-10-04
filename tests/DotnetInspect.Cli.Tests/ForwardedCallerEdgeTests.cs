@@ -48,7 +48,11 @@ public class ForwardedCallerEdgeTests
     static int CreateToken(
         string targetPath,
         params string[] parameterTypes) =>
-        ILInspector.Analysis.LibraryBodyIndex.Open(targetPath).Methods
+        BodyAnalysisTestExecution.Open(
+                targetPath,
+                includeAllocations: false,
+                includeOpportunities: false)
+            .CallGraph.Methods
             .First(method =>
                 method.DeclaringType.Name == "XmlReader"
                 && method.Name == "Create"
