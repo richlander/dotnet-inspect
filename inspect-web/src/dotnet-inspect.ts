@@ -283,8 +283,6 @@ import {
 } from "./implementation-heat.ts";
 import {
   createTypeMethodLeverageCoordinator,
-  filterMemberGroupsByMethodLeverage,
-  methodLeverageEmptyStateMessage,
   methodLeverageFor,
   type PackageTypeMethodLeverageRequest,
   type PlatformTypeMethodLeverageRequest,
@@ -788,8 +786,6 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
-  typeLeverageMatchesFilter,
-  type TypeLeverageFilter,
 } from "./type-leverage.ts";
 import type {
   BrowserMemberSource,
@@ -1316,9 +1312,8 @@ const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
   typeFiltersExpanded: false,
-  typeLeverageFilter: "" as TypeLeverageFilter,
-  typeLeverageError: "",
-  typeLeverageKey: "",
+  typeLeverageErrors: new Map<string, string>(),
+  typeLeverageSetupError: "",
   packages: [],
   package: null,
   uploadedLibrary: null,
@@ -1386,8 +1381,6 @@ const initialState = {
   typeMemberPopulationError: "",
   typeMemberPopulationKey: "",
   typeHeat: { status: "idle" } as TypeHeatState,
-  methodLeverageEnabled: false,
-  memberLeverageFilter: "" as "" | "top-leverage",
   typeMethodLeverage: { status: "idle" } as TypeMethodLeverageState,
   memberSource: { status: "idle" as const },
   memberSourceRequestedView: "source" as const,
@@ -3410,25 +3403,24 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   operationAuthority,
   key: target => target.key,
   libraryKey: target => target.libraryKey,
-  operationLane: target => target.consumer,
+  operationLane: target => target.libraryKey,
   queryDocument: target => target.queryDocument(),
-  isCurrent: target => currentTypeLeverageKey() === target.key,
+  isCurrent: target => currentTypeLeverageTargetKeys().has(target.key),
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
     console.error("Type leverage operation authority failure.", diagnostic);
     return undefined;
   },
   publish: published => {
-    state.typeLeverageKey = published.key;
     switch (published.status) {
       case "loading":
-        state.typeLeverageError = "";
+        state.typeLeverageErrors.delete(published.key);
         break;
       case "ready":
-        state.typeLeverageError = "";
+        state.typeLeverageErrors.delete(published.key);
         break;
       case "failed":
-        state.typeLeverageError = published.message;
+        state.typeLeverageErrors.set(published.key, published.message);
         break;
     }
     renderPreservingMemberFocus();
@@ -3819,8 +3811,6 @@ function captureView(): WorkspaceView | null {
     memberAccessibilityFilter: state.memberAccessibilityFilter,
     memberTraitFilter: state.memberTraitFilter,
     memberTextFilter: state.memberTextFilter,
-    methodLeverageEnabled: state.methodLeverageEnabled,
-    memberLeverageFilter: state.memberLeverageFilter,
     selectedOverloadIndex: state.selectedOverloadIndex,
     memberDocumentFingerprint: state.memberDocumentFingerprint,
     bodyTarget: state.selectedBodyTarget,
@@ -3924,11 +3914,6 @@ function applyView(view: WorkspaceView) {
     state.selectedTypeId = "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
-    state.methodLeverageEnabled = view.methodLeverageEnabled === true;
-    state.memberLeverageFilter = view.methodLeverageEnabled
-      && view.memberLeverageFilter === "top-leverage"
-        ? "top-leverage"
-        : "";
     state.libraryScope = null;
     state.loading = false;
     state.error = "";
@@ -3971,11 +3956,6 @@ function applyView(view: WorkspaceView) {
   activatePackage(pkg);
   state.memberSourceRequestedView = view.memberSourceView ?? "source";
   state.memberSourceView = state.memberSourceRequestedView;
-  state.methodLeverageEnabled = view.methodLeverageEnabled === true;
-  state.memberLeverageFilter = view.methodLeverageEnabled
-    && view.memberLeverageFilter === "top-leverage"
-      ? "top-leverage"
-      : "";
   state.rootKind = view.rootKind ?? (pkg.source.kind === "platform" ? "platform" : "package");
   if (view.platform) state.platformSelection = { ...view.platform };
   state.libraryScope = restoreLibraryScope(
@@ -4594,7 +4574,6 @@ function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
     memberKindFilter: loc.memberKindFilter,
     memberAccessibilityFilter: loc.memberAccessibilityFilter,
     memberTraitFilter: loc.memberTraitFilter,
-    memberLeverageFilter: loc.memberLeverageFilter,
     graphTarget: loc.graphTarget
   };
 }
@@ -5131,8 +5110,6 @@ function selectedType() {
 function filteredTypes() {
   if (!state.package) return [];
   const needle = state.typeFilter.toLowerCase();
-  const leverage = currentTypeLeveragePresentation();
-  const leverageFilter = leverage ? state.typeLeverageFilter : "";
   return state.package.types.filter(item => {
     return typeMatchesFilterText(item, needle)
       && (selectedNamespaceFilter() === null
@@ -5141,13 +5118,7 @@ function filteredTypes() {
       && (!state.typeTraitFilter
         || item.traitFacetIds.includes(state.typeTraitFilter))
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
-      && state.accessibilityFilter.has(item.accessibilityId)
-      && typeLeverageMatchesFilter(
-        leverage?.byType.get(
-          item.definitionId ?? item.id,
-        ),
-        leverageFilter,
-      );
+      && state.accessibilityFilter.has(item.accessibilityId);
   });
 }
 
@@ -5155,6 +5126,7 @@ interface TypeLeverageTarget {
   readonly consumer: "type-browser";
   readonly key: string;
   readonly libraryKey: string;
+  readonly libraryName: string;
   readonly queryDocument: () => ReturnType<
     typeof inspectPackageLibraryStructuralSalience
   >;
@@ -5171,13 +5143,14 @@ function typeLeverageWorkspaceGeneration(pkg: AppPackage) {
 function createTypeLeverageTarget(
   consumer: TypeLeverageTarget["consumer"],
   allowLibraryRoot: boolean,
+  libraryId = selectedLibrary()?.id,
 ): TypeLeverageTarget | null {
   const pkg = state.package;
-  const library = selectedLibrary();
+  const library = packageLibraries().find(candidate =>
+    candidate.id === libraryId);
   if (!pkg
     || !library
-    || (!allowLibraryRoot && state.rootKind === "library")
-    || aggregateLibrarySubjectIsActive()) {
+    || (!allowLibraryRoot && state.rootKind === "library")) {
     return null;
   }
   const generation = typeLeverageWorkspaceGeneration(pkg);
@@ -5198,6 +5171,7 @@ function createTypeLeverageTarget(
     return {
       consumer,
       libraryKey: salienceLibraryKey,
+      libraryName: library.name,
       key: JSON.stringify([salienceLibraryKey, consumer]),
       queryDocument: () => inspectPlatformLibraryStructuralSalience(
         pkg.activeFramework,
@@ -5222,6 +5196,7 @@ function createTypeLeverageTarget(
   return {
     consumer,
     libraryKey: salienceLibraryKey,
+    libraryName: library.name,
     key: JSON.stringify([salienceLibraryKey, consumer]),
     queryDocument: () => inspectPackageLibraryStructuralSalience(
       pkg.id,
@@ -5232,39 +5207,88 @@ function createTypeLeverageTarget(
   };
 }
 
-function typeLeverageTarget(): TypeLeverageTarget | null {
-  return createTypeLeverageTarget("type-browser", false);
+function typeLeverageLibraryIds(): string[] {
+  const pkg = state.package;
+  if (!pkg || state.rootKind === "library") return [];
+  if (!aggregateLibrarySubjectIsActive()) {
+    const library = selectedLibrary();
+    return library ? [library.id] : [];
+  }
+  const admitted = new Set(packageLibraries().map(library => library.id));
+  return [...new Set(
+    pkg.types
+      .filter(type => !type.graphOnly && admitted.has(libraryKey(type)))
+      .map(libraryKey),
+  )];
 }
 
-function currentTypeLeverageKey() {
+function createCurrentTypeLeverageTargets(): TypeLeverageTarget[] {
+  return typeLeverageLibraryIds()
+    .map(libraryId =>
+      createTypeLeverageTarget("type-browser", false, libraryId))
+    .filter((target): target is TypeLeverageTarget => target !== null);
+}
+
+function currentTypeLeverageTargets(): TypeLeverageTarget[] {
   try {
-    return typeLeverageTarget()?.key ?? null;
+    return createCurrentTypeLeverageTargets();
+  } catch {
+    return [];
+  }
+}
+
+function currentTypeLeverageTargetKeys(): Set<string> {
+  return new Set(currentTypeLeverageTargets().map(target => target.key));
+}
+
+function typeLeverageTargetFor(
+  item: TypeInventoryRow | null | undefined,
+): TypeLeverageTarget | null {
+  if (!item || isForwardedType(item) || !item.assemblyId) return null;
+  try {
+    return createTypeLeverageTarget(
+      "type-browser",
+      false,
+      item.assemblyId,
+    );
   } catch {
     return null;
   }
 }
 
-function currentTypeLeveragePresentation() {
-  const key = currentTypeLeverageKey();
-  if (key === null || state.typeLeverageKey !== key) return null;
-  return typeLeverage.presentation(key);
+function currentTypeLeveragePresentation(
+  item: TypeInventoryRow | null | undefined = selectedType(),
+) {
+  const target = typeLeverageTargetFor(item);
+  return target ? typeLeverage.presentation(target.key) : null;
 }
 
-function loadTypeLeverage(retry = false) {
-  let target: TypeLeverageTarget | null;
-  try {
-    target = typeLeverageTarget();
-  } catch (error) {
-    state.typeLeverageError = errorMessage(error);
-    renderPreservingMemberFocus();
-    return;
-  }
+function currentTypeLeveragePresentations() {
+  return currentTypeLeverageTargets().flatMap(target => {
+    const presentation = typeLeverage.presentation(target.key);
+    return presentation ? [{ target, presentation }] : [];
+  });
+}
 
-  if (!target) return;
-  state.typeLeverageKey = target.key;
-  state.typeLeverageError = "";
-  if (retry) typeLeverage.retry(target);
-  else typeLeverage.request(target);
+let typeLeverageBatchLoading = false;
+
+function loadTypeLeverage(retry = false) {
+  if (typeLeverageBatchLoading) return;
+  typeLeverageBatchLoading = true;
+  try {
+    const targets = createCurrentTypeLeverageTargets();
+    state.typeLeverageSetupError = "";
+    for (const target of targets) {
+      state.typeLeverageErrors.delete(target.key);
+      if (retry) typeLeverage.retry(target);
+      else typeLeverage.request(target);
+    }
+  } catch (error) {
+    state.typeLeverageSetupError = errorMessage(error);
+    renderPreservingMemberFocus();
+  } finally {
+    typeLeverageBatchLoading = false;
+  }
 }
 
 function platformForwarderKey(
@@ -5298,10 +5322,7 @@ function selectedForwarder() {
 function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow> {
   const definitions = filteredTypes();
   const exactNamespace = selectedNamespaceFilter();
-  const leverage = currentTypeLeveragePresentation();
-  const leverageFilter = leverage ? state.typeLeverageFilter : "";
-  const forwarders = typeLeverageMatchesFilter(undefined, leverageFilter)
-    && !state.typeTraitFilter
+  const forwarders = !state.typeTraitFilter
     && typeAccessibilityIncludesForwarders()
     ? filterForwardedTypes(
       currentPlatformForwarderView()?.forwarders ?? [],
@@ -6008,7 +6029,6 @@ function resetLocationFilters() {
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.typeTraitFilter = "";
-  state.typeLeverageFilter = "";
   state.libraryScope = null;
   state.typeCursor = 0;
   resetMemberFilters();
@@ -6328,52 +6348,39 @@ function typeAccessibilityIncludesForwarders() {
     descriptor => descriptor.id === selected && descriptor.isDefault);
 }
 
-function typeLeverageControl() {
-  let target: TypeLeverageTarget | null;
-  try {
-    target = typeLeverageTarget();
-  } catch {
-    return "";
-  }
-  if (!target) return "";
-  const current = state.typeLeverageKey === target.key;
-  const presentation = current ? currentTypeLeveragePresentation() : null;
-  if (current && state.typeLeverageError) {
-    return `<div class="type-leverage-control metadata-warning" aria-live="polite">
-      <small>${escapeHtml(state.typeLeverageError)}</small>
+function typeLeverageStatus() {
+  const failures = [
+    ...(state.typeLeverageSetupError
+      ? [state.typeLeverageSetupError]
+      : []),
+    ...currentTypeLeverageTargets().flatMap(target => {
+      const error = state.typeLeverageErrors.get(target.key);
+      return error ? [error] : [];
+    }),
+  ];
+  if (failures.length > 0) {
+    return `<div class="metadata-warning" aria-live="polite">
+      <small>Structural salience is unavailable: ${failures.map(escapeHtml).join("<br>")}</small>
       <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
     </div>`;
   }
-  if (!presentation) {
-    return `<div class="type-leverage-control" aria-live="polite">
-      <span class="loader"></span><small>Measuring structural salience…</small>
-    </div>`;
-  }
-  const namespaceCount = presentation.byNamespace.size;
-  const namespaceStatus =
-    `${namespaceCount} namespace${namespaceCount === 1 ? "" : "s"} analyzed`;
-  const qualified =
-    presentation.disposition.toLowerCase() !== "complete";
-  const qualification = qualified || presentation.diagnostics.length > 0
-    ? `<details class="type-leverage-qualification">
-        <summary>${qualified ? "qualified evidence" : "analysis notes"} · ${presentation.coverage.examined}/${presentation.coverage.considered} examined${presentation.diagnostics.length ? ` · ${presentation.diagnostics.length} diagnostics` : ""}</summary>
-        ${presentation.diagnostics.length
-          ? `<small>${presentation.diagnostics.map(escapeHtml).join("<br>")}</small>`
-          : ""}
-      </details>`
-    : "";
-  const retry = qualified
-    ? '<button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>'
-    : "";
-  return `<div class="type-leverage-control">
-    <div class="namespace-chips leverage-chips" aria-label="Structural salience filters">
-      <button class="${!state.typeLeverageFilter ? "active" : ""}" data-type-leverage-filter="">all types</button>
-      <button class="${state.typeLeverageFilter === "sea-level" ? "active" : ""}" data-type-leverage-filter="sea-level">sea level · ${presentation.seaLevelCount}</button>
-      <button class="${state.typeLeverageFilter === "mountain-peak" ? "active" : ""}" data-type-leverage-filter="mountain-peak">mountain peaks · ${presentation.mountainPeakCount}</button>
-    </div>
-    <small>${namespaceStatus}</small>
-    ${qualification}
-    ${retry}
+  const qualified = currentTypeLeveragePresentations().filter(
+    ({ presentation }) =>
+      presentation.disposition.toLowerCase() !== "complete"
+      || presentation.diagnostics.length > 0,
+  );
+  if (qualified.length === 0) return "";
+  const diagnostics = qualified.flatMap(
+    ({ presentation }) => presentation.diagnostics);
+  const examined = qualified.reduce(
+    (sum, { presentation }) => sum + presentation.coverage.examined,
+    0);
+  const considered = qualified.reduce(
+    (sum, { presentation }) => sum + presentation.coverage.considered,
+    0);
+  return `<div class="metadata-warning" aria-live="polite">
+    <small>Structural salience has qualified evidence · ${examined}/${considered} examined${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
+    <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
   </div>`;
 }
 
@@ -6393,9 +6400,6 @@ function typeFilterSummary() {
       : state.namespaceFilter,
     kindSummary,
     traitSummary,
-    currentTypeLeveragePresentation() && state.typeLeverageFilter
-      ? state.typeLeverageFilter.replace("-", " ")
-      : "",
     accessibilitySummary,
   ].filter(Boolean).join(" · ") || "All types";
 }
@@ -6661,11 +6665,7 @@ function resetMemberFilters() {
 
 function visibleMemberGroups(type: AppTypeSurface) {
   const sourceGroups = selectedMemberGroups(type);
-  const filtered = filterMemberGroups(sourceGroups, memberFilterState());
-  if (state.memberLeverageFilter !== "top-leverage") return filtered;
-  return filterMemberGroupsByMethodLeverage(
-    filtered,
-    currentTypeMethodLeverageState());
+  return filterMemberGroups(sourceGroups, memberFilterState());
 }
 
 function methodLeverageAchievements(
@@ -6684,14 +6684,6 @@ function methodLeverageAchievements(
   return cue
     ? [{ kind: "top-leverage" as const, description: cue.description }]
     : [];
-}
-
-function methodLeverageEmptyMessage() {
-  if (state.memberLeverageFilter !== "top-leverage") {
-    return "No members match these filters.";
-  }
-  const leverage = currentTypeMethodLeverageState();
-  return methodLeverageEmptyStateMessage(leverage);
 }
 
 function selectedMemberGroups(type: AppTypeSurface) {
@@ -6765,41 +6757,24 @@ function selectedMemberTraitCount(type: AppTypeSurface, trait: string) {
   }
 }
 
-function renderMethodLeverageControl() {
-  if (state.rootKind === "library") {
-    return `<div class="member-leverage-control" data-method-leverage-status="unavailable">
+function uploadedLibraryIsActive() {
+  return state.package?.source.kind === "file";
+}
+
+function renderMethodLeverageStatus() {
+  if (uploadedLibraryIsActive()) {
+    return `<div class="metadata-warning" data-method-leverage-status="unavailable">
       <small>Top Leverage is unavailable for uploaded Libraries.</small>
-    </div>`;
-  }
-  if (!state.methodLeverageEnabled) {
-    return `<div class="member-leverage-control" data-method-leverage-status="disabled">
-      <button type="button" class="tiny-button" data-method-leverage-activate>Show Top Leverage</button>
-      <small>Analyzes all method accessibilities.</small>
     </div>`;
   }
   const leverage = currentTypeMethodLeverageState();
   if (leverage.status === "failed") {
-    return `<div class="member-leverage-control" data-method-leverage-status="failed" role="alert">
-      <small>${escapeHtml(leverage.message)}</small>
+    return `<div class="metadata-warning" data-method-leverage-status="failed" role="alert">
+      <small>Top Leverage is unavailable: ${escapeHtml(leverage.message)}</small>
       <button type="button" class="tiny-button" data-method-leverage-retry>Retry</button>
     </div>`;
   }
-  if (leverage.status !== "ready") {
-    return `<div class="member-leverage-control" data-method-leverage-status="${leverage.status}" role="status">
-      <span class="loader" aria-hidden="true"></span>
-      <small>Finding the highest-leverage members…</small>
-    </div>`;
-  }
-  const presentation = leverage.presentation;
-  const hiddenCount =
-    presentation.winnerCount - presentation.anchoredMethodCount;
-  return `<div class="member-leverage-control" data-method-leverage-status="ready">
-    <small>${presentation.anchoredWinnerCount} browsable Top Leverage ${presentation.anchoredWinnerCount === 1 ? "member" : "members"}${hiddenCount > 0 ? ` · ${hiddenCount} true ${hiddenCount === 1 ? "winner has" : "winners have"} no browsable row` : ""}</small>
-    <select class="scope-select" data-method-leverage-filter aria-label="Top Leverage member filter">
-      <option value=""${state.memberLeverageFilter === "" ? " selected" : ""}>all members</option>
-      <option value="top-leverage"${state.memberLeverageFilter === "top-leverage" ? " selected" : ""}>Top Leverage · ${presentation.anchoredWinnerCount}</option>
-    </select>
-  </div>`;
+  return "";
 }
 
 function renderMemberFilterControls(type: AppTypeSurface) {
@@ -6830,10 +6805,9 @@ function renderMemberFilterControls(type: AppTypeSurface) {
       : state.memberAccessibilityFilter,
     state.memberSpelling === "metadata" ? "metadata spelling" : "",
     activeTrait ?? "",
-    state.memberLeverageFilter === "top-leverage" ? "Top Leverage" : "",
   ].filter(Boolean).join(" · ");
   return `
-    ${renderMethodLeverageControl()}
+    ${renderMethodLeverageStatus()}
     <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
       <summary id="member-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
       <div class="type-search member-search">
@@ -7719,12 +7693,12 @@ function typeMethodLeverageTarget(): {
   request: TypeMethodLeverageRequest;
   isCurrent: () => boolean;
 } | null {
+  if (scope() !== "type" && scope() !== "member") return null;
   const pkg = state.package;
   const type = selectedType();
-  if (!state.methodLeverageEnabled
-    || !pkg
+  if (!pkg
     || !type
-    || state.rootKind === "library") {
+    || uploadedLibraryIsActive()) {
     return null;
   }
   const request: TypeMethodLeverageRequest = pkg.isRuntimePack
@@ -9568,7 +9542,6 @@ function renderTypeNavPane(
   const definingLibraries = aggregateTypeLibraryLabels();
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
-  const leveragePresentation = currentTypeLeveragePresentation();
   return renderTypeNav({
     current: selectedForwarder() ?? current ?? null,
     visible,
@@ -9584,7 +9557,6 @@ function renderTypeNavPane(
     kindOptions: typeKindOptions(),
     accessibilityOptions: typeAccessibilityOptions(),
     traitOptions: typeTraitOptions(),
-    leverageControlHtml: typeLeverageControl(),
     library: activeLibrarySubjectName(),
     parentSubject: state.atLibraryRoot
       ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
@@ -9597,25 +9569,39 @@ function renderTypeNavPane(
     typeDisplayName,
     typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
-    namespaceLeverageCue: namespace =>
-      leveragePresentation?.byNamespace.get(namespace) ?? null,
-    ...(leveragePresentation
-      ? {
-          itemAchievements: (item: TypeInventoryRow) => {
-            if (isForwardedType(item)) return [];
-            const leverage = leveragePresentation.byType.get(
-              item.definitionId ?? item.id,
-            );
-            return leverage
-              ? [{
-                  kind: leverage.pole,
-                  description: leverage.description,
-                }]
-              : [];
-          },
-        }
-      : {}),
-    statusHtml: platformForwarderInventoryStatus(),
+    namespaceLeverageCue: namespace => {
+      const cues = currentTypeLeveragePresentations().flatMap(
+        ({ target, presentation }) => {
+          const cue = presentation.byNamespace.get(namespace);
+          return cue ? [{ target, cue }] : [];
+        },
+      );
+      if (cues.length === 0) return null;
+      return {
+        topLeverage: cues.some(({ cue }) => cue.topLeverage),
+        description: cues.length === 1
+          ? cues[0]!.cue.description
+          : cues
+              .map(({ target, cue }) =>
+                `${target.libraryName}: ${cue.description}`)
+              .join("; "),
+      };
+    },
+    itemAchievements: (item: TypeInventoryRow) => {
+      if (isForwardedType(item)) return [];
+      const presentation = currentTypeLeveragePresentation(item);
+      const leverage = presentation?.byType.get(
+        item.definitionId ?? item.id,
+      );
+      return leverage
+        ? [{
+            kind: leverage.pole,
+            description: leverage.description,
+          }]
+        : [];
+    },
+    statusHtml:
+      `${typeLeverageStatus()}${platformForwarderInventoryStatus()}`,
   });
 }
 
@@ -9642,11 +9628,9 @@ function renderMemberNavPane(type: AppTypeSurface) {
     highlight,
     overloadHeat: memberNavOverloadHeat,
     familyHeatCue: memberNavFamilyHeatCue,
-    ...(state.methodLeverageEnabled
-      ? { memberAchievements: methodLeverageAchievements }
-      : {}),
+    memberAchievements: methodLeverageAchievements,
     overloadSourceIndex: memberNavOverloadSourceIndex,
-    emptyMessage: methodLeverageEmptyMessage(),
+    emptyMessage: "No members match these filters.",
   });
 }
 
@@ -10626,14 +10610,19 @@ function maybeAutoLoadPackageLibraryMetrics() {
 
 function maybeAutoLoadTypeLeverage() {
   if (scope() !== "type" && scope() !== "member") return;
-  const leverageKey = currentTypeLeverageKey();
-  if (leverageKey === null) return;
-  if (state.typeLeverageKey === leverageKey && state.typeLeverageError) return;
-  if (state.typeLeverageKey !== leverageKey)
-    state.typeLeverageError = "";
-  if (typeLeverage.presentation(leverageKey) !== null
-    || typeLeverage.pending(leverageKey)) return;
-  loadTypeLeverage();
+  if (typeLeverageBatchLoading) return;
+  let targets: TypeLeverageTarget[];
+  try {
+    targets = createCurrentTypeLeverageTargets();
+  } catch {
+    loadTypeLeverage();
+    return;
+  }
+  const missing = targets.some(target =>
+    !state.typeLeverageErrors.has(target.key)
+    && typeLeverage.presentation(target.key) === null
+    && !typeLeverage.pending(target.key));
+  if (missing) loadTypeLeverage();
 }
 
 // The Library Metadata lens describes one image-level container: metadata format version,
@@ -11703,26 +11692,20 @@ function renderApiLens(item: AppTypeSurface) {
           Boolean(state.memberTraitFilter));
         const sourceOverloadCount =
           group.sourceOverloadCount ?? group.overloads.length;
-        const achievements = state.methodLeverageEnabled
-          ? methodLeverageAchievements(
-              group,
-              sourceOverloadCount === 1 ? 0 : null)
-          : [];
+        const achievements = methodLeverageAchievements(
+          group,
+          sourceOverloadCount === 1 ? 0 : null);
         const achievementClasses =
           itemAchievementClassNames(achievements);
         return `
-        <button class="api-row${state.methodLeverageEnabled ? " has-item-achievement-rail" : ""}${achievementClasses ? ` ${achievementClasses}` : ""}" data-member="${escapeHtml(group.key)}">
-          ${state.methodLeverageEnabled
-            ? renderItemAchievementRail(achievements, escapeHtml)
-            : ""}
+        <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}" data-member="${escapeHtml(group.key)}">
+          ${renderItemAchievementRail(achievements, escapeHtml)}
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(overload.signature)}</code>
           <small>${sourceOverloadCount === 1 ? escapeHtml(group.kind) : `${sourceOverloadCount} overloads`}${outsideMarker}</small>
         </button>`;
         }).join("") || `<div class="empty-list">${
-          state.memberLeverageFilter === "top-leverage"
-            ? escapeHtml(methodLeverageEmptyMessage())
-            : typeMemberPopulationPhase(item) === "failed"
+          typeMemberPopulationPhase(item) === "failed"
             ? "Member population unavailable."
             : typeMemberPopulationPhase(item) === "available"
               ? `No declared ${escapeHtml(state.memberAccessibilityFilter)} members match these filters.`
@@ -12510,7 +12493,6 @@ function bindTypePanelEvents() {
       state.namespaceFilter = "";
       state.kindFilter = "";
       state.typeTraitFilter = "";
-      state.typeLeverageFilter = "";
       setTypeAccessibilityFilter(
         defaultAccessibilityFilter(state.package),
         "exact",
@@ -12629,22 +12611,6 @@ function bindTypePanelEvents() {
       loadCurrentSelectionData("Loading the selected Type");
     },
     onTypeLeverageRetry: () => loadTypeLeverage(true),
-    onTypeLeverageFilterSelect: filter => {
-      if (filter !== ""
-        && filter !== "sea-level"
-        && filter !== "mountain-peak") {
-        return;
-      }
-      state.typeLeverageFilter = filter;
-      state.typeCursor = 0;
-      const first = filteredTypes()[0];
-      if (first) state.selectedTypeId = first.id;
-      state.selectedMemberKey = "";
-      state.memberBrowseTypeId = "";
-      resetMemberFilters();
-      renderPreservingMemberFocus();
-      loadCurrentSelectionData("Loading the selected Type");
-    },
     onTypeNavBack: () => {
       if (state.atLibraryRoot && state.rootKind === "platform") {
         if (hasPlatformRootHistoryView()) showPlatformRoot();
@@ -12747,31 +12713,6 @@ function bindTypePanelEvents() {
       state.memberKindFilter = value ?? "all";
       normalizeMemberSelection();
       renderMemberFilterAndRestoreFocus();
-    },
-    onMethodLeverageActivate: () => {
-      if (state.rootKind === "library") return;
-      state.methodLeverageEnabled = true;
-      state.memberLeverageFilter = "";
-      navigationHistory.record();
-      const target = typeMethodLeverageTarget();
-      if (target) {
-        typeMethodLeverage.request(target.request, target.isCurrent);
-        return;
-      }
-      renderPreservingMemberFocus();
-    },
-    onMethodLeverageFilterSelect: value => {
-      if (value !== "" && value !== "top-leverage") return;
-      if (value === "top-leverage"
-        && currentTypeMethodLeverageState().status !== "ready") {
-        return;
-      }
-      state.memberLeverageFilter = value;
-      state.selectedOverloadIndex = null;
-      resetMemberSectionState();
-      normalizeMemberSelection();
-      navigationHistory.record();
-      renderPreservingMemberFocus();
     },
     onMethodLeverageRetry: () => retryTypeMethodLeverage(),
     onMemberOverloadOpen: selector => {
@@ -15950,9 +15891,6 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
-    memberLeverageFilter: state.memberLeverageFilter === "top-leverage"
-      ? "top-leverage"
-      : "",
     view: {
       lens: workspaceSubjectOpen || platformRoot
         ? null
@@ -16310,11 +16248,6 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   const restoreType = deep?.type
     && (pkg.types.some(item => item.id === deep.type) || forwarder !== undefined);
   resetMemberFilters();
-  state.methodLeverageEnabled =
-    deep?.memberLeverageFilter === "top-leverage";
-  state.memberLeverageFilter = state.methodLeverageEnabled
-    ? "top-leverage"
-    : "";
   state.selectedTypeId = restoreType
     ? deep?.type ?? ""
     : defaultVisibleTypeId(pkg) || currentPlatformForwarderView()?.forwarders[0]?.id || "";

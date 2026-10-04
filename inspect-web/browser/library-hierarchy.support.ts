@@ -1586,7 +1586,9 @@ async function installFacades(
           signatureIncomingDegree: 3,
           signatureOutgoingDegree: 0,
           role: "foundation",
-          pole: "SeaLevel"
+          pole: selected.id === "asset:other"
+            ? "MountainPeak"
+            : "SeaLevel"
         }] : [];
         return {
           schemaVersion: 1,
@@ -1621,8 +1623,12 @@ async function installFacades(
               limited: 0
             },
             types,
-            seaLevelOrder: types.map(item => item.typeDefinitionId),
-            mountainPeakOrder: types.map(item => item.typeDefinitionId),
+            seaLevelOrder: types
+              .filter(item => item.pole === "SeaLevel")
+              .map(item => item.typeDefinitionId),
+            mountainPeakOrder: types
+              .filter(item => item.pole === "MountainPeak")
+              .map(item => item.typeDefinitionId),
             diagnostics: qualified ? ["One signature was unavailable."] : []
           }],
           failure: null,
@@ -2029,6 +2035,101 @@ async function installFacades(
           file.replace(/\\.dll$/i, ""),
           typeDefinitionId,
           file,
+          { status: "Selected", targetFramework: framework, message: null },
+          {
+            kind: "platform",
+            packageId: null,
+            packageVersion: null,
+            framework,
+            frameworkVersion: version,
+            runtimeIdentifier: null,
+            assetPath: null,
+            resolverSource: pack,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      function typeMethodLeverage(
+        subjectName,
+        typeDefinitionId,
+        compileLibrary,
+        provenance
+      ) {
+        return {
+          schemaVersion: 1,
+          outcome: "available",
+          subject: {
+            identity: {
+              name: subjectName,
+              version: "1.0.0.0",
+              culture: null,
+              publicKeyToken: null
+            },
+            moduleVersionId: "11111111-1111-1111-1111-111111111111",
+            provenance
+          },
+          content: {
+            typeDefinitionId,
+            methodCount: 0,
+            winnerCount: 0,
+            winningRank: null,
+            anchoredWinners: [],
+            analysisDiagnostics: [],
+            apiSurfaceInspectionFailures: []
+          },
+          failure: null,
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "type-method-leverage/share",
+            reason: "Fixture projection."
+          },
+          diagnostics: [],
+          compileLibrary
+        };
+      }
+      export async function queryPackageTypeMethodLeverage(
+        id,
+        version,
+        framework,
+        asset,
+        typeDefinitionId
+      ) {
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return typeMethodLeverage(
+          selected.name,
+          typeDefinitionId,
+          surface.compileLibrary,
+          {
+            kind: "package",
+            packageId: id,
+            packageVersion: version,
+            framework,
+            frameworkVersion: null,
+            runtimeIdentifier: null,
+            assetPath: selected.asset,
+            resolverSource: null,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      export async function queryPlatformTypeMethodLeverage(
+        framework,
+        version,
+        file,
+        pack,
+        typeDefinitionId
+      ) {
+        return typeMethodLeverage(
+          file.replace(/\\.dll$/i, ""),
+          typeDefinitionId,
           { status: "Selected", targetFramework: framework, message: null },
           {
             kind: "platform",
