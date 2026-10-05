@@ -52,25 +52,8 @@ public static class TypeMemberGroupPopulationInspectionOperation
 
             int startOrdinal =
                 rows?.Continuation?.NextOrdinal ?? 0;
-            var metadataRequest =
-                new MetadataTypeMemberGroupPopulationRequest(
-                    request.Plan.Type,
-                    Spelling(query.Spelling),
-                    query.IncludeHidden,
-                    Accessibility(query.Accessibility),
-                    Receiver(query.Receiver),
-                    query.Terminal
-                            is QuerySpaceTerminalRequirement.Count
-                        ? new MetadataTypeMemberGroupCountRequest()
-                        : null,
-                    rows is null
-                        ? null
-                        : new(
-                            rows.MaximumRows,
-                            startOrdinal,
-                            query.IncludesExactMemberCount),
-                    query.IncludesComposition,
-                    query.IncludesSelectorCounts);
+            MetadataTypeMemberGroupPopulationRequest metadataRequest =
+                CreateMetadataRequest(request.Plan, startOrdinal);
             LibraryTypeMemberGroupPopulationInspectionOutcome source =
                 LibraryTypeMemberGroupPopulationInspection.Execute(
                     new(
@@ -168,24 +151,43 @@ public static class TypeMemberGroupPopulationInspectionOperation
         LibraryTypeMemberGroupPopulationCorrespondence correspondence,
         TypeMemberGroupPopulationInspectionRequest request,
         int startOrdinal) =>
-        correspondence.Population switch
+        Envelope(
+            ProjectPopulation(
+                correspondence.AssemblyIdentity,
+                correspondence.ModuleVersionId,
+                correspondence.AssemblyBytes,
+                correspondence.Population,
+                request.Plan,
+                startOrdinal));
+
+    internal static TypeMemberGroupPopulationInspectionOutcome
+        ProjectPopulation(
+            AssemblyReferenceIdentity assemblyIdentity,
+            Guid moduleVersionId,
+            int assemblyBytes,
+            MetadataTypeMemberGroupPopulationOutcome population,
+            TypeMemberGroupPopulationInspectionPlan plan,
+            int startOrdinal) =>
+        population switch
         {
             MetadataTypeMemberGroupPopulationOutcome.Available available =>
-                Available(
-                    correspondence,
-                    request,
+                AvailableOutcome(
+                    assemblyIdentity,
+                    moduleVersionId,
+                    assemblyBytes,
+                    plan,
                     available.Population,
                     startOrdinal),
             MetadataTypeMemberGroupPopulationOutcome.TypeNotFound =>
-                Rejected(
+                new TypeMemberGroupPopulationInspectionOutcome.Rejected(
                     TypeMemberGroupPopulationInspectionRejection
                         .TypeNotFound),
             MetadataTypeMemberGroupPopulationOutcome.TypeAmbiguous =>
-                Rejected(
+                new TypeMemberGroupPopulationInspectionOutcome.Rejected(
                     TypeMemberGroupPopulationInspectionRejection
                         .TypeAmbiguous),
             MetadataTypeMemberGroupPopulationOutcome.Incomplete incomplete =>
-                Incomplete(
+                new TypeMemberGroupPopulationInspectionOutcome.Incomplete(
                     incomplete.Bound switch
                     {
                         MetadataTypeMemberGroupPopulationBound
@@ -199,27 +201,29 @@ public static class TypeMemberGroupPopulationInspectionOperation
                     incomplete.Limit,
                     incomplete.Measured),
             MetadataTypeMemberGroupPopulationOutcome.Failed =>
-                Failed(
+                new TypeMemberGroupPopulationInspectionOutcome.Failed(
                     TypeMemberGroupPopulationInspectionFailure
                         .MalformedMetadata),
             _ => throw new InvalidOperationException(
                 "Unknown Metadata Type Member-group outcome."),
         };
 
-    private static InspectionEnvelope<
-        TypeMemberGroupPopulationInspectionOutcome> Available(
-        LibraryTypeMemberGroupPopulationCorrespondence correspondence,
-        TypeMemberGroupPopulationInspectionRequest request,
+    private static TypeMemberGroupPopulationInspectionOutcome
+        AvailableOutcome(
+        AssemblyReferenceIdentity assemblyIdentity,
+        Guid moduleVersionId,
+        int assemblyBytes,
+        TypeMemberGroupPopulationInspectionPlan plan,
         MetadataTypeMemberGroupPopulation population,
         int startOrdinal)
     {
         TypeMemberGroupPopulationExecutionPlan query =
-            request.Plan.Query;
+            plan.Query;
         LibraryAssemblyIdentity assembly =
-            PortableIdentity(correspondence.AssemblyIdentity);
+            PortableIdentity(assemblyIdentity);
         var binding = new TypeMemberGroupPopulationBinding(
             assembly,
-            correspondence.ModuleVersionId,
+            moduleVersionId,
             population.Binding.Type,
             population.Binding.TypeDefinitionToken,
             query.Spelling,
@@ -227,11 +231,11 @@ public static class TypeMemberGroupPopulationInspectionOperation
             query.Accessibility,
             query.Receiver,
             query.Ordering);
-        if (request.Plan.Members.Rows?.Continuation is { } continuation
+        if (plan.Members.Rows?.Continuation is { } continuation
             && continuation.Binding.TypeDefinitionToken
                 != binding.TypeDefinitionToken)
         {
-            return Rejected(
+            return new TypeMemberGroupPopulationInspectionOutcome.Rejected(
                 TypeMemberGroupPopulationInspectionRejection
                     .StaleContinuation);
         }
@@ -250,9 +254,9 @@ public static class TypeMemberGroupPopulationInspectionOperation
                     ?? throw new InvalidOperationException(
                         "The Metadata Type Member-group Rows were not returned."),
                     binding,
-                    request.Plan.Members.Rows!,
+                    plan.Members.Rows!,
                     startOrdinal,
-                    request.Plan.Bounds.MaxRetainedTextCharacters)
+                    plan.Bounds.MaxRetainedTextCharacters)
                 : null;
         TypeMemberCompositionCount? composition =
             !query.IncludesComposition
@@ -269,18 +273,46 @@ public static class TypeMemberGroupPopulationInspectionOperation
                     ?? throw new InvalidOperationException(
                         "The Metadata Type Member selector Counts were not returned."));
 
-        return Envelope(
-            new TypeMemberGroupPopulationInspectionOutcome.Available(
+        return new TypeMemberGroupPopulationInspectionOutcome.Available(
+            new(
+                assembly,
+                plan.Type,
                 new(
-                    assembly,
-                    request.Plan.Type,
-                    new(
-                        binding,
-                        count,
-                        rows,
-                        composition,
-                        selectorCounts),
-                    correspondence.AssemblyBytes)));
+                    binding,
+                    count,
+                    rows,
+                    composition,
+                    selectorCounts),
+                assemblyBytes));
+    }
+
+    internal static MetadataTypeMemberGroupPopulationRequest
+        CreateMetadataRequest(
+            TypeMemberGroupPopulationInspectionPlan plan,
+            int startOrdinal)
+    {
+        TypeMemberGroupPopulationExecutionPlan query = plan.Query;
+        TypeMemberGroupRowsRequest? rows =
+            query.Terminal is QuerySpaceTerminalRequirement.Rows
+                ? plan.Members.Rows
+                : null;
+        return new(
+            plan.Type,
+            Spelling(query.Spelling),
+            query.IncludeHidden,
+            Accessibility(query.Accessibility),
+            Receiver(query.Receiver),
+            query.Terminal is QuerySpaceTerminalRequirement.Count
+                ? new MetadataTypeMemberGroupCountRequest()
+                : null,
+            rows is null
+                ? null
+                : new(
+                    rows.MaximumRows,
+                    startOrdinal,
+                    query.IncludesExactMemberCount),
+            query.IncludesComposition,
+            query.IncludesSelectorCounts);
     }
 
     private static TypeMemberGroupRowsOutcome Rows(
@@ -359,7 +391,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 counts.Traits.Interface,
                 counts.Traits.Extensions));
 
-    private static bool IsCompatible(
+    internal static bool IsCompatible(
         TypeMemberGroupContinuation continuation,
         AssemblyReferenceIdentity assembly,
         MetadataTypeDefinitionName type,
@@ -529,7 +561,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 SharePath,
                 ShareReason));
 
-    private static LibraryAssemblyIdentity PortableIdentity(
+    internal static LibraryAssemblyIdentity PortableIdentity(
         AssemblyReferenceIdentity identity) =>
         new(
             Field(identity.Name),

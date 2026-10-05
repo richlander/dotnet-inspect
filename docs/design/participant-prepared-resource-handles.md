@@ -10,8 +10,8 @@
 
 This document defines the target boundary. The raw producer-facing lifetime
 surfaces remain until the staged adoptions in
-[#9322](https://github.com/richlander/dotnet-inspect/issues/9322) and
-[#9321](https://github.com/richlander/dotnet-inspect/issues/9321) complete.
+[#9321](https://github.com/richlander/dotnet-inspect/issues/9321) and
+[#9322](https://github.com/richlander/dotnet-inspect/issues/9322) complete.
 
 ## Question
 
@@ -192,10 +192,10 @@ and that no settled outcome can publish after participant cleanup.
 The pattern rollout is three independently mergeable slices: this design, then
 the two implementation stages:
 
-1. [#9322](https://github.com/richlander/dotnet-inspect/issues/9322)
+1. [#9321](https://github.com/richlander/dotnet-inspect/issues/9321)
    adds the typed handle and direct gates while migrating the declared-Method
    producer as the bounded first adopter;
-2. [#9321](https://github.com/richlander/dotnet-inspect/issues/9321)
+2. [#9322](https://github.com/richlander/dotnet-inspect/issues/9322)
    migrates the hierarchy-index producer and makes the raw
    participant-resource registration, borrowing, and retirement surfaces
    inaccessible to producers.

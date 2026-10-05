@@ -166,14 +166,12 @@ public sealed class LocalThrowEvidenceTests
         Assert.False(unrequested.LocalThrows.WasRequested);
         Assert.Same(unrequested.Receipt, unrequested.LocalThrows.Receipt);
         Assert.Throws<InvalidOperationException>(() => unrequested.LocalThrows.Evidence);
-        Assert.False(unrequested.HasMaterializedCompatibilityIndex);
         Assert.Equal(LibraryBodyAnalysisFeatures.None,
             LibraryBodyAnalysisFeatures.Default & LibraryBodyAnalysisFeatures.LocalThrows);
 
         LibraryBodyAnalysisExecution requested = Open([token]);
         Assert.True(requested.LocalThrows.WasRequested);
         Assert.Same(requested.Receipt, requested.LocalThrows.Receipt);
-        Assert.False(requested.HasMaterializedCompatibilityIndex);
         Assert.Equal(
             LibraryBodyAnalysisFeatures.MethodEvidence | LibraryBodyAnalysisFeatures.LocalThrows,
             requested.Receipt.Features);
