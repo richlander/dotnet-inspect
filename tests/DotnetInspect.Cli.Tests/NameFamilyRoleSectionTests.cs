@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 
 using ILInspector.Research.NameFamilyFixtures;
@@ -134,6 +135,30 @@ public sealed class NameFamilyRoleSectionTests
         Assert.Contains(
             $"| {roleSection} | {expectedCount} |",
             result.Output);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.NameFamilyRoles)]
+    [InlineData(SectionNames.NameFamilyRoleTypes)]
+    public async Task MultiSectionCount_AppliesSharedRowWindow(
+        string roleSection)
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName = FixturePath,
+                IncludeSections =
+                [
+                    roleSection,
+                    SectionNames.References,
+                ],
+                Count = true,
+                Rows = RowWindow.Range(2, 3),
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains($"| {roleSection} | 2 |", result.Output);
     }
 
     [Fact]

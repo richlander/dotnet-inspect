@@ -1442,7 +1442,8 @@ public static class OutputFormatter
         ApplyNameFamilyRoleCounts(
             projection,
             inspection,
-            writerOptions.IncludeSections);
+            writerOptions.IncludeSections,
+            rows);
         ApplyPerformanceCounts(
             projection,
             inspection,
@@ -1458,7 +1459,8 @@ public static class OutputFormatter
     internal static void ApplyNameFamilyRoleCounts(
         CountProjection projection,
         LibraryInspection inspection,
-        IReadOnlyCollection<string>? includedSections)
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows)
     {
         if (includedSections is null
             || inspection.FamilyRoleQueryResult
@@ -1472,14 +1474,14 @@ public static class OutputFormatter
         {
             projection.SetRows(
                 SectionNames.NameFamilyRoles,
-                count);
+                WindowedCount(count, rows));
         }
         else if (includedSections.Contains(
                      SectionNames.NameFamilyRoleTypes))
         {
             projection.SetRows(
                 SectionNames.NameFamilyRoleTypes,
-                count);
+                WindowedCount(count, rows));
         }
     }
 
@@ -1510,14 +1512,14 @@ public static class OutputFormatter
         {
             projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
         }
+    }
 
-        static int WindowedCount(int count, RowWindow? rows)
-        {
-            if (rows is not { IsUnlimited: false } window)
-                return count;
-            (int keepStart, int keepEnd) = window.Resolve(count);
-            return keepEnd - keepStart;
-        }
+    private static int WindowedCount(int count, RowWindow? rows)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return count;
+        (int keepStart, int keepEnd) = window.Resolve(count);
+        return keepEnd - keepStart;
     }
 
     internal static void ApplyPerformanceCounts(
