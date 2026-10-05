@@ -218,6 +218,19 @@ test("a scan still running shows available rows and a visible pending state", ()
   assert.match(html, /The integration scan is still running/);
 });
 
+test("a failed source remains visible while the other source is still scanning", () => {
+  const html = render({
+    integrationsData: null,
+    integrationsError: "Detected query unavailable.",
+    suggestionsData: null,
+    suggestionsLoading: true,
+  });
+
+  assert.match(html, /Scanning integrations/);
+  assert.match(html, /Part of the integration scan failed/);
+  assert.match(html, /Detected integrations: Detected query unavailable/);
+});
+
 test("platform selection stays outside the shared scroller", () => {
   const pickerHtml =
     '<select class="scope-select platform-library-select" data-platform-analysis-library aria-label="Select a platform library"><option>Example.Core</option></select>';

@@ -59,7 +59,10 @@ export function renderLibraryIntegrationsSurface(options: LibraryIntegrationsOpt
     content = `<section class="document-section empty-document"><span class="large-glyph">&#x25C8;</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to find detected and suggested ecosystem integrations.</p></section>`;
   } else if (!integrations && !suggestions && loading) {
     status = "Scanning integrations\u2026";
-    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations&hellip;</h2><p>Reading the public surface of ${escapeHtml(libraryName)} for detected and suggested ecosystem integrations.</p></section>`;
+    const warning = errors.length
+      ? `<section class="document-section metadata-warning"><strong>&#x26A0; Part of the integration scan failed</strong><ul>${errors.map(error => `<li><code>${escapeHtml(error)}</code></li>`).join("")}</ul></section>`
+      : "";
+    content = `${warning}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations&hellip;</h2><p>Reading the public surface of ${escapeHtml(libraryName)} for detected and suggested ecosystem integrations.</p></section>`;
   } else if (!integrations && !suggestions && errors.length) {
     status = "Scan failed";
     content = `<section class="document-section empty-document"><span class="large-glyph">&#x25C8;</span><h2>Integration scan failed</h2><ul>${errors.map(error => `<li>${escapeHtml(error)}</li>`).join("")}</ul></section>`;
