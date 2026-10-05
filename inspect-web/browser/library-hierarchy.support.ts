@@ -3793,6 +3793,7 @@ async function installLibraryUploadFacades(
   libraryUpload: LibraryUploadFixture,
   packageLoading: PackageLoadingFixture = {},
   model: BrowserPackageSurface = surface,
+  diagnostics: DiagnosticsFixture = {},
 ) {
   await installFacades(
     page,
@@ -3804,7 +3805,7 @@ async function installLibraryUploadFacades(
     "ready",
     "ready",
     undefined,
-    {},
+    diagnostics,
     packageLoading,
     [],
     libraryUpload,

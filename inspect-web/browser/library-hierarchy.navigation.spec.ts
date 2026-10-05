@@ -910,6 +910,52 @@ test("owner-issued private rows open exact Member documents without public-surfa
   ]);
 });
 
+test("owner-issued virtual rows remain selectable without resident enrichment", async ({
+  page,
+}) => {
+  const publicRun = {
+    ...run,
+    metadataToken: 0x06000001,
+    declarationMetadataToken: 0x06000001,
+  };
+  const virtualRun = {
+    ...run,
+    signature: "public virtual void Run(int value)",
+    isVirtual: true,
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "Run:virtual",
+    anchorDigest: "widget-run-virtual",
+    canonicalSignature: "void Example.Widget.Run(int value)",
+    graphSelectorKey: "Run:virtual",
+  };
+  const widget = {
+    ...type("Example.Widget", core),
+    api: [publicRun],
+    documentMembers: [publicRun, virtualRun],
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [widget],
+    totalMembers: 2,
+  });
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]').click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("[data-member-trait-filter]").selectOption("virtual");
+  await page.locator('[data-member="method:Run"]').click();
+
+  const exactRow = page.locator("[data-member-document-ordinal]");
+  await expect(exactRow).toHaveCount(1);
+  await expect(exactRow).toContainText("virtual void Run(int value)");
+  await exactRow.click();
+  await expect(page.locator(".member-surface"))
+    .toContainText("owner-issued exact declaration");
+});
+
 test("filtered non-public groups reuse complete resident exact rows when the group query fails", async ({
   page,
 }) => {

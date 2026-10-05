@@ -535,6 +535,51 @@ test("uploaded Library private property opens from a nonresident exact row", asy
   );
 });
 
+test("uploaded resident members wait for Type document authority", async ({
+  page,
+}) => {
+  const widget = surface.types.find(
+    candidate => candidate.definitionId === "Example.Widget",
+  );
+  if (!widget) throw new Error("The upload fixture has no Widget Type.");
+  const uploadedSurface = {
+    ...surface,
+    types: [{
+      ...widget,
+      api: [run],
+    }],
+  };
+  await installLibraryUploadFacades(
+    page,
+    "available",
+    {},
+    uploadedSurface,
+    { deferTypeMemberPopulation: true },
+  );
+  await page.goto(root);
+  await waitForExamplePackageReady(page);
+
+  await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    `#type-list [data-type="${widget.id}"]`,
+  ).click();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-uploaded-type-member-population-request",
+    /"Example.Widget","csharp","public"\]$/,
+  );
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(0);
+  await expect(page.locator("#inspector-panel .empty-list"))
+    .toHaveText("Loading member population…");
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(1);
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Run");
+});
+
 test("uploaded Library private method family renders private exact rows", async ({
     page,
 }) => {

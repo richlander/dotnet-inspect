@@ -6848,6 +6848,9 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   if (!loadedMemberDeclarationsApplyToSelection()) {
     return [];
   }
+  if (uploadedLibraryIsActive()) {
+    return [];
+  }
   const { publicMembers } = partitionGraphMembers(type.api);
   const groups = searchableMemberGroups(groupMembers(publicMembers));
   if (state.typeMemberPopulationError
@@ -12895,7 +12898,8 @@ function renderDeferredMemberGroup(
       }
       return memberDocumentRowMatchesTrait(
         row,
-        state.memberTraitFilter);
+        state.memberTraitFilter,
+      );
     });
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
