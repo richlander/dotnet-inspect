@@ -696,13 +696,12 @@ internal struct MethodDefinitionUnit(
         MethodDefinitionTerminalWorkBudget terminalWork)
     {
         _requestSourceCoverage?.RecordBodyAttempted(MethodHandle);
-        terminalWork.RequireBodyCapacity(
-            MetadataTokens.GetToken(MethodHandle));
+        terminalWork.RequireBodyCapacity(MethodHandle);
         if (_body is not null)
         {
             _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
             terminalWork.Admit(
-                MetadataTokens.GetToken(MethodHandle),
+                MethodHandle,
                 _body.GetILReader().Length);
             return _body;
         }
@@ -714,7 +713,7 @@ internal struct MethodDefinitionUnit(
         _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
         _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
         terminalWork.Admit(
-            MetadataTokens.GetToken(MethodHandle),
+            MethodHandle,
             body.GetILReader().Length);
         return body;
     }

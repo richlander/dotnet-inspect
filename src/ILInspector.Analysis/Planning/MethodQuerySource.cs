@@ -1433,6 +1433,22 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
     int _lastRow;
     int _count;
 
+    public int Count => _count;
+
+    public bool Contains(MethodDefinitionHandle handle)
+    {
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (_unorderedRows is not null)
+            return _unorderedRows.Contains(row);
+        if (_count == 0 || row > _lastRow)
+            return false;
+        if (row == _lastRow)
+            return true;
+
+        MoveToUnordered();
+        return _unorderedRows!.Contains(row);
+    }
+
     public void Add(MethodDefinitionHandle handle)
     {
         int row = MetadataTokens.GetRowNumber(handle);
@@ -1455,7 +1471,9 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
             return;
         if (row < _lastRow)
         {
-            MoveToUnordered(row);
+            MoveToUnordered();
+            if (_unorderedRows!.Add(row))
+                _count++;
             return;
         }
 
@@ -1507,7 +1525,7 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
             ranges.ToImmutable());
     }
 
-    void MoveToUnordered(int row)
+    void MoveToUnordered()
     {
         var rows = new HashSet<int>(_count + 1);
         if (_completedRanges is not null)
@@ -1519,7 +1537,6 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
             }
         }
         AddRange(rows, CurrentRange());
-        rows.Add(row);
         _unorderedRows = rows;
         _count = rows.Count;
     }

@@ -396,6 +396,57 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void TerminalWorkBudget_OrderedAdmissionsUseCompactRetention()
+    {
+        const int MethodCount = 10_000;
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: MethodCount,
+            maximumEncodedIlBytes: long.MaxValue);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var budget = new MethodDefinitionTerminalWorkBudget(limits);
+        for (int row = 1; row <= MethodCount; row++)
+        {
+            MethodDefinitionHandle method =
+                MetadataTokens.MethodDefinitionHandle(row);
+            budget.RequireBodyCapacity(method);
+            budget.Admit(method, encodedIlBytes: 1);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        MethodDefinitionTerminalWorkCoverage coverage = budget.Build();
+        Assert.Equal(MethodCount, coverage.BodiesAdmitted);
+        Assert.Equal(MethodCount, coverage.EncodedIlBytes);
+        Assert.True(
+            allocated < 4_096,
+            $"Ordered terminal admission allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void TerminalWorkBudget_MultipassRevisitIsNotChargedTwice()
+    {
+        var budget = new MethodDefinitionTerminalWorkBudget(
+            new MethodDefinitionTerminalWorkLimits(
+                maximumBodies: 2,
+                maximumEncodedIlBytes: 2));
+        MethodDefinitionHandle first =
+            MetadataTokens.MethodDefinitionHandle(1);
+        MethodDefinitionHandle second =
+            MetadataTokens.MethodDefinitionHandle(2);
+
+        budget.Admit(first, encodedIlBytes: 1);
+        budget.Admit(second, encodedIlBytes: 1);
+        budget.RequireBodyCapacity(first);
+        budget.Admit(first, encodedIlBytes: 1);
+
+        MethodDefinitionTerminalWorkCoverage coverage = budget.Build();
+        Assert.Equal(2, coverage.BodiesAdmitted);
+        Assert.Equal(2, coverage.EncodedIlBytes);
+        Assert.Null(coverage.ReachedLimit);
+    }
+
+    [Fact]
     public void Execute_SourceFailureAffectsOnlyRequestsInFailedTypeScope()
     {
         ImmutableArray<byte> image =

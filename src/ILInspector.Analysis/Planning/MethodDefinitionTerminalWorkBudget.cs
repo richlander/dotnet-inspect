@@ -1,9 +1,12 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+
 namespace ILInspector.Analysis.Planning;
 
 internal sealed class MethodDefinitionTerminalWorkBudget
 {
     readonly MethodDefinitionTerminalWorkLimits _limits;
-    readonly HashSet<int> _admittedMethods = [];
+    readonly MethodDefinitionHandleCoverageBuilder _admittedMethods = new();
     long _encodedIlBytes;
     MethodDefinitionTerminalWorkLimitKind? _reachedLimit;
     int? _reachedAtMethodToken;
@@ -12,34 +15,37 @@ internal sealed class MethodDefinitionTerminalWorkBudget
         MethodDefinitionTerminalWorkLimits limits) =>
         _limits = limits;
 
-    internal void RequireBodyCapacity(int methodToken)
+    internal void RequireBodyCapacity(
+        MethodDefinitionHandle method)
     {
-        if (_admittedMethods.Contains(methodToken))
+        if (_admittedMethods.Contains(method))
             return;
         if (_admittedMethods.Count >= _limits.MaximumBodies)
         {
             ReachLimit(
-                methodToken,
+                MetadataTokens.GetToken(method),
                 MethodDefinitionTerminalWorkLimitKind.Bodies);
         }
     }
 
-    internal void Admit(int methodToken, int encodedIlBytes)
+    internal void Admit(
+        MethodDefinitionHandle method,
+        int encodedIlBytes)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(encodedIlBytes);
-        if (_admittedMethods.Contains(methodToken))
+        if (_admittedMethods.Contains(method))
             return;
 
-        RequireBodyCapacity(methodToken);
+        RequireBodyCapacity(method);
 
         if (encodedIlBytes > _limits.MaximumEncodedIlBytes - _encodedIlBytes)
         {
             ReachLimit(
-                methodToken,
+                MetadataTokens.GetToken(method),
                 MethodDefinitionTerminalWorkLimitKind.EncodedIlBytes);
         }
 
-        _admittedMethods.Add(methodToken);
+        _admittedMethods.Add(method);
         _encodedIlBytes += encodedIlBytes;
     }
 

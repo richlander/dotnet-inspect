@@ -426,6 +426,12 @@ source-support work. A critical safety bound aborts under Producer Planning's
 critical-failure contract. A consumer-selected completeness bound publishes
 source incomplete.
 
+Terminal body admission retains normalized ordered ranges during forward
+traversal rather than one identity per MethodDef. A multipass request may
+revisit an earlier MethodDef, so admission materializes unordered membership
+only at that transition to preserve distinct-MethodDef body and byte
+accounting.
+
 Cancellation is optional operation policy. It is observed before source
 binding and at physical-unit boundaries, never inside a producer visit or
 decoder. A settled terminal remains settled; unsettled requests publish
@@ -557,6 +563,8 @@ Terminal work bounds are gated in Release:
 - `Execute_TerminalBodyBoundIsLaneLocal`
 - `Execute_TerminalBodyBoundInCountKernelIsSourceIncomplete`
 - `Execute_TerminalEncodedIlByteBoundPublishesPartialWork`
+- `TerminalWorkBudget_OrderedAdmissionsUseCompactRetention`
+- `TerminalWorkBudget_MultipassRevisitIsNotChargedTwice`
 
 The first production adoption is gated in Release:
 
