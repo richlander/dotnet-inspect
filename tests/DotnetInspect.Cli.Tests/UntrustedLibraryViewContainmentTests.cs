@@ -1280,7 +1280,7 @@ public class UntrustedDeclarationSpellingContainmentTests : IDisposable
     {
         // A finalizer is protected, so it renders in the complete population.
         var (_, output, error) = await HostileCli.RunAsync(
-            "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--tree", "--all");
+            "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "-v:n", "--all");
 
         var combined = output + "\n" + error;
         // The finalizer node spells `~Bad<hazard>INJECTEDCTOR()`, so the marker
