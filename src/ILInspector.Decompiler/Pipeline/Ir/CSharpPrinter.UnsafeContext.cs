@@ -58,14 +58,6 @@ public sealed partial class CSharpPrinter
         return end;
     }
 
-    void AppendStatementLabel(StringBuilder sb, IrNode statement, int indent)
-    {
-        if (statement.OwnsSourceLabel
-            && statement.SourceOffset >= 0
-            && _labelTargets.Contains(statement.SourceOffset))
-            AppendLabel(sb, new string(' ', indent * 4), statement.SourceOffset);
-    }
-
     /// <summary>
     /// Whether a statement must itself sit in an unsafe context. For a compound
     /// statement only its own header expressions are considered — the body is a

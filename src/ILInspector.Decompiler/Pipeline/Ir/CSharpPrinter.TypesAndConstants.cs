@@ -14,6 +14,8 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Conversions and casts, enum switch labels, constant literals, and type text.
+/// The conversion checks (IsCheckedSensitiveConversion,
+/// NeedsCastOperandParentheses) are spelling rules over decided Convert nodes.
 /// </summary>
 public sealed partial class CSharpPrinter
 {

@@ -14,7 +14,8 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Statement emission: containers, labels, statement cores, statement layout,
-/// and spacing. Spelling of decided structure; no semantic decision lives here.
+/// spacing, constructor chains, and assignment statements. Spelling of decided
+/// structure; none of the #2095 decision classes lives here.
 /// </summary>
 public sealed partial class CSharpPrinter
 {
@@ -1254,6 +1255,14 @@ public sealed partial class CSharpPrinter
         public bool PreviousCompletedConditional { get; set; }
         public int ConsecutiveSetupStatements { get; set; }
         public int EmittedStatements { get; set; }
+    }
+
+    void AppendStatementLabel(StringBuilder sb, IrNode statement, int indent)
+    {
+        if (statement.OwnsSourceLabel
+            && statement.SourceOffset >= 0
+            && _labelTargets.Contains(statement.SourceOffset))
+            AppendLabel(sb, new string(' ', indent * 4), statement.SourceOffset);
     }
 
     /// <summary>
