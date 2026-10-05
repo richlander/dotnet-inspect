@@ -17,6 +17,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
+using DotnetInspect.Web.Interop.Metadata;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
@@ -1485,6 +1486,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 JsonDocument.Parse(populationJson);
             JsonElement population = populationDocument.RootElement
                 .GetProperty("population");
+            Assert.Equal(
+                nameof(BrowserTypeMemberDeclarationSource.Implementation),
+                population.GetProperty("declarationSource").GetString());
             JsonElement privateMethod = Assert.Single(
                 population.GetProperty("groups").EnumerateArray(),
                 group =>

@@ -5210,7 +5210,7 @@ function selectedType() {
   return state.package.types.find(item =>
       item.id === state.selectedTypeId && withinLibrary(item))
     || filteredTypes()[0]
-    || state.package.types.find(withinLibrary)
+    || state.package.types.find(item => !item.graphOnly && withinLibrary(item))
     || null;
 }
 
@@ -5218,7 +5218,8 @@ function filteredTypes() {
   if (!state.package) return [];
   const needle = state.typeFilter.toLowerCase();
   return state.package.types.filter(item => {
-    return typeMatchesFilterText(item, needle)
+    return !item.graphOnly
+      && typeMatchesFilterText(item, needle)
       && (selectedNamespaceFilter() === null
         || item.namespace === selectedNamespaceFilter())
       && (!state.kindFilter || item.kindFacetId === state.kindFilter)
@@ -5635,7 +5636,8 @@ async function activatePlatformForwarder(row: BrowserPlatformForwarderRow) {
 function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
   if (!pkg) return "";
   const visible = pkg.types.find(item =>
-    state.accessibilityFilter.has(item.accessibilityId)
+    !item.graphOnly
+    && state.accessibilityFilter.has(item.accessibilityId)
     && (!state.libraryScope || state.libraryScope.has(libraryKey(item))));
   if (visible) return visible.id;
   // No type within the active library scope passes the current accessibility filter -- e.g.
@@ -5645,10 +5647,11 @@ function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
   // select its exact bucket without losing the library scope that was the actual target.
   const libraryScope = state.libraryScope;
   if (libraryScope) {
-    const scoped = pkg.types.find(item => libraryScope.has(libraryKey(item)));
+    const scoped = pkg.types.find(item =>
+      !item.graphOnly && libraryScope.has(libraryKey(item)));
     return scoped?.id || "";
   }
-  return pkg.types[0]?.id || "";
+  return pkg.types.find(item => !item.graphOnly)?.id || "";
 }
 
 // Reconcile state.accessibilityFilter, if necessary, so it admits the given type. Every
@@ -5724,7 +5727,8 @@ function aggregateTypeLibraryLabels() {
 
   const firstLibraryByDefinition = new Map<string, string>();
   const collidingDefinitions = new Set<string>();
-  for (const item of state.package.types) {
+  const ordinaryTypes = state.package.types.filter(item => !item.graphOnly);
+  for (const item of ordinaryTypes) {
     const definition = item.definitionId || item.id;
     const library = libraryKey(item);
     const firstLibrary = firstLibraryByDefinition.get(definition);
@@ -5735,7 +5739,7 @@ function aggregateTypeLibraryLabels() {
   }
 
   const libraryNames = packageLibraryDisplayLabels();
-  for (const item of state.package.types) {
+  for (const item of ordinaryTypes) {
     if (!collidingDefinitions.has(item.definitionId || item.id)) continue;
     const library = libraryNames.get(libraryKey(item));
     if (library) labels.set(item.id, library);
@@ -6507,7 +6511,8 @@ function typeFilterSummary() {
 
 function typeSelectorDefinitions() {
   const definitions = state.package?.types.filter(item =>
-    !state.libraryScope || state.libraryScope.has(libraryKey(item))) ?? [];
+    !item.graphOnly
+    && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))) ?? [];
   const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
   return { definitions, forwarders };
 }
@@ -11603,6 +11608,7 @@ async function resolvePackagePerformanceTypeForNavigation(
   pkg: AppPackage,
   target: PackagePerformanceTarget,
   expectedView: string,
+  navigationSeq: number,
 ): Promise<AppTypeSurface | null> {
   const existing = resolvePackagePerformanceType(pkg, target);
   if (existing) return existing;
@@ -11620,7 +11626,11 @@ async function resolvePackagePerformanceTypeForNavigation(
     target.memberName,
     target.stableSelector,
     target.metadataToken);
-  if (state.package !== pkg || viewSignature() !== expectedView) return null;
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || state.package !== pkg
+    || viewSignature() !== expectedView) {
+    return null;
+  }
 
   const projected = createAppTypeSurface(projection.type);
   const selected = projected.api.find(member =>
@@ -11643,13 +11653,18 @@ async function resolvePackagePerformanceTypeForNavigation(
 async function drillToPerfMember(
   target: PackagePerformanceTarget,
 ) {
+  const navigationSeq = navigationSequence.begin();
   const pkg = currentPackage();
   const sourceView = viewSignature();
   const targetType = await resolvePackagePerformanceTypeForNavigation(
     pkg,
     target,
-    sourceView);
-  if (!targetType || state.package !== pkg || viewSignature() !== sourceView) {
+    sourceView,
+    navigationSeq);
+  if (!targetType
+    || !navigationSequence.isCurrent(navigationSeq)
+    || state.package !== pkg
+    || viewSignature() !== sourceView) {
     return;
   }
 
@@ -11675,7 +11690,8 @@ async function drillToPerfMember(
       target.stableSelector,
       expectedView,
       expectedPopulationKey,
-      expectedPopulationIntent),
+      expectedPopulationIntent,
+      navigationSeq),
     "Loading the ranked Member");
 }
 
@@ -11684,9 +11700,13 @@ async function selectPerformanceMember(
   expectedView: string,
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
+  navigationSeq: number,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation();
-  if (viewSignature() !== expectedView) return;
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || viewSignature() !== expectedView) {
+    return;
+  }
   const type = selectedType();
   if (!type
     || !populationReceipt
@@ -20787,7 +20807,34 @@ async function loadSelectedMemberDocumentation() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const implementationMember =
+    Boolean(overload.graphOnly)
+    || (state.typeMemberPopulationKey === typeMemberPopulationKey(type)
+      && state.typeMemberPopulation?.outcome === "Available"
+      && state.typeMemberPopulation.population?.declarationSource
+        === "Implementation");
+  const signature = memberRequestKey([
+    memberRequestSignature(type, overload),
+    implementationMember ? "implementation" : "surface",
+  ]);
+  const requestIsCurrent = () => {
+    const currentType = selectedType();
+    const currentMember = selectedMember(currentType);
+    const currentOverload =
+      selectedMemberOverload(currentType, currentMember);
+    if (!currentType || !currentOverload) return false;
+    const currentImplementationMember =
+      Boolean(currentOverload.graphOnly)
+      || (state.typeMemberPopulationKey
+          === typeMemberPopulationKey(currentType)
+        && state.typeMemberPopulation?.outcome === "Available"
+        && state.typeMemberPopulation.population?.declarationSource
+          === "Implementation");
+    return memberRequestKey([
+      memberRequestSignature(currentType, currentOverload),
+      currentImplementationMember ? "implementation" : "surface",
+    ]) === signature;
+  };
   const pkg = currentPackage();
   const platformCoordinates = pkg.isRuntimePack
     ? (() => {
@@ -20810,7 +20857,7 @@ async function loadSelectedMemberDocumentation() {
       platformPack,
       overload,
       isRuntimePack: Boolean(state.package?.isRuntimePack),
-      isCurrent: () => memberRequestIsCurrent(signature),
+      isCurrent: requestIsCurrent,
     }),
     memberDetailInspection.loadDeclaration({
       signature,
@@ -20825,8 +20872,8 @@ async function loadSelectedMemberDocumentation() {
       selectorKey: overload.graphSelectorKey,
       metadataToken:
         overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
-      implementationMember: Boolean(overload.graphOnly),
-      isCurrent: () => memberRequestIsCurrent(signature),
+      implementationMember,
+      isCurrent: requestIsCurrent,
     }),
   ]);
 }

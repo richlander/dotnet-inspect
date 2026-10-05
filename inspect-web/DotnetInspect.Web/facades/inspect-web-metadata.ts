@@ -70,6 +70,8 @@ export type BrowserTypeFindActivationStatus = "Available" | "Unavailable" | "Sta
 
 export type BrowserTypeFindResultStatus = "Completed" | "Rejected" | "Unavailable" | "Stale" | number;
 
+export type BrowserTypeMemberDeclarationSource = "Surface" | "Implementation" | number;
+
 export type BrowserTypeMemberPopulationOutcome = "Available" | "Rejected" | "Incomplete" | "Failed" | number;
 
 export type CandidateOpenFailureKind = number;
@@ -661,6 +663,7 @@ export interface BrowserTypeMemberPopulation {
   readonly typeIdentity: string;
   readonly spelling: string;
   readonly accessibility: string;
+  readonly declarationSource: BrowserTypeMemberDeclarationSource;
   readonly composition: BrowserTypeMemberComposition;
   readonly selectorCounts: BrowserTypeMemberSelectorCounts;
   readonly groups: ReadonlyArray<BrowserTypeMemberPopulationGroup>;

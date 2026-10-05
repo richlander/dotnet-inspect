@@ -341,6 +341,10 @@ test("ranked Analysis members replace sticky private intent with all access", as
     "data-implementation-type-member-population-request",
     /"Example.Widget","csharp","all"\]$/,
   );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Transform","Transform",100663299,true\]$/,
+  );
 });
 
 test("ranked Analysis projects an implementation-only Type before following its member", async ({
@@ -371,6 +375,56 @@ test("ranked Analysis projects an implementation-only Type before following its 
   await expect(page.locator("#member-surface-title")).toHaveText("Hidden");
   await expect(page.locator("[data-member-access-filter]"))
     .toHaveValue("all");
+  await expect(page.locator(
+    '#type-list [data-type="asset:core:Example.ImplementationOnly"]',
+  )).toHaveCount(0);
+});
+
+test("newer ranked Analysis navigation supersedes an older pending projection", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "implementation-race",
+    undefined,
+    { deferGraphMemberSurface: true },
+  );
+  await openAnalysis(page);
+
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "FirstOnly.Hidden" })
+    .click();
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "SecondOnly.Hidden" })
+    .click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-graph-member-surface-request",
+    /"Example.SecondOnly","Hidden","Hidden",100663399\]$/,
+  );
+
+  await releaseFacade(
+    page,
+    "finish-graph-member-surface:Example.FirstOnly",
+  );
+  await expect(subjectTab(page, "library"))
+    .toHaveAttribute("aria-selected", "true");
+
+  await releaseFacade(
+    page,
+    "finish-graph-member-surface:Example.SecondOnly",
+  );
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole(
+    "button",
+    { name: "Copy type name Example.SecondOnly", exact: true },
+  )).toBeVisible();
 });
 
 test("ranked Analysis activation does not outlive newer metadata spelling", async ({

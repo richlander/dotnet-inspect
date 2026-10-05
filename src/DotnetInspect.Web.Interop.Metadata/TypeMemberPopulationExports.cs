@@ -128,7 +128,10 @@ public static partial class MetadataExports
                 materialization,
                 typeIdentity,
                 spelling,
-                accessibility)
+                accessibility,
+                role == AssemblyContextLibraryRole.Implementation
+                    ? BrowserTypeMemberDeclarationSource.Implementation
+                    : BrowserTypeMemberDeclarationSource.Surface)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -165,7 +168,8 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     spelling,
-                    accessibility)
+                    accessibility,
+                    BrowserTypeMemberDeclarationSource.Implementation)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -190,7 +194,8 @@ public static partial class MetadataExports
                             .MaterializationLimits),
                     typeIdentity,
                     spelling,
-                    accessibility)
+                    accessibility,
+                    BrowserTypeMemberDeclarationSource.Implementation)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -200,7 +205,8 @@ public static partial class MetadataExports
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
             string spelling,
-            string accessibility)
+            string accessibility,
+            BrowserTypeMemberDeclarationSource declarationSource)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         MetadataTypeMemberPopulationRequest request = new(
@@ -245,12 +251,14 @@ public static partial class MetadataExports
 
         return ProjectTypeMemberPopulation(
             outcome,
+            declarationSource,
             [.. run.CleanupFailures]);
     }
 
     private static BrowserTypeMemberPopulationInspection
         ProjectTypeMemberPopulation(
             LibraryTypeMemberPopulationInspectionOutcome outcome,
+            BrowserTypeMemberDeclarationSource declarationSource,
             string[] diagnostics) =>
         outcome switch
         {
@@ -258,7 +266,10 @@ public static partial class MetadataExports
                 completed.Population switch
                 {
                     MetadataTypeMemberPopulationOutcome.Available available =>
-                        ProjectAvailable(available.Population, diagnostics),
+                        ProjectAvailable(
+                            available.Population,
+                            declarationSource,
+                            diagnostics),
                     MetadataTypeMemberPopulationOutcome.TypeNotFound =>
                         Failed("The exact Type was not found.", diagnostics),
                     MetadataTypeMemberPopulationOutcome.TypeAmbiguous =>
@@ -290,6 +301,7 @@ public static partial class MetadataExports
 
     private static BrowserTypeMemberPopulationInspection ProjectAvailable(
         MetadataTypeMemberPopulation population,
+        BrowserTypeMemberDeclarationSource declarationSource,
         string[] diagnostics)
     {
         MetadataTypeMemberComposition composition = population.Composition;
@@ -300,6 +312,7 @@ public static partial class MetadataExports
                 population.Type.ToEscapedFullName(),
                 population.Spelling.ToString(),
                 population.Accessibility.ToString(),
+                declarationSource,
                 new(
                     composition.Public,
                     composition.Protected,

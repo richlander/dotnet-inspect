@@ -329,10 +329,19 @@ public sealed record BrowserTypeMemberPopulationInspection(
     BrowserTypeMemberPopulation? Population,
     string[] Diagnostics);
 
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserTypeMemberDeclarationSource>))]
+public enum BrowserTypeMemberDeclarationSource
+{
+    Surface,
+    Implementation,
+}
+
 public sealed record BrowserTypeMemberPopulation(
     string TypeIdentity,
     string Spelling,
     string Accessibility,
+    BrowserTypeMemberDeclarationSource DeclarationSource,
     BrowserTypeMemberComposition Composition,
     BrowserTypeMemberSelectorCounts SelectorCounts,
     BrowserTypeMemberPopulationGroup[] Groups);

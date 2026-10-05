@@ -290,6 +290,7 @@ interface DiagnosticsFixture {
   cachePending?: boolean;
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
+  deferGraphMemberSurface?: boolean;
   deferTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
   slowStructuralSalience?: boolean;
@@ -317,7 +318,7 @@ async function installFacades(
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
-  analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" | "implementation-only" = "ready",
+  analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" | "implementation-only" | "implementation-race" = "ready",
   homeDemos?: HomeDemoFixture,
   diagnostics: DiagnosticsFixture = {},
   packageLoading: PackageLoadingFixture = {},
@@ -1346,7 +1347,12 @@ async function installFacades(
             id, version, framework, assembly, typeIdentity, memberName,
             selectorKey, metadataToken, implementationMember,
           ]);
-        const type = surfaceFor(id, version, framework).types.find(item =>
+        const declarationSurface = implementationMember
+          ? implementationSurface(
+              surfaceFor(id, version, framework),
+              typeIdentity)
+          : surfaceFor(id, version, framework);
+        const type = declarationSurface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         const member = type?.api.find(item =>
           item.name === memberName
@@ -1403,8 +1409,8 @@ async function installFacades(
                 name: typeIdentity.split(".").pop(),
                 displayName: typeIdentity.split(".").pop(),
                 namespace: typeIdentity.split(".").slice(0, -1).join("."),
-                accessibility: "internal",
-                accessibilityId: "internal",
+                accessibility: "public",
+                accessibilityId: "public",
                 members: 1,
                 api: [member],
               }
@@ -1425,7 +1431,7 @@ async function installFacades(
           };
       }
       function typeMemberPopulation(
-        surface, typeIdentity, spelling, accessibility) {
+        surface, typeIdentity, spelling, accessibility, declarationSource) {
         function accessibilityBucket(member) {
           const value = member.accessibility || "public";
           if (value === "public") return "public";
@@ -1543,6 +1549,7 @@ async function installFacades(
             typeIdentity: type.queryId,
             spelling,
             accessibility,
+            declarationSource,
             composition,
             selectorCounts,
             groups: [...groups.values()],
@@ -1575,7 +1582,8 @@ async function installFacades(
           surfaceFor(id, version, framework),
           typeIdentity,
           spelling,
-          accessibility);
+          accessibility,
+          "Surface");
       }
       export async function queryImplementationTypeMemberPopulation(
         id, version, framework, assembly, typeIdentity, spelling, accessibility) {
@@ -1591,7 +1599,8 @@ async function installFacades(
             typeIdentity),
           typeIdentity,
           spelling,
-          accessibility);
+          accessibility,
+          "Implementation");
       }
       export async function queryGraphMemberSurface(
         id, version, framework, assembly, typeIdentity, memberName, selector, token) {
@@ -1600,6 +1609,13 @@ async function installFacades(
             id, version, framework, assembly, typeIdentity, memberName,
             selector, token,
           ]);
+        if (${JSON.stringify(diagnostics.deferGraphMemberSurface === true)}) {
+          await new Promise(resolve =>
+            document.addEventListener(
+              "finish-graph-member-surface:" + typeIdentity,
+              resolve,
+              { once: true }));
+        }
         const projected = implementationSurface(
           surfaceFor(id, version, framework),
           typeIdentity);
@@ -1627,7 +1643,8 @@ async function installFacades(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           spelling,
-          accessibility);
+          accessibility,
+          "Implementation");
       }
       export async function queryUploadedLibraryTypeMemberPopulation(
         declaredName, content, typeIdentity, spelling, accessibility) {
@@ -1641,7 +1658,8 @@ async function installFacades(
           surfaces[0],
           typeIdentity,
           spelling,
-          accessibility);
+          accessibility,
+          "Implementation");
       }
       function memberDisplaySignature(member) {
         let signature = member.signature;
@@ -2669,6 +2687,31 @@ async function installFacades(
                 typeId: "Example.ImplementationOnly",
                 bodyTokens: [100663399],
               }]
+            : scenario === "implementation-race"
+              ? [
+                  {
+                    ...member(
+                      "Hidden",
+                      2,
+                      0,
+                      ["stackalloc-candidate"],
+                      "high",
+                      "private"),
+                    typeId: "Example.FirstOnly",
+                    bodyTokens: [100663399],
+                  },
+                  {
+                    ...member(
+                      "Hidden",
+                      1,
+                      0,
+                      ["stackalloc-candidate"],
+                      "high",
+                      "private"),
+                    typeId: "Example.SecondOnly",
+                    bodyTokens: [100663399],
+                  },
+                ]
             : [
                 member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
                 member("Write", 1, 0, ["array-allocation"], "medium"),
