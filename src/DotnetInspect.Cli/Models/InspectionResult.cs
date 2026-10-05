@@ -97,11 +97,12 @@ public class InspectionResult
         EcosystemDependencyRecognitionInspection { get; set; }
 
     /// <summary>
-    /// Presentation-selected ecosystem-dependency pairs. Null retains the
-    /// complete recognized population from the recognition Document.
+    /// Presentation-selected ecosystem-dependency matches. Null retains the
+    /// complete recognized and candidate populations from the recognition
+    /// Document.
     /// </summary>
     [JsonIgnore]
-    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+    public IReadOnlyList<EcosystemDependencyMatchEntry>?
         EcosystemDependencyRows { get; set; }
 
     /// <summary>

@@ -2894,14 +2894,14 @@ public partial class LibraryCommand
         if (intent is null)
             return true;
 
-        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+        IReadOnlyList<EcosystemDependencyMatchEntry> rows =
             inspection.EcosystemDependencyRecognitionInspection?.Content
                 switch
             {
                 EcosystemDependencyRecognitionOutcome.Complete complete =>
-                    complete.Document.Classification.Recognized,
+                    complete.Document.Classification.Matches,
                 EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                    incomplete.Document.Classification.Recognized,
+                    incomplete.Document.Classification.Matches,
                 _ => [],
             };
         if (!CliSemanticRowSelection.TrySelect(
@@ -2914,8 +2914,7 @@ public partial class LibraryCommand
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} "
                     + $"{(failure.Failure.AvailableCount == 1 ? "row is" : "rows are")} available.",
-                out IReadOnlyList<
-                    EcosystemDependencyRecognitionEntry> selected))
+                out IReadOnlyList<EcosystemDependencyMatchEntry> selected))
         {
             return false;
         }
@@ -2972,7 +2971,7 @@ public partial class LibraryCommand
             && result.Content switch
             {
                 EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                    incomplete.Document.Classification.Recognized.IsEmpty,
+                    incomplete.Document.Classification.Matches.IsEmpty,
                 EcosystemDependencyRecognitionOutcome.Unavailable => true,
                 _ => false,
             };

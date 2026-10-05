@@ -48,6 +48,15 @@ Optimization Opportunities queries consume those focused types directly. One
 service invocation may still coordinate several producers over one body
 acquisition; that does not make their answers one semantic type.
 
+The optimization result also owns exact Performance Triage candidate counts
+by kind. A Count-only consumer with no row predicates, ranking stages, or
+allocation-fanout request counts admitted raw and derived candidates directly;
+it does not compute root reach, complete row metadata, Findings provenance, or
+caller-loop evidence. Rows and filtered or ranked Count requests retain the
+completed-row path. The CLI binds the scalar result into the same per-section
+count presentation, so terminal specialization changes physical work rather
+than visible cardinality.
+
 The third migration adds `LibraryLeverageAnalysisResult` for whole-library
 ranking and `LibraryCallGraphAnalysisResult` for detached call evidence, local
 graph derivation, and catalog participation. Library Top Leverage and member
@@ -1500,6 +1509,10 @@ The typed migrations are gated by
 `OptimizationOpportunitiesQueryTests`,
 `UnsafeEvidenceQuery_RecordsFocusedAnalysisWithoutBodyIndex`,
 `OptimizationOpportunitiesQuery_UsesFocusedBodyAnalysis`,
+`OptimizationOpportunitiesQuery_CountUsesScalarResult`,
+`OptimizationOpportunitiesQuery_FilteredCountRetainsRows`,
+`OptimizationOpportunityCounts_MatchCompletedPerformanceRows`,
+`PerformanceCountProjection_UsesAnalysisOwnedKindCounts`,
 `OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn`,
 `ImplementationProfilesQuery_RunsOnlyItsFocusedProducers`, and
 `MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex`. The leverage and

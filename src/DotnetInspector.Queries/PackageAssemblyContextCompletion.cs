@@ -809,6 +809,7 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
 
     readonly object _gate = new();
     readonly PackageAssemblyContextCompletion _completion;
+    readonly ImmutableArray<PackageRootIdentity> _roots;
     readonly PackageAssemblyContextRoleProjection _surfaceRole;
     readonly PackageAssemblyContextRoleProjection? _implementationRole;
     readonly Dictionary<
@@ -832,6 +833,7 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
             AssemblyContextParticipant> sharedCorrespondence)
     {
         _completion = completion;
+        _roots = roots;
         ImmutableArray<PackageAssemblyRoleParticipant> surface =
             Project(surfaceTemplates, roots);
         ImmutableArray<PackageAssemblyRoleParticipant> implementation =
@@ -872,6 +874,9 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
 
     public PackageAssemblyContextRoleProjection SurfaceRole =>
         Use(() => _surfaceRole);
+
+    public ImmutableArray<PackageRootIdentity> Roots =>
+        Use(() => _roots);
 
     public PackageAssemblyContextRoleProjection? ImplementationRole =>
         Use(() => _implementationRole);

@@ -630,14 +630,7 @@ public sealed partial class CSharpPrinter
                 : Rendered.Primary(Operand(right));
 
     static TypeRef? NullableValueType(TypeRef? type)
-        => type is
-        {
-            Kind: TypeRefKind.GenericInstance,
-            ElementType: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" },
-            TypeArguments: [var value],
-        }
-            ? value
-            : null;
+        => CoercionRendering.NullableValueType(type);
 
     string CoalesceLeftText(IrExpression expression)
         => expression is LoadIndirect
