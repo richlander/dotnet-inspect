@@ -163,7 +163,8 @@ acquisition, network path, or platform exception. This owner renders the
 registry rather than extending it.
 
 Pack discovery reuses `PlatformResolver`, which is what every other installed-
-platform path in the CLI uses today. `DotnetInspector.Platforms.Installed` is the
+platform path in the CLI uses today. The `DotnetInspector.Platforms.Local`
+source in `DotnetInspector.PlatformHouse.Local` is the
 newer hardened reader — bounded observation, typed outcomes, an explicit
 Browser/Wasm verdict — and has no production consumer yet. Adopting it is a
 migration for that owner to schedule across the CLI, not something one section

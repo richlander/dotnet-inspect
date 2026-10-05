@@ -10,13 +10,15 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>PlatformHouse adapter for authorized package-backed Platform sources</Description>
+    <Description>Package-backed platform discovery and realization and the PlatformHouse adapter and execution for authorized package sources</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
-    <ProjectReference Include="../DotnetInspector.Platforms.Packages/DotnetInspector.Platforms.Packages.csproj" />
+    <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
+    <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
   </ItemGroup>
 
 </Project>
