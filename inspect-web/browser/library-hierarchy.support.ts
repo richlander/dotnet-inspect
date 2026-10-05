@@ -2616,6 +2616,84 @@ async function installFacades(
           compileLibrary: surface.compileLibrary
         };
       }
+      function dependencyStructureFor() {
+        return {
+          outcome: "available",
+          methodologyVersion: "library-dependency-structure.v1",
+          completeness: "Complete",
+          population: {
+            examinedCallCount: 5,
+            internalCallCount: 5,
+            externalCallCount: 0,
+            unresolvedCallCount: 0,
+            incompleteBodyCount: 0,
+            typeCount: 3,
+            namespaceCount: 3
+          },
+          namespaces: [{
+            namespace: "",
+            isGlobalNamespace: true,
+            typeCount: 1,
+            intraNamespaceRelationshipCount: 0,
+            cycleIndex: null,
+            level: 0
+          }, {
+            namespace: "Example.Core",
+            isGlobalNamespace: false,
+            typeCount: 1,
+            intraNamespaceRelationshipCount: 0,
+            cycleIndex: null,
+            level: 1
+          }, {
+            namespace: "Example.Api",
+            isGlobalNamespace: false,
+            typeCount: 1,
+            intraNamespaceRelationshipCount: 0,
+            cycleIndex: null,
+            level: 2
+          }],
+          namespaceEdges: [{
+            sourceNamespace: "Example.Api",
+            targetNamespace: "Example.Core",
+            counts: { invocations: 4, functionReferences: 0, total: 4 },
+            contributingTypeEdgeCount: 1,
+            explainingTypeEdges: [{
+              sourceTypeKey: "Example.Widget",
+              sourceTypeDisplay: "Example.Widget",
+              targetTypeKey: "Example.Widget",
+              targetTypeDisplay: "Example.Widget",
+              counts: { invocations: 4, functionReferences: 0, total: 4 }
+            }],
+            remainingContributorCount: 0
+          }, {
+            sourceNamespace: "Example.Core",
+            targetNamespace: "",
+            counts: { invocations: 1, functionReferences: 0, total: 1 },
+            contributingTypeEdgeCount: 1,
+            explainingTypeEdges: [{
+              sourceTypeKey: "Example.Widget",
+              sourceTypeDisplay: "Example.Widget",
+              targetTypeKey: "<PrivateImplementationDetails>",
+              targetTypeDisplay: "<PrivateImplementationDetails>",
+              counts: { invocations: 1, functionReferences: 0, total: 1 }
+            }],
+            remainingContributorCount: 0
+          }],
+          totalNamespaceEdgeCount: 2,
+          cycles: [],
+          diagnostics: [],
+          failure: null
+        };
+      }
+      export async function queryPackageLibraryDependencyStructure(
+        id, version, framework, asset
+      ) {
+        document.documentElement.dataset.dependencyStructureRequest = asset;
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return dependencyStructureFor();
+      }
       export async function queryPackagePerformance(id, version, framework, asset) {
         document.documentElement.dataset.analysisRequest = asset;
         const surface = surfaceFor(id);
