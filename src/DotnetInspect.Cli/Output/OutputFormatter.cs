@@ -563,13 +563,17 @@ public static class OutputFormatter
     /// windows the same section through <see cref="FormatResult"/> (#3457).
     /// </summary>
     public static void WritePackageTable(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline, bool showHeader) =>
+        WritePackageTable(Console.Out, result, options, pipeline, showHeader);
+
+    public static void WritePackageTable(TextWriter output, InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline, bool showHeader)
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
         var view = new InspectionResultView(
             result);
-        WriteTable(Console.Out, showHeader,
+        WriteTable(output, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
             options.Rows);
     }
@@ -617,6 +621,24 @@ public static class OutputFormatter
             new LibraryInspectionRenderInput(inspection, null),
             options,
             pipeline);
+
+    internal static void WriteLibraryDocumentContext(
+        LibraryPresentationContext context,
+        LibraryDocumentInspection documentInspection)
+    {
+        var view = new LibraryDocumentContextView(
+            context,
+            documentInspection);
+        var writer = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            view,
+            writer,
+            InspectionContext.Default,
+            new MarkoutWriterOptions());
+        WriteLfLine(
+            Console.Out,
+            writer.ToString().TrimEnd());
+    }
 
     internal static void WriteLibraryResult(
         LibraryInspectionRenderInput input,

@@ -674,11 +674,16 @@ public sealed partial class PackageRangedRealizationTests
 
         public PackageSourceSettlementLease Root { get; }
 
-        public static RangedEnvironment Create(RangeFeed feed)
+        public static RangedEnvironment Create(
+            RangeFeed feed,
+            PackageSource? source = null)
         {
             PackageSourceAuthorization authorization =
                 PackageSourceAuthorization.Authorize(
-                    [new PackageSource("ranged", Feed)]);
+                    [
+                        source
+                        ?? new PackageSource("ranged", Feed),
+                    ]);
             ConfiguredPackageAuthority authority =
                 Assert.Single(authorization.Authorities);
             IPackageSourceClient client = PackageSourceClientFactory.Create(
@@ -930,7 +935,10 @@ public sealed partial class PackageRangedRealizationTests
 
         public string FeedUrl => $"https://{Host}/v3/index.json";
 
-        private string FlatUrl => $"https://{Host}/flat2/";
+        private string FlatUrl =>
+            Host == "api.nuget.org"
+                ? "https://api.nuget.org/v3-flatcontainer/"
+                : $"https://{Host}/flat2/";
 
         private int _rangedRequests;
         private int _fullRequests;

@@ -970,7 +970,8 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "-S",
-                "Package Info");
+                "Package Info",
+                "--markdown");
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);

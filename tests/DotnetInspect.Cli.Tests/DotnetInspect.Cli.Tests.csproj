@@ -134,6 +134,8 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallGenericScopeFixtures\ILInspector.Analysis.CallGenericScopeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures\ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures\ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.NameFamilyFixtures\ILInspector.Research.NameFamilyFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.DependencyStructureFixtures\ILInspector.Research.DependencyStructureFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.OwnershipFlowFixtures\ILInspector.Analysis.OwnershipFlowFixtures.csproj" ReferenceOutputAssembly="false" />
