@@ -844,6 +844,38 @@ optimization-opportunity classification.
 `SemanticFactProjection` remains the coordinate projection substrate.
 Coordinate scope should be added in Analysis, not rebuilt in CLI code.
 
+### Updated-semantics unsafe-member uses
+
+**Owner and claim:** Analysis publishes a positive unsafe-member-use inventory
+from compiled evidence. The inventory applies updated language semantics to
+every input assembly; the input assembly's declared memory-safety model does
+not select a different body-operation policy.
+
+A method enters the inventory when Analysis proves at least one of these roles:
+
+- the declaration has an explicit updated-model caller-unsafe contract;
+- its body contains a reconstructed operation that requires an unsafe context;
+- it calls a same-image member with an explicit updated-model caller-unsafe
+  contract.
+
+The declaration role records only an explicit caller contract. A legacy
+pointer-bearing signature (`CallerUnsafeMode.Implicit`) is not propagation
+evidence for this inventory. Pointer-bearing signatures and locals, calls to
+`System.Runtime.CompilerServices.Unsafe`, and opcode presence by themselves do
+not admit a method. In particular, `localloc` lowered into an initialized
+`Span<T>` does not require an unsafe context; raw-pointer stack allocation and
+Span-backed stack allocation under skipped-local-initialization semantics do.
+
+The inventory reports compiled roles, not source spelling. It does not claim
+that an `unsafe` block existed, distinguish block and expression forms, grade a
+finding, or infer a source modifier that metadata cannot preserve.
+
+The first publication slice resolves explicit call-target contracts only
+within the primary image. Cross-assembly explicit-contract consumption,
+field-focused operation roles, and additional reconstructed operation families
+remain focused successors; callers must not interpret their absence as a
+whole-closure negative claim.
+
 ### `ILInspector.Research`
 
 Owns offset-keyed overlays that join Analysis (R1) and Decompiler (R2):

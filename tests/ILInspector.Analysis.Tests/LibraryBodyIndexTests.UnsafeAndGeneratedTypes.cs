@@ -60,6 +60,10 @@ public partial class LibraryBodyIndexTests
             && evidence.Reason == "Unsafe call"
             && evidence.Detail.Contains("System.Runtime.CompilerServices.Unsafe.As<int, uint>", StringComparison.Ordinal)
             && evidence.OperandToken is not null);
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use => use.Method.Name
+                == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
         Assert.DoesNotContain(index.Safety.Evidence, evidence =>
             evidence.Member.Name == nameof(UnsafeEvidenceFixtures.PInvokeOnly));
     }
@@ -162,6 +166,151 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(
             CallerUnsafeMode.None,
             safeExtern.CallerUnsafeMode);
+    }
+
+    [Fact]
+    public void
+        UnsafeMemberUses_ApplyUpdatedSemanticsToUpdatedAssembly()
+    {
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.Open(
+                FixtureCatalog.DecompilerUnsafeNew
+                    .AssemblyPath());
+
+        UnsafeMemberUse pointerFree = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && use.Method.Name
+                    == "PointerFreeUnsafeMethod");
+        Assert.True(
+            pointerFree.HasExplicitUnsafeContract);
+        Assert.Contains(
+            pointerFree.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.ExplicitContract);
+
+        UnsafeMemberUse pointerDereference = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && use.Method.Name == "PointerNoneMethod");
+        Assert.False(
+            pointerDereference.HasExplicitUnsafeContract);
+        Assert.Contains(
+            pointerDereference.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+
+        UnsafeMemberUse explicitCall = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && use.Method.Name
+                    == "CallPointerFreeUnsafeMethod");
+        Assert.Contains(
+            explicitCall.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.ExplicitContractCall);
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && use.Method.Name
+                    == "CallPointerNoneMethod");
+
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocDefault");
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocSkipInit"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocEventData"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+    }
+
+    [Fact]
+    public void
+        UnsafeMemberUses_ApplyUpdatedSemanticsToLegacyAssembly()
+    {
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.Open(
+                FixtureCatalog.DecompilerUnsafeLegacy
+                    .AssemblyPath());
+
+        UnsafeMemberUse pointerDereference = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name == "ConsumePointer");
+        Assert.False(
+            pointerDereference.HasExplicitUnsafeContract);
+        Assert.Contains(
+            pointerDereference.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name == "Risky");
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocDefault");
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocSkipInit"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocEventData"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
     }
 
     [Theory]

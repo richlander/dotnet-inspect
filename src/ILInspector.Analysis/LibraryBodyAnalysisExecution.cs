@@ -99,13 +99,15 @@ public sealed record LibrarySafetyAnalysisResult
         ImmutableArray<UnsafeEvidence> evidence,
         IReadOnlyDictionary<
             int,
-            ImmutableArray<UnsafetyOccurrence>> occurrences)
+            ImmutableArray<UnsafetyOccurrence>> occurrences,
+        ImmutableArray<UnsafeMemberUse> memberUses)
     {
         Receipt = receipt;
         MemorySafetyRules = memorySafetyRules;
         _unsafeModes = unsafeModes;
         Evidence = evidence;
         Occurrences = occurrences;
+        MemberUses = memberUses;
     }
 
     public LibraryBodyAnalysisReceipt Receipt { get; }
@@ -130,6 +132,12 @@ public sealed record LibrarySafetyAnalysisResult
     public IReadOnlyDictionary<
         int,
         ImmutableArray<UnsafetyOccurrence>> Occurrences { get; }
+
+    /// <summary>
+    /// Positive member inventory roles evaluated under updated language
+    /// semantics.
+    /// </summary>
+    public ImmutableArray<UnsafeMemberUse> MemberUses { get; }
 
     /// <summary>
     /// Whether unsafe evidence and caller-unsafe-mode census production
@@ -388,7 +396,8 @@ public sealed class LibraryBodyAnalysisExecution
             analysis.Safety.Rules,
             analysis.Safety.Modes,
             analysis.Safety.Evidence,
-            analysis.Safety.Occurrences);
+            analysis.Safety.Occurrences,
+            analysis.Safety.MemberUses);
         Allocations = new(
             Receipt,
             analysis.Allocations);
@@ -511,7 +520,8 @@ public sealed class LibraryBodyAnalysisExecution
                 Occurrences: unsafetyOccurrences
                     ?? new Dictionary<
                         int,
-                        ImmutableArray<UnsafetyOccurrence>>()),
+                        ImmutableArray<UnsafetyOccurrence>>(),
+                MemberUses: []),
             Allocations: new(
                 allocationOccurrences
                     ?? new Dictionary<
