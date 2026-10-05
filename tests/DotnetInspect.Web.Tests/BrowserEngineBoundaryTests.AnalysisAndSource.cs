@@ -174,6 +174,40 @@ public sealed partial class BrowserEngineBoundaryTests
                 .GetProperty("callRelationships")
                 .GetProperty("available")
                 .GetBoolean());
+
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(
+                coordinate,
+                $"{PackageId}.dll");
+        AssemblyContextEntry<AssemblyUnsafeFindings> available =
+            scope.UseImplementationParticipant(
+                participant,
+                AssemblyContextUnsafeFindingsQuery
+                    .ExecuteParticipant);
+        var failed =
+            new AssemblyContextEntry<AssemblyUnsafeFindings>.Failed(
+                available.Subject,
+                new InvalidDataException("expected failure"));
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => DotnetInspect.Web.Interop.Analysis
+                    .AnalysisExports.ProjectUnsafeFindings(
+                        failed,
+                        $"{PackageId}.dll",
+                        findings.CompileLibrary));
+        Assert.Contains(
+            "inspection failed",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -264,6 +298,36 @@ public sealed partial class BrowserEngineBoundaryTests
             census.RootElement.GetProperty("annotatedSource")
                 .GetProperty("document")
                 .ValueKind);
+    }
+
+    [Fact]
+    public async Task PackageUnsafeFindings_ReferenceOnlyLibraryFailsBeforeRows()
+    {
+        const string PackageId = "Browser.Unsafe.ReferenceOnly";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate =
+            await Coordinate(
+                PackageId,
+                Package(
+                    image,
+                    $"ref/net11.0/{PackageId}.dll"));
+        string assemblyId =
+            Assert.Single(coordinate.Selection.Assets).Id;
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => DotnetInspect.Web.Interop.Analysis
+                    .AnalysisExports.QueryPackageUnsafeFindings(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        assemblyId));
+
+        Assert.Contains(
+            "no managed implementation assembly",
+            error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

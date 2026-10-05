@@ -55,6 +55,8 @@ using BrowserAnalysisCompileLibraryStatus = DotnetInspect.Web.Interop.Analysis.B
 using BrowserPackageIntegrations = DotnetInspect.Web.Interop.Analysis.BrowserPackageIntegrations;
 using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPackageOpportunities;
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
+using BrowserPackageUnsafeFindings =
+    DotnetInspect.Web.Interop.Analysis.BrowserPackageUnsafeFindings;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserLibraryMetrics = DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetrics;
@@ -2689,6 +2691,20 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(performance.TotalOpportunities > 0);
         Assert.Empty(performance.Members);
         Assert.Null(performance.InspectionError);
+        BrowserPackageUnsafeFindings unsafeFindings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryPackageUnsafeFindings(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            surface.Asset.Id),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        Assert.True(unsafeFindings.TotalFindings > 0);
+        Assert.Empty(unsafeFindings.Findings);
+        Assert.Null(unsafeFindings.InspectionError);
     }
 
     [Fact]

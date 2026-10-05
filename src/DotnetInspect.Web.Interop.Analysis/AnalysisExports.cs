@@ -1540,25 +1540,14 @@ public static partial class AnalysisExports
         // browsable surface the package facade renders. The projection is DTO-neutral shared
         // mechanics in DotnetInspect.Web.Core; this facade never reaches for a sibling's wire
         // record to decide what is navigable.
-        BrowserWorkspaceParticipant? surfaceParticipant =
-            scope.TryGetSurfaceParticipant(participant);
-        BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
-            ? null
-            : BrowserPackageSurfaceProjection.ProjectParticipantSurface(
-                scope,
-                surfaceParticipant);
-        HashSet<(
-            string Assembly,
-            string Type,
-            string Selector)> navigableMembers =
-        [
-            .. (surface?.Types ?? [])
-                .SelectMany(type =>
-                type.Api.Select(member => (
-                    type.Assembly,
-                    type.DefinitionId,
-                    member.StableSelector))),
-        ];
+        (
+            BrowserWorkspaceParticipant? _,
+            BrowserSurfaceProjection.Surface? surface,
+            HashSet<(
+                string Assembly,
+                string Type,
+                string Selector)> navigableMembers) =
+                NavigableMembers(scope, participant);
 
         var failures = new List<string>();
         if (!string.IsNullOrWhiteSpace(surface?.InspectionError))
@@ -1653,68 +1642,108 @@ public static partial class AnalysisExports
 
         BrowserWorkspaceParticipant participant =
             scope.LibraryParticipant(coordinate, assemblyName);
+        if (!scope.ImplementationParticipants.Contains(participant))
+        {
+            throw new InvalidOperationException(
+                "The selected library has no managed implementation "
+                    + "assembly, so Unsafe findings cannot open Member "
+                    + "Safety Facts.");
+        }
+
+        (
+            BrowserWorkspaceParticipant? surfaceParticipant,
+            BrowserSurfaceProjection.Surface? surface,
+            HashSet<(
+                string Assembly,
+                string Type,
+                string Selector)> navigableMembers) =
+                NavigableMembers(scope, participant);
+        if (surfaceParticipant is null || surface is null)
+        {
+            throw new InvalidOperationException(
+                "The selected implementation has no navigable API surface.");
+        }
+
         AssemblyContextEntry<AssemblyUnsafeFindings> entry =
-            scope.UseMetadataParticipant(
+            scope.UseImplementationParticipant(
                 participant,
                 AssemblyContextUnsafeFindingsQuery
                     .ExecuteParticipant);
         return ProjectUnsafeFindings(
             entry,
-            participant.Asset.AssemblyName,
-            compileLibrary);
+            surfaceParticipant.Asset.AssemblyName,
+            compileLibrary,
+            navigableMembers,
+            surface.InspectionError);
     }
 
     internal static BrowserPackageUnsafeFindings ProjectUnsafeFindings(
         AssemblyContextEntry<AssemblyUnsafeFindings> entry,
         string assemblyName,
-        BrowserCompileLibraryAvailability compileLibrary)
+        BrowserCompileLibraryAvailability compileLibrary,
+        IReadOnlySet<(
+            string Assembly,
+            string Type,
+            string Selector)>? navigableMembers = null,
+        string? surfaceInspectionError = null)
     {
         var failures = new List<string>();
-        AssemblyUnsafeFindings? available = null;
-        switch (entry)
+        if (!string.IsNullOrWhiteSpace(surfaceInspectionError))
+            failures.Add($"API surface: {surfaceInspectionError}");
+
+        AssemblyUnsafeFindings available = entry switch
         {
-            case AssemblyContextEntry<
-                AssemblyUnsafeFindings>.Rejected rejected:
-                failures.Add(
-                    $"{rejected.Subject.Identity.Name}: "
-                    + $"{rejected.Failure.Kind} "
-                    + $"({rejected.Failure.Detail})");
-                break;
-            case AssemblyContextEntry<
-                AssemblyUnsafeFindings>.Failed failed:
-                failures.Add(
-                    $"{failed.Subject.Identity.Name}: "
-                    + failed.Error.Message);
-                break;
-            case AssemblyContextEntry<
-                AssemblyUnsafeFindings>.Available result:
-                available = result.Value;
-                failures.AddRange(
-                    result.Value.Diagnostics.Select(
-                        diagnostic =>
-                            $"{result.Subject.Identity.Name}: "
-                            + $"unsafe analysis incomplete for "
-                            + $"{diagnostic.Method}: "
-                            + diagnostic.Message));
-                failures.AddRange(
-                    result.Value.ApiSurfaceInspectionFailures
-                        .Select(
-                            failure =>
-                                $"{result.Subject.Identity.Name}: "
-                                + $"{failure.Operation}: "
-                                + failure.Detail));
-                break;
-            default:
+            AssemblyContextEntry<
+                AssemblyUnsafeFindings>.Rejected rejected =>
                 throw new InvalidOperationException(
-                    $"Unknown unsafe-finding entry "
-                        + $"'{entry.GetType().Name}'.");
-        }
+                    "Unsafe findings inspection was rejected: "
+                    + $"{rejected.Subject.Identity.Name}: "
+                    + $"{rejected.Failure.Kind} "
+                    + $"({rejected.Failure.Detail})"),
+            AssemblyContextEntry<
+                AssemblyUnsafeFindings>.Failed failed =>
+                throw new InvalidOperationException(
+                    "Unsafe findings inspection failed: "
+                    + $"{failed.Subject.Identity.Name}: "
+                    + failed.Error.Message,
+                    failed.Error),
+            AssemblyContextEntry<
+                AssemblyUnsafeFindings>.Available result =>
+                result.Value,
+            _ => throw new InvalidOperationException(
+                $"Unknown unsafe-finding entry "
+                    + $"'{entry.GetType().Name}'."),
+        };
+        failures.AddRange(
+            available.Diagnostics.Select(
+                diagnostic =>
+                    $"{entry.Subject.Identity.Name}: "
+                    + $"unsafe analysis incomplete for "
+                    + $"{diagnostic.Method}: "
+                    + diagnostic.Message));
+        failures.AddRange(
+            available.ApiSurfaceInspectionFailures
+                .Select(
+                    failure =>
+                        $"{entry.Subject.Identity.Name}: "
+                        + $"{failure.Operation}: "
+                        + failure.Detail));
 
         BrowserUnsafeFinding[] findings =
             ApplyUnsafeFindingLimit(
-                available?.Findings
+                available.Findings
                     .Where(finding =>
                         finding.PublicMember is not null)
+                    .Where(finding =>
+                    {
+                        UnsafeFindingPublicMember publicMember =
+                            finding.PublicMember!;
+                        return navigableMembers is null
+                            || navigableMembers.Contains((
+                                assemblyName,
+                                publicMember.TypeDefinitionId,
+                                publicMember.StableSelector));
+                    })
                     .Select(finding =>
                     {
                         UnsafeFindingPublicMember publicMember =
@@ -1735,17 +1764,49 @@ public static partial class AnalysisExports
                                 : null,
                             finding.Finding.Operation,
                             finding.Finding.Evidence);
-                    })
-                    ?? [],
+                    }),
                 failures);
         return new BrowserPackageUnsafeFindings(
             findings,
             failures.Count == 0
                 ? null
                 : string.Join("; ", failures),
-            available?.NonPublicFindings ?? 0,
-            available?.TotalFindings ?? 0,
+            available.NonPublicFindings,
+            available.TotalFindings,
             compileLibrary);
+    }
+
+    static (
+        BrowserWorkspaceParticipant? SurfaceParticipant,
+        BrowserSurfaceProjection.Surface? Surface,
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> Members)
+        NavigableMembers(
+            BrowserInspectionScope scope,
+            BrowserWorkspaceParticipant participant)
+    {
+        BrowserWorkspaceParticipant? surfaceParticipant =
+            scope.TryGetSurfaceParticipant(participant);
+        BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
+            ? null
+            : BrowserPackageSurfaceProjection.ProjectParticipantSurface(
+                scope,
+                surfaceParticipant);
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> members =
+        [
+            .. (surface?.Types ?? [])
+                .SelectMany(type =>
+                    type.Api.Select(member => (
+                        type.Assembly,
+                        type.DefinitionId,
+                        member.StableSelector))),
+        ];
+        return (surfaceParticipant, surface, members);
     }
 
     static string FormatSafetyLocation(
