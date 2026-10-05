@@ -697,7 +697,8 @@
         "ILInspector.Instructions",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
-        "Inspector.Text"
+        "Inspector.Text",
+        "QuerySpace.Primitives"
       ]
     },
     {
