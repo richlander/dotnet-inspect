@@ -94,8 +94,8 @@ inputs yield equal declarations. A host composes the declarations it ships into
 one exactly identified snapshot, under the tier-1 composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
 states. No component owns the complete list of product vocabularies; the
-Product Vocabulary document schema's fixed section list, described below, is
-the one exception.
+Product Vocabulary document schema and the CLI's section descriptors, described
+below, each name the sections they present.
 
 The term owners, and therefore the declaring owners, are:
 
@@ -148,15 +148,24 @@ Web lane.
 The declaration types live in `QuerySpace.Primitives`. The composition
 (`ProductVocabularyComposition`), the document projection
 (`ProductVocabularyProjection`), the inspection wrapper, and the document and
-wire types live in `DotnetInspector.Sections`. Each host holds only its
+wire types live in `DotnetInspector.Sections`. Each host holds its
 contribution list, and no assembly between the owners and the hosts restates
-their values. The one fixed list is the Product Vocabulary document schema:
-`ProductVocabularyProjection` names each section it projects, with that
-section's fields and operators, and fails visibly when a composed snapshot
-lacks one. A vocabulary that a host contributes without a document section
-appears only as an index row until the projection names it. Whether the
-document keeps a per-section schema or projects every composed vocabulary
-generically is decided with the explanation adoption in
+their values. Two fixed section lists remain, both naming sections rather than
+restating values:
+
+- **Document schema.** `ProductVocabularyProjection` names each section it
+  projects, with that section's fields and operators, and fails visibly when a
+  composed snapshot lacks one. A vocabulary that a host contributes without a
+  document section appears only as an index row.
+- **CLI section descriptors.** `VocabularySections` in the CLI host declares
+  one section descriptor per document section, with its selection category.
+  `-S` resolves only sections that have a descriptor, so an unlisted section is
+  reported as unresolved.
+
+Adding a vocabulary therefore takes an owner declaration, a contribution in
+each host that ships it, a document section, and, for the CLI, a section
+descriptor. Whether the document keeps a per-section schema or projects every
+composed vocabulary generically is decided with the explanation adoption in
 [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) steps 7
 and 8.
 
