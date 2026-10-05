@@ -219,7 +219,7 @@ public static class PackageOptionsParser
             if (InvalidPackageReferenceReason(packageArg) is { } reason)
             {
                 return new InvalidArguments(
-                    $"'{packageArg}' is not a package reference. {reason} "
+                    $"'{packageArg}' is not a valid package ID. {reason} "
                         + "Correct the package command input and retry. "
                         + $"To select a section, use -S \"{packageArg}\".");
             }

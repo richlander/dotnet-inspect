@@ -36,7 +36,8 @@ public partial class CommandExecutionTests
                 "package",
                 package,
                 "-S",
-                "Package Info");
+                "Package Info",
+                "--markdown");
 
             Assert.True(exit == 0, $"{package}: exit {exit}.{Environment.NewLine}{error}");
             string line = Assert.Single(

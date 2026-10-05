@@ -10,18 +10,17 @@ the end-to-end tracker
 
 Its normative claim is:
 
-> Member Compare Diff issues one Explore destination for a relation that has
-> at least one available comparison mode. Explore opens a full-bleed,
-> transient viewer that shows one cross-version comparison of the exact
-> Member at a time and switches between its available modes: the authored
-> Source text diff and, when its owner issues it, the decompiler diff.
-> Opening it changes no subject, lens, or history; closing it restores the
-> same Compare state.
+> Member Compare Diff issues one Explore destination for a relation with an
+> available authored Source comparison. Explore opens a full-bleed, transient
+> viewer over that exact Member comparison. Opening it changes no subject,
+> lens, or history; closing it restores the same Compare state.
 
 The inline Member Diff owned by the Compare Experience is the detailed-result
 boundary: it shows the classified changes and the compact authored Source diff.
-Explore adds width. A later Decompiler mode can add evidence that a text diff
-cannot show. Explore does not repeat the inline sections.
+Explore adds width and does not repeat the inline sections. The separately
+owned [Member Body Diff](inspect-web-member-body-diff.md) may use the same
+full-bleed shell to expand its retained C#/IL document; that expansion does not
+add a second comparison mode to this Public API destination.
 
 The precedents are Annotated Source's **Explore**, an embedded reader whose
 Explore opens a full-bleed modal viewer over the same product document, and
@@ -56,8 +55,8 @@ It does not own:
   and [Inspect Web source-diff transport](inspect-web-source-diff-transport.md));
 - text diff rows, modes, navigation, or presentation controls
   ([Inspect Web diff viewer interaction](inspect-web-diff-viewer-interaction.md));
-- the decompiler diff's comparison, transport, or presentation, which a
-  separate focused owner defines;
+- Member Body inventory, comparison, or inline presentation
+  ([Inspect Web Member Body Diff](inspect-web-member-body-diff.md));
 - the inline Member Diff composition, the placement of the Explore action, or
   the inline comparison's retention
   ([Inspect Web Compare Experience](inspect-web-compare-experience.md));
@@ -73,14 +72,9 @@ It does not own:
 | Mode | Evidence | Available when |
 | --- | --- | --- |
 | **Text** | The paired authored-Source comparison, shown in the full-bleed host of the diff viewer | Every present endpoint of the relation is a method anchor, the paired query's domain |
-| **Decompiler** | The cross-version decompiled comparison issued by the decompiler diff owner | That owner issues it for the relation |
 
-A mode is offered only when it is available. The viewer shows one mode at a
-time, with an evidence picker in the shared right rail when more than one is
-available. **Text** is the default when available. With only **Text**
-available, the rail reports it as the active evidence without rendering a
-one-item picker. Switching modes keeps each mode's state for the life of the
-open viewer.
+The viewer offers Text only when it is available. The rail reports it as the
+active evidence without rendering a one-item picker.
 
 A property, field, or event Member has no **Text** mode until an
 accessor-level authored-Source comparison exists. A declaration comparison is
@@ -104,11 +98,11 @@ Member relation, one optional Explore destination:
 
 The destination is issued only when the relation has at least one present
 side whose identity is an exact metadata member of its endpoint and at least
-one mode is available. Until the decompiler diff owner issues its mode, that
-means every present endpoint is a method anchor. A relation with a missing or
-synthesized identity carries no destination. An added Member has a current
-side only and a removed Member a target side only; each mode shows the
-present side beside an explicit **Not present on this side** endpoint.
+one mode is available, so every present endpoint is a method anchor. A
+relation with a missing or synthesized identity carries no destination. An
+added Member has a current side only and a removed Member a target side only;
+Text shows the present side beside an explicit **Not present on this side**
+endpoint.
 
 The Compare Experience places the **Explore** action. The Browser renders it
 only for a settled Member Diff result that carries a destination, never as a
@@ -135,7 +129,7 @@ becomes the horizontal scroll owner.
 **Text** mode is the full-bleed host of the
 [diff viewer interaction](inspect-web-diff-viewer-interaction.md): every line
 expanded, unified or side-by-side, change navigation, and the whitespace and
-move controls. **Decompiler** mode is the decompiler diff owner's view.
+move controls.
 
 Viewport changes never rerun a mode's request or change the active mode.
 
@@ -163,8 +157,7 @@ open it is modal, so the Package Diff baseline, the Member, and the Package
 model cannot change underneath it.
 
 A failed or canceled mode result is not retained and runs again when the mode
-next becomes active. The decompiler diff owner states whether its mode's
-settled results outlive the open viewer.
+next becomes active.
 
 The viewer is transient. It creates no Navigation subject, lens, canonical
 location, history entry, or Workspace packet. Refresh and shared links restore
@@ -192,7 +185,7 @@ scroll position; and focus on the invoking Explore action.
 This design does not claim:
 
 - that Explore is available for Library or Type Compare, or for Clone;
-- the decompiler diff's comparison, transport, or presentation;
+- Member Body's comparison, transport, or presentation;
 - that equal text implies API, C#, or IL equivalence;
 - that the viewer is a routed surface or portable state;
 - that the Browser may pair endpoints, match lines, or derive identities
@@ -210,11 +203,11 @@ This design does not claim:
    issuance to relations with an available mode, recorded in the Library API
    Diff wire owner's retained-result inventory and bounds; and consume the
    Compare Experience's shared **Text** comparison.
-2. **Decompiler mode.** Add the mode switch and **Decompiler** mode when the
-   decompiler diff owner issues it.
 
-Each stage lands only when its own result and failure states are complete.
-The #8491 relation-order renderer and its placeholder pane retire in stage 1.
+The stage lands only when its result and failure states are complete. The
+relation-order renderer from #8491 and its placeholder pane retire in this
+stage. Member Body's optional expansion adopts the settled shell under its own
+focused design.
 
 ## Acceptance scenarios
 
@@ -231,9 +224,8 @@ The #8491 relation-order renderer and its placeholder pane retire in stage 1.
    failed outcomes separately and never substitutes empty or decompiled text,
    and that the CLI's `-v:d` rendering of the same pair shows the same ranges
    and statistics.
-4. Open Member Compare Diff for a changed property Member before the
-   decompiler diff owner issues its mode, and confirm no Explore destination
-   is issued.
+4. Open Member Compare Diff for a changed property Member and confirm no
+   authored Source Explore destination is issued.
 5. Open Explore for an added Member and a removed Member and confirm the
    present side appears beside an explicit absent side.
 6. Close with Escape and with the close action and confirm the same Member
@@ -242,6 +234,6 @@ The #8491 relation-order renderer and its placeholder pane retire in stage 1.
    owner per content and rail region, no page-level horizontal overflow, the
    rail stacks after content at the shared narrow boundary, and that a resize
    changes layout only.
-8. After the decompiler diff owner issues its mode, confirm the mode switch
-   appears, **Text** remains the default, and switching keeps each mode's
-   state while the viewer is open.
+8. Expand a settled Member Body result and confirm the same shell presents the
+   retained C#/IL document without adding an authored Source mode or starting a
+   second comparison.

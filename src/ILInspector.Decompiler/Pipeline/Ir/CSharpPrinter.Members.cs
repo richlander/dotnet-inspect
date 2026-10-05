@@ -1240,7 +1240,7 @@ public sealed partial class CSharpPrinter
             {
                 var indexArguments = arguments.Skip(1).Take(rank).ToArray();
                 var indices = indexArguments.Select(Expression).ToArray();
-                if (HasRepeatedStackSlot(indexArguments) || HasRepeatedGeneratedTempName(indices))
+                if (HasRepeatedGeneratedTempName(indices))
                     return null;
                 return $"{receiver}[{string.Join(", ", indices)}]";
             }
@@ -1249,7 +1249,7 @@ public sealed partial class CSharpPrinter
             {
                 var indexArguments = arguments.Skip(1).Take(rank).ToArray();
                 var indexTexts = indexArguments.Select(Expression).ToArray();
-                if (HasRepeatedStackSlot(indexArguments) || HasRepeatedGeneratedTempName(indexTexts))
+                if (HasRepeatedGeneratedTempName(indexTexts))
                     return null;
                 string indices = string.Join(", ", indexTexts);
                 // The Set signature is (i0, .., iN-1, value); its last parameter
@@ -1287,7 +1287,7 @@ public sealed partial class CSharpPrinter
         string pseudoMember)
     {
         var indexTexts = indices.Select(Expression).ToArray();
-        bool usesPseudoMember = HasRepeatedStackSlot(indices) || HasRepeatedGeneratedTempName(indexTexts);
+        bool usesPseudoMember = HasRepeatedGeneratedTempName(indexTexts);
         string text = usesPseudoMember
             ? $"{Operand(array)}.{pseudoMember}({string.Join(", ", indexTexts)})"
             : $"{Operand(array)}[{string.Join(", ", indexTexts)}]";
@@ -1306,20 +1306,6 @@ public sealed partial class CSharpPrinter
         if (!IsMultiDimArrayType(node.Constructor.DeclaringType) || node.Arguments.Count != node.Constructor.DeclaringType.Rank)
             return null;
         return ArrayCreationText(node.Constructor.DeclaringType.ElementType!, node.Arguments);
-    }
-
-    static bool HasRepeatedStackSlot(IEnumerable<IrExpression> expressions)
-    {
-        var seen = new HashSet<int>();
-        foreach (var expression in expressions)
-        {
-            if (expression is LoadStackSlot load && !seen.Add(load.Slot))
-                return true;
-            foreach (var descendant in expression.Descendants.OfType<LoadStackSlot>())
-                if (!seen.Add(descendant.Slot))
-                    return true;
-        }
-        return false;
     }
 
     static bool HasRepeatedGeneratedTempName(IReadOnlyList<string> rendered)
@@ -1580,7 +1566,7 @@ public sealed partial class CSharpPrinter
         LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress => Deref(argument),
         Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
         { ResultType.Kind: TypeRefKind.Pointer } when dereferencePointer => Deref(argument),
-        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect
+        LoadLocal or LoadArgument or LoadIndirect or Call or CallIndirect
             or LoadProperty { ResultType.Kind: TypeRefKind.ByRef } => Expression(argument),
         _ => null,
     };
@@ -1608,7 +1594,7 @@ public sealed partial class CSharpPrinter
         // ref-returning call, or a ref slot the importer spilled the managed
         // pointer into (a ref argument evaluated before a later side-effecting
         // argument). Each renders as a bare name the ref/out keyword prefixes.
-        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect => Expression(argument),
+        LoadLocal or LoadArgument or LoadIndirect => Expression(argument),
         Call { ResultType.Kind: TypeRefKind.ByRef }
             or CallIndirect { ResultType.Kind: TypeRefKind.ByRef }
             or LoadProperty { ResultType.Kind: TypeRefKind.ByRef } => Expression(argument),

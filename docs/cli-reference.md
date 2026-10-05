@@ -84,7 +84,7 @@ and repository-specific guidance.
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S "Package README file"` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
+| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S README` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Prefers installed packs when the requested version is available; otherwise uses package-backed Platform packs. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
@@ -707,8 +707,8 @@ for one package section, beside its formats and members.
 
 ```bash
 dotnet-inspect package System.Text.Json -D --details
-dotnet-inspect package System.Text.Json -D "Package files" --details --json
-dotnet-inspect explain package/sections/package-files
+dotnet-inspect package System.Text.Json -D Files --details --json
+dotnet-inspect explain package/sections/files
 ```
 
 ## Common examples
@@ -739,9 +739,9 @@ dotnet-inspect package Markout@0.35.2 \
 dotnet-inspect package System.Text.Json --version 10.0.0 \
   --path README.md --content --raw
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
-  --tfm net8.0 -S "Package files" --paths
+  --tfm net8.0 -S Files --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
-  --tfm net8.0 -S "Package files" --roots
+  --tfm net8.0 -S Files --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 packet=$(dotnet-inspect workspace \
@@ -795,12 +795,46 @@ packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
 
-For one package with exactly `Package files` selected, `-n`, `--tail`, and
+For one package with exactly `Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
 enumeration, optional exact directory-segment `--tfm` filtering, and optional
 `--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
+
+The package command renders a lone explicitly selected section in its declared
+shape's native format when no format is named, per
+[Section shapes](design/section-shapes.md): a Table streams its TSV rows, a
+Hierarchy renders its tree, and a Text prints its payload. `Files` and
+`Dependency Hierarchy` are Hierarchies, the nuspec and README sections are
+Text, and every other section is a Table. The `Files` tree titles the
+subject with its issued properties (source, and the target when `--tfm`
+filters), groups files under their directories, and collapses single-entry
+directory chains into one node; directory nodes are context, so `-n`, `--rows`,
+and `--count` observe files only, and `--tree` is an accepted explicit format
+for it. Selecting several sections composes Markdown as before, with a Text
+section contributing its Path/Size fact row and its body only when it is the
+whole selection. An explicit format, an environment default, `--print`,
+`--raw`, `--tree`, `--count`, a projection, a shape flag, discovery, or a lens
+keeps its existing behavior.
+
+The package file family — the nuspec, README, license, and skill sections —
+shares one Path/Size row schema, so `-S @Files --table`, `--tsv`, or `--jsonl`
+streams one listing with each member's rows in family order. Scalar sections
+(`Package Info`, `Summary`, `Statistics`, `Signature`, the SourceLink
+availability and integrity sections, and the nuspec and README Text sections)
+have no rows: selecting one of them alone with `--count` or `--rows` fails
+before acquisition and names an inventory section as the alternative. A bare
+`-n` on such a section is the rendered-line window it is for `Library Info`,
+not a row terminal. Count maps over several sections, and multi-package counts,
+keep their existing per-section meaning.
+
+```bash
+dotnet-inspect package System.Text.Json -S "Target Frameworks"
+dotnet-inspect package System.Text.Json -S README
+dotnet-inspect package System.Text.Json -S Files -n 5
+dotnet-inspect package System.Text.Json -S @Files --tsv
+```
 
 For an exact online package version, requesting one literal root `README.md` or
 `skills/**/SKILL.md` path with `--content` acquires directly through the
@@ -973,9 +1007,9 @@ Neither query opens the package archive. To inspect the license documents that
 the package actually ships, use the separate package-file section:
 
 ```bash
-dotnet-inspect package wix@7.0.0 -S "Package license files"
-dotnet-inspect package wix@7.0.0 -S "Package license files" --count
-dotnet-inspect package wix@7.0.0 -S "Package license files" --print --raw
+dotnet-inspect package wix@7.0.0 -S Licenses
+dotnet-inspect package wix@7.0.0 -S Licenses --count
+dotnet-inspect package wix@7.0.0 -S Licenses --print --raw
 ```
 
 Package Query places the semantic result in `Answer`: `MIT` for the
@@ -1397,8 +1431,8 @@ dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
 dotnet-inspect project ./src/DotnetInspect.Cli -S @Project
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills -n 1 --tail
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
-dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
-dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
+dotnet-inspect project ./src/DotnetInspect.Cli -S README
+dotnet-inspect project ./src/DotnetInspect.Cli -S README --print --row 1
 dotnet-inspect type Command --project ./src/DotnetInspect.Cli
 dotnet-inspect member Command --project ./src/DotnetInspect.Cli -S "Member Index"
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S Signals
