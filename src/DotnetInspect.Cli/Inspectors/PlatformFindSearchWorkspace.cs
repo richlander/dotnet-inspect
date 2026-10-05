@@ -310,6 +310,7 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
                 var identity = new FindSourceIdentity(
                     coordinate,
                     subject.Provenance,
+                    packageRequest: null,
                     contextOrder: 0,
                     memberOrder,
                     subject.Identity);

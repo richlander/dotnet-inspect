@@ -38,6 +38,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
     readonly PackageArtifactRootCorrespondence _correspondence;
     readonly ArtifactRootGenerationReference _generation;
     readonly string _packageDisplay;
+    readonly FindPackageSourceRequest _packageRequest;
     readonly SearchPackageStores _stores;
     bool _closed;
 
@@ -46,12 +47,14 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         PackageArtifactRootCorrespondence correspondence,
         ArtifactRootGenerationReference generation,
         string packageDisplay,
+        FindPackageSourceRequest packageRequest,
         SearchPackageStores stores)
     {
         _workspace = workspace;
         _correspondence = correspondence;
         _generation = generation;
         _packageDisplay = packageDisplay;
+        _packageRequest = packageRequest;
         _stores = stores;
     }
 
@@ -203,6 +206,9 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 correspondence,
                 ready.Generation,
                 $"{binding.Root.PackageId}@{binding.Root.PackageVersion}",
+                new(
+                    targetFramework,
+                    requestedRuntimeIdentifier: null),
                 stores);
         }
         catch (Exception failure)
@@ -238,7 +244,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                         }
 
                         var sources = new PackageSearchQuerySources(
-                            realization.SurfaceParticipants);
+                            realization.SurfaceParticipants,
+                            _packageRequest);
                         var context = new PackageSearchQueryContext(
                             realization.SurfaceGroup,
                             sources);
@@ -602,19 +609,23 @@ internal sealed class PackageSearchQuerySources
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
         ExactLibrarySourceCoordinate> _memberCoordinates;
+    readonly FindPackageSourceRequest _packageRequest;
     readonly Dictionary<
         FindSourceIdentity,
         SearchAssemblySource> _memberSemanticSources = [];
 
     internal PackageSearchQuerySources(
-        ImmutableArray<PackageAssemblyRoleParticipant> participants)
+        ImmutableArray<PackageAssemblyRoleParticipant> participants,
+        FindPackageSourceRequest packageRequest)
     {
+        ArgumentNullException.ThrowIfNull(packageRequest);
         _sources = new(
             participants.Length,
             ReferenceEqualityComparer.Instance);
         _memberCoordinates = new(
             participants.Length,
             ReferenceEqualityComparer.Instance);
+        _packageRequest = packageRequest;
         foreach (PackageAssemblyRoleParticipant participant
             in participants)
         {
@@ -661,6 +672,7 @@ internal sealed class PackageSearchQuerySources
         var identity = new FindSourceIdentity(
             coordinate,
             subject.Provenance,
+            _packageRequest,
             contextOrder: 0,
             memberOrder,
             subject.Identity);

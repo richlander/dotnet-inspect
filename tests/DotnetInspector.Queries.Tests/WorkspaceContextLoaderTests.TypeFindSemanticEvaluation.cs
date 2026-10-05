@@ -385,6 +385,11 @@ public sealed partial class WorkspaceContextLoaderTests
             match.Declaration.Source.Selection);
         Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
             match.Declaration.Source.Selection);
+        FindPackageSourceRequest request =
+            Assert.IsType<FindPackageSourceRequest>(
+                match.Declaration.Source.PackageRequest);
+        Assert.Equal("net10.0", request.RequestedTargetFramework);
+        Assert.Null(request.RequestedRuntimeIdentifier);
     }
 
     private static TypeFindBlock SemanticBlock(

@@ -178,20 +178,35 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void PackageRootIdentity_DistinguishesRequestedFrameworksByReference()
+    public void PackageBinding_RetainsRequestAcrossCompatibleSelection()
     {
-        PackageRootRealization net10 = RootSelection(
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealizationTests)
+                    .Assembly.Location);
+        PackageRootBinding net10 = CompatibleBinding(
             "Multi.Targeted",
             "net10.0",
-            ("tools/net10.0/any/Multi.Targeted.dll", [0x01]));
-        PackageRootRealization net11 = RootSelection(
+            ("lib/net8.0/Multi.Targeted.dll", image));
+        PackageRootBinding net11 = CompatibleBinding(
             "Multi.Targeted",
             "net11.0",
-            ("tools/net11.0/any/Multi.Targeted.dll", [0x01]));
+            ("lib/net8.0/Multi.Targeted.dll", image));
 
-        Assert.NotSame(net10.Identity, net11.Identity);
-        Assert.Equal("net10.0", net10.Identity.RequestedTargetFramework);
-        Assert.Equal("net11.0", net11.Identity.RequestedTargetFramework);
+        Assert.Equal(
+            "net8.0",
+            net10.Root.Identity.RequestedTargetFramework);
+        Assert.Equal(
+            "net8.0",
+            net11.Root.Identity.RequestedTargetFramework);
+        Assert.Equal("net10.0", net10.CompileTargetFramework);
+        Assert.Equal("net11.0", net11.CompileTargetFramework);
+        Assert.Equal(
+            net10.Root.AssetSelection.Assets.Select(
+                static asset => asset.Path),
+            net11.Root.AssetSelection.Assets.Select(
+                static asset => asset.Path));
+        Assert.NotEmpty(net10.Root.AssetSelection.Assets);
     }
 
     [Fact]
@@ -2568,6 +2583,26 @@ public sealed class PackageAssemblyContextRealizationTests
             packageId,
             "1.0.0",
             targetFramework);
+
+    static PackageRootBinding CompatibleBinding(
+        string packageId,
+        string targetFramework,
+        params (string Path, byte[] Content)[] entries)
+    {
+        const string version = "1.0.0";
+        const string producer = "tests";
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, version),
+            new InMemoryPackageContent(
+                Archive(entries),
+                fromCache: false,
+                producerKey: producer),
+            producer,
+            PackagePayloadOrigin.Download);
+        return PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+            payload,
+            targetFramework);
+    }
 
     static PackageRootBinding Binding(
         string packageId,

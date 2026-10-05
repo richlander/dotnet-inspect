@@ -250,6 +250,29 @@ public enum FindMatchCompletion
 }
 
 /// <summary>
+/// Owner-issued request evidence for one package source.
+/// </summary>
+public sealed record FindPackageSourceRequest
+{
+    public FindPackageSourceRequest(
+        string? requestedTargetFramework,
+        string? requestedRuntimeIdentifier)
+    {
+        if (requestedTargetFramework is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                requestedTargetFramework);
+        if (requestedRuntimeIdentifier is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                requestedRuntimeIdentifier);
+        RequestedTargetFramework = requestedTargetFramework;
+        RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+    }
+
+    public string? RequestedTargetFramework { get; }
+    public string? RequestedRuntimeIdentifier { get; }
+}
+
+/// <summary>
 /// One exact source occurrence inside an ordered semantic Find population.
 /// </summary>
 public sealed record FindSourceIdentity
@@ -257,6 +280,7 @@ public sealed record FindSourceIdentity
     public FindSourceIdentity(
         ExactLibrarySourceCoordinate coordinate,
         AssemblyResolutionProvenance selection,
+        FindPackageSourceRequest? packageRequest,
         int contextOrder,
         int memberOrder,
         AssemblyReferenceIdentity assemblyIdentity)
@@ -266,8 +290,17 @@ public sealed record FindSourceIdentity
         ArgumentNullException.ThrowIfNull(assemblyIdentity);
         ArgumentOutOfRangeException.ThrowIfNegative(contextOrder);
         ArgumentOutOfRangeException.ThrowIfNegative(memberOrder);
+        if ((coordinate
+                is ExactLibrarySourceCoordinate.Package)
+            != (packageRequest is not null))
+        {
+            throw new ArgumentException(
+                "A package source requires package request identity, and other sources cannot carry it.",
+                nameof(packageRequest));
+        }
         Coordinate = coordinate;
         Selection = selection;
+        PackageRequest = packageRequest;
         ContextOrder = contextOrder;
         MemberOrder = memberOrder;
         AssemblyIdentity = assemblyIdentity;
@@ -275,6 +308,7 @@ public sealed record FindSourceIdentity
 
     public ExactLibrarySourceCoordinate Coordinate { get; }
     public AssemblyResolutionProvenance Selection { get; }
+    public FindPackageSourceRequest? PackageRequest { get; }
     public int ContextOrder { get; }
     public int MemberOrder { get; }
     public AssemblyReferenceIdentity AssemblyIdentity { get; }
@@ -651,6 +685,7 @@ public static class TypeFindSourceEvaluator
                 new FindSourceIdentity(
                     member.Coordinate,
                     member.Selection,
+                    member.PackageRequest,
                     contextOrder,
                     memberOrder,
                     member.AssemblyIdentity);

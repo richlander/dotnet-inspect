@@ -436,6 +436,7 @@ public sealed class MemberFindSemanticEvaluationTests
                                     new(
                                         subject.Identity)),
                             subject.Provenance,
+                            packageRequest: null,
                             contextOrder: 0,
                             memberOrder,
                             subject.Identity)));
@@ -515,6 +516,11 @@ public sealed class MemberFindSemanticEvaluationTests
                                         new(
                                             subject.Identity)),
                             subject.Provenance,
+                            memberOrder == 0
+                                ? new(
+                                        "net11.0",
+                                        requestedRuntimeIdentifier: null)
+                                : null,
                             contextOrder: 0,
                             memberOrder,
                             subject.Identity)));
@@ -578,6 +584,9 @@ public sealed class MemberFindSemanticEvaluationTests
                     rid: null,
                     assetPath:
                         "ref/net8.0/Semantic.Test.dll"),
+                new(
+                    "net8.0",
+                    requestedRuntimeIdentifier: null),
                 contextOrder: 0,
                 memberOrder: 0,
                 assemblyIdentity);
@@ -591,6 +600,9 @@ public sealed class MemberFindSemanticEvaluationTests
                     rid: null,
                     assetPath:
                         "ref/net10.0/Semantic.Test.dll"),
+                new(
+                    "net10.0",
+                    requestedRuntimeIdentifier: null),
                 contextOrder: 0,
                 memberOrder: 0,
                 assemblyIdentity);
@@ -598,6 +610,39 @@ public sealed class MemberFindSemanticEvaluationTests
             packageNet8.Coordinate,
             packageNet10.Coordinate);
         Assert.NotEqual(packageNet8, packageNet10);
+
+        AssemblyResolutionProvenance compatibleSelection =
+            AssemblyResolutionProvenance.Package(
+                "Semantic.Test",
+                "1.0.0",
+                "net8.0",
+                rid: null,
+                assetPath:
+                    "ref/net8.0/Semantic.Test.dll");
+        var compatibleNet8 =
+            new FindSourceIdentity(
+                packageCoordinate,
+                compatibleSelection,
+                new(
+                    "net8.0",
+                    requestedRuntimeIdentifier: null),
+                contextOrder: 0,
+                memberOrder: 0,
+                assemblyIdentity);
+        var compatibleNet10 =
+            new FindSourceIdentity(
+                packageCoordinate,
+                compatibleSelection,
+                new(
+                    "net10.0",
+                    requestedRuntimeIdentifier: null),
+                contextOrder: 0,
+                memberOrder: 0,
+                assemblyIdentity);
+        Assert.Equal(
+            compatibleNet8.Selection,
+            compatibleNet10.Selection);
+        Assert.NotEqual(compatibleNet8, compatibleNet10);
 
         var platformCoordinate =
             new ExactLibrarySourceCoordinate.Platform(
@@ -610,6 +655,7 @@ public sealed class MemberFindSemanticEvaluationTests
                     "Microsoft.NETCore.App",
                     "10.0.12",
                     "selection identity"),
+                packageRequest: null,
                 contextOrder: 0,
                 memberOrder: 0,
                 assemblyIdentity);
@@ -620,6 +666,7 @@ public sealed class MemberFindSemanticEvaluationTests
                     "Microsoft.NETCore.App",
                     "10.0.13",
                     "selection identity"),
+                packageRequest: null,
                 contextOrder: 0,
                 memberOrder: 0,
                 assemblyIdentity);
@@ -653,6 +700,7 @@ public sealed class MemberFindSemanticEvaluationTests
                                 new(subject.Identity)),
                             AssemblyResolutionProvenance.Local(
                                 "different selection"),
+                            packageRequest: null,
                             contextOrder: 0,
                             memberOrder,
                             subject.Identity)));
@@ -702,6 +750,7 @@ public sealed class MemberFindSemanticEvaluationTests
                     new ExactLibrarySourceCoordinate.Local(
                         new(subject.Identity)),
                     subject.Provenance,
+                    packageRequest: null,
                     contextOrder: 0,
                     memberOrder,
                     subject.Identity));

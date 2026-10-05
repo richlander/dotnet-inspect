@@ -96,9 +96,10 @@ structured declaring `MetadataTypeDefinitionName`, producer-issued
 `MemberAnchor`, declaration and member order, display Type, kind, signature,
 return Type, digest, assembly, and whether the pattern was a glob. The
 host-neutral semantic result joins those facts to the exact source coordinate;
-its source identity separately retains the workspace-issued selection evidence
-that distinguishes target frameworks, package assets, runtime identifiers, and
-Platform versions. It never reconstructs identity from display text. The CLI
+its source identity separately retains owner-issued request and selection
+evidence that distinguishes requested target frameworks and runtime
+identifiers from selected package assets and Platform versions. It never
+reconstructs identity from display text. The CLI
 projection currently omits the match kind from rendered Markdown, table, TSV,
 JSONL, and projected JSON rows. Unprojected `--json` serializes
 `MemberFindResult` directly and therefore exposes the `MemberFindMatchKind`
