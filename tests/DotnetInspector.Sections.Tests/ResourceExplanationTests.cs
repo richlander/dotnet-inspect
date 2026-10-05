@@ -410,6 +410,148 @@ public class ResourceExplanationTests
     }
 
     [Fact]
+    public void SchemaDeclarationCount_IncludesSchemasFieldsAndCases()
+    {
+        var baseSchemas = StructuralCatalog().Schemas;
+        ExplanationSchema core = baseSchemas.Single(
+            static schema =>
+                schema.Identity.Owner.Value == "resource-explanation");
+        ExplanationDataShapeIdentity textShape =
+            core.DataShapes.Single(
+                static shape => shape.Identity.Value == "text").Identity;
+        ExplanationPublicAddressKindIdentity pathKind =
+            Assert.Single(core.AddressKinds).Identity;
+        var owner = new ExplanationOwnerIdentity("test");
+        var schemaIdentity =
+            new ExplanationSchemaIdentity(owner, "declarations");
+        var version = new ExplanationSchemaVersion(1);
+        var recordShape =
+            new ExplanationDataShapeIdentity(schemaIdentity, "record");
+        var choiceShape =
+            new ExplanationDataShapeIdentity(schemaIdentity, "choice");
+        var field = new ExplanationFieldIdentity(recordShape, "value");
+        var @case = new ExplanationChoiceCaseIdentity(choiceShape, "value");
+        var resourceType =
+            new ExplanationResourceTypeIdentity(schemaIdentity, "resource");
+        var recordFact =
+            new ExplanationFactIdentity(resourceType, "record");
+        var choiceFact =
+            new ExplanationFactIdentity(resourceType, "choice");
+        var budget = new ExplanationValueBudget(4096, 4, 16);
+        var schema =
+            new ExplanationSchema(
+                schemaIdentity,
+                version,
+                [
+                    new ExplanationDataShapeDeclaration.Record(
+                        recordShape,
+                        "Record",
+                        "One record.",
+                        budget,
+                        [
+                            new(
+                                field,
+                                "Value",
+                                "One value.",
+                                textShape,
+                                ExplanationCardinality.RequiredOne),
+                        ]),
+                    new ExplanationDataShapeDeclaration.Choice(
+                        choiceShape,
+                        "Choice",
+                        "One choice.",
+                        budget,
+                        [
+                            new(
+                                @case,
+                                "Value",
+                                "A choice with one value.",
+                                textShape),
+                        ]),
+                ],
+                [
+                    new ExplanationResourceTypeDeclaration(
+                        resourceType,
+                        "Resource",
+                        "One test resource.",
+                        textShape,
+                        [
+                            new(
+                                recordFact,
+                                "Record",
+                                "The record fact.",
+                                recordShape,
+                                ExplanationCardinality.RequiredOne,
+                                ExplanationObservationStates.Available),
+                            new(
+                                choiceFact,
+                                "Choice",
+                                "The choice fact.",
+                                choiceShape,
+                                ExplanationCardinality.RequiredOne,
+                                ExplanationObservationStates.Available),
+                        ],
+                        addressKinds: [pathKind]),
+                ]);
+        ExplanationResourceKey key =
+            new(owner, resourceType, ExplanationText("root"));
+        ExplanationResourceSnapshot snapshot =
+            ExplanationConformance.CreateSnapshot(
+                [.. baseSchemas, schema],
+                key,
+                version,
+                ExplanationSnapshotScope.Installed,
+                [
+                    new(pathKind, ExplanationText("test/root")),
+                ],
+                [
+                    new(
+                        recordFact,
+                        ExplanationObservationState.Available,
+                        [
+                            new ExplanationValue.Record(
+                            [
+                                new(field, [ExplanationText("record")]),
+                            ]),
+                        ]),
+                    new(
+                        choiceFact,
+                        ExplanationObservationState.Available,
+                        [
+                            new ExplanationValue.Choice(
+                                @case,
+                                ExplanationText("choice")),
+                        ]),
+                ],
+                []);
+        ResourceExplanationCatalog catalog =
+            ResourceExplanationCatalog.Create(
+                [.. baseSchemas, schema],
+                [snapshot]);
+        var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+            catalog.Resolve("test/root"));
+
+        ResourceExplanationDocument document =
+            catalog.Explain(
+                resolved,
+                new(
+                    depth: 0,
+                    resourceLimit: 1,
+                    relationshipLimit: 1))
+                .Content;
+
+        Assert.Equal(11, document.Traversal.EmittedSchemaDeclarationCount);
+        Assert.Throws<InvalidOperationException>(() =>
+            catalog.Explain(
+                resolved,
+                new(
+                    depth: 0,
+                    resourceLimit: 1,
+                    relationshipLimit: 1,
+                    schemaDeclarationLimit: 10)));
+    }
+
+    [Fact]
     public void AvailableEmptyRelationship_PreservesDeclaredTargetType()
     {
         ResourceExplanationCatalog catalog = StructuralCatalog();
@@ -677,12 +819,25 @@ public class ResourceExplanationTests
     private static int DeclarationCount(
         IEnumerable<ExplanationSchema> schemas) =>
         schemas.Sum(schema =>
-            schema.DataShapes.Length
+            1
+            + schema.DataShapes.Sum(static shape =>
+                1 + (shape switch
+                {
+                    ExplanationDataShapeDeclaration.Record record =>
+                        record.Fields.Length,
+                    ExplanationDataShapeDeclaration.Choice choice =>
+                        choice.Cases.Length,
+                    _ => 0,
+                }))
             + schema.ResourceTypes.Length
             + schema.AddressKinds.Length
             + schema.ResourceTypes.Sum(resource =>
                 resource.Facts.Length
                 + resource.Relationships.Length));
+
+    private static ExplanationValue ExplanationText(string value) =>
+        new ExplanationValue.Scalar(
+            ExplanationScalarValue.FromText(value));
 
     private static DiscoveryResourceIdentity Category(string name) =>
         new(DiscoveryResourceKind.Category, name);

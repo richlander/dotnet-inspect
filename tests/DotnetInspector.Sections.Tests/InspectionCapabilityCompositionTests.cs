@@ -1,5 +1,6 @@
 using DotnetInspector.Queries;
 using QuerySpace;
+using QuerySpace.Explanation;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -284,6 +285,62 @@ public sealed class InspectionCapabilityCompositionTests
                 && HasTargetPath(
                     relationship,
                     PackageQueryCapabilityResourcePaths.Route));
+    }
+
+    [Fact]
+    public void CapabilityExplanationUsesOpaqueResultContractShape()
+    {
+        InspectionCapabilityCatalog capabilityCatalog =
+            InspectionCapabilityCatalog.Create(
+                [PackageQueryCapability.ProductModule]);
+        ResourceExplanationCatalog explanation =
+            ResourceExplanationCatalog.CreateCapabilities(
+                capabilityCatalog,
+                PackageQueryCapabilityResourcePaths.Create(
+                    capabilityCatalog));
+        ExplanationFactDeclaration[] resultContracts =
+        [
+            .. explanation.Schemas
+                .SelectMany(static schema => schema.ResourceTypes)
+                .Where(static resource =>
+                    resource.Identity.Value is "inspection-document"
+                        or "host-neutral-route")
+                .SelectMany(static resource => resource.Facts)
+                .Where(static fact =>
+                    fact.Identity.Value == "result-contract"),
+        ];
+
+        Assert.Equal(2, resultContracts.Length);
+        Assert.All(
+            resultContracts,
+            static fact =>
+            {
+                Assert.Equal(
+                    "query-space",
+                    fact.ValueShape.Schema.Owner.Value);
+                Assert.Equal(
+                    "opaque-external-identity",
+                    fact.ValueShape.Value);
+            });
+
+        var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+            explanation.Resolve(
+                PackageQueryCapabilityResourcePaths.Document.Value));
+        ResourceExplanationDocument document =
+            explanation.Explain(
+                resolved,
+                new(
+                    depth: 0,
+                    resourceLimit: 1,
+                    relationshipLimit: 64))
+                .Content;
+
+        Assert.Contains(
+            document.Schemas.SelectMany(static schema =>
+                schema.DataShapes),
+            static shape =>
+                shape.Identity.Schema.Owner.Value == "query-space"
+                && shape.Identity.Value == "opaque-external-identity");
     }
 
     [Fact]

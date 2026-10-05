@@ -41,6 +41,9 @@ internal static class ResourceExplanationVocabulary
         new(CoreSchemaIdentity, "text");
     internal static readonly ExplanationDataShapeIdentity IntegerShape =
         new(CoreSchemaIdentity, "integer");
+    internal static readonly ExplanationDataShapeIdentity
+        OpaqueExternalIdentityShape =
+            new(QuerySchemaIdentity, "opaque-external-identity");
     internal static readonly ExplanationPublicAddressKindIdentity
         ResourcePathAddressKind =
             new(CoreSchemaIdentity, "resource-path");
@@ -257,7 +260,16 @@ internal static class ResourceExplanationVocabulary
     internal static int DeclarationCount(
         IEnumerable<ExplanationSchema> schemas) =>
         schemas.Sum(schema =>
-            schema.DataShapes.Length
+            1
+            + schema.DataShapes.Sum(static shape =>
+                1 + (shape switch
+                {
+                    ExplanationDataShapeDeclaration.Record record =>
+                        record.Fields.Length,
+                    ExplanationDataShapeDeclaration.Choice choice =>
+                        choice.Cases.Length,
+                    _ => 0,
+                }))
             + schema.ResourceTypes.Length
             + schema.AddressKinds.Length
             + schema.ResourceTypes.Sum(resource =>
@@ -296,6 +308,14 @@ internal static class ResourceExplanationVocabulary
                 "An arbitrary-precision integer.",
                 valueBudget,
                 ExplanationScalarKind.Integer);
+        var opaqueExternalIdentityShape =
+            new ExplanationDataShapeDeclaration.Scalar(
+                OpaqueExternalIdentityShape,
+                "Opaque external identity",
+                "An identity issued by an owner that has not yet published "
+                + "an explanation resource type and key.",
+                valueBudget,
+                ExplanationScalarKind.Text);
         var address =
             new ExplanationPublicAddressKindDeclaration(
                 ResourcePathAddressKind,
@@ -415,7 +435,9 @@ internal static class ResourceExplanationVocabulary
                     TextFact("identity", "Identity"),
                     TextFact("name", "Name"),
                     TextFact("summary", "Summary"),
-                    TextFact("result-contract", "Result contract"),
+                    OpaqueExternalIdentityFact(
+                        "result-contract",
+                        "Result contract"),
                 ],
                 [
                     Relationship(
@@ -435,7 +457,9 @@ internal static class ResourceExplanationVocabulary
                     TextFact("subject-role", "Subject role"),
                     TextFact("result-grain", "Result grain"),
                     TextFact("profile", "Profile"),
-                    TextFact("result-contract", "Result contract"),
+                    OpaqueExternalIdentityFact(
+                        "result-contract",
+                        "Result contract"),
                 ],
                 [
                     Relationship(
@@ -577,7 +601,7 @@ internal static class ResourceExplanationVocabulary
             new(
                 QuerySchemaIdentity,
                 Version,
-                [],
+                [opaqueExternalIdentityShape],
                 [querySpace, queryFacet]),
             new(
                 ConsumerSchemaIdentity,
@@ -643,6 +667,20 @@ internal static class ResourceExplanationVocabulary
                     displayName,
                     $"The {displayName.ToLowerInvariant()} fact.",
                     IntegerShape,
+                    ExplanationCardinality.RequiredOne,
+                    ExplanationObservationStates.Available);
+
+        Func<
+            ExplanationResourceTypeIdentity,
+            ExplanationFactDeclaration> OpaqueExternalIdentityFact(
+            string identity,
+            string displayName) =>
+            resourceType =>
+                new(
+                    Fact(resourceType, identity),
+                    displayName,
+                    $"The {displayName.ToLowerInvariant()} fact.",
+                    OpaqueExternalIdentityShape,
                     ExplanationCardinality.RequiredOne,
                     ExplanationObservationStates.Available);
 

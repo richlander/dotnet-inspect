@@ -1545,7 +1545,7 @@ public sealed class ResourceExplanationCatalog
         return $"{sectionPath.Value}/items/{identity.ItemKind}/";
     }
 
-    private static ImmutableArray<ExplanationSchema> CreateSchemaSlice(
+    private ImmutableArray<ExplanationSchema> CreateSchemaSlice(
         IEnumerable<CatalogResource> resources,
         IEnumerable<ResourceExplanationRelationship> relationships)
     {
@@ -1596,7 +1596,8 @@ public sealed class ResourceExplanationCatalog
             if (selectedResources.ContainsKey(type))
                 continue;
             ExplanationResourceTypeDeclaration original =
-                ResourceExplanationVocabulary.ResourceType(type);
+                _schemas.SelectMany(static schema => schema.ResourceTypes)
+                    .Single(resource => resource.Identity == type);
             selectedResources.Add(type, original);
             AddShape(original.IdentityShape);
             foreach (ExplanationFactDeclaration fact in original.Facts)
@@ -1628,15 +1629,14 @@ public sealed class ResourceExplanationCatalog
         foreach (ExplanationPublicAddressKindIdentity kind in addressKinds)
         {
             ExplanationPublicAddressKindDeclaration declaration =
-                ResourceExplanationVocabulary.Schemas
+                _schemas
                     .SelectMany(static schema => schema.AddressKinds)
                     .Single(candidate => candidate.Identity == kind);
             AddShape(declaration.ValueShape);
         }
 
         var result = ImmutableArray.CreateBuilder<ExplanationSchema>();
-        foreach (ExplanationSchema schema
-                 in ResourceExplanationVocabulary.Schemas)
+        foreach (ExplanationSchema schema in _schemas)
         {
             ExplanationDataShapeDeclaration[] selectedShapes =
             [
@@ -1677,7 +1677,7 @@ public sealed class ResourceExplanationCatalog
             if (!shapes.Add(identity))
                 return;
             ExplanationDataShapeDeclaration shape =
-                ResourceExplanationVocabulary.Schemas
+                _schemas
                     .SelectMany(static schema => schema.DataShapes)
                     .Single(candidate => candidate.Identity == identity);
             switch (shape)
