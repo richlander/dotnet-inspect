@@ -80,7 +80,7 @@ public static class LibraryFamilyRoleInspection
                     .CompositionRejected(compositionRejected);
             }
 
-            return ExecuteAvailable(
+            return Execute(
                 ((LibraryFamilyRoleCompositionOutcome.Available)
                     composition).Document,
                 operation,
@@ -106,11 +106,15 @@ public static class LibraryFamilyRoleInspection
             []);
     }
 
-    private static LibraryFamilyRoleQueryResult ExecuteAvailable(
+    public static LibraryFamilyRoleQueryResult Execute(
         LibraryFamilyRoleCompositionDocument document,
         LibraryFamilyRoleQueryPlan operation,
         QuerySpaceRequest request)
     {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(request);
+
         LibraryFamilyRolePopulation? population =
             document.Populations.SingleOrDefault(
                 candidate => candidate.Kind == operation.Population);

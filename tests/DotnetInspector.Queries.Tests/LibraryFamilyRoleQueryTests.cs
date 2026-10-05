@@ -4,6 +4,7 @@ using System.Text.Json;
 using CSharpText;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.PerformanceOracles;
 using DotnetInspector.ResearchSections;
 
 using ILInspector.Metadata;
@@ -326,6 +327,51 @@ public sealed class LibraryFamilyRoleQueryTests
             RowQueryExecutor.Apply(
                 [smaller, narrower, wider],
                 prevalenceResolution.Plan!).Values);
+    }
+
+    [Fact]
+    public void PerformanceScorecard_AgreesAcrossAllSupportedClosings()
+    {
+        var shape = new ScorecardShape(
+                N: 2,
+                WindowFirst: 1,
+                WindowLast: 2);
+        IReadOnlyList<
+                ScorecardAsset<LibraryFamilyRoleScorecardAsset>> assets =
+                    LibraryFamilyRolePopulationScorecard.LoadAssets(
+                        [
+                            FixtureCatalog.ResearchNameFamilies
+                                .AssemblyPath(),
+                        ]);
+        ScorecardColumn<
+                LibraryFamilyRoleScorecardAsset,
+                LibraryFamilyRoleRow> oracle =
+                    LibraryFamilyRolePopulationScorecard
+                        .NLinqColumn(shape);
+        ScorecardCheck check = Scorecard.Check(
+                assets,
+                oracle,
+                [
+                    LibraryFamilyRolePopulationScorecard
+                        .LinqColumn(shape),
+                    oracle,
+                    LibraryFamilyRolePopulationScorecard
+                        .QuerySpaceColumn(shape),
+                ],
+                LibraryFamilyRolePopulationScorecard.RowText,
+                closings:
+                [
+                    ScorecardClosing.Count,
+                    ScorecardClosing.Head,
+                    ScorecardClosing.Tail,
+                    ScorecardClosing.Rows,
+                    ScorecardClosing.Window,
+                ]);
+
+        Assert.True(
+                check.Agrees,
+                string.Join(Environment.NewLine, check.Mismatches));
+        Assert.Empty(check.WindowFailures);
     }
 
     private static FixtureExecution OpenFixture()
