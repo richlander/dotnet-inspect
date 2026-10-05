@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  renderLibraryDependencyStructureSurface,
   renderLibraryMetricsSurface,
+  type LibraryAnalysisOptions,
   type LibraryMetricsMode,
-  type LibraryMetricsOptions,
 } from "../src/library-metrics.ts";
 import type {
   BrowserLibraryDependencyStructure,
@@ -149,10 +150,10 @@ const dependencyData: BrowserLibraryDependencyStructure = {
 };
 
 function render(
-  overrides: Partial<LibraryMetricsOptions> = {},
-  mode: LibraryMetricsMode = "complexity",
+  overrides: Partial<LibraryAnalysisOptions> = {},
+  mode: LibraryMetricsMode | "dependencies" = "complexity",
 ) {
-  return renderLibraryMetricsSurface({
+  const options: LibraryAnalysisOptions = {
     libraryName: "Example.Core",
     assemblyIdentity: "Example.Core, Version=1.0.0.0",
     assetPath: "lib/net10.0/Example.Core.dll",
@@ -171,13 +172,22 @@ function render(
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
     ...overrides,
-  }, mode);
+  };
+  return mode === "dependencies"
+    ? renderLibraryDependencyStructureSurface(options)
+    : renderLibraryMetricsSurface(options, mode);
 }
 
 function renderRelationships(
-  overrides: Partial<LibraryMetricsOptions> = {},
+  overrides: Partial<LibraryAnalysisOptions> = {},
 ) {
   return render(overrides, "relationships");
+}
+
+function renderDependencies(
+  overrides: Partial<LibraryAnalysisOptions> = {},
+) {
+  return render(overrides, "dependencies");
 }
 
 test("partial physical coverage is visibly qualified and diagnostics are escaped", () => {
@@ -214,12 +224,17 @@ test("renders complexity and relationships as dedicated views", () => {
   assert.match(relationships, /Relationship Crossing/);
   assert.match(relationships, /Example\.Core\.Store/);
   assert.doesNotMatch(relationships, /Complexity Explorer/);
-  assert.match(relationships, /Load dependency structure/);
+  assert.doesNotMatch(relationships, /Load dependency structure/);
   assert.doesNotMatch(complexity, /Load dependency structure/);
+
+  const dependencies = renderDependencies();
+  assert.match(dependencies, /data-analysis-mode="dependencies"/);
+  assert.match(dependencies, /Load dependency structure/);
+  assert.doesNotMatch(dependencies, /Relationship Crossing|Complexity Explorer/);
 });
 
 test("renders analysis-issued dependency levels, cycles, and explanations", () => {
-  const html = renderRelationships({
+  const html = renderDependencies({
     dependencyFresh: true,
     dependencyData,
   });
@@ -254,7 +269,7 @@ test("renders analysis-issued dependency levels, cycles, and explanations", () =
 });
 
 test("discloses bounded and qualified dependency evidence", () => {
-  const html = renderRelationships({
+  const html = renderDependencies({
     dependencyFresh: true,
     dependencyData: {
       ...dependencyData,
@@ -271,12 +286,12 @@ test("discloses bounded and qualified dependency evidence", () => {
 
   assert.match(html, /Dependency evidence is qualified/);
   assert.match(html, /1 unresolved call and 1 incomplete body/);
-  assert.match(html, /highest-volume edges of 8/);
+  assert.match(html, /Showing 3 of 8 issued edges/);
   assert.match(html, /One call target could not be resolved\./);
 });
 
-test("keeps dependency failure visible without hiding available relationships", () => {
-  const html = renderRelationships({
+test("keeps dependency failure visible in the dedicated inspector", () => {
+  const html = renderDependencies({
     dependencyFresh: true,
     dependencyData: {
       outcome: "failed",
@@ -292,17 +307,17 @@ test("keeps dependency failure visible without hiding available relationships", 
     },
   });
 
-  assert.match(html, /Relationship Crossing/);
+  assert.doesNotMatch(html, /Relationship Crossing/);
   assert.match(html, /Dependency structure failed/);
   assert.match(html, /Dependency selection failed\./);
 });
 
 test("requires explicit dependency demand and keeps loading distinct", () => {
-  const initial = renderRelationships();
+  const initial = renderDependencies();
   assert.match(initial, /Load dependency structure/);
   assert.doesNotMatch(initial, /metrics-dependency-structure/);
 
-  const loading = renderRelationships({
+  const loading = renderDependencies({
     dependencyFresh: true,
     dependencyLoading: true,
   });
@@ -310,47 +325,82 @@ test("requires explicit dependency demand and keeps loading distinct", () => {
   assert.doesNotMatch(loading, /Load dependency structure/);
 });
 
-test("preserves relationship interaction state across dependency renders", () => {
-  const relationshipState = {
-    visibleCount: 1,
-    selectedSourceTypeKey: "Example.Core.Engine",
-    selectedTargetTypeKey: "Example.Core.Store",
-  };
-  const variants = [
-    renderRelationships({ relationshipState }),
-    renderRelationships({
-      relationshipState,
-      dependencyFresh: true,
-      dependencyLoading: true,
-    }),
-    renderRelationships({
-      relationshipState,
-      dependencyFresh: true,
-      dependencyData,
-    }),
-    renderRelationships({
-      relationshipState,
-      dependencyFresh: true,
-      dependencyError: "Dependency selection failed.",
-    }),
-  ];
+test("renders only the selected dependency detail", () => {
+  const html = renderDependencies({
+    dependencyFresh: true,
+    dependencyData,
+    dependencyState: {
+      includeGlobalNamespace: false,
+      selectedSourceNamespace: "Example.Api",
+      selectedTargetNamespace: "Example.Core",
+    },
+  });
 
-  for (const html of variants) {
-    assert.match(
-      html,
-      /data-source-type-key="Example\.Core\.Engine"[^>]*aria-pressed="true"/,
-    );
-    assert.match(
-      html,
-      /data-metrics-relationship-detail-selection>/,
-    );
-    assert.match(html, />1\/1 most connected<\/strong>/);
-    assert.match(html, />4 retained call sites<\/strong>/);
-  }
+  assert.match(
+    html,
+    /data-source-namespace="Example\.Api"[^>]*aria-pressed="true"/,
+  );
+  assert.equal(
+    html.match(/data-dependency-edge-detail="\d+"(?! hidden)/g)?.length,
+    1,
+  );
+  assert.match(html, /Selected dependency/);
+  assert.match(html, /Example\.Api[\s\S]*Example\.Core/);
+});
+
+test("hides global namespace evidence by default without renumbering levels", () => {
+  const withGlobal: BrowserLibraryDependencyStructure = {
+    ...dependencyData,
+    namespaces: [{
+      namespace: "",
+      isGlobalNamespace: true,
+      typeCount: 1,
+      intraNamespaceRelationshipCount: 0,
+      cycleIndex: null,
+      level: 0,
+    }, ...dependencyData.namespaces.map(node => ({
+      ...node,
+      level: node.level + 1,
+    }))],
+    namespaceEdges: [...dependencyData.namespaceEdges, {
+      sourceNamespace: "Example.Core",
+      targetNamespace: "",
+      counts: { invocations: 1, functionReferences: 0, total: 1 },
+      contributingTypeEdgeCount: 1,
+      explainingTypeEdges: [],
+      remainingContributorCount: 1,
+    }],
+    totalNamespaceEdgeCount: 4,
+  };
+
+  const hidden = renderDependencies({
+    dependencyFresh: true,
+    dependencyData: withGlobal,
+  });
+  assert.doesNotMatch(hidden, /data-target-namespace=""/);
+  assert.doesNotMatch(hidden, />Level 0</);
+  assert.match(
+    hidden,
+    /1 retained relationship and 0 issued cycles[\s\S]*hidden/,
+  );
+  assert.match(hidden, /Include global namespace/);
+
+  const included = renderDependencies({
+    dependencyFresh: true,
+    dependencyData: withGlobal,
+    dependencyState: {
+      includeGlobalNamespace: true,
+      selectedSourceNamespace: null,
+      selectedTargetNamespace: null,
+    },
+  });
+  assert.match(included, /data-target-namespace=""/);
+  assert.match(included, />Level 0</);
+  assert.match(included, /data-dependency-include-global checked/);
 });
 
 test("keeps empty and unavailable dependency outcomes distinct", () => {
-  const empty = renderRelationships({
+  const empty = renderDependencies({
     dependencyFresh: true,
     dependencyData: {
       ...dependencyData,
@@ -362,7 +412,7 @@ test("keeps empty and unavailable dependency outcomes distinct", () => {
   });
   assert.match(empty, /No namespace dependencies found/);
 
-  const unavailable = renderRelationships({
+  const unavailable = renderDependencies({
     dependencyFresh: true,
     dependencyData: {
       ...dependencyData,

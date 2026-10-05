@@ -1,7 +1,35 @@
 # Local development environment
 
-Supplementary notes for [Building and testing](../AGENTS.md#building-and-testing)
-that most contributors won't need but should be able to find.
+This document owns repository SDK selection, build and test commands, package
+acquisition, and local tool activation. Start with the
+[repository workflow](repository-workflow.md#building-testing-and-evidence).
+
+## SDK and normal build
+
+Before any other `dotnet` command, inspect the available and selected SDK:
+
+```bash
+command -v dotnet
+dotnet --list-sdks
+dotnet --version
+```
+
+Use the SDK selected by repository configuration and CI, following
+[Repository development SDK](cli-reference.md#repository-development-sdk).
+Never replace or shadow a centrally installed `dotnet`; when the required SDK
+is absent, install it only under the current worktree as the repository
+instructions specify.
+
+Build the normal graph with:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+```
+
+The primary dependencies are the .NET SDK,
+`Microsoft.CodeAnalysis.CSharp`, and Markout. For a major dependency update,
+check all three and update the .NET SDK and `Microsoft.CodeAnalysis.CSharp`
+together.
 
 ## Which dotnet-inspect to run
 
