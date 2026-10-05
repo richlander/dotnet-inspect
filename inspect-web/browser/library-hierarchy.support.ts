@@ -317,7 +317,7 @@ async function installFacades(
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
-  analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
+  analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" | "implementation-only" = "ready",
   homeDemos?: HomeDemoFixture,
   diagnostics: DiagnosticsFixture = {},
   packageLoading: PackageLoadingFixture = {},
@@ -1365,6 +1365,65 @@ async function installFacades(
               compatibility: false,
             };
       }
+      function implementationSurface(surface, typeIdentity) {
+          const existing = surface.types.find(item =>
+            item.definitionId === typeIdentity || item.queryId === typeIdentity);
+          const template = existing ?? surface.types[0];
+          const sourceMember = template?.api[0];
+          if (!template || !sourceMember) return surface;
+          const implementationOnly = existing == null;
+          const memberName = implementationOnly ? "Hidden" : "Transform";
+          const token = implementationOnly ? 100663399 : 100663299;
+          const member = {
+            ...sourceMember,
+            name: memberName,
+            signature: "void " + memberName + "()",
+            accessibility: "private",
+            metadataToken: token,
+            declarationMetadataToken: token,
+            documentationId: "M:" + typeIdentity + "." + memberName,
+            stableSelector: memberName,
+            anchorDigest: memberName.toLowerCase(),
+            canonicalSignature: "M:" + typeIdentity + "." + memberName,
+            anchorTypeFullName: typeIdentity,
+            graphSelectorKey: memberName,
+            bodySelectors: [{
+              token,
+              memberName,
+              selectorKey: memberName,
+            }],
+          };
+          const implementationType = implementationOnly
+            ? {
+                ...template,
+                id: template.id.replace(template.definitionId, typeIdentity),
+                definitionId: typeIdentity,
+                queryId: typeIdentity,
+                metadataId: typeIdentity,
+                name: typeIdentity.split(".").pop(),
+                displayName: typeIdentity.split(".").pop(),
+                namespace: typeIdentity.split(".").slice(0, -1).join("."),
+                accessibility: "internal",
+                accessibilityId: "internal",
+                members: 1,
+                api: [member],
+              }
+            : {
+                ...existing,
+                api: [
+                  ...existing.api.filter(item =>
+                    item.stableSelector !== member.stableSelector),
+                  member,
+                ],
+              };
+          return {
+            ...surface,
+            types: [
+              ...surface.types.filter(item => item !== existing),
+              implementationType,
+            ],
+          };
+      }
       function typeMemberPopulation(
         surface, typeIdentity, spelling, accessibility) {
         function accessibilityBucket(member) {
@@ -1517,6 +1576,44 @@ async function installFacades(
           typeIdentity,
           spelling,
           accessibility);
+      }
+      export async function queryImplementationTypeMemberPopulation(
+        id, version, framework, assembly, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.implementationTypeMemberPopulationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, spelling,
+            accessibility,
+          ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          implementationSurface(
+            surfaceFor(id, version, framework),
+            typeIdentity),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
+      export async function queryGraphMemberSurface(
+        id, version, framework, assembly, typeIdentity, memberName, selector, token) {
+        document.documentElement.dataset.graphMemberSurfaceRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, memberName,
+            selector, token,
+          ]);
+        const projected = implementationSurface(
+          surfaceFor(id, version, framework),
+          typeIdentity);
+        const type = projected.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const member = type?.api.find(item =>
+          item.stableSelector === selector);
+        if (!type || !member) {
+          throw new Error("The implementation member was not projected.");
+        }
+        return {
+          type: { ...type, api: [member] },
+          selectedBody: member.bodySelectors[0],
+        };
       }
       export async function queryPlatformTypeMemberPopulation(
         framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
@@ -2548,19 +2645,35 @@ async function installFacades(
           assembly: selected.name + ".dll",
           typeId: selectedType.definitionId,
           memberName,
-          stableSelector: "Run",
+          stableSelector: memberName,
           accessibility,
-          bodyTokens: [100663297],
+          bodyTokens: [
+            memberName === "Transform" ? 100663299 : 100663297,
+          ],
           opportunityCount,
           inLoopCount,
           shapes,
           confidence
         });
-        const members = scenario === "empty" || scenario === "partial-empty" ? [] : [
-          member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
-          member("Write", 1, 0, ["array-allocation"], "medium"),
-          member("Transform", 2, 0, ["stackalloc-candidate"], "high", "private")
-        ];
+        const members = scenario === "empty" || scenario === "partial-empty"
+          ? []
+          : scenario === "implementation-only"
+            ? [{
+                ...member(
+                  "Hidden",
+                  2,
+                  0,
+                  ["stackalloc-candidate"],
+                  "high",
+                  "private"),
+                typeId: "Example.ImplementationOnly",
+                bodyTokens: [100663399],
+              }]
+            : [
+                member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
+                member("Write", 1, 0, ["array-allocation"], "medium"),
+                member("Transform", 2, 0, ["stackalloc-candidate"], "high", "private")
+              ];
         if (scenario === "long") {
           members.splice(0, members.length, ...Array.from({ length: 80 }, (_, index) =>
             member(

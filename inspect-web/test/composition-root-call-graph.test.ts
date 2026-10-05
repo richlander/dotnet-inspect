@@ -1043,7 +1043,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     spotlight,
-    /setTypeMemberPopulationIntent\("public", "csharp"\)[\s\S]*state\.selectedMemberKey = result\.memberKey[\s\S]*const selectionData = loadSelectionData\(\)[\s\S]*await selectionData/);
+    /setTypeMemberPopulationIntent\("public", "csharp", "surface"\)[\s\S]*state\.selectedMemberKey = result\.memberKey[\s\S]*const selectionData = loadSelectionData\(\)[\s\S]*await selectionData/);
   assert.doesNotMatch(spotlight, /loadSelectedMemberOverview\(\)/);
 
   const groupDocument =

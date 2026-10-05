@@ -1193,6 +1193,7 @@ type $ManagedExports = {
             readonly "CancelLibraryApiDiff.271973316": (operationId: string, reason: string) => string;
             readonly "FindTypes.2036514267": (retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string) => Promise<string>;
             readonly "QueryGraphMemberSurface.1542089313": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+            readonly "QueryImplementationTypeMemberPopulation.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
             readonly "QueryLibraryApiDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMemberDeclaration.340032695": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean) => Promise<string>;
             readonly "QueryMemberDocument.1541609119": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, baselineOrdinal: number, fingerprintPrefix: string) => Promise<string>;
@@ -1295,6 +1296,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryGraphMemberSurface.1542089313");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryGraphMemberSurface.1542089313\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Metadata");
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryImplementationTypeMemberPopulation.1160082336");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryImplementationTypeMemberPopulation.1160082336\u0027 is not callable.");
     }
   }
   {
@@ -1592,6 +1605,12 @@ export async function queryGraphMemberSurface(packageId: string, version: string
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryGraphMemberSurface.1542089313"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserGraphMemberSurface;
+}
+
+export async function queryImplementationTypeMemberPopulation(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string): Promise<BrowserTypeMemberPopulationInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryImplementationTypeMemberPopulation.1160082336"](packageId, version, targetFramework, assemblyName, typeIdentity, spelling, accessibility);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeMemberPopulationInspection;
 }
 
 export async function queryLibraryApiDiff(operationId: string, requestJson: BrowserLibraryApiDiffRequest): Promise<BrowserLibraryApiDiffResult> {

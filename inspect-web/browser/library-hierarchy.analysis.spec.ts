@@ -326,15 +326,51 @@ test("ranked Analysis members replace sticky private intent with all access", as
   await chooseSubject(page, "library", "Library");
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await selectPerformanceAnalysis(page);
-  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "Transform" })
+    .click();
 
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-member-access-filter]"))
     .toHaveValue("all");
   await expect(page.locator("#inspector-panel")).toContainText(
-    "Runs the widget.",
+    "Transform",
   );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-implementation-type-member-population-request",
+    /"Example.Widget","csharp","all"\]$/,
+  );
+});
+
+test("ranked Analysis projects an implementation-only Type before following its member", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "implementation-only",
+  );
+  await openAnalysis(page);
+
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "ImplementationOnly.Hidden" })
+    .click();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-graph-member-surface-request",
+    /"Example.ImplementationOnly","Hidden","Hidden",100663399\]$/,
+  );
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Hidden");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("all");
 });
 
 test("ranked Analysis activation does not outlive newer metadata spelling", async ({
@@ -356,13 +392,13 @@ test("ranked Analysis activation does not outlive newer metadata spelling", asyn
 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
+    "data-implementation-type-member-population-request",
     /"csharp","all"\]$/,
   );
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-spelling]").selectOption("metadata");
   await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
+    "data-implementation-type-member-population-request",
     /"metadata","all"\]$/,
   );
 
@@ -407,7 +443,7 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
+    "data-implementation-type-member-population-request",
     /"Example.Neighbor","csharp","all"\]$/,
   );
   await expect(subjectTab(page, "type"))

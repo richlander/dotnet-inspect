@@ -12,6 +12,8 @@ export interface PackagePerformanceTarget {
   stableSelector: string;
   assembly: string;
   typeId: string;
+  memberName: string;
+  metadataToken: number;
 }
 
 export interface PackageViewBindingActions
@@ -132,5 +134,7 @@ export function bindPackageView(
       stableSelector: button.dataset.perfSelector ?? "",
       assembly: button.dataset.perfAssembly ?? "",
       typeId: button.dataset.perfType ?? "",
+      memberName: button.dataset.perfMember ?? "",
+      metadataToken: Number(button.dataset.perfToken ?? "0"),
     })));
 }

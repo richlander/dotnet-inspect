@@ -1470,6 +1470,32 @@ public sealed partial class BrowserEngineBoundaryTests
                 JsonValueKind.Null,
                 declarationDocument.RootElement
                     .GetProperty("unavailable").ValueKind);
+
+            string populationJson =
+                await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                    .QueryImplementationTypeMemberPopulation(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        surfaceAsset.Id,
+                        typeof(BrowserEngineBoundaryTests).FullName!,
+                        "csharp",
+                        "all");
+            using JsonDocument populationDocument =
+                JsonDocument.Parse(populationJson);
+            JsonElement population = populationDocument.RootElement
+                .GetProperty("population");
+            JsonElement privateMethod = Assert.Single(
+                population.GetProperty("groups").EnumerateArray(),
+                group =>
+                    group.GetProperty("name").GetString()
+                    == method.Name);
+            Assert.Contains(
+                privateMethod.GetProperty("members").EnumerateArray(),
+                member =>
+                    member.GetProperty("stableSelector").GetString()
+                    == type.GetProperty("api")[0]
+                        .GetProperty("stableSelector").GetString());
         }
     }
 

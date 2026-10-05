@@ -108,6 +108,8 @@ test("ranked member rows retain navigation identity and triage evidence", () => 
   assert.match(html, /data-perf-selector="Run"/);
   assert.match(html, /data-perf-assembly="Test\.Assembly\.dll"/);
   assert.match(html, /data-perf-type="Test\.Namespace\.Widget"/);
+  assert.match(html, /data-perf-member="Run"/);
+  assert.match(html, /data-perf-token="100663297"/);
   assert.match(html, /Widget\.Run/);
   assert.match(html, /box-value-type/);
   assert.match(html, /string-concat/);

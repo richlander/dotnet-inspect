@@ -145,6 +145,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDocument"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
+    queryImplementationTypeMemberPopulation: () =>
+      unexpected("queryImplementationTypeMemberPopulation"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
@@ -2358,6 +2360,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDeclaration",
       "queryMemberDocument",
       "queryMemberGroupDocument",
+      "queryImplementationTypeMemberPopulation",
       "queryTypeMemberPopulation",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
@@ -2456,7 +2459,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 112);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 113);
 
   const state = fixture();
   const groups = [

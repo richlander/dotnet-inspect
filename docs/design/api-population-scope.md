@@ -243,9 +243,12 @@ and Opportunities inspect signatures and therefore retain the public
 declaration population. Complexity, Relationships, and Performance inspect
 implementation bodies and therefore include every accessibility. A
 Performance row retains its declaration accessibility for presentation and
-requests the all-access member population only when the user follows that row;
-the host does not discard non-public body evidence because its ordinary API
-view defaults to public declarations.
+requests the implementation participant's all-access member population only
+when the user follows that row. The ordinary API view remains
+reference-preferred, while a followed implementation-only Type is projected
+into that navigation context without joining the ordinary inventory. The host
+does not discard non-public body evidence because its ordinary API view
+defaults to public declarations.
 
 `--all-libraries` and similar package-population controls are separate
 selection mechanisms. They decide which Library occurrences participate; they

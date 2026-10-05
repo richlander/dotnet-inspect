@@ -175,6 +175,7 @@ import {
   bindPackageDependencyList,
   bindPackageView,
   renderPackageNav,
+  type PackagePerformanceTarget,
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
@@ -881,6 +882,8 @@ let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
 let inspectMemberGroupDocument:
   EngineClient["metadata"]["queryMemberGroupDocument"];
+let inspectImplementationTypeMemberPopulation:
+  EngineClient["metadata"]["queryImplementationTypeMemberPopulation"];
 let inspectTypeMemberPopulation:
   EngineClient["metadata"]["queryTypeMemberPopulation"];
 let inspectPlatformMemberDeclaration:
@@ -1094,6 +1097,8 @@ async function loadEngineModule() {
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
       queryMemberGroupDocument: inspectMemberGroupDocument,
+      queryImplementationTypeMemberPopulation:
+        inspectImplementationTypeMemberPopulation,
       queryTypeMemberPopulation: inspectTypeMemberPopulation,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
       queryPlatformMemberGroupDocument:
@@ -1400,6 +1405,8 @@ const initialState = {
   typeMemberPopulationLoading: false,
   typeMemberPopulationError: "",
   typeMemberPopulationKey: "",
+  typeMemberPopulationSource: "surface" as "surface" | "implementation",
+  typeMemberPopulationSourceTypeId: "",
   typeHeat: { status: "idle" } as TypeHeatState,
   typeMethodLeverage: { status: "idle" } as TypeMethodLeverageState,
   memberSource: { status: "idle" as const },
@@ -6674,9 +6681,19 @@ function typeMemberPopulationKey(type: AppTypeSurface) {
     platformDemoContextIdFor(pkg ?? null) ?? "",
     type.assemblyId,
     type.definitionId ?? type.id,
+    typeMemberPopulationSource(type),
     state.memberSpelling,
     state.memberAccessibilityFilter,
   ]);
+}
+
+function typeMemberPopulationSource(
+  type: AppTypeSurface,
+): "surface" | "implementation" {
+  return state.typeMemberPopulationSource === "implementation"
+      && state.typeMemberPopulationSourceTypeId === type.id
+    ? "implementation"
+    : "surface";
 }
 
 function currentTypeMemberPopulation(type: AppTypeSurface) {
@@ -11582,17 +11599,59 @@ function ensureExplorerResizeListener() {
 
 // Stable product identities bridge implementation-body evidence to the
 // reference-preferred surface the navigation pane renders.
-function drillToPerfMember(
-  stableSelector: string,
-  assembly: string,
-  typeId: string,
+async function resolvePackagePerformanceTypeForNavigation(
+  pkg: AppPackage,
+  target: PackagePerformanceTarget,
+  expectedView: string,
+): Promise<AppTypeSurface | null> {
+  const existing = resolvePackagePerformanceType(pkg, target);
+  if (existing) return existing;
+  if (!target.memberName || target.metadataToken <= 0) {
+    throw new Error(
+      `The ranked member '${target.typeId}' has no implementation body identity.`);
+  }
+
+  const projection = await inspectGraphMemberSurface(
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    target.assembly,
+    target.typeId,
+    target.memberName,
+    target.stableSelector,
+    target.metadataToken);
+  if (state.package !== pkg || viewSignature() !== expectedView) return null;
+
+  const projected = createAppTypeSurface(projection.type);
+  const selected = projected.api.find(member =>
+    member.stableSelector === target.stableSelector);
+  if ((projected.definitionId ?? projected.id) !== target.typeId || !selected) {
+    throw new Error(
+      "The implementation projection did not retain the ranked member identity.");
+  }
+
+  const concurrent = resolvePackagePerformanceType(pkg, target);
+  if (concurrent) return concurrent;
+  const implementationType = {
+    ...projected,
+    graphOnly: true,
+  };
+  pkg.types.push(implementationType);
+  return implementationType;
+}
+
+async function drillToPerfMember(
+  target: PackagePerformanceTarget,
 ) {
   const pkg = currentPackage();
-  const targetType = resolvePackagePerformanceType(pkg, {
-    assembly,
-    typeId,
-  });
-  if (!targetType) return;
+  const sourceView = viewSignature();
+  const targetType = await resolvePackagePerformanceTypeForNavigation(
+    pkg,
+    target,
+    sourceView);
+  if (!targetType || state.package !== pkg || viewSignature() !== sourceView) {
+    return;
+  }
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -11601,7 +11660,7 @@ function drillToPerfMember(
   state.memberBrowseTypeId = "";
   state.namespaceFilter = "";
   resetMemberFilters();
-  setTypeMemberPopulationIntent("all", "csharp");
+  setTypeMemberPopulationIntent("all", "csharp", "implementation");
   state.lens = "api";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
@@ -11613,7 +11672,7 @@ function drillToPerfMember(
   const expectedPopulationIntent = typeMemberPopulationIntentGeneration;
   observeAsync(
     selectPerformanceMember(
-      stableSelector,
+      target.stableSelector,
       expectedView,
       expectedPopulationKey,
       expectedPopulationIntent),
@@ -12959,10 +13018,9 @@ const packageViewActions: PackageViewBindingActions = {
     loadCurrentSelectionData("Loading the selected Type");
   },
   onPerformanceMemberSelect: target => {
-    drillToPerfMember(
-      target.stableSelector,
-      target.assembly,
-      target.typeId);
+    observeAsync(
+      drillToPerfMember(target),
+      "Opening the ranked implementation member");
   },
 };
 
@@ -15842,7 +15900,7 @@ async function pickSpotlightMember(
   activateSpotlightTypePackage(pkg);
   enterTypeSubject(type, { preserveAggregate });
   resetMemberFilters();
-  setTypeMemberPopulationIntent("public", "csharp");
+  setTypeMemberPopulationIntent("public", "csharp", "surface");
   state.selectedMemberKey = result.memberKey;
   state.selectedOverloadIndex = null;
   enterMemberScope({ preserveAggregate });
@@ -20813,6 +20871,11 @@ function loadSelectedTypeMemberPopulation():
     renderPreservingMemberFocus();
     return Promise.resolve(null);
   }
+  if (state.typeMemberPopulationSource === "implementation"
+    && state.typeMemberPopulationSourceTypeId !== type.id) {
+    state.typeMemberPopulationSource = "surface";
+    state.typeMemberPopulationSourceTypeId = "";
+  }
   const key = typeMemberPopulationKey(type);
   if (!key) {
     renderPreservingMemberFocus();
@@ -20870,14 +20933,23 @@ function loadSelectedTypeMemberPopulation():
               state.memberSpelling,
               state.memberAccessibilityFilter);
           })()
-        : inspectTypeMemberPopulation(
-            pkg.id,
-            pkg.version,
-            pkg.activeFramework,
-            type.assembly,
-            type.definitionId ?? type.id,
-            state.memberSpelling,
-            state.memberAccessibilityFilter);
+        : typeMemberPopulationSource(type) === "implementation"
+          ? inspectImplementationTypeMemberPopulation(
+              pkg.id,
+              pkg.version,
+              pkg.activeFramework,
+              type.assembly,
+              type.definitionId ?? type.id,
+              state.memberSpelling,
+              state.memberAccessibilityFilter)
+          : inspectTypeMemberPopulation(
+              pkg.id,
+              pkg.version,
+              pkg.activeFramework,
+              type.assembly,
+              type.definitionId ?? type.id,
+              state.memberSpelling,
+              state.memberAccessibilityFilter);
       const inspection = await result;
       if (typeMemberPopulationLoad !== load
         || state.typeMemberPopulationKey !== key) {
@@ -20912,8 +20984,16 @@ function loadSelectedTypeMemberPopulation():
 function setTypeMemberPopulationIntent(
   accessibility: MemberAccessibility,
   spelling: "csharp" | "metadata",
+  source?: "surface" | "implementation",
 ) {
   typeMemberPopulationIntentGeneration++;
+  if (source) {
+    state.typeMemberPopulationSource = source;
+    state.typeMemberPopulationSourceTypeId =
+      source === "implementation"
+        ? selectedType()?.id ?? ""
+        : "";
+  }
   state.memberAccessibilityFilter = accessibility;
   state.memberSpelling = spelling;
   typeMemberPopulationLoad = null;

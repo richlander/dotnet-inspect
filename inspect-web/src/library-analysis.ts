@@ -73,7 +73,7 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
           <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "\u2014")}</span></span>
         `;
         return member.stableSelector
-          ? `<button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">${body}</button>`
+          ? `<button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" data-perf-member="${escapeHtml(member.memberName)}" data-perf-token="${member.bodyTokens[0] ?? 0}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">${body}</button>`
           : `<div class="perf-row perf-row-static" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)}">${body}</div>`;
       }).join("");
       const empty = partial

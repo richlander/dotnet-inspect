@@ -814,10 +814,10 @@ test("typed package view owns package navigation bindings", () => {
   assert.equal(libraryJump.match(/\brender\(\)/g)?.length, 1);
   assert.match(
     binding,
-    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(target\)/);
   assert.match(
     appSource,
-    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent\)/);
+    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp", "implementation"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*target\.stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent\)/);
   const drillToPerfMember =
     appSource.match(/function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "";
   const selectPerformanceMember =

@@ -19,6 +19,9 @@ namespace DotnetInspect.Web.Interop.Metadata;
     nameof(MetadataExports.QueryTypeMemberPopulation),
     typeof(BrowserTypeMemberPopulationInspection))]
 [JsExportJsonOutput(
+    nameof(MetadataExports.QueryImplementationTypeMemberPopulation),
+    typeof(BrowserTypeMemberPopulationInspection))]
+[JsExportJsonOutput(
     nameof(MetadataExports.QueryPlatformTypeMemberPopulation),
     typeof(BrowserTypeMemberPopulationInspection))]
 [JsExportJsonOutput(
@@ -35,6 +38,46 @@ public static partial class MetadataExports
         string typeIdentity,
         string spelling,
         string accessibility)
+        => await QueryPackageTypeMemberPopulation(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                spelling,
+                accessibility,
+                implementation: false)
+            .ConfigureAwait(false);
+
+    [JSExport]
+    public static async Task<string> QueryImplementationTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility)
+        => await QueryPackageTypeMemberPopulation(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                spelling,
+                accessibility,
+                implementation: true)
+            .ConfigureAwait(false);
+
+    private static async Task<string> QueryPackageTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility,
+        bool implementation)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -49,25 +92,43 @@ public static partial class MetadataExports
                 $"{packageId} {version} has no selected compile Library "
                     + $"({coordinate.Selection.Status}).");
         }
-        BrowserWorkspaceParticipant participant =
-            scope.SurfaceParticipant(
+        BrowserWorkspaceParticipant participant = implementation
+            ? scope.LibraryParticipant(coordinate, assemblyName)
+            : scope.SurfaceParticipant(
                 coordinate,
                 coordinate.CompileAsset(assemblyName));
+        AssemblyContextLibraryRole role =
+            scope.ImplementationParticipants.Contains(participant)
+                ? AssemblyContextLibraryRole.Implementation
+                : AssemblyContextLibraryRole.ApiOnly;
+        ValueTask<AssemblyContextLibraryAdapterResult> materialization =
+            implementation
+                ? scope.UseMetadataParticipant(
+                participant,
+                (group, member) =>
+                    AssemblyContextLibraryAdapter.MaterializeAsync(
+                        group,
+                        member,
+                        role,
+                        BrowserExactMemberPolicy
+                            .MaterializationLimits,
+                        CancellationToken.None))
+                : scope.UseSurfaceParticipant(
+                    participant,
+                    (group, member) =>
+                        AssemblyContextLibraryAdapter.MaterializeAsync(
+                            group,
+                            member,
+                            AssemblyContextLibraryRole.ApiOnly,
+                            BrowserExactMemberPolicy
+                                .MaterializationLimits,
+                            CancellationToken.None));
         BrowserTypeMemberPopulationInspection inspection =
             await ExecuteTypeMemberPopulationAsync(
-                    scope.UseSurfaceParticipant(
-                        participant,
-                        (group, member) =>
-                            AssemblyContextLibraryAdapter.MaterializeAsync(
-                                group,
-                                member,
-                                AssemblyContextLibraryRole.ApiOnly,
-                                BrowserExactMemberPolicy
-                                    .MaterializationLimits,
-                                CancellationToken.None)),
-                    typeIdentity,
-                    spelling,
-                    accessibility)
+                materialization,
+                typeIdentity,
+                spelling,
+                accessibility)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }

@@ -78,6 +78,7 @@ type MetadataOperationName =
   | "queryMemberDeclaration"
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
+  | "queryImplementationTypeMemberPopulation"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
@@ -1279,6 +1280,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.metadata.queryMemberGroupDocument(...args),
     ),
+    queryImplementationTypeMemberPopulation: valueOperation(
+      "ordinary-metadata-query-implementation-type-member-population",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryImplementationTypeMemberPopulation"]
+        >
+      ) => facades.metadata.queryImplementationTypeMemberPopulation(...args),
+    ),
     queryTypeMemberPopulation: valueOperation(
       "ordinary-metadata-query-type-member-population",
       7,
@@ -2303,6 +2314,10 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberGroupDocument,
+      ),
+      queryImplementationTypeMemberPopulation: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryImplementationTypeMemberPopulation,
       ),
       queryTypeMemberPopulation: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeMemberPopulation,
