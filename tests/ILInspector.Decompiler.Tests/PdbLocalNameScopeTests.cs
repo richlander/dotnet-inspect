@@ -67,7 +67,7 @@ public sealed class PdbLocalNameScopeTests
             function.ValidateArgumentBindings();
 
             IrPasses.Run(function);
-            string output = CSharpPrinter.Print(function).Output!;
+            string output = DecidedPrint.Print(function).Output!;
 
             Assert.Contains("int first", output);
             Assert.Contains("int second", output);
@@ -110,8 +110,8 @@ public sealed class PdbLocalNameScopeTests
         Assert.Equal(2, function.LocalNameImportCauses.Length);
         IrPasses.Run(function);
 
-        DecompilerResult strict = CSharpPrinter.Print(function);
-        DecompilerResult approximate = CSharpPrinter.Print(
+        DecompilerResult strict = DecidedPrint.Print(function);
+        DecompilerResult approximate = DecidedPrint.Print(
             function,
             new PrinterOptions { ApproximatePdbLocalNames = true });
 
@@ -149,7 +149,7 @@ public sealed class PdbLocalNameScopeTests
         Assert.Empty(function.LocalNameImportCauses);
         function.CheckInvariant(true);
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Equal(2, output.Split("Escape(ref same)", StringSplitOptions.None).Length - 1);
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
@@ -320,7 +320,7 @@ public sealed class PdbLocalNameScopeTests
         ]);
         var hiddenFunction = hidden.Import();
         IrPasses.Run(hiddenFunction);
-        DecompilerResult hiddenResult = CSharpPrinter.Print(
+        DecompilerResult hiddenResult = DecidedPrint.Print(
             hiddenFunction,
             new PrinterOptions { ApproximatePdbLocalNames = true });
         Assert.Contains("V_0", hiddenResult.Output);
@@ -333,7 +333,7 @@ public sealed class PdbLocalNameScopeTests
         var malformedFunction = malformed.Import();
         Assert.Null(Assert.Single(malformedFunction.PdbLocalNameCandidates));
         IrPasses.Run(malformedFunction);
-        DecompilerResult malformedResult = CSharpPrinter.Print(
+        DecompilerResult malformedResult = DecidedPrint.Print(
             malformedFunction,
             new PrinterOptions { ApproximatePdbLocalNames = true });
         Assert.Contains("V_0", malformedResult.Output);
@@ -366,7 +366,7 @@ public sealed class PdbLocalNameScopeTests
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
         function.CheckInvariant(true);
 
-        DecompilerResult approximate = CSharpPrinter.Print(
+        DecompilerResult approximate = DecidedPrint.Print(
             function,
             new PrinterOptions { ApproximatePdbLocalNames = true });
         Assert.Contains("V_0", approximate.Output);
@@ -407,7 +407,7 @@ public sealed class PdbLocalNameScopeTests
         Assert.Empty(function.LocalNameImportCauses);
         Assert.All(function.Descendants.OfType<StoreLocal>(), s => Assert.Equal(0, s.Index));
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.DoesNotContain("first", output);
         Assert.DoesNotContain("second", output);
         Assert.Equal(2, output.Split("Escape(ref V_0)", StringSplitOptions.None).Length - 1);
@@ -468,7 +468,7 @@ public sealed class PdbLocalNameScopeTests
         function.CheckInvariant(true);
         function.ValidateArgumentBindings();
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("Escape(ref first)", output);
         Assert.Contains("Escape(ref second)", output);
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
