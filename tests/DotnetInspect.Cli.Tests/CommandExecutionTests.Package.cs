@@ -139,7 +139,7 @@ public partial class CommandExecutionTests
             [
                 packagePath,
                 "-S",
-                "Package files",
+                "Files",
                 "--paths",
                 "-o=-1",
                 "--lines",
@@ -230,7 +230,7 @@ public partial class CommandExecutionTests
 
         // This package ships no README, so the section is requested but renders nothing. Without
         // such a section the zero-row half of the claim would be untested.
-        Assert.DoesNotContain("## Package README file", renderOutput);
+        Assert.DoesNotContain("## README", renderOutput);
 
         var (exit, output, error) = await RunAppAsync(
             "package", "NETStandard.Library@2.0.3",
@@ -239,7 +239,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("| Section | Count |", output);
-        Assert.Contains("| Package README file | 0 |", output);
+        Assert.Contains("| README | 0 |", output);
 
         foreach (var section in sections)
             Assert.Contains($"| {section} |", output);
@@ -719,12 +719,12 @@ public partial class CommandExecutionTests
                 "| Name | Kind | Path | Formats | Shape | Cardinality | Terminals |",
                 output);
             Assert.Contains(
-                "| Package files | section | package/sections/package-files "
+                "| Files | section | package/sections/files "
                 + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl, --tree "
                 + "| hierarchy | inventory | rows, count |",
                 output);
             Assert.Contains(
-                "| Package README file | section | package/sections/package-readme-file "
+                "| README | section | package/sections/readme "
                 + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
                 + "| text | scalar |  |",
                 output);
@@ -741,7 +741,7 @@ public partial class CommandExecutionTests
                 output);
 
             var (jsonExit, json, jsonError) = await RunAppAsync(
-                "package", packagePath, "-D", "Package files", "--details", "--json");
+                "package", packagePath, "-D", "Files", "--details", "--json");
 
             Assert.Equal(0, jsonExit);
             Assert.Empty(jsonError);
@@ -815,9 +815,9 @@ public partial class CommandExecutionTests
         try
         {
             var native = await RunAppAsync(
-                "package", packagePath, "-S", "Package README file");
+                "package", packagePath, "-S", "README");
             var composed = await RunAppAsync(
-                "package", packagePath, "-S", "Package README file", "-S", "Target Frameworks");
+                "package", packagePath, "-S", "README", "-S", "Target Frameworks");
 
             Assert.Equal(0, native.Exit);
             Assert.Empty(native.Error);
@@ -825,14 +825,14 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("| Path | Size |", native.Output);
 
             Assert.Equal(0, composed.Exit);
-            Assert.Contains("## Package README file", composed.Output);
+            Assert.Contains("## README", composed.Output);
             Assert.Contains("| README.md |", composed.Output);
             Assert.DoesNotContain("# Native text body", composed.Output);
 
             // A bare -n is the rendered-line window (as for Library Info), not
             // a row terminal, so it clips the payload rather than failing.
             var clipped = await RunAppAsync(
-                "package", packagePath, "-S", "Package README file", "-n", "1");
+                "package", packagePath, "-S", "README", "-n", "1");
             Assert.Equal(0, clipped.Exit);
             Assert.Empty(clipped.Error);
             Assert.Single(clipped.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
@@ -853,13 +853,13 @@ public partial class CommandExecutionTests
         try
         {
             var native = await RunAppAsync(
-                "package", packagePath, "-S", "Package files");
+                "package", packagePath, "-S", "Files");
             var explicitTree = await RunAppAsync(
-                "package", packagePath, "-S", "Package files", "--tree", "-n", "1");
+                "package", packagePath, "-S", "Files", "--tree", "-n", "1");
             var tsv = await RunAppAsync(
-                "package", packagePath, "-S", "Package files", "--tsv");
+                "package", packagePath, "-S", "Files", "--tsv");
             var count = await RunAppAsync(
-                "package", packagePath, "-S", "Package files", "--count");
+                "package", packagePath, "-S", "Files", "--count");
 
             Assert.Equal(0, native.Exit);
             Assert.Empty(native.Error);
@@ -994,7 +994,7 @@ public partial class CommandExecutionTests
         var tree = await RunAppAsync(
             "package", "Missing.Package.ForShapes", "-S", "Target Frameworks", "--tree");
         var mixed = await RunAppAsync(
-            "package", "Missing.Package.ForShapes", "-S", "Package README file,Target Frameworks", "--tsv");
+            "package", "Missing.Package.ForShapes", "-S", "README,Target Frameworks", "--tsv");
         var dependencies = await RunAppAsync(
             "package", "Missing.Package.ForShapes", "-S", "Dependencies", "--tree");
 
@@ -1002,11 +1002,11 @@ public partial class CommandExecutionTests
         Assert.Empty(tree.Output);
         Assert.Contains("'Target Frameworks' (Table)", tree.Error);
         Assert.Contains("--tsv", tree.Error);
-        Assert.Contains("'Package files'", tree.Error);
+        Assert.Contains("'Files'", tree.Error);
 
         Assert.Equal(1, mixed.Exit);
         Assert.Empty(mixed.Output);
-        Assert.Contains("'Package README file' (Text)", mixed.Error);
+        Assert.Contains("'README' (Text)", mixed.Error);
         Assert.Contains("'Target Frameworks' (Table)", mixed.Error);
         Assert.Contains("-S @Files", mixed.Error);
 
@@ -1035,8 +1035,8 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("Package Info", "--count")]
-    [InlineData("Package README file", "--count")]
-    [InlineData("Package nuspec file", "--rows", "1")]
+    [InlineData("README", "--count")]
+    [InlineData("Nuspec", "--rows", "1")]
     [InlineData("Signature", "--count")]
     public async Task Package_LoneScalarSection_RejectsRowTerminals(
         string section,
@@ -1204,7 +1204,7 @@ public partial class CommandExecutionTests
 
             var (overviewExit, overviewOutput, overviewError) = await RunAppAsync(
                 "package", packagePath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--columns", "Path");
 
             Assert.Equal(0, overviewExit);
@@ -1918,7 +1918,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, synthesized.Exit);
         Assert.Empty(synthesized.Error);
-        Assert.Contains("Package files", synthesized.Output);
+        Assert.Contains("Files", synthesized.Output);
         Assert.DoesNotContain("Package Info", synthesized.Output);
         Assert.DoesNotContain("Manifest", synthesized.Output);
     }
@@ -2120,7 +2120,7 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Equal(1, categoryExit);
             Assert.Contains(
-                "--tree without a section renders Package children",
+                "omit the section for the Package children tree",
                 categoryError);
             Assert.DoesNotContain("--layout", categoryError);
             Assert.Equal(1, aliasExit);
@@ -3221,7 +3221,7 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             var rows = ExtractDiscoveryRows(output);
 
-            Assert.Contains(rows, row => row.Name == "Package files" && row.Kind == "section");
+            Assert.Contains(rows, row => row.Name == "Files" && row.Kind == "section");
 
             var regular = rows.Where(row => row.Kind == "section").Select(row => row.Name).ToArray();
             var categories = rows.Where(row => row.Kind == "category").Select(row => row.Name).ToArray();
@@ -3280,8 +3280,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("| Package Info | section |", output);
         Assert.Contains("| Dependencies | section |", output);
-        Assert.Contains("| Package files | section |", output);
-        Assert.DoesNotContain("| Package README file | section |", output);
+        Assert.Contains("| Files | section |", output);
+        Assert.DoesNotContain("| README | section |", output);
         Assert.DoesNotContain("| SourceLink: Files | section |", output);
     }
 
@@ -3300,7 +3300,7 @@ public partial class CommandExecutionTests
             // Package-growing sections stay out of the fixed overview...
             Assert.DoesNotContain("## Dependencies", output);
             Assert.DoesNotContain("## Target Frameworks", output);
-            Assert.DoesNotContain("## Package files", output);
+            Assert.DoesNotContain("## Files", output);
             // ...as do the network-bound ones, however small their row set.
             Assert.DoesNotContain("## Signals", output);
             Assert.DoesNotContain("## Statistics", output);
@@ -3390,10 +3390,10 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package files", "--markdown");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Files", "--markdown");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Package files", output);
+            Assert.Contains("## Files", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
             Assert.DoesNotContain("| lib/net10.0/Latest.One.xml | 0 |", output);
             Assert.DoesNotContain("Tip:", error);
@@ -3565,7 +3565,7 @@ public partial class CommandExecutionTests
             var (fileColumnExit, fileColumnOutput, fileColumnError) =
                 await RunAppAsync(
                     "package", packagePath, packagePath,
-                    "-S", "Package README file,Manifest",
+                    "-S", "README,Manifest",
                     "--columns", "Kind", "--count", "--json");
             Assert.Equal(0, fileColumnExit);
             Assert.Empty(fileColumnError);
@@ -3577,7 +3577,7 @@ public partial class CommandExecutionTests
                         row => row.GetProperty("section").GetString()!,
                         row => row.GetProperty("count").GetInt32(),
                         StringComparer.Ordinal);
-                Assert.Equal(0, fileColumnCounts["Package README file"]);
+                Assert.Equal(0, fileColumnCounts["README"]);
                 Assert.True(fileColumnCounts["Manifest"] > 0);
             }
 
@@ -3586,7 +3586,7 @@ public partial class CommandExecutionTests
                 var (extractedColumnExit, extractedColumnOutput, extractedColumnError) =
                     await RunAppAsync(
                         "package", packagePath, packagePath,
-                        "-S", "Package README file,Manifest",
+                        "-S", "README,Manifest",
                         "--columns", columns, "--count", "--json");
                 Assert.Equal(0, extractedColumnExit);
                 Assert.Empty(extractedColumnError);
@@ -3597,14 +3597,14 @@ public partial class CommandExecutionTests
                         row => row.GetProperty("section").GetString()!,
                         row => row.GetProperty("count").GetInt32(),
                         StringComparer.Ordinal);
-                Assert.Equal(2, extractedColumnCounts["Package README file"]);
+                Assert.Equal(2, extractedColumnCounts["README"]);
                 Assert.Equal(0, extractedColumnCounts["Manifest"]);
             }
 
             var (composedExit, composedOutput, composedError) =
                 await RunAppAsync(
                     "package", packagePath, packagePath,
-                    "-S", "Package Info,Package README file,Manifest",
+                    "-S", "Package Info,README,Manifest",
                     "--fields", "Version", "--columns", "Path",
                     "--count", "--json");
             Assert.Equal(0, composedExit);
@@ -3618,7 +3618,7 @@ public partial class CommandExecutionTests
                         row => row.GetProperty("count").GetInt32(),
                         StringComparer.Ordinal);
                 Assert.Equal(0, composedCounts["Package Info"]);
-                Assert.Equal(2, composedCounts["Package README file"]);
+                Assert.Equal(2, composedCounts["README"]);
                 Assert.Equal(0, composedCounts["Manifest"]);
             }
 
@@ -3718,7 +3718,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, packagePath,
-                "-S", "Package nuspec file;Package README file",
+                "-S", "Nuspec;README",
                 "--skip-empty", "--count", "--json");
 
             Assert.Equal(0, exit);
@@ -3730,8 +3730,8 @@ public partial class CommandExecutionTests
                     row => row.GetProperty("section").GetString()!,
                     row => row.GetProperty("count").GetInt32(),
                     StringComparer.Ordinal);
-            Assert.Equal(2, counts["Package nuspec file"]);
-            Assert.Equal(2, counts["Package README file"]);
+            Assert.Equal(2, counts["Nuspec"]);
+            Assert.Equal(2, counts["README"]);
         }
         finally
         {
@@ -3749,11 +3749,28 @@ public partial class CommandExecutionTests
             // spelling it must keep working after the rename.
             var (groundingExit, groundingOutput, _) = await RunAppAsync("package", packagePath, "-S", "Grounding", "--markdown");
             Assert.Equal(0, groundingExit);
-            Assert.Contains("## Package README file", groundingOutput);
+            Assert.Contains("## README", groundingOutput);
 
             var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec", "--markdown");
             Assert.Equal(0, nuspecExit);
-            Assert.Contains("## Package nuspec file", nuspecOutput);
+            Assert.Contains("## Nuspec", nuspecOutput);
+
+            // The former long names lower to the concise canonical sections
+            // (Section shapes adoption) and render under the new headings.
+            foreach ((string legacy, string canonical) in new[]
+            {
+                ("Package files", "Files"),
+                ("Package nuspec file", "Nuspec"),
+                ("Package README file", "README"),
+                ("Package license files", "Licenses"),
+                ("Package skill files", "Skills"),
+            })
+            {
+                var legacyRun = await RunAppAsync("package", packagePath, "-S", legacy, "--markdown");
+                var canonicalRun = await RunAppAsync("package", packagePath, "-S", canonical, "--markdown");
+                Assert.Equal(0, legacyRun.Exit);
+                Assert.Equal(canonicalRun.Output, legacyRun.Output);
+            }
         }
         finally
         {
@@ -4442,7 +4459,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                "Package Info,Package README file",
+                "Package Info,README",
                 "--count",
                 "--columns",
                 "Package,Path");
@@ -4451,7 +4468,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                "Package Info,Package README file",
+                "Package Info,README",
                 "--count",
                 "--columns",
                 "Field");
@@ -4501,18 +4518,18 @@ public partial class CommandExecutionTests
                     "| Package Info |",
                     StringComparison.Ordinal));
             Assert.Contains(
-                "| Package README file | 2 |",
+                "| README | 2 |",
                 bothSections.Output);
             Assert.Contains(packageInfoRow, packageInfoOnly.Output);
             Assert.DoesNotContain(
                 "| Package Info | 0 |",
                 packageInfoOnly.Output);
             Assert.Contains(
-                "| Package README file | 0 |",
+                "| README | 0 |",
                 packageInfoOnly.Output);
             Assert.Contains(packageInfoRow, fixedOverview.Output);
             Assert.Contains(
-                "| Package README file | 2 |",
+                "| README | 2 |",
                 fixedOverview.Output);
             Assert.Contains(
                 $"| Signature | {signatureCount.Output.Trim()} |",
@@ -4546,14 +4563,14 @@ public partial class CommandExecutionTests
                 withReadme,
                 withoutReadme,
                 "-S",
-                "Package README file,Signature",
+                "README,Signature",
                 "--count");
             var skipEmpty = await RunAppAsync(
                 "package",
                 withReadme,
                 withoutReadme,
                 "-S",
-                "Package README file,Signature",
+                "README,Signature",
                 "--count",
                 "--skip-empty");
             var tail = await RunAppAsync(
@@ -4561,7 +4578,7 @@ public partial class CommandExecutionTests
                 withReadme,
                 withoutReadme,
                 "-S",
-                "Package README file",
+                "README",
                 "--columns",
                 "Path",
                 "--rows",
@@ -4573,7 +4590,7 @@ public partial class CommandExecutionTests
                 withReadme,
                 withoutReadme,
                 "-S",
-                "Package README file",
+                "README",
                 "--columns",
                 "Path",
                 "--rows",
@@ -4591,10 +4608,10 @@ public partial class CommandExecutionTests
             Assert.Empty(tail.Error);
             Assert.Empty(tailWithoutHeader.Error);
             Assert.Contains(
-                "| Package README file | 2 |",
+                "| README | 2 |",
                 count.Output);
             Assert.Contains(
-                "| Package README file | 1 |",
+                "| README | 1 |",
                 skipEmpty.Output);
             Assert.Equal(
                 "path\n\n",
@@ -4630,7 +4647,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                "Package README file",
+                "README",
                 "--count",
                 "--columns",
                 "Package");
@@ -4639,7 +4656,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                "Package README file",
+                "README",
                 "--tsv",
                 "--columns",
                 "Package");
@@ -4657,7 +4674,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                "Package files",
+                "Files",
                 "--count",
                 "--fields",
                 "Path");
@@ -5201,7 +5218,7 @@ public partial class CommandExecutionTests
                 firstPackagePath,
                 secondPackagePath,
                 "-S",
-                "Package nuspec file;Signature",
+                "Nuspec;Signature",
                 "--count",
                 "--json");
 
@@ -5214,7 +5231,7 @@ public partial class CommandExecutionTests
                     row => row.GetProperty("section").GetString()!,
                     row => row.GetProperty("count").GetInt32(),
                     StringComparer.Ordinal);
-            Assert.Equal(2, counts["Package nuspec file"]);
+            Assert.Equal(2, counts["Nuspec"]);
             Assert.Equal(6, counts["Signature"]);
         }
         finally
