@@ -249,6 +249,8 @@ public static class TypeCommand
 
         if (resolvedSource is null
             && loadedSurface is null
+            && (exactTypeCapabilities is not null
+                || !TypeDocumentTreeCommand.CanExecute(options))
             && TryCreateSharedExactTypeRequest(
                 options,
                 out ExactTypeInspectionRequest? exactTypeRequest))
@@ -841,8 +843,7 @@ public static class TypeCommand
         out ExactTypeInspectionRequest? request)
     {
         request = null;
-        if (TypeDocumentTreeCommand.CanExecute(options)
-            || string.IsNullOrWhiteSpace(options.PackagePath)
+        if (string.IsNullOrWhiteSpace(options.PackagePath)
             || File.Exists(options.PackagePath)
             || options.PackagePath.Contains("::", StringComparison.Ordinal)
             || options.PackageRangeAddress is not null
