@@ -2,6 +2,7 @@ export type AnalysisMode =
   | "complexity"
   | "relationships"
   | "performance"
+  | "unsafe"
   | "integrations"
   | "opportunities";
 
@@ -11,6 +12,7 @@ export function isAnalysisMode(
   return value === "complexity"
     || value === "relationships"
     || value === "performance"
+    || value === "unsafe"
     || value === "integrations"
     || value === "opportunities";
 }
@@ -27,6 +29,7 @@ const modes = [
   ["complexity", "Complexity"],
   ["relationships", "Relationships"],
   ["performance", "Performance"],
+  ["unsafe", "Unsafe"],
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];

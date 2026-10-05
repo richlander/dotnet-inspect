@@ -18,7 +18,7 @@ test("Library exposes one ordered Analysis inspector", () => {
   assert.equal(isAnalysisMode("metrics"), false);
 });
 
-test("Complexity and Relationships precede Performance in the Analysis tab order", () => {
+test("Unsafe findings follow Performance in the Analysis tab order", () => {
   const html = renderAnalysisInspector({
     assemblyIdentity: "Microsoft.Extensions.AI, Version=10.0.0.0",
     assetPath: "lib/net10.0/Microsoft.Extensions.AI.dll",
@@ -35,6 +35,7 @@ test("Complexity and Relationships precede Performance in the Analysis tab order
       "complexity",
       "relationships",
       "performance",
+      "unsafe",
       "integrations",
       "opportunities",
     ],
@@ -45,6 +46,7 @@ for (const mode of [
   "complexity",
   "relationships",
   "performance",
+  "unsafe",
   "integrations",
   "opportunities",
 ] as const satisfies readonly AnalysisMode[]) {
@@ -59,9 +61,9 @@ for (const mode of [
     assert.equal(html.match(/<h1\b/g)?.length, 1);
     assert.match(html, /<h1 id="library-analysis-title">Analysis<\/h1>/);
     const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? "";
-    assert.equal(header.match(/role="tab"/g)?.length, 5);
+    assert.equal(header.match(/role="tab"/g)?.length, 6);
     assert.match(header, /<p title="Loading">Loading<\/p>[\s\S]*role="tablist"/);
-    assert.equal(html.match(/role="tab"/g)?.length, 5);
+    assert.equal(html.match(/role="tab"/g)?.length, 6);
     assert.equal(html.match(/aria-selected="true"/g)?.length, 1);
     assert.match(html, new RegExp(`data-analysis-mode="${mode}" aria-selected="true"`));
     assert.match(html, new RegExp(`role="tabpanel" aria-labelledby="analysis-mode-${mode}"`));

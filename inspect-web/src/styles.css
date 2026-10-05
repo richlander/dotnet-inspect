@@ -2689,6 +2689,16 @@ kbd {
 .perf-confidence { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); text-transform: capitalize; }
 .perf-confidence.perf-high { color: #4a9d5b; border-color: color-mix(in srgb, #4a9d5b 45%, var(--line)); }
 .perf-confidence.perf-medium { color: #c99a3a; border-color: color-mix(in srgb, #c99a3a 45%, var(--line)); }
+.unsafe-list { display: flex; flex-direction: column; }
+.unsafe-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+.unsafe-row:hover { background: var(--panel-active); }
+.unsafe-location { color: var(--muted); font-size: 11px; }
+.unsafe-declaration { font-style: italic; }
+.unsafe-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.unsafe-name { font-size: 13px; overflow-wrap: anywhere; }
+.unsafe-operation { width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
+.unsafe-evidence { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.unsafe-kind { max-width: 180px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
 .signal-list { display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; border-top: 1px solid var(--line); }
 .signal-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .signal-badge { flex: 0 0 auto; min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: var(--panel-active); font: 13px var(--mono); font-weight: 600; }
@@ -3276,6 +3286,9 @@ kbd {
   .library-opportunities-scroll .opp-row { padding-inline: 12px; }
   .library-analysis-scroll .perf-row { grid-template-columns: 32px minmax(0, 1fr); align-items: start; padding-inline: 12px; }
   .library-analysis-scroll .perf-meta { grid-column: 2; justify-content: flex-start; }
+  .library-analysis-scroll .unsafe-row { grid-template-columns: minmax(0, 1fr) auto; align-items: start; padding-inline: 12px; }
+  .library-analysis-scroll .unsafe-location { grid-column: 1 / -1; }
+  .library-analysis-scroll .unsafe-kind { justify-self: end; max-width: 140px; }
   .metadata-surface-head { padding-inline: 12px; }
   .metadata-surface-scroll > .document-section,
   .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding-inline: 12px; }

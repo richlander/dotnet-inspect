@@ -36,6 +36,7 @@ using BrowserAnalysisCompileLibraryStatus = DotnetInspect.Web.Interop.Analysis.B
 using BrowserPackageIntegrations = DotnetInspect.Web.Interop.Analysis.BrowserPackageIntegrations;
 using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPackageOpportunities;
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
+using BrowserPackageUnsafeFindings = DotnetInspect.Web.Interop.Analysis.BrowserPackageUnsafeFindings;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserLibraryStructuralSalience = DotnetInspect.Web.Interop.Analysis.BrowserLibraryStructuralSalience;
@@ -1063,6 +1064,26 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             opportunities.CompileLibrary.Status);
+        BrowserPackageUnsafeFindings unsafeFindings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPlatformUnsafeFindings(
+                            "net11.0",
+                            version,
+                            "DotnetInspect.Web.Tests.dll",
+                            "netcore.app"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        Assert.True(unsafeFindings.TotalFindings > 0);
+        Assert.Contains(
+            unsafeFindings.Findings,
+            finding =>
+                finding.MemberName == nameof(PerformanceStackAllocProbe)
+                && finding.Kind == "stackalloc");
+        Assert.Equal(
+            BrowserAnalysisCompileLibraryStatus.Selected,
+            unsafeFindings.CompileLibrary.Status);
         BrowserPackageMetadata metadata =
             Assert.IsType<BrowserPackageMetadata>(
                 JsonSerializer.Deserialize(

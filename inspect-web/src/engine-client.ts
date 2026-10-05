@@ -87,6 +87,7 @@ type AnalysisOperations =
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageUnsafeFindings"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -97,7 +98,8 @@ type AnalysisOperations =
   | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
-  | "queryPlatformPerformance";
+  | "queryPlatformPerformance"
+  | "queryPlatformUnsafeFindings";
 
 type SourceOperations =
   | "cancelMemberSourceComparison"

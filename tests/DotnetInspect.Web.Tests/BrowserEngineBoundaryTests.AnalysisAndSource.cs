@@ -38,6 +38,8 @@ using BrowserAnalysisCompileLibraryStatus = DotnetInspect.Web.Interop.Analysis.B
 using BrowserPackageIntegrations = DotnetInspect.Web.Interop.Analysis.BrowserPackageIntegrations;
 using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPackageOpportunities;
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
+using BrowserPackageUnsafeFindings = DotnetInspect.Web.Interop.Analysis.BrowserPackageUnsafeFindings;
+using BrowserUnsafeFinding = DotnetInspect.Web.Interop.Analysis.BrowserUnsafeFinding;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
@@ -90,6 +92,84 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Equal(0, performance.NonPublicOpportunities);
         Assert.Empty(performance.Members);
+    }
+
+    [Fact]
+    public async Task PackageUnsafeFindings_ProjectsUngradedNavigableEvidence()
+    {
+        const string PackageId = "Browser.Unsafe.Findings";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string json =
+            await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .QueryPackageUnsafeFindings(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll");
+        BrowserPackageUnsafeFindings findings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+
+        Assert.True(findings.TotalFindings > 0);
+        Assert.Contains(
+            findings.Findings,
+            finding =>
+                finding.MemberName
+                    == nameof(PerformanceStackAllocProbe)
+                && finding.Kind == "stackalloc"
+                && finding.Offset is not null);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement finding = Assert.Single(
+            document.RootElement
+                .GetProperty("findings")
+                .EnumerateArray(),
+            item =>
+                item.GetProperty("memberName").GetString()
+                    == nameof(PerformanceStackAllocProbe)
+                && item.GetProperty("kind").GetString()
+                    == "stackalloc");
+        Assert.False(finding.TryGetProperty("severity", out _));
+        Assert.False(finding.TryGetProperty("confidence", out _));
+        Assert.False(finding.TryGetProperty("rank", out _));
+    }
+
+    [Fact]
+    public void PackageUnsafeFindings_BoundsNavigableRowsAsPartial()
+    {
+        var failures = new List<string>();
+        BrowserUnsafeFinding[] findings =
+            DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .ApplyUnsafeFindingLimit(
+                    Enumerable.Range(0, 501)
+                        .Select(index =>
+                            new BrowserUnsafeFinding(
+                                "Probe.dll",
+                                "Probe.Type",
+                                $"Method{index}",
+                                $"Method{index}",
+                                "Unsafe call",
+                                $"IL_{index:X4}",
+                                "Unsafe.Operation",
+                                "Unsafe call")),
+                    failures);
+
+        Assert.Equal(500, findings.Length);
+        Assert.Single(failures);
+        Assert.Contains("truncated", failures[0]);
     }
 
     [Fact]

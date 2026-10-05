@@ -6,7 +6,7 @@ import {
   renderPackageNav,
 } from "../src/package-view.ts";
 import type {
-  PackagePerformanceTarget,
+  PackageAnalysisMemberTarget,
   PackageViewBindingActions,
 } from "../src/package-view.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -66,9 +66,12 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onLibraryScopeSelect: (library, kind) =>
       calls.push(`library:${library}:${kind}`),
     onNamespaceJump: value => calls.push(`namespace:${value}`),
-    onPerformanceMemberSelect: (target: PackagePerformanceTarget) =>
+    onPerformanceMemberSelect: (target: PackageAnalysisMemberTarget) =>
       calls.push(
         `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
+    onUnsafeMemberSelect: (target: PackageAnalysisMemberTarget) =>
+      calls.push(
+        `unsafe:${target.stableSelector}:${target.assembly}:${target.typeId}`),
   };
 }
 
@@ -104,6 +107,12 @@ test("package view bindings decode navigation controls without eager work", () =
     perfType: "Example.Type",
   });
   const defaultPerformance = new FakeElement();
+  const unsafe = new FakeElement({
+    unsafeSelector: "M:Example.Type.Pin",
+    unsafeAssembly: "Example.dll",
+    unsafeType: "Example.Type",
+  });
+  const defaultUnsafe = new FakeElement();
   const packageLibrary = new FakeElement({
     packageChildLibrary: "tools/net10.0/any/Example.dll",
   });
@@ -123,6 +132,7 @@ test("package view bindings decode navigation controls without eager work", () =
   root.addAll("[data-lib-scope]", library, defaultLibrary);
   root.addAll("[data-graph-type]", graphType, defaultGraphType);
   root.addAll("[data-perf-selector]", performance, defaultPerformance);
+  root.addAll("[data-unsafe-selector]", unsafe, defaultUnsafe);
   const calls: string[] = [];
 
   bindPackageView(
@@ -152,6 +162,8 @@ test("package view bindings decode navigation controls without eager work", () =
   defaultGraphType.dispatch("click");
   performance.dispatch("click");
   defaultPerformance.dispatch("click");
+  unsafe.dispatch("click");
+  defaultUnsafe.dispatch("click");
 
   assert.deepEqual(calls, [
     "package-child-library:tools/net10.0/any/Example.dll",
@@ -174,6 +186,8 @@ test("package view bindings decode navigation controls without eager work", () =
     "graph-type:",
     "performance:M:Example.Type.Run:Example.dll:Example.Type",
     "performance:::",
+    "unsafe:M:Example.Type.Pin:Example.dll:Example.Type",
+    "unsafe:::",
   ]);
 });
 

@@ -3,11 +3,12 @@ import test from "node:test";
 
 import {
   createPackageInspectionCoordinator,
-  resolvePackagePerformanceMember,
+  resolvePackageAnalysisMember,
   workspaceDependencyKey,
   type PackageInspectionDependencies,
   type PackageInspectionState,
   type PackagePerformance,
+  type PackageUnsafeFindings,
 } from "../src/package-inspection.ts";
 import {
   packageQueryAssemblyId,
@@ -93,6 +94,10 @@ function inspectionState(
     packagePerformanceLoading: false,
     packagePerformanceError: "",
     packagePerformanceKey: "",
+    packageUnsafeFindings: null,
+    packageUnsafeFindingsLoading: false,
+    packageUnsafeFindingsError: "",
+    packageUnsafeFindingsKey: "",
     packageLibraryMetrics: null,
     packageLibraryMetricsLoading: false,
     packageLibraryMetricsError: "",
@@ -202,6 +207,16 @@ function performanceResult(): PackagePerformance {
   };
 }
 
+function unsafeFindingsResult(): PackageUnsafeFindings {
+  return {
+    findings: [],
+    inspectionError: null,
+    nonPublicFindings: 0,
+    totalFindings: 0,
+    compileLibrary: selectedCompileLibrary,
+  };
+}
+
 function performanceMember(): AppMemberSurface {
   return {
     name: "Bounds",
@@ -265,7 +280,7 @@ function performanceType(
 }
 
 test(
-  "performance navigation uses stable surface identity across body tokens",
+  "analysis navigation uses stable surface identity across body tokens",
   () => {
     const member = performanceMember();
     const type = performanceType(member);
@@ -283,10 +298,10 @@ test(
     };
 
     assert.deepEqual(
-      resolvePackagePerformanceMember(packageItem, performance),
+      resolvePackageAnalysisMember(packageItem, performance),
       { type, member });
     assert.equal(
-      resolvePackagePerformanceMember(
+      resolvePackageAnalysisMember(
         packageItem,
         { ...performance, stableSelector: "Bounds~different" }),
       null);
@@ -332,6 +347,8 @@ function inspectionDependencies(
     queryPlatformOpportunities: async () => opportunitiesResult(),
     queryPackagePerformance: async () => performanceResult(),
     queryPlatformPerformance: async () => performanceResult(),
+    queryPackageUnsafeFindings: async () => unsafeFindingsResult(),
+    queryPlatformUnsafeFindings: async () => unsafeFindingsResult(),
     queryPackageLibraryDependencyStructure: async () =>
       libraryDependencyStructureResult(),
     queryPlatformLibraryDependencyStructure: async () =>
@@ -833,6 +850,7 @@ test("package lens loaders reuse cached results without querying or clearing the
   const integrations = integrationsResult();
   const opportunities = opportunitiesResult();
   const performance = performanceResult();
+  const unsafeFindings = unsafeFindingsResult();
   const metadata = metadataResult();
   const cases = [
     {
@@ -880,6 +898,17 @@ test("package lens loaders reuse cached results without querying or clearing the
         coordinator.loadPerformance(packageItem, "cached", null),
     },
     {
+      name: "unsafe findings",
+      cached: unsafeFindings,
+      state: inspectionState({
+        packageUnsafeFindingsKey: "cached",
+        packageUnsafeFindings: unsafeFindings,
+      }),
+      read: (state: PackageInspectionState) => state.packageUnsafeFindings,
+      load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
+        coordinator.loadUnsafeFindings(packageItem, "cached", null),
+    },
+    {
       name: "metadata",
       cached: metadata,
       state: inspectionState({
@@ -916,6 +945,10 @@ test("package lens loaders reuse cached results without querying or clearing the
         queryPackagePerformance: async () => {
           queries++;
           return performanceResult();
+        },
+        queryPackageUnsafeFindings: async () => {
+          queries++;
+          return unsafeFindingsResult();
         },
         queryPackageMetadata: async () => {
           queries++;
@@ -1109,6 +1142,23 @@ test("every package lens preserves its lifecycle and same-coordinate ownership a
     setError: (state, error) => { state.packagePerformanceError = error; },
   });
   await verifyPackageLensLifecycle({
+    name: "unsafe findings",
+    result: unsafeFindingsResult(),
+    createCoordinator: (state, query, render = () => {}) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackageUnsafeFindings: async () => query(),
+          render,
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadUnsafeFindings(packageItem, signature, null),
+    readResult: state => state.packageUnsafeFindings,
+    readLoading: state => state.packageUnsafeFindingsLoading,
+    readError: state => state.packageUnsafeFindingsError,
+    setKey: (state, key) => { state.packageUnsafeFindingsKey = key; },
+    setError: (state, error) => { state.packageUnsafeFindingsError = error; },
+  });
+  await verifyPackageLensLifecycle({
     name: "metadata",
     result: metadataResult(),
     cachesFailure: false,
@@ -1250,6 +1300,10 @@ test("invalidation clears package results, failures, keys, and loads without cha
     packagePerformanceLoading: true,
     packagePerformanceError: "performance failure",
     packagePerformanceKey: "performance",
+    packageUnsafeFindings: unsafeFindingsResult(),
+    packageUnsafeFindingsLoading: true,
+    packageUnsafeFindingsError: "unsafe findings failure",
+    packageUnsafeFindingsKey: "unsafe",
     packageMetadata: metadataResult(),
     packageMetadataLoading: true,
     packageMetadataError: "metadata failure",
@@ -1275,6 +1329,7 @@ test("invalidated package completions cannot publish, render, or start follow-up
     const integrations = deferred<BrowserPackageIntegrations>();
     const opportunities = deferred<BrowserPackageOpportunities>();
     const performance = deferred<PackagePerformance>();
+    const unsafeFindings = deferred<PackageUnsafeFindings>();
     const metadata = deferred<PackageMetadata>();
     const events: string[] = [];
     const state = inspectionState({ packages: [removed, remaining] });
@@ -1287,6 +1342,7 @@ test("invalidated package completions cannot publish, render, or start follow-up
         queryPackageIntegrations: async () => integrations.promise,
         queryPackageOpportunities: async () => opportunities.promise,
         queryPackagePerformance: async () => performance.promise,
+        queryPackageUnsafeFindings: async () => unsafeFindings.promise,
         queryPackageMetadata: async () => metadata.promise,
         render: () => events.push("render"),
         refreshPackageStats: () => events.push("stats"),
@@ -1297,6 +1353,7 @@ test("invalidated package completions cannot publish, render, or start follow-up
       coordinator.loadIntegrations(removed, "integrations", null),
       coordinator.loadOpportunities(removed, "opportunities", null),
       coordinator.loadPerformance(removed, "performance", null),
+      coordinator.loadUnsafeFindings(removed, "unsafe", null),
       coordinator.loadMetadata(removed, "metadata", null),
     ];
 
@@ -1310,10 +1367,16 @@ test("invalidated package completions cannot publish, render, or start follow-up
       integrations.resolve(integrationsResult());
       opportunities.resolve(opportunitiesResult());
       performance.resolve(performanceResult());
+      unsafeFindings.resolve(unsafeFindingsResult());
       metadata.resolve(metadataResult());
     } else {
       for (const request of [
-        dependencies, integrations, opportunities, performance, metadata,
+        dependencies,
+        integrations,
+        opportunities,
+        performance,
+        unsafeFindings,
+        metadata,
       ]) {
         request.reject(new Error("retired failure"));
       }
@@ -1732,6 +1795,10 @@ test("scoped package lenses route platform coordinates and suppress stale result
         calls.push(`performance:${model.id}`);
         throw new Error("analysis unavailable");
       },
+      queryPackageUnsafeFindings: async model => {
+        calls.push(`unsafe:${model.id}`);
+        return unsafeFindingsResult();
+      },
       queryPackageMetadata: async model => {
         calls.push(`metadata:${model.id}`);
         return metadata.promise;
@@ -1744,6 +1811,7 @@ test("scoped package lenses route platform coordinates and suppress stale result
     "opportunities",
     "System.Text.Json");
   await coordinator.loadPerformance(packageItem, "performance", null);
+  await coordinator.loadUnsafeFindings(packageItem, "unsafe", null);
   const metadataLoad =
     coordinator.loadMetadata(packageItem, "metadata-first", null);
   state.packageMetadataKey = "metadata-second";
@@ -1754,6 +1822,7 @@ test("scoped package lenses route platform coordinates and suppress stale result
     "integrations:Example.Package",
     "opportunities:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
     "performance:Example.Package",
+    "unsafe:Example.Package",
     "metadata:Example.Package",
   ]);
   assert.ok(state.packageIntegrations);
@@ -1805,6 +1874,16 @@ test("all scoped runtime package lenses route exact platform coordinates", async
           `performance:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return performanceResult();
       },
+      queryPlatformUnsafeFindings: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `unsafe:${framework}/${platformVersion}/${assemblyName}/${pack}`);
+        return unsafeFindingsResult();
+      },
       queryPlatformMetadata: async (
         framework,
         platformVersion,
@@ -1820,12 +1899,14 @@ test("all scoped runtime package lenses route exact platform coordinates", async
   await coordinator.loadIntegrations(runtime, "integrations", "System.Text.Json");
   await coordinator.loadOpportunities(runtime, "opportunities", "System.Text.Json");
   await coordinator.loadPerformance(runtime, "performance", "System.Text.Json");
+  await coordinator.loadUnsafeFindings(runtime, "unsafe", "System.Text.Json");
   await coordinator.loadMetadata(runtime, "metadata", "System.Text.Json");
 
   assert.deepEqual(calls, [
     "integrations:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
     "opportunities:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
     "performance:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
+    "unsafe:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
     "metadata:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
   ]);
 });
@@ -1990,6 +2071,10 @@ test("runtime package lenses wait for an explicit library scope", async () => {
       queries++;
       return performanceResult();
     },
+    queryPlatformUnsafeFindings: async () => {
+      queries++;
+      return unsafeFindingsResult();
+    },
     queryPlatformMetadata: async () => {
       queries++;
       return metadataResult();
@@ -2001,6 +2086,7 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   await coordinator.loadIntegrations(runtime, "integrations", null);
   await coordinator.loadOpportunities(runtime, "opportunities", null);
   await coordinator.loadPerformance(runtime, "performance", null);
+  await coordinator.loadUnsafeFindings(runtime, "unsafe", null);
   await coordinator.loadMetadata(runtime, "metadata", null);
 
   assert.equal(queries, 0);
@@ -2008,5 +2094,6 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   assert.equal(state.packageIntegrationsKey, "");
   assert.equal(state.packageOpportunitiesKey, "");
   assert.equal(state.packagePerformanceKey, "");
+  assert.equal(state.packageUnsafeFindingsKey, "");
   assert.equal(state.packageMetadataKey, "");
 });

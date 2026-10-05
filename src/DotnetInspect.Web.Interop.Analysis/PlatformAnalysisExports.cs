@@ -403,4 +403,39 @@ public static partial class AnalysisExports
         string assemblyFileName,
         string pack) =>
         throw Unavailable("Platform performance", NoPlatformProjection);
+
+    [JSExport]
+    public static async Task<string> QueryPlatformUnsafeFindings(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack)
+    {
+        BrowserPackageUnsafeFindings findings;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            AssemblyContextEntry<AssemblyUnsafeFindings> entry =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    AssemblyContextUnsafeFindingsQuery
+                        .ExecuteParticipant);
+            findings = ProjectUnsafeFindings(
+                entry,
+                assemblyFileName,
+                new BrowserCompileLibraryAvailability(
+                    BrowserCompileLibraryStatus.Selected,
+                    resolution.Scope.Framework,
+                    null));
+        }
+
+        return JsonSerializer.Serialize(
+            findings,
+            BrowserAnalysisJsonContext.Default
+                .BrowserPackageUnsafeFindings);
+    }
 }

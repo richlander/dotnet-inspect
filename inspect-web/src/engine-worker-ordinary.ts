@@ -105,6 +105,7 @@ type AnalysisOperationName =
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageUnsafeFindings"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -115,7 +116,8 @@ type AnalysisOperationName =
   | "queryPlatformLibraryDependencyStructure"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformLibraryStructuralSalience"
-  | "queryPlatformPerformance";
+  | "queryPlatformPerformance"
+  | "queryPlatformUnsafeFindings";
 
 type SourceOperationName =
   | "queryMemberSource"
@@ -1585,6 +1587,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
     ),
+    queryPackageUnsafeFindings: valueOperation(
+      "ordinary-analysis-query-package-unsafe-findings",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPackageUnsafeFindings"]>
+      ) => facades.analysis.queryPackageUnsafeFindings(...args),
+    ),
     queryPackageLibraryDependencyStructure: valueOperation(
       "ordinary-analysis-query-package-library-dependency-structure",
       4,
@@ -1650,6 +1660,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<AnalysisFacade["queryPlatformPerformance"]>
       ) => facades.analysis.queryPlatformPerformance(...args),
+    ),
+    queryPlatformUnsafeFindings: valueOperation(
+      "ordinary-analysis-query-platform-unsafe-findings",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformUnsafeFindings"]>
+      ) => facades.analysis.queryPlatformUnsafeFindings(...args),
     ),
   },
   source: {
@@ -2395,6 +2413,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
       ),
+      queryPackageUnsafeFindings: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageUnsafeFindings,
+      ),
       queryPackageLibraryDependencyStructure: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageLibraryDependencyStructure,
@@ -2422,6 +2444,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryPlatformPerformance: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformPerformance,
+      ),
+      queryPlatformUnsafeFindings: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformUnsafeFindings,
       ),
     },
     source: {

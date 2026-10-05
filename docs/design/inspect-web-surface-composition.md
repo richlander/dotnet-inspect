@@ -1046,10 +1046,10 @@ separate work.
 ### Library Analysis
 
 The Library inspector order is **Overview**, **References**, **Compare**,
-**Analysis**, and **Metadata**. Analysis contains direct **Performance**,
-**Integrations**, **Opportunities**, and **Metrics** tabs, following Compare's
-single-inspector mode composition. Integrations and Metrics are not separate
-persistent inspectors.
+**Analysis**, and **Metadata**. Analysis contains direct **Complexity**,
+**Relationships**, **Performance**, **Unsafe**, **Integrations**, and
+**Opportunities** tabs, following Compare's single-inspector mode composition.
+Integrations is not a separate persistent inspector.
 
 Performance is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
@@ -1071,20 +1071,28 @@ existing Types control occupies the title's place and the tabs use the second
 header row.
 
 ```text
-Analysis  count/state   [Performance]  Integrations  Opportunities  Metrics
+Analysis  count/state   Complexity  Relationships  [Performance]  Unsafe  Integrations  Opportunities
 optional platform Library selector
 mode-owned content
 Library asset and assembly identity              TFM · package@version
 ```
 
 Performance retains product triage order, opportunity and loop counts, shape
-and confidence labels, and stable-selector Member navigation. Integrations
-retains category order, type-first signal sorting, badges, and counts.
+and confidence labels, and stable-selector Member navigation. Unsafe is an
+ungraded list of product-issued findings from compiled declarations and IL.
+It preserves category, operation, evidence, and optional IL offset, and uses
+stable-selector navigation to the Member Safety Facts view. Unsafe assigns no
+severity, confidence, rank, compliance verdict, remediation, or recommendation;
+unsafe code can be intentional and legitimate. A complete empty result states
+only that no navigable public-member findings were produced by this analysis,
+while partial results retain their findings and surface the diagnostic without
+claiming absence. Integrations retains category order, type-first signal
+sorting, badges, and counts.
 Opportunities retains Type navigation, suggested-package loading, "look for"
-search actions, and source identity. Metrics retains the Research-issued
-Complexity Explorer and Relationship Crossing views. Structural salience does
-not render in Metrics; its Browser presentation belongs to the ordinary Type
-inventory defined by
+search actions, and source identity. Complexity and Relationships retain the
+Research-issued Complexity Explorer and Relationship Crossing views.
+Structural salience does not render in those tabs; its Browser presentation
+belongs to the ordinary Type inventory defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
 The platform selector stays above scrolling results and keeps its existing
@@ -1093,7 +1101,7 @@ and package/version/framework context. Browser HTML lowering consumes the
 existing typed mode results; no producer, query, acquisition, CLI section, or
 result contract changes.
 
-Focused renderer and production-composition browser gates cover all four direct
+Focused renderer and production-composition browser gates cover all six direct
 tabs, lazy loading, focus retention across asynchronous completion, wide/narrow
 layout, Library switching, row actions, and platform controls.
 

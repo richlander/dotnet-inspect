@@ -8,7 +8,7 @@ export interface PackageDependencyBindingActions {
   onDependencyOpen: (packageKey: string) => void;
 }
 
-export interface PackagePerformanceTarget {
+export interface PackageAnalysisMemberTarget {
   stableSelector: string;
   assembly: string;
   typeId: string;
@@ -31,7 +31,8 @@ export interface PackageViewBindingActions
     kind: string,
   ) => void;
   onNamespaceJump: (namespace: string) => void;
-  onPerformanceMemberSelect: (target: PackagePerformanceTarget) => void;
+  onPerformanceMemberSelect: (target: PackageAnalysisMemberTarget) => void;
+  onUnsafeMemberSelect: (target: PackageAnalysisMemberTarget) => void;
 }
 
 export interface PackageNavOptions {
@@ -132,5 +133,11 @@ export function bindPackageView(
       stableSelector: button.dataset.perfSelector ?? "",
       assembly: button.dataset.perfAssembly ?? "",
       typeId: button.dataset.perfType ?? "",
+    })));
+  root.querySelectorAll<HTMLElement>("[data-unsafe-selector]").forEach(button =>
+    button.addEventListener("click", () => actions.onUnsafeMemberSelect({
+      stableSelector: button.dataset.unsafeSelector ?? "",
+      assembly: button.dataset.unsafeAssembly ?? "",
+      typeId: button.dataset.unsafeType ?? "",
     })));
 }

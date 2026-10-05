@@ -589,6 +589,27 @@ public static partial class AnalysisExports
     }
 
     /// <summary>
+    /// Ungraded unsafe findings for one exact package library. Analysis owns
+    /// the finding categories and evidence; the query owns public-member
+    /// attribution; this host only bounds and formats the wire result.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageUnsafeFindings(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        BrowserPackageUnsafeFindings findings =
+            await PackageUnsafeFindingsAsync(
+                packageId, version, targetFramework, assemblyName);
+        return JsonSerializer.Serialize(
+            findings,
+            BrowserAnalysisJsonContext.Default
+                .BrowserPackageUnsafeFindings);
+    }
+
+    /// <summary>
     /// Research-owned structural metrics for one exact package library. The
     /// Browser host receives the typed Research document projected into its
     /// local wire contract; it does not recompute distributions.
@@ -1574,6 +1595,149 @@ public static partial class AnalysisExports
             result.NonPublicOpportunities,
             result.TotalOpportunities,
             compileLibrary);
+    }
+
+    static async Task<BrowserPackageUnsafeFindings>
+        PackageUnsafeFindingsAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserAnalysisWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(
+                    coordinate.Selection));
+        if (!coordinate.Selection.IsSelected)
+        {
+            return new BrowserPackageUnsafeFindings(
+                Findings: [],
+                InspectionError: null,
+                NonPublicFindings: 0,
+                TotalFindings: 0,
+                compileLibrary);
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        AssemblyContextEntry<AssemblyUnsafeFindings> entry =
+            scope.UseMetadataParticipant(
+                participant,
+                AssemblyContextUnsafeFindingsQuery
+                    .ExecuteParticipant);
+        return ProjectUnsafeFindings(
+            entry,
+            participant.Asset.AssemblyName,
+            compileLibrary);
+    }
+
+    internal static BrowserPackageUnsafeFindings ProjectUnsafeFindings(
+        AssemblyContextEntry<AssemblyUnsafeFindings> entry,
+        string assemblyName,
+        BrowserCompileLibraryAvailability compileLibrary)
+    {
+        var failures = new List<string>();
+        AssemblyUnsafeFindings? available = null;
+        switch (entry)
+        {
+            case AssemblyContextEntry<
+                AssemblyUnsafeFindings>.Rejected rejected:
+                failures.Add(
+                    $"{rejected.Subject.Identity.Name}: "
+                    + $"{rejected.Failure.Kind} "
+                    + $"({rejected.Failure.Detail})");
+                break;
+            case AssemblyContextEntry<
+                AssemblyUnsafeFindings>.Failed failed:
+                failures.Add(
+                    $"{failed.Subject.Identity.Name}: "
+                    + failed.Error.Message);
+                break;
+            case AssemblyContextEntry<
+                AssemblyUnsafeFindings>.Available result:
+                available = result.Value;
+                failures.AddRange(
+                    result.Value.Diagnostics.Select(
+                        diagnostic =>
+                            $"{result.Subject.Identity.Name}: "
+                            + $"unsafe analysis incomplete for "
+                            + $"{diagnostic.Method}: "
+                            + diagnostic.Message));
+                failures.AddRange(
+                    result.Value.ApiSurfaceInspectionFailures
+                        .Select(
+                            failure =>
+                                $"{result.Subject.Identity.Name}: "
+                                + $"{failure.Operation}: "
+                                + failure.Detail));
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown unsafe-finding entry "
+                        + $"'{entry.GetType().Name}'.");
+        }
+
+        BrowserUnsafeFinding[] findings =
+            ApplyUnsafeFindingLimit(
+                available?.Findings
+                    .Where(finding =>
+                        finding.PublicMember is not null)
+                    .Select(finding =>
+                    {
+                        UnsafeFindingPublicMember publicMember =
+                            finding.PublicMember!;
+                        return new BrowserUnsafeFinding(
+                            assemblyName,
+                            publicMember.TypeDefinitionId,
+                            publicMember.Member,
+                            publicMember.StableSelector,
+                            finding.Finding.SafetyKind,
+                            finding.Finding.ILOffset is int offset
+                                ? FormatOffset(offset)
+                                : null,
+                            finding.Finding.Operation,
+                            finding.Finding.Evidence);
+                    })
+                    ?? [],
+                failures);
+        return new BrowserPackageUnsafeFindings(
+            findings,
+            failures.Count == 0
+                ? null
+                : string.Join("; ", failures),
+            available?.NonPublicFindings ?? 0,
+            available?.TotalFindings ?? 0,
+            compileLibrary);
+    }
+
+    internal static BrowserUnsafeFinding[] ApplyUnsafeFindingLimit(
+        IEnumerable<BrowserUnsafeFinding> candidates,
+        ICollection<string> failures)
+    {
+        const int FindingLimit = 500;
+        var findings =
+            new List<BrowserUnsafeFinding>(FindingLimit);
+        foreach (BrowserUnsafeFinding candidate in candidates)
+        {
+            if (findings.Count == FindingLimit)
+            {
+                failures.Add(
+                    $"Unsafe findings truncated after the first "
+                    + $"{FindingLimit} navigable public findings.");
+                break;
+            }
+
+            findings.Add(candidate);
+        }
+
+        return [.. findings];
     }
 
     static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
