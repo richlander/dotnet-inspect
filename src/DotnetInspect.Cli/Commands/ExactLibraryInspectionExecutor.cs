@@ -219,6 +219,25 @@ internal static class ExactLibraryInspectionExecutor
             return null;
         }
 
+        return await ExecuteAsync(
+                ready.Reference,
+                inspect,
+                cancellationToken,
+                role)
+            .ConfigureAwait(false);
+    }
+
+    public static async Task<T?> ExecuteAsync<T>(
+        ResolvedAssemblyReference assembly,
+        Func<ExactLibraryInspectionSession, T?> inspect,
+        CancellationToken cancellationToken,
+        AssemblyContextLibraryRole role =
+            AssemblyContextLibraryRole.ApiOnly)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(inspect);
+
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
         AssemblyContextLibraryInspectionRun<T>? run = null;
@@ -227,7 +246,7 @@ internal static class ExactLibraryInspectionExecutor
         try
         {
             var participant = new AssemblyContextParticipant(
-                ready.Reference,
+                assembly,
                 NoResolverAssemblyBindingPolicy.Instance);
             group = workspace.CreateAssemblyContextGroup(
                 [participant],

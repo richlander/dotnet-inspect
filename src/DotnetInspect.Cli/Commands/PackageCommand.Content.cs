@@ -1302,14 +1302,23 @@ public partial class PackageCommand
         bool hasProjection =
             options.Fields is { Length: > 0 }
             || options.Columns is { Length: > 0 };
+        if (options.Tree)
+        {
+            WritePackageFilesTree(result, options);
+            return PackageIntegrityExitCode(result);
+        }
         if (options.Tabular)
         {
             if (options.Jsonl && !hasProjection)
             {
-                WritePackageFilesJsonl(
-                    result,
-                    PackageSections.Files,
-                    rows: null);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    null,
+                    output => WritePackageFilesJsonl(
+                        output,
+                        result,
+                        PackageSections.Files,
+                        rows: null));
                 return PackageIntegrityExitCode(result);
             }
 
@@ -1375,15 +1384,18 @@ public partial class PackageCommand
                         : "column",
                     writerOptions.IncludeSections,
                     fieldSectionsAsColumns: true);
-                Console.Out.Write(rendered);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    null,
+                    output => output.Write(rendered));
             }
             else
             {
-                OutputFormatter.WritePackageTable(
-                    result,
-                    options,
-                    pipeline,
-                    showHeader: !options.NoHeader);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    null,
+                    output => OutputFormatter.WritePackageTable(
+                        output, result, options, pipeline, showHeader: !options.NoHeader));
             }
 
             return PackageIntegrityExitCode(result);
@@ -1485,7 +1497,6 @@ public partial class PackageCommand
             && !options.Print
             && !options.ShowContent
             && !options.Raw
-            && !options.Tree
             && !options.EnvelopeOutput
             && (!options.JsonOutput
                 || options.Count
@@ -2045,6 +2056,13 @@ public partial class PackageCommand
     private static void WritePackageFilesJsonl(
         InspectionResult result,
         string section,
+        RowWindow? rows) =>
+        WritePackageFilesJsonl(Console.Out, result, section, rows);
+
+    private static void WritePackageFilesJsonl(
+        TextWriter output,
+        InspectionResult result,
+        string section,
         RowWindow? rows)
     {
         var text = new PackageInspectionText(result);
@@ -2055,7 +2073,7 @@ public partial class PackageCommand
         foreach (var file in RowWindow.Apply(rows, files))
         {
             var row = new PackageFileJsonRow(file.Path, file.Size);
-            Console.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
+            output.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
         }
     }
 

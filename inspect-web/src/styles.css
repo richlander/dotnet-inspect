@@ -1420,7 +1420,6 @@ kbd {
 .detail-scroll.overview-working-surface,
 .detail-scroll.library-references-working-surface,
 .detail-scroll.library-integrations-working-surface,
-.detail-scroll.library-opportunities-working-surface,
 .detail-scroll.library-analysis-working-surface,
 .detail-scroll.library-api-diff-working-surface,
 .detail-scroll.package-dependencies-working-surface,
@@ -1511,17 +1510,15 @@ kbd {
 .api-surface-head p span,
 .metadata-surface-head p span { margin-left: 6px; }
 .library-integrations-surface,
-.library-opportunities-surface,
 .library-analysis-surface,
 .library-references-surface,
 .metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; background: var(--bg); }
+.library-references-surface { container: library-references / inline-size; }
 .library-integrations-scroll,
-.library-opportunities-scroll,
 .library-analysis-scroll,
 .library-references-scroll,
 .metadata-surface-scroll { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 24px; }
 .library-integrations-scroll > .document-section,
-.library-opportunities-scroll > .document-section,
 .library-analysis-scroll > .document-section,
 .library-references-scroll > .document-section,
 .metadata-surface-scroll > .document-section,
@@ -2212,9 +2209,11 @@ kbd {
 .call-graph-diagram { position: relative; min-height: 360px; display: grid; place-items: center; overflow: hidden; padding: 0; border-top: 1px solid var(--line); background: var(--bg); }
 .graph-viewport { position: relative; width: 100%; height: 540px; overflow: hidden; cursor: grab; touch-action: none; }
 .package-dependencies-surface .dependency-graph-section .call-graph-diagram { min-height: 230px; }
-.package-dependencies-surface .dependency-graph-section .graph-viewport {
+.package-dependencies-surface .dependency-graph-section .graph-viewport,
+.library-references-surface .reference-graph-section .graph-viewport {
   height: clamp(230px, calc(100dvh - 538px), 360px);
 }
+.library-references-surface .reference-graph-section .call-graph-diagram { min-height: 230px; }
 .graph-viewport.panning { cursor: grabbing; }
 .graph-viewport:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 .graph-viewport g.node.nav-node { cursor: pointer; }
@@ -2254,6 +2253,7 @@ kbd {
 .legend-swatch.unavailable-node { background: transparent; border-color: var(--line-strong); border-style: dashed; }
 .legend-swatch.same-prefix-package { background: var(--graph-package-same-prefix-fill); border-color: var(--graph-package-same-prefix-stroke); }
 .legend-swatch.external-package { background: var(--graph-package-external-fill); border-color: var(--graph-package-external-stroke); }
+.legend-swatch.reference { background: var(--graph-package-external-fill); border-color: var(--graph-package-external-stroke); }
 .legend-swatch.loaded-node,
 .legend-swatch.platform-node { background: var(--panel); border-color: var(--line-strong); }
 .legend-swatch.platform-node { border-style: dashed; }
@@ -2447,6 +2447,10 @@ kbd {
 @container package-dependencies (max-width: 580px) {
   .package-dependencies-surface .dependency-graph-section .call-graph-diagram { min-height: 220px; }
   .package-dependencies-surface .dependency-graph-section .graph-viewport { height: 240px; }
+}
+@container library-references (max-width: 580px) {
+  .library-references-surface .reference-graph-section .call-graph-diagram { min-height: 220px; }
+  .library-references-surface .reference-graph-section .graph-viewport { height: 240px; }
 }
 .caller-list { margin: 0; padding: 0; border: 1px solid var(--line); list-style: none; }
 .caller-list li { min-height: 48px; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 13px; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -2659,7 +2663,9 @@ kbd {
 .package-pruning-table td:last-child { min-width: 180px; }
 .package-pruning-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .library-references-scroll { overflow-wrap: anywhere; }
-.library-references-scroll > .dep-list { border-top: 0; }
+.library-references-scroll > .reference-graph-section { padding-bottom: 0; }
+.library-references-scroll > .reference-list-section { padding-top: 24px; }
+.library-references-scroll .reference-list-section > .dep-list { border-top: 0; }
 .library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-inline: 16px; }
 .library-references-scroll .dep-name { overflow: visible; white-space: normal; }
 .library-references-scroll .dep-version { min-width: 0; white-space: normal; text-align: right; }
@@ -2697,30 +2703,23 @@ kbd {
 .library-integrations-controls { min-width: 0; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .library-integrations-controls .platform-library-select { min-width: 0; width: 100%; max-width: 420px; height: 30px; }
 .library-integrations-scroll { overflow-wrap: anywhere; }
+.library-integrations-note { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .integration-category > .section-title { min-width: 0; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .integration-category > .section-title h2 { min-width: 0; }
-.library-integrations-scroll .signal-list { gap: 0; padding: 0; border-top: 0; }
+.library-integrations-scroll .integration-list { display: flex; flex-direction: column; gap: 0; padding: 0; border-top: 0; }
 .library-integrations-scroll .signal-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(0, auto); align-items: start; margin: 0; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 .library-integrations-scroll .signal-name,
 .library-integrations-scroll .signal-ns { overflow: visible; white-space: normal; }
 .library-integrations-scroll .signal-kind { min-width: 0; max-width: 24ch; justify-self: end; padding: 0; border: 0; border-radius: 0; }
 .library-integrations-scroll > .metadata-warning { margin: 0; padding: 14px 16px; border-inline: 0; border-top: 0; border-radius: 0; }
-.library-opportunities-controls { min-width: 0; padding: 8px 16px; border-bottom: 1px solid var(--line); }
-.library-opportunities-controls .platform-library-select { min-width: 0; width: 100%; max-width: 420px; height: 30px; }
-.library-opportunities-scroll { overflow-wrap: anywhere; }
-.library-opportunities-note { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
-.opportunity-category > .section-title { min-width: 0; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-.opportunity-category > .section-title h2 { min-width: 0; }
-.library-opportunities-scroll .opp-list { gap: 0; padding: 0; border-top: 0; }
-.library-opportunities-scroll .opp-row { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 12px; margin: 0; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
-.library-opportunities-scroll .opp-type-chip { min-width: 0; max-width: 100%; flex-wrap: wrap; text-align: left; }
-.library-opportunities-scroll .opp-type-name,
-.library-opportunities-scroll .opp-type-ns,
-.library-opportunities-scroll .opp-kind,
-.library-opportunities-scroll .opp-kind-text,
-.library-opportunities-scroll .opp-chip,
-.library-opportunities-scroll .opp-pattern { min-width: 0; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
-.library-opportunities-scroll > .metadata-warning { margin: 0; padding: 14px 16px; border-inline: 0; border-top: 0; border-radius: 0; }
+.library-integrations-scroll .opp-row { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 12px; margin: 0; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.library-integrations-scroll .opp-type-chip { min-width: 0; max-width: 100%; flex-wrap: wrap; text-align: left; }
+.library-integrations-scroll .opp-type-name,
+.library-integrations-scroll .opp-type-ns,
+.library-integrations-scroll .opp-kind,
+.library-integrations-scroll .opp-kind-text,
+.library-integrations-scroll .opp-chip,
+.library-integrations-scroll .opp-pattern { min-width: 0; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 .library-analysis-with-controls { grid-template-rows: 40px auto minmax(0, 1fr) 34px; }
 .library-analysis-controls { min-width: 0; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .library-analysis-controls .platform-library-select { min-width: 0; width: 100%; max-width: 420px; height: 30px; }
@@ -3245,14 +3244,11 @@ kbd {
   .library-references-scroll .dep-version { text-align: left; }
   .library-references-scroll > .document-section { padding-inline: 12px; }
   .library-integrations-controls,
-  .library-opportunities-controls,
   .library-analysis-controls,
   .integration-category > .section-title,
-  .opportunity-category > .section-title,
   .library-integrations-scroll > .document-section,
-  .library-opportunities-scroll > .document-section,
   .library-analysis-scroll > .document-section,
-  .library-opportunities-note,
+  .library-integrations-note,
   .library-analysis-note { padding-inline: 12px; }
   .library-api-diff-head { align-items: flex-start; padding: 16px 12px; }
   .library-api-diff-status { padding-inline: 12px; }
@@ -3262,7 +3258,7 @@ kbd {
   .library-integrations-scroll .signal-row { grid-template-columns: 24px minmax(0, 1fr); gap: 4px 12px; padding-inline: 12px; }
   .library-integrations-scroll .signal-badge { grid-row: 1 / span 2; }
   .library-integrations-scroll .signal-kind { grid-column: 2; justify-self: start; max-width: 100%; }
-  .library-opportunities-scroll .opp-row { padding-inline: 12px; }
+  .library-integrations-scroll .opp-row { padding-inline: 12px; }
   .library-analysis-scroll .perf-row { grid-template-columns: 32px minmax(0, 1fr); align-items: start; padding-inline: 12px; }
   .library-analysis-scroll .perf-meta { grid-column: 2; justify-content: flex-start; }
   .metadata-surface-head { padding-inline: 12px; }
