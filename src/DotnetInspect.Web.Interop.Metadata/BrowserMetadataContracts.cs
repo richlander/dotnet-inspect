@@ -269,6 +269,7 @@ public sealed record BrowserMemberGroupDocumentInspection(
 public sealed record BrowserMemberGroupDocument(
     string TypeIdentity,
     string MemberName,
+    string Spelling,
     int Count,
     BrowserMemberGroupDocumentRow[] Rows);
 
@@ -325,6 +326,7 @@ public sealed record BrowserMemberDocumentInspection(
 public sealed record BrowserMemberDocument(
     string TypeIdentity,
     string MemberName,
+    string Spelling,
     int MetadataToken,
     int BaselineOrdinal,
     string DisplaySignature,

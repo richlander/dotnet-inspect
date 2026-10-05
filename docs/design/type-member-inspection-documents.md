@@ -818,11 +818,13 @@ One execution has three phases:
    index is justified only when one generation will answer multiple Type
    subjects.
 2. **Select.** Enumerate only the resolved TypeDef's MethodDefs in metadata
-   order. Apply exact metadata name and ordinary-method membership, validated
-   accessor exclusion, effective accessibility, receiver classification, and
-   hidden admission. Cheap in-place metadata comparisons precede attribute or
-   signature work, but no optimization may skip validation required to settle
-   the population.
+   order. Apply exact metadata name, the owner-issued spelling's MethodDef
+   membership, effective accessibility, receiver classification, and hidden
+   admission. C# spelling admits ordinary methods after validated accessor
+   exclusion. Metadata spelling admits physical MethodDefs, including
+   accessors, because each accessor is its own metadata-named group. Cheap
+   in-place metadata comparisons precede attribute or signature work, but no
+   optimization may skip validation required to settle the population.
 3. **Close.** Count folds selected units without constructing result rows.
    Rows retains only the requested handle window and then projects display
    signature, canonical identity, fingerprint, accessibility, and receiver.

@@ -34,7 +34,11 @@ public static partial class MetadataExports
         string typeIdentity,
         string memberName,
         int baselineOrdinal,
-        string fingerprintPrefix)
+        string fingerprintPrefix,
+        string accessibility,
+        string receiver,
+        bool includeHidden,
+        string spelling)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -53,6 +57,47 @@ public static partial class MetadataExports
             scope.SurfaceParticipant(
                 coordinate,
                 coordinate.CompileAsset(assemblyName));
+        MemberDocumentationAttachmentRequest? documentation = null;
+        MemberDocumentationAttachmentProvider? documentationProvider =
+            null;
+        if (ParseSpelling(spelling) is TypeMemberGroupSpelling.CSharp)
+        {
+            documentation = new(
+                DocumentationDemand
+                    .CompiledXmlAndAuthoredSourceDocumentation);
+            documentationProvider =
+                async (documentationIds, demand, cancellationToken) =>
+                {
+                    if (demand
+                        != DocumentationDemand
+                            .CompiledXmlAndAuthoredSourceDocumentation)
+                    {
+                        throw new InvalidOperationException(
+                            "Package Member documents require compiled "
+                                + "and authored documentation demand.");
+                    }
+                    var outcomes = new Dictionary<
+                        string,
+                        DocumentationQueryOutcome>(
+                            documentationIds.Count,
+                            StringComparer.Ordinal);
+                    foreach (string documentationId in documentationIds)
+                    {
+                        outcomes.Add(
+                            documentationId,
+                            await BrowserPackageWorkspace
+                                .QueryMemberDocumentationAsync(
+                                    packageId,
+                                    version,
+                                    targetFramework,
+                                    assemblyName,
+                                    documentationId,
+                                    cancellationToken)
+                                .ConfigureAwait(false));
+                    }
+                    return outcomes;
+                };
+        }
         BrowserMemberDocumentInspection inspection =
             ProjectMemberDocument(
                 await ExecuteMemberDocumentAsync(
@@ -68,42 +113,14 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
+                    spelling,
                     baselineOrdinal,
                     fingerprintPrefix,
-                    new(
-                        DocumentationDemand
-                            .CompiledXmlAndAuthoredSourceDocumentation),
-                    async (documentationIds, demand, cancellationToken) =>
-                    {
-                        if (demand
-                            != DocumentationDemand
-                                .CompiledXmlAndAuthoredSourceDocumentation)
-                        {
-                            throw new InvalidOperationException(
-                                "Package Member documents require compiled "
-                                    + "and authored documentation demand.");
-                        }
-                        var outcomes = new Dictionary<
-                            string,
-                            DocumentationQueryOutcome>(
-                                documentationIds.Count,
-                                StringComparer.Ordinal);
-                        foreach (string documentationId in documentationIds)
-                        {
-                            outcomes.Add(
-                                documentationId,
-                                await BrowserPackageWorkspace
-                                    .QueryMemberDocumentationAsync(
-                                        packageId,
-                                        version,
-                                        targetFramework,
-                                        assemblyName,
-                                        documentationId,
-                                        cancellationToken)
-                                    .ConfigureAwait(false));
-                        }
-                        return outcomes;
-                    })
+                    accessibility,
+                    receiver,
+                    includeHidden,
+                    documentation,
+                    documentationProvider)
                 .ConfigureAwait(false));
         return SerializeMemberDocument(inspection);
     }
@@ -117,7 +134,11 @@ public static partial class MetadataExports
         string typeIdentity,
         string memberName,
         int baselineOrdinal,
-        string fingerprintPrefix)
+        string fingerprintPrefix,
+        string accessibility,
+        string receiver,
+        bool includeHidden,
+        string spelling)
     {
         await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
@@ -127,6 +148,44 @@ public static partial class MetadataExports
                     pack,
                     CancellationToken.None)
                 .ConfigureAwait(false);
+        MemberDocumentationAttachmentRequest? documentation = null;
+        MemberDocumentationAttachmentProvider? documentationProvider =
+            null;
+        if (ParseSpelling(spelling) is TypeMemberGroupSpelling.CSharp)
+        {
+            documentation =
+                new(DocumentationDemand.CompiledXml);
+            documentationProvider =
+                async (documentationIds, demand, cancellationToken) =>
+                {
+                    if (demand != DocumentationDemand.CompiledXml)
+                    {
+                        throw new InvalidOperationException(
+                            "Platform Member documents require compiled "
+                                + "XML documentation demand.");
+                    }
+                    var outcomes = new Dictionary<
+                        string,
+                        DocumentationQueryOutcome>(
+                            documentationIds.Count,
+                            StringComparer.Ordinal);
+                    foreach (string documentationId in documentationIds)
+                    {
+                        outcomes.Add(
+                            documentationId,
+                            await BrowserPlatformWorkspace
+                                .QueryUnifiedMemberDocumentationAsync(
+                                    targetFramework,
+                                    platformVersion,
+                                    assemblyName,
+                                    pack,
+                                    documentationId,
+                                    cancellationToken)
+                                .ConfigureAwait(false));
+                    }
+                    return outcomes;
+                };
+        }
         BrowserMemberDocumentInspection inspection =
             ProjectMemberDocument(
                 await ExecuteMemberDocumentAsync(
@@ -142,38 +201,14 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
+                    spelling,
                     baselineOrdinal,
                     fingerprintPrefix,
-                    new(DocumentationDemand.CompiledXml),
-                    async (documentationIds, demand, cancellationToken) =>
-                    {
-                        if (demand != DocumentationDemand.CompiledXml)
-                        {
-                            throw new InvalidOperationException(
-                                "Platform Member documents require compiled "
-                                    + "XML documentation demand.");
-                        }
-                        var outcomes = new Dictionary<
-                            string,
-                            DocumentationQueryOutcome>(
-                                documentationIds.Count,
-                                StringComparer.Ordinal);
-                        foreach (string documentationId in documentationIds)
-                        {
-                            outcomes.Add(
-                                documentationId,
-                                await BrowserPlatformWorkspace
-                                    .QueryUnifiedMemberDocumentationAsync(
-                                        targetFramework,
-                                        platformVersion,
-                                        assemblyName,
-                                        pack,
-                                        documentationId,
-                                        cancellationToken)
-                                    .ConfigureAwait(false));
-                        }
-                        return outcomes;
-                    })
+                    accessibility,
+                    receiver,
+                    includeHidden,
+                    documentation,
+                    documentationProvider)
                 .ConfigureAwait(false));
         return SerializeMemberDocument(inspection);
     }
@@ -185,7 +220,11 @@ public static partial class MetadataExports
         string typeIdentity,
         string memberName,
         int baselineOrdinal,
-        string fingerprintPrefix)
+        string fingerprintPrefix,
+        string accessibility,
+        string receiver,
+        bool includeHidden,
+        string spelling)
     {
         ArgumentNullException.ThrowIfNull(content);
         BrowserMemberDocumentInspection inspection =
@@ -199,8 +238,12 @@ public static partial class MetadataExports
                             .MaterializationLimits),
                     typeIdentity,
                     memberName,
+                    spelling,
                     baselineOrdinal,
                     fingerprintPrefix,
+                    accessibility,
+                    receiver,
+                    includeHidden,
                     documentation: null,
                     documentationProvider: null)
                 .ConfigureAwait(false));
@@ -213,8 +256,12 @@ public static partial class MetadataExports
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
             string memberName,
+            string spelling,
             int baselineOrdinal,
             string fingerprintPrefix,
+            string accessibility,
+            string receiver,
+            bool includeHidden,
             MemberDocumentationAttachmentRequest? documentation,
             MemberDocumentationAttachmentProvider? documentationProvider)
     {
@@ -233,13 +280,17 @@ public static partial class MetadataExports
             new MemberGroupSubject(
                 BrowserExactMemberPolicy.ParseTypeIdentity(
                     typeIdentity),
-                memberName),
+                memberName,
+                spelling: ParseSpelling(spelling)),
             hasOrdinal
                 ? new MemberDocumentSelector(
                     baselineOrdinal: baselineOrdinal)
                 : new MemberDocumentSelector(
                     fingerprintPrefix: fingerprintPrefix),
             BrowserExactMemberPolicy.Bounds,
+            ParseMemberAccessibility(accessibility),
+            ParseMemberReceiver(receiver),
+            includeHidden,
             documentation: documentation);
         return await BrowserMemberDocumentExecution.ExecuteAsync(
                 materialization,
@@ -297,6 +348,7 @@ public static partial class MetadataExports
             new(
                 document.Subject.Group.DeclaringType.ToEscapedFullName(),
                 document.Subject.Group.Name,
+                document.Subject.Group.Spelling.ToString(),
                 document.Subject.MetadataToken,
                 document.Subject.BaselineOrdinal,
                 document.DisplaySignature.ToString(),
@@ -316,4 +368,69 @@ public static partial class MetadataExports
             inspection,
             BrowserMetadataJsonContext.Default
                 .BrowserMemberDocumentInspection);
+
+    public static Task<string> QueryMemberDocument(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        int baselineOrdinal,
+        string fingerprintPrefix) =>
+        QueryMemberDocument(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            baselineOrdinal,
+            fingerprintPrefix,
+            "public",
+            "all",
+            includeHidden: false,
+            spelling: "csharp");
+
+    public static Task<string> QueryPlatformMemberDocument(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        int baselineOrdinal,
+        string fingerprintPrefix) =>
+        QueryPlatformMemberDocument(
+            targetFramework,
+            platformVersion,
+            assemblyName,
+            pack,
+            typeIdentity,
+            memberName,
+            baselineOrdinal,
+            fingerprintPrefix,
+            "public",
+            "all",
+            includeHidden: false,
+            spelling: "csharp");
+
+    public static Task<string> QueryUploadedLibraryMemberDocument(
+        string declaredName,
+        byte[] content,
+        string typeIdentity,
+        string memberName,
+        int baselineOrdinal,
+        string fingerprintPrefix) =>
+        QueryUploadedLibraryMemberDocument(
+            declaredName,
+            content,
+            typeIdentity,
+            memberName,
+            baselineOrdinal,
+            fingerprintPrefix,
+            "public",
+            "all",
+            includeHidden: false,
+            spelling: "csharp");
 }

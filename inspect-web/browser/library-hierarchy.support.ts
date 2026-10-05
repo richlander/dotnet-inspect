@@ -1384,7 +1384,8 @@ async function installFacades(
             diagnostics: [],
           };
         }
-        const members = type.api.filter(member => !member.graphOnly);
+        const members = (type.documentMembers ?? type.api)
+          .filter(member => !member.graphOnly);
         const composition = {
           public: 0,
           protected: 0,
@@ -1598,13 +1599,25 @@ async function installFacades(
         typeIdentity,
         memberName,
         baselineOrdinal,
-        fingerprintPrefix) {
+        fingerprintPrefix,
+        accessibility,
+        receiver,
+        includeHidden,
+        spelling) {
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
-        const overloads = type?.api.filter(member =>
+        const overloads = (type?.documentMembers ?? type?.api ?? [])
+          .filter(member =>
           member.kind === "method"
           && member.name === memberName
-          && member.metadataAccessor !== true
+          && (accessibility === "all"
+            || member.accessibility === accessibility)
+          && (receiver === "all"
+            || receiver === "extension" && member.isExtension
+            || receiver === "static" && member.isStatic && !member.isExtension
+            || receiver === "this" && !member.isStatic)
+          && (spelling === "metadata"
+            || member.metadataAccessor !== true)
           && !member.graphOnly) ?? [];
         const member = Number.isInteger(baselineOrdinal)
           ? overloads[baselineOrdinal - 1]
@@ -1626,6 +1639,7 @@ async function installFacades(
           document: {
             typeIdentity: type.queryId,
             memberName,
+            spelling: spelling === "metadata" ? "Metadata" : "CSharp",
             metadataToken:
               member.declarationMetadataToken ?? member.metadataToken ?? 0,
             baselineOrdinal,
@@ -1643,58 +1657,77 @@ async function installFacades(
       }
       export async function queryMemberDocument(
         id, version, framework, assembly, typeIdentity, memberName,
-        baselineOrdinal, fingerprintPrefix) {
+        baselineOrdinal, fingerprintPrefix, accessibility, receiver,
+        includeHidden, spelling) {
         document.documentElement.dataset.memberDocumentRequest =
           JSON.stringify([
             id, version, framework, assembly, typeIdentity, memberName,
-            baselineOrdinal, fingerprintPrefix,
+            baselineOrdinal, fingerprintPrefix, accessibility, receiver,
+            includeHidden, spelling,
           ]);
         return memberDocument(
           surfaceFor(id, version, framework),
           typeIdentity,
           memberName,
           baselineOrdinal,
-          fingerprintPrefix);
+          fingerprintPrefix,
+          accessibility,
+          receiver,
+          includeHidden,
+          spelling);
       }
       export async function queryPlatformMemberDocument(
         framework, version, assembly, pack, typeIdentity, memberName,
-        baselineOrdinal, fingerprintPrefix) {
+        baselineOrdinal, fingerprintPrefix, accessibility, receiver,
+        includeHidden, spelling) {
         document.documentElement.dataset.platformMemberDocumentRequest =
           JSON.stringify([
             framework, version, assembly, pack, typeIdentity, memberName,
-            baselineOrdinal, fingerprintPrefix,
+            baselineOrdinal, fingerprintPrefix, accessibility, receiver,
+            includeHidden, spelling,
           ]);
         return memberDocument(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           memberName,
           baselineOrdinal,
-          fingerprintPrefix);
+          fingerprintPrefix,
+          accessibility,
+          receiver,
+          includeHidden,
+          spelling);
       }
       export async function queryUploadedLibraryMemberDocument(
         declaredName, content, typeIdentity, memberName, baselineOrdinal,
-        fingerprintPrefix) {
+        fingerprintPrefix, accessibility, receiver, includeHidden, spelling) {
         document.documentElement.dataset.uploadedLibraryMemberDocumentRequest =
           JSON.stringify([
             declaredName, content.length, typeIdentity, memberName,
-            baselineOrdinal, fingerprintPrefix,
+            baselineOrdinal, fingerprintPrefix, accessibility, receiver,
+            includeHidden, spelling,
           ]);
         return memberDocument(
           surfaces[0],
           typeIdentity,
           memberName,
           baselineOrdinal,
-          fingerprintPrefix);
+          fingerprintPrefix,
+          accessibility,
+          receiver,
+          includeHidden,
+          spelling);
       }
       function memberGroupDocument(
         surface,
         typeIdentity,
         memberName,
         accessibility,
-        receiver) {
+        receiver,
+        spelling) {
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
-        const overloads = type?.api.filter(member =>
+        const overloads = (type?.documentMembers ?? type?.api ?? [])
+          .filter(member =>
           member.kind === "method"
           && member.name === memberName
           && (accessibility === "all"
@@ -1703,7 +1736,8 @@ async function installFacades(
             || receiver === "extension" && member.isExtension
             || receiver === "static" && member.isStatic && !member.isExtension
             || receiver === "this" && !member.isStatic)
-          && member.metadataAccessor !== true
+          && (spelling === "metadata"
+            || member.metadataAccessor !== true)
           && !member.graphOnly) ?? [];
         if (!type || overloads.length === 0) {
           return {
@@ -1719,6 +1753,7 @@ async function installFacades(
           document: {
             typeIdentity: type.queryId,
             memberName,
+            spelling: spelling === "metadata" ? "Metadata" : "CSharp",
             count: overloads.length,
             rows: overloads.map((member, index) => ({
               metadataToken: member.metadataToken ?? 0,
@@ -1737,7 +1772,7 @@ async function installFacades(
       }
       export async function queryMemberGroupDocument(
         id, version, framework, assembly, typeIdentity, memberName,
-        accessibility, receiver, includeHidden) {
+        accessibility, receiver, includeHidden, spelling) {
         document.documentElement.dataset.memberGroupDocumentRequest =
           JSON.stringify([
             id,
@@ -1749,17 +1784,19 @@ async function installFacades(
             accessibility,
             receiver,
             includeHidden,
+            spelling,
           ]);
         return memberGroupDocument(
           surfaceFor(id, version, framework),
           typeIdentity,
           memberName,
           accessibility,
-          receiver);
+          receiver,
+          spelling);
       }
       export async function queryPlatformMemberGroupDocument(
         framework, version, assembly, pack, typeIdentity, memberName,
-        accessibility, receiver, includeHidden) {
+        accessibility, receiver, includeHidden, spelling) {
         document.documentElement.dataset.platformMemberGroupDocumentRequest =
           JSON.stringify([
             framework,
@@ -1771,17 +1808,19 @@ async function installFacades(
             accessibility,
             receiver,
             includeHidden,
+            spelling,
           ]);
         return memberGroupDocument(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           memberName,
           accessibility,
-          receiver);
+          receiver,
+          spelling);
       }
       export async function queryUploadedLibraryMemberGroupDocument(
         declaredName, content, typeIdentity, memberName,
-        accessibility, receiver, includeHidden) {
+        accessibility, receiver, includeHidden, spelling) {
         document.documentElement.dataset.uploadedLibraryMemberGroupDocumentRequest =
           JSON.stringify([
             declaredName,
@@ -1791,13 +1830,15 @@ async function installFacades(
             accessibility,
             receiver,
             includeHidden,
+            spelling,
           ]);
         return memberGroupDocument(
           surfaces[0],
           typeIdentity,
           memberName,
           accessibility,
-          receiver);
+          receiver,
+          spelling);
       }
       export async function queryPlatformMetadata(tfm, version, file, pack) {
         document.documentElement.dataset.platformMetadataRequest = JSON.stringify([tfm, version, file, pack]);

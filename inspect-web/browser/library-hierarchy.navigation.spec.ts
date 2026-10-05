@@ -765,7 +765,7 @@ test("aggregate Library remains active through Member entry and return", async (
   await expect(page.locator("#type-list")).toContainText("Neighbor");
 });
 
-test("metadata accessors retain their established overload detail route", async ({
+test("owner-issued metadata accessors open an exact Member document without resident API rows", async ({
   page,
 }) => {
   const accessor = {
@@ -781,7 +781,8 @@ test("metadata accessors retain their established overload detail route", async 
   };
   const widget = {
     ...type("Example.Widget", core),
-    api: [accessor],
+    api: [],
+    documentMembers: [accessor],
   };
   await installFacades(page, {
     ...surface,
@@ -797,13 +798,98 @@ test("metadata accessors retain their established overload detail route", async 
   await page.locator("[data-member-spelling]").selectOption("metadata");
   await chooseSubject(page, "member", "Member");
 
-  expect(await page.locator("html").getAttribute(
-    "data-member-document-request",
-  )).toBeNull();
   await expect(page.locator("#member-surface-title"))
     .toHaveText("get_Value");
+  await page.locator("[data-member-document-ordinal]").click();
   await expect(page.locator(".member-surface"))
     .toContainText("int Example.Widget.get_Value()");
+  await expect(page.locator(".member-surface"))
+    .toContainText("owner-issued exact declaration");
+  await expect(
+    page.getByRole("tablist", { name: "Member lenses" }).getByRole("tab"),
+  ).toHaveCount(1);
+  expect(JSON.parse(
+    await page.locator("html").getAttribute(
+      "data-member-document-request") ?? "[]",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    `${core.name}.dll`,
+    "Example.Widget",
+    "get_Value",
+    1,
+    "",
+    "public",
+    "all",
+    false,
+    "metadata",
+  ]);
+});
+
+test("owner-issued private rows open exact Member documents without public-surface enrichment", async ({
+  page,
+}) => {
+  const publicRun = {
+    ...run,
+    metadataToken: 0x06000001,
+    declarationMetadataToken: 0x06000001,
+  };
+  const privateRun = {
+    ...run,
+    signature: "private void Run(int value)",
+    accessibility: "private",
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "Run:private",
+    anchorDigest: "widget-run-private",
+    canonicalSignature: "void Example.Widget.Run(int value)",
+    graphSelectorKey: "Run:private",
+  };
+  const widget = {
+    ...type("Example.Widget", core),
+    api: [publicRun],
+    documentMembers: [publicRun, privateRun],
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [widget],
+    totalMembers: 2,
+  });
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]').click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("[data-member-access-filter]").selectOption("private");
+  await chooseSubject(page, "member", "Member");
+  await page.locator("[data-member-document-ordinal]").click();
+
+  await expect(page.locator(".member-surface"))
+    .toContainText("void Example.Widget.Run(int value)");
+  await expect(page.locator(".member-surface"))
+    .toContainText("owner-issued exact declaration");
+  await expect(
+    page.getByRole("tablist", { name: "Member lenses" }).getByRole("tab"),
+  ).toHaveCount(1);
+  expect(JSON.parse(
+    await page.locator("html").getAttribute(
+      "data-member-document-request") ?? "[]",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    `${core.name}.dll`,
+    "Example.Widget",
+    "Run",
+    1,
+    "",
+    "private",
+    "all",
+    false,
+    "csharp",
+  ]);
 });
 
 test("filtered non-public groups reuse complete resident exact rows when the group query fails", async ({

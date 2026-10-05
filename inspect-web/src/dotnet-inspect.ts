@@ -794,6 +794,7 @@ import type {
 } from "./facades/inspect-web-library.d.ts";
 import type {
   BrowserMemberDeclaration,
+  BrowserMemberDocumentInspection,
   BrowserMemberGroupDocumentInspection,
   BrowserTypeDocumentInspection,
   BrowserTypeMetadata,
@@ -882,18 +883,24 @@ let inspectGraphMemberSurface:
   EngineClient["metadata"]["queryGraphMemberSurface"];
 let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
+let inspectMemberDocument:
+  EngineClient["metadata"]["queryMemberDocument"];
 let inspectMemberGroupDocument:
   EngineClient["metadata"]["queryMemberGroupDocument"];
 let inspectTypeDocument:
   EngineClient["metadata"]["queryTypeDocument"];
 let inspectPlatformMemberDeclaration:
   EngineClient["metadata"]["queryPlatformMemberDeclaration"];
+let inspectPlatformMemberDocument:
+  EngineClient["metadata"]["queryPlatformMemberDocument"];
 let inspectPlatformMemberGroupDocument:
   EngineClient["metadata"]["queryPlatformMemberGroupDocument"];
 let inspectPlatformTypeDocument:
   EngineClient["metadata"]["queryPlatformTypeDocument"];
 let inspectUploadedLibraryMemberGroupDocument:
   EngineClient["metadata"]["queryUploadedLibraryMemberGroupDocument"];
+let inspectUploadedLibraryMemberDocument:
+  EngineClient["metadata"]["queryUploadedLibraryMemberDocument"];
 let inspectUploadedLibraryTypeDocument:
   EngineClient["metadata"]["queryUploadedLibraryTypeDocument"];
 let inspectPackageHeapEntries:
@@ -1096,15 +1103,19 @@ async function loadEngineModule() {
       queryLibraryApiDiff: inspectLibraryApiDiff,
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
+      queryMemberDocument: inspectMemberDocument,
       queryMemberGroupDocument: inspectMemberGroupDocument,
       queryTypeDocument: inspectTypeDocument,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
+      queryPlatformMemberDocument: inspectPlatformMemberDocument,
       queryPlatformMemberGroupDocument:
         inspectPlatformMemberGroupDocument,
       queryPlatformTypeDocument:
         inspectPlatformTypeDocument,
       queryUploadedLibraryMemberGroupDocument:
         inspectUploadedLibraryMemberGroupDocument,
+      queryUploadedLibraryMemberDocument:
+        inspectUploadedLibraryMemberDocument,
       queryUploadedLibraryTypeDocument:
         inspectUploadedLibraryTypeDocument,
       queryPackageHeapEntries: inspectPackageHeapEntries,
@@ -1503,6 +1514,10 @@ const initialState = {
   memberGroupDocumentLoading: false,
   memberGroupDocumentError: "",
   memberGroupDocumentKey: "",
+  memberDocument: null as BrowserMemberDocumentInspection | null,
+  memberDocumentLoading: false,
+  memberDocumentError: "",
+  memberDocumentKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
@@ -4485,9 +4500,13 @@ function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
 }
 
 function memberSectionsFor(member: AppMemberGroup) {
+  if (selectedMemberDocumentActive(member)) {
+    return memberSectionDefinitions.filter(([id]) => id === "overview");
+  }
   if (state.rootKind === "library") {
     return memberSectionDefinitions.filter(([id]) => id === "overview");
   }
+
   const allowed = new Set(
     memberSectionIdsFor(
       member,
@@ -4495,6 +4514,14 @@ function memberSectionsFor(member: AppMemberGroup) {
       memberHasSelectedBody(member)));
   if (!compareAvailableFor(state.package)) allowed.delete("compare");
   return memberSectionDefinitions.filter(([id]) => allowed.has(id));
+}
+
+function selectedMemberDocumentActive(member: AppMemberGroup) {
+  const type = selectedType();
+  return Boolean(
+    type
+    && state.memberDocumentKey.startsWith(
+      `${memberGroupDocumentRequestKey(type, member)}\0`));
 }
 
 function memberHasSelectedBody(member: AppMemberGroup) {
@@ -8276,6 +8303,14 @@ function clearMemberGroupDocumentCache() {
   state.memberGroupDocumentLoading = false;
   state.memberGroupDocumentError = "";
   state.memberGroupDocumentKey = "";
+  clearMemberDocumentCache();
+}
+
+function clearMemberDocumentCache() {
+  state.memberDocument = null;
+  state.memberDocumentLoading = false;
+  state.memberDocumentError = "";
+  state.memberDocumentKey = "";
 }
 
 function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
@@ -8496,6 +8531,7 @@ function openOverload(index: number) {
   const type = selectedType();
   const member = selectedMember(type);
   state.selectedOverloadIndex = index;
+  clearMemberDocumentCache();
   const graphTarget = graphOnlyBodyTarget(
     selectedMemberOverload(type, member));
   clearMemberContentCache();
@@ -8509,6 +8545,11 @@ function openOverload(index: number) {
 function applyMemberSection(id: MemberSection) {
   const type = selectedType();
   const member = selectedMember(type);
+  if (member
+    && selectedMemberDocumentActive(member)
+    && id !== "overview") {
+    return;
+  }
   if (member
     && id !== "overview"
     && state.selectedOverloadIndex == null) {
@@ -12720,6 +12761,54 @@ function renderDeferredMemberGroup(
 ) {
     const documentKey =
       memberGroupDocumentRequestKey(type, member);
+    const selectedMemberDocument =
+      state.memberDocumentKey.startsWith(`${documentKey}\0`)
+        ? state.memberDocument
+        : null;
+    if (state.memberDocumentKey.startsWith(`${documentKey}\0`)) {
+      const exact = selectedMemberDocument?.outcome === "Available"
+        ? selectedMemberDocument.document
+        : null;
+      const status = state.memberDocumentLoading
+        ? '<p class="docs-loading">Building the exact Member document…</p>'
+        : state.memberDocumentError
+          ? `<p class="docs-unavailable">Member query failed: ${escapeHtml(state.memberDocumentError)}</p>`
+          : exact
+            ? `<article class="learn-overview">
+                <section class="learn-section member-overview-intro">
+                  <section class="signature-panel" aria-labelledby="member-declaration-title">
+                    <div class="signature-language">
+                      <h2 id="member-declaration-title"><span>${escapeHtml(exact.spelling)}</span><small>declaration</small></h2>
+                    </div>
+                    <pre class="language-csharp signature-code"><code class="language-csharp">${highlight(exact.displaySignature)}</code></pre>
+                  </section>
+                  <section class="member-identity" aria-labelledby="member-identity-title">
+                    <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>owner-issued exact declaration</span></div>
+                    <dl>
+                      <div><dt>Metadata token</dt><dd><code>0x${exact.metadataToken.toString(16).toUpperCase().padStart(8, "0")}</code></dd></div>
+                      <div><dt>Baseline ordinal</dt><dd><code>${exact.baselineOrdinal}</code></dd></div>
+                      <div><dt>Fingerprint</dt><dd><code>${escapeHtml(exact.fingerprint)}</code></dd></div>
+                      <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(exact.canonicalSignature)}</code></dd></div>
+                    </dl>
+                  </section>
+                </section>
+              </article>`
+            : '<p class="docs-unavailable">The exact Member document is unavailable.</p>';
+      return `
+        <section class="member-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>${exact
+              ? `${escapeHtml(exact.accessibility)} <span>· ${escapeHtml(exact.receiver)}</span>`
+              : `Exact declaration <span>· ${escapeHtml(member.kind)}</span>`}</p>
+          </header>
+          <div class="member-surface-scroll">${status}</div>
+          <footer class="api-surface-footer member-surface-footer">
+            <button class="member-back" type="button" data-member-document-back>← ${escapeHtml(member.name)}</button>
+            <span>Exact declaration from the shared Member document</span>
+          </footer>
+        </section>`;
+    }
     const currentDocument =
       state.memberGroupDocumentKey === documentKey
         ? state.memberGroupDocument
@@ -12788,11 +12877,6 @@ function renderDeferredMemberGroup(
             ? row.receiver === "Extension"
             : false;
     });
-    const hasDetailedRows = rows.some(row =>
-      member.overloads.some(overload =>
-        (overload.declarationMetadataToken
-          ?? overload.metadataToken
-          ?? 0) === row.metadataToken));
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
@@ -12811,19 +12895,19 @@ function renderDeferredMemberGroup(
               const sourceIndex = visibleIndex < 0
                 ? null
                 : memberNavOverloadSourceIndex(member, visibleIndex);
-              return `<button class="api-row overload-row"${sourceIndex === null ? " disabled" : ` data-overload="${sourceIndex}"`}>
+              return `<button class="api-row overload-row"${sourceIndex === null
+                ? ` data-member-document-ordinal="${row.baselineOrdinal}"`
+                : ` data-overload="${sourceIndex}"`}>
                 <span class="member-icon">${row.baselineOrdinal}</span>
                 <code>${highlight(signature)}</code>
-                <small>${sourceIndex === null ? "detail unavailable" : "open →"}</small>
+                <small>open →</small>
               </button>`;
             }).join("")}
           </div>
         </div>
         <footer class="api-surface-footer member-surface-footer">
           <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-          <span>${hasDetailedRows
-            ? `Choose a ${unit} to inspect`
-            : `Exact ${unit}s shown; detailed inspection is unavailable`}</span>
+          <span>Choose a ${unit} to inspect</span>
         </footer>
       </section>`;
 }
@@ -13702,6 +13786,13 @@ function bindTypePanelEvents() {
       renderMemberFilterAndRestoreFocus();
     },
     onMethodLeverageRetry: () => retryTypeMethodLeverage(),
+    onMemberDocumentOpen: baselineOrdinal => {
+      void loadSelectedMemberDocument(baselineOrdinal);
+    },
+    onMemberDocumentBack: () => {
+      clearMemberDocumentCache();
+      renderPreservingMemberFocus();
+    },
     onMemberOverloadOpen: selector => {
       openOverload(selector);
     },
@@ -21102,6 +21193,14 @@ function memberGroupDocumentRequestKey(
   ]);
 }
 
+function memberDocumentRequestKey(
+  type: AppTypeSurface,
+  member: AppMemberGroup,
+  baselineOrdinal: number,
+) {
+  return `${memberGroupDocumentRequestKey(type, member)}\0${baselineOrdinal}`;
+}
+
 function memberGroupReceiverIntent():
   "all" | "this" | "static" | "extension" {
   switch (state.memberTraitFilter) {
@@ -21303,7 +21402,8 @@ async function loadSelectedMemberGroupDocument() {
           member.name,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
-          false)
+          false,
+          state.memberSpelling)
       : pkg.isRuntimePack
       ? (() => {
           const row = platformLibraryForRequest(pkg, type.assemblyId);
@@ -21316,7 +21416,8 @@ async function loadSelectedMemberGroupDocument() {
             member.name,
             state.memberAccessibilityFilter,
             memberGroupReceiverIntent(),
-            false);
+            false,
+            state.memberSpelling);
         })()
       : inspectMemberGroupDocument(
           pkg.id,
@@ -21327,7 +21428,8 @@ async function loadSelectedMemberGroupDocument() {
           member.name,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
-          false);
+          false,
+          state.memberSpelling);
     const inspection = await result;
     if (state.memberGroupDocumentKey !== key) return;
     state.memberGroupDocument = inspection;
@@ -21342,6 +21444,84 @@ async function loadSelectedMemberGroupDocument() {
   } finally {
     if (state.memberGroupDocumentKey === key) {
       state.memberGroupDocumentLoading = false;
+      renderPreservingMemberFocus();
+    }
+  }
+}
+
+async function loadSelectedMemberDocument(baselineOrdinal: number) {
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!type
+    || !member
+    || !Number.isInteger(baselineOrdinal)
+    || baselineOrdinal <= 0) {
+    return;
+  }
+  const key = memberDocumentRequestKey(type, member, baselineOrdinal);
+  state.memberDocument = null;
+  state.memberDocumentLoading = true;
+  state.memberDocumentError = "";
+  state.memberDocumentKey = key;
+  state.memberSection = "overview";
+  renderPreservingMemberFocus();
+  const pkg = currentPackage();
+  try {
+    const result = state.rootKind === "library"
+      ? inspectUploadedLibraryMemberDocument(
+          type.assemblyId,
+          type.definitionId ?? type.id,
+          member.name,
+          baselineOrdinal,
+          "",
+          state.memberAccessibilityFilter,
+          memberGroupReceiverIntent(),
+          false,
+          state.memberSpelling)
+      : pkg.isRuntimePack
+      ? (() => {
+          const row = platformLibraryForRequest(pkg, type.assemblyId);
+          return inspectPlatformMemberDocument(
+            pkg.activeFramework,
+            pkg.version,
+            platformAssemblyRequest(row),
+            row.pack,
+            type.definitionId ?? type.id,
+            member.name,
+            baselineOrdinal,
+            "",
+            state.memberAccessibilityFilter,
+            memberGroupReceiverIntent(),
+            false,
+            state.memberSpelling);
+        })()
+      : inspectMemberDocument(
+          pkg.id,
+          pkg.version,
+          pkg.activeFramework,
+          type.assembly,
+          type.definitionId ?? type.id,
+          member.name,
+          baselineOrdinal,
+          "",
+          state.memberAccessibilityFilter,
+          memberGroupReceiverIntent(),
+          false,
+          state.memberSpelling);
+    const inspection = await result;
+    if (state.memberDocumentKey !== key) return;
+    state.memberDocument = inspection;
+    state.memberDocumentError =
+      inspection.outcome === "Available"
+        ? ""
+        : inspection.detail
+          ?? `Member inspection returned ${inspection.outcome}.`;
+  } catch (error) {
+    if (state.memberDocumentKey !== key) return;
+    state.memberDocumentError = errorMessage(error);
+  } finally {
+    if (state.memberDocumentKey === key) {
+      state.memberDocumentLoading = false;
       renderPreservingMemberFocus();
     }
   }

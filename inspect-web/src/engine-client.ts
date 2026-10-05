@@ -173,6 +173,10 @@ export interface EngineClient {
       memberName: string,
       baselineOrdinal: number,
       fingerprintPrefix: string,
+      accessibility: string,
+      receiver: string,
+      includeHidden: boolean,
+      spelling: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberDocument"]
     >>>;
@@ -183,6 +187,7 @@ export interface EngineClient {
       accessibility: string,
       receiver: string,
       includeHidden: boolean,
+      spelling: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
     >>>;

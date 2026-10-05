@@ -73,7 +73,9 @@ public sealed class MetadataDeclarationSession : IDisposable
         MetadataMethodReceiverFilter receiver,
         bool includeHidden,
         int maximumMembers,
-        int maximumRetainedTextCharacters)
+        int maximumRetainedTextCharacters,
+        MetadataMemberSpelling spelling =
+            MetadataMemberSpelling.CSharp)
     {
         EnsureAccess();
         if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
@@ -91,6 +93,7 @@ public sealed class MetadataDeclarationSession : IDisposable
             accessibility,
             receiver,
             includeHidden,
+            spelling,
             maximumMembers,
             maximumRetainedTextCharacters);
     }

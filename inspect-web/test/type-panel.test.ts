@@ -308,6 +308,12 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onMemberSourceViewSelect: view => {
       calls.push(`member-source-view:${view}`);
     },
+    onMemberDocumentOpen: ordinal => {
+      calls.push(`member-document:${ordinal}`);
+    },
+    onMemberDocumentBack: () => {
+      calls.push("member-document-back");
+    },
     onCopySignature: () => {
       calls.push("copy-signature");
     },

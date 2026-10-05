@@ -340,6 +340,7 @@ public sealed class BrowserMemberDeclarationTests
                 singletonGroup.Document);
         Assert.Equal(SpellingType, singletonDocument.TypeIdentity);
         Assert.Equal("PointerFreeUnsafeMethod", singletonDocument.MemberName);
+        Assert.Equal("CSharp", singletonDocument.Spelling);
         Assert.Equal(1, singletonDocument.Count);
         BrowserMemberGroupDocumentRow singletonRow =
             Assert.Single(singletonDocument.Rows);
@@ -381,6 +382,7 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             "PointerFreeUnsafeMethod",
             exactDocument.MemberName);
+        Assert.Equal("CSharp", exactDocument.Spelling);
         Assert.Equal(
             singletonRow.MetadataToken,
             exactDocument.MetadataToken);
@@ -459,6 +461,30 @@ public sealed class BrowserMemberDeclarationTests
         Assert.All(
             privateDocument.Rows,
             static row => Assert.Equal("private", row.Accessibility));
+        BrowserMemberGroupDocumentRow privateRow =
+            privateDocument.Rows[0];
+        BrowserMemberDocumentInspection privateMember =
+            MemberDocument(
+                await MetadataExports
+                    .QueryUploadedLibraryMemberDocument(
+                        Path.GetFileName(
+                            typeof(JsonDocument).Assembly.Location),
+                        runtimeImage,
+                        typeof(JsonDocument).FullName!,
+                        "Parse",
+                        privateRow.BaselineOrdinal,
+                        "",
+                        "private",
+                        "all",
+                        includeHidden: false,
+                        spelling: "csharp"));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Available,
+            privateMember.Outcome);
+        Assert.Equal(
+            privateRow.MetadataToken,
+            Assert.IsType<BrowserMemberDocument>(
+                privateMember.Document).MetadataToken);
 
         BrowserTypeDocumentInspection packagePopulation =
             TypeDocument(
@@ -526,6 +552,53 @@ public sealed class BrowserMemberDeclarationTests
             group => group.Name == "get_Type");
         Assert.True(getter.BaselineOrdinal > 0);
         Assert.Equal(1, getter.CompleteCount);
+        BrowserMemberGroupDocumentInspection metadataAccessorGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryMemberGroupDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    getter.Name,
+                    "public",
+                    "all",
+                    includeHidden: false,
+                    spelling: "metadata"));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Available,
+            metadataAccessorGroup.Outcome);
+        BrowserMemberGroupDocument metadataAccessorDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                metadataAccessorGroup.Document);
+        Assert.Equal("Metadata", metadataAccessorDocument.Spelling);
+        BrowserMemberGroupDocumentRow metadataAccessorRow =
+            Assert.Single(metadataAccessorDocument.Rows);
+        BrowserMemberDocumentInspection metadataAccessorMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    getter.Name,
+                    metadataAccessorRow.BaselineOrdinal,
+                    "",
+                    "public",
+                    "all",
+                    includeHidden: false,
+                    spelling: "metadata"));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Available,
+            metadataAccessorMember.Outcome);
+        BrowserMemberDocument metadataAccessor =
+            Assert.IsType<BrowserMemberDocument>(
+                metadataAccessorMember.Document);
+        Assert.Equal("Metadata", metadataAccessor.Spelling);
+        Assert.Equal(
+            metadataAccessorRow.MetadataToken,
+            metadataAccessor.MetadataToken);
         BrowserTypeMemberPopulationGroup metadataMethod = Assert.Single(
             metadataMembers.Groups,
             group => group.Name == "PointerFreeUnsafeMethod");

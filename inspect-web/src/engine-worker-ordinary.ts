@@ -192,6 +192,10 @@ type MetadataWorkerClient =
       memberName: string,
       baselineOrdinal: number,
       fingerprintPrefix: string,
+      accessibility: string,
+      receiver: string,
+      includeHidden: boolean,
+      spelling: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberDocument"]
     >>>;
@@ -202,6 +206,7 @@ type MetadataWorkerClient =
       accessibility: string,
       receiver: string,
       includeHidden: boolean,
+      spelling: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
     >>>;
@@ -1264,7 +1269,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberDocument: valueOperation(
       "ordinary-metadata-query-member-document",
-      8,
+      12,
       (
         facades,
         ...args: Parameters<
@@ -1274,7 +1279,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-member-group-document",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<
@@ -1304,7 +1309,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberDocument: valueOperation(
       "ordinary-metadata-query-platform-member-document",
-      8,
+      12,
       (
         facades,
         ...args: Parameters<
@@ -1314,7 +1319,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-platform-member-group-document",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<
@@ -1324,7 +1329,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryUploadedLibraryMemberDocument: valueOperation(
       "ordinary-metadata-query-uploaded-library-member-document",
-      5,
+      9,
       (
         facades,
         libraryIdentity: string,
@@ -1332,6 +1337,10 @@ export const engineWorkerOrdinaryOperations = {
         memberName: string,
         baselineOrdinal: number,
         fingerprintPrefix: string,
+        accessibility: string,
+        receiver: string,
+        includeHidden: boolean,
+        spelling: string,
       ) => {
         const retained = retainedUploadedLibraries.get(facades);
         if (!retained) {
@@ -1352,6 +1361,10 @@ export const engineWorkerOrdinaryOperations = {
           memberName,
           baselineOrdinal,
           fingerprintPrefix,
+          accessibility,
+          receiver,
+          includeHidden,
+          spelling,
         );
       },
     ),
@@ -1367,7 +1380,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryUploadedLibraryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-uploaded-library-member-group-document",
-      6,
+      7,
       (
         facades,
         libraryIdentity: string,
@@ -1376,6 +1389,7 @@ export const engineWorkerOrdinaryOperations = {
         accessibility: string,
         receiver: string,
         includeHidden: boolean,
+        spelling: string,
       ) => {
         const retained = retainedUploadedLibraries.get(facades);
         if (!retained) {
@@ -1397,6 +1411,7 @@ export const engineWorkerOrdinaryOperations = {
           accessibility,
           receiver,
           includeHidden,
+          spelling,
         );
       },
     ),

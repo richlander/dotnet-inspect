@@ -36,7 +36,8 @@ public static partial class MetadataExports
         string memberName,
         string accessibility,
         string receiver,
-        bool includeHidden)
+        bool includeHidden,
+        string spelling = "csharp")
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -70,6 +71,7 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
+                    spelling,
                     accessibility,
                     receiver,
                     includeHidden)
@@ -87,7 +89,8 @@ public static partial class MetadataExports
         string memberName,
         string accessibility,
         string receiver,
-        bool includeHidden)
+        bool includeHidden,
+        string spelling = "csharp")
     {
         await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
@@ -112,6 +115,7 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
+                    spelling,
                     accessibility,
                     receiver,
                     includeHidden)
@@ -127,7 +131,8 @@ public static partial class MetadataExports
         string memberName,
         string accessibility,
         string receiver,
-        bool includeHidden)
+        bool includeHidden,
+        string spelling = "csharp")
     {
         ArgumentNullException.ThrowIfNull(content);
         BrowserMemberGroupDocumentInspection inspection =
@@ -141,6 +146,7 @@ public static partial class MetadataExports
                             .MaterializationLimits),
                     typeIdentity,
                     memberName,
+                    spelling,
                     accessibility,
                     receiver,
                     includeHidden)
@@ -154,6 +160,7 @@ public static partial class MetadataExports
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
             string memberName,
+            string spelling,
             string accessibility,
             string receiver,
             bool includeHidden)
@@ -164,7 +171,10 @@ public static partial class MetadataExports
             BrowserExactMemberPolicy.ParseTypeIdentity(
                 typeIdentity);
         var plan = new MemberOverloadPopulationInspectionPlan(
-            new MemberGroupSubject(type, memberName),
+            new MemberGroupSubject(
+                type,
+                memberName,
+                spelling: ParseSpelling(spelling)),
             new MemberOverloadPopulationRequest(
                 new MemberOverloadCountRequest(),
                 new MemberOverloadRowsRequest(
@@ -320,6 +330,7 @@ public static partial class MetadataExports
             new(
                 document.Subject.DeclaringType.ToEscapedFullName(),
                 document.Subject.Name,
+                document.Subject.Spelling.ToString(),
                 count.Value,
                 [
                     .. rows.Items.Select(static row =>

@@ -1400,7 +1400,10 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /document\.rows\.filter\(row =>[\s\S]*memberAccessibilityBucket\(row\.accessibility\)[\s\S]*memberMatchesTrait\(resident, state\.memberTraitFilter\)/);
   assert.match(
     renderDeferredMemberGroup,
-    /rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
+    /rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-member-document-ordinal="\$\{row\.baselineOrdinal}"/);
+  assert.match(
+    renderDeferredMemberGroup,
+    /memberDocumentLoading[\s\S]*Building the exact Member document[\s\S]*owner-issued exact declaration/);
   assert.match(
     renderMember,
     /member\.overloads\.length === 0 && member\.kind !== "method"[\s\S]*renderDeferredMemberGroup\(type, member\)/);
@@ -1413,8 +1416,9 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     appSource,
     /function drillIn\(\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*openOverload\(memberNavOverloadSourceIndex\(member, 0\)\)/);
-  assert.doesNotMatch(appSource, /function openMemberDocument\(/);
-  assert.doesNotMatch(appSource, /async function loadSelectedMemberDocument\(/);
+  assert.match(
+    appSource,
+    /async function loadSelectedMemberDocument\([\s\S]*memberDocumentRequestKey\(type, member, baselineOrdinal\)[\s\S]*inspectUploadedLibraryMemberDocument[\s\S]*inspectPlatformMemberDocument[\s\S]*inspectMemberDocument[\s\S]*state\.memberSpelling/);
   assert.match(
     renderMember,
     /const callGraphExplore = state\.memberSection === "call-graph"[\s\S]*class="member-surface-actions"[\s\S]*id="call-graph-explore" data-graph-explore/);

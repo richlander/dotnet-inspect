@@ -392,6 +392,8 @@ export interface TypePanelBindingActions {
   onMemberFilterDisclosureToggle: (expanded: boolean) => void;
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
+  onMemberDocumentOpen: (baselineOrdinal: number) => void;
+  onMemberDocumentBack: () => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
   onMethodLeverageRetry: () => void;
   onMemberOverloadOpen: (index: number) => void;
@@ -474,6 +476,15 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onMemberOverloadOpen(Number(button.dataset.overload))));
+  root.querySelectorAll<HTMLElement>("[data-member-document-ordinal]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberDocumentOpen(
+          Number(button.dataset.memberDocumentOrdinal))));
+  root.querySelector("[data-member-document-back]")?.addEventListener(
+    "click",
+    actions.onMemberDocumentBack);
   root.querySelectorAll<HTMLSelectElement>("[data-member-kind-filter]")
     .forEach(select =>
       select.addEventListener(

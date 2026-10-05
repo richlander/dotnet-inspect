@@ -66,6 +66,7 @@ public static class MemberOverloadPopulationInspectionOperation
                         Receiver(query.Receiver),
                         request.Plan.Bounds,
                         query.IncludeHidden,
+                        Spelling(request.Plan.Subject.Spelling),
                         expectedModuleVersionId:
                             compatibleContinuation
                                 ? rows?.Continuation?.Binding
@@ -223,7 +224,8 @@ public static class MemberOverloadPopulationInspectionOperation
             ordering,
             query.Accessibility,
             query.Receiver,
-            query.IncludeHidden);
+            query.IncludeHidden,
+            subject.Spelling);
         MemberOverloadCountOutcome? count =
             !query.IncludesCount
                 ? null
@@ -339,6 +341,7 @@ public static class MemberOverloadPopulationInspectionOperation
             StringComparison.Ordinal)
         && binding.Category == subject.Category
         && binding.Role == subject.Role
+        && binding.Spelling == subject.Spelling
         && binding.Ordering == ordering
         && binding.Accessibility == accessibility
         && binding.Receiver == receiver
@@ -376,6 +379,18 @@ public static class MemberOverloadPopulationInspectionOperation
                 MetadataMethodReceiverFilter.Extension,
             _ => throw new InvalidOperationException(
                 "Unknown exact-Member receiver filter."),
+        };
+
+    private static MetadataMemberSpelling Spelling(
+        TypeMemberGroupSpelling spelling) =>
+        spelling switch
+        {
+            TypeMemberGroupSpelling.CSharp =>
+                MetadataMemberSpelling.CSharp,
+            TypeMemberGroupSpelling.Metadata =>
+                MetadataMemberSpelling.Metadata,
+            _ => throw new InvalidOperationException(
+                "Unknown Member-group spelling."),
         };
 
     private static InspectionEnvelope<

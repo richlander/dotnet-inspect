@@ -16,6 +16,8 @@ public sealed record LibraryMethodGroupInspectionRequest
         MetadataMethodReceiverFilter receiver,
         ApiSurfaceExtractionBounds bounds,
         bool includeHidden = false,
+        MetadataMemberSpelling spelling =
+            MetadataMemberSpelling.CSharp,
         Guid? expectedModuleVersionId = null)
     {
         Library = library
@@ -39,6 +41,13 @@ public sealed record LibraryMethodGroupInspectionRequest
                 receiver,
                 "Unknown Method-group receiver filter.");
         }
+        if (!Enum.IsDefined(spelling))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(spelling),
+                spelling,
+                "Unknown Method-group spelling.");
+        }
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
         if (expectedModuleVersionId == Guid.Empty)
@@ -55,6 +64,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         Accessibility = accessibility;
         Receiver = receiver;
         IncludeHidden = includeHidden;
+        Spelling = spelling;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
@@ -67,6 +77,7 @@ public sealed record LibraryMethodGroupInspectionRequest
     public MetadataMethodAccessibilityFilter Accessibility { get; }
     public MetadataMethodReceiverFilter Receiver { get; }
     public bool IncludeHidden { get; }
+    public MetadataMemberSpelling Spelling { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public Guid? ExpectedModuleVersionId { get; }
 }
@@ -246,7 +257,8 @@ public static class LibraryMethodGroupInspection
                     request.Receiver,
                     request.IncludeHidden,
                     request.Bounds.MaxMembers,
-                    request.Bounds.MaxRetainedTextCharacters);
+                    request.Bounds.MaxRetainedTextCharacters,
+                    request.Spelling);
             cancellationToken.ThrowIfCancellationRequested();
             return new LibraryMethodGroupInspectionOutcome.Completed(
                 new(

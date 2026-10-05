@@ -526,9 +526,22 @@ test("uploaded Library Member document queries use the retained exact image", as
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
-    [string, number[], string, string, string, string, boolean] | undefined;
+    [string, number[], string, string, string, string, boolean, string]
+      | undefined;
   let exactReceived:
-    [string, number[], string, string, number, string] | undefined;
+    [
+      string,
+      number[],
+      string,
+      string,
+      number,
+      string,
+      string,
+      string,
+      boolean,
+      string,
+    ]
+      | undefined;
   let receivedPopulation:
     [string, number[], string, string, string] | undefined;
   const state = fixture({
@@ -570,6 +583,10 @@ test("uploaded Library Member document queries use the retained exact image", as
         memberName,
         baselineOrdinal,
         fingerprintPrefix,
+        accessibility,
+        receiver,
+        includeHidden,
+        spelling,
       ) {
         exactReceived = [
           declaredName,
@@ -578,6 +595,10 @@ test("uploaded Library Member document queries use the retained exact image", as
           memberName,
           baselineOrdinal,
           fingerprintPrefix,
+          accessibility,
+          receiver,
+          includeHidden,
+          spelling,
         ];
         return {
           outcome: "Available",
@@ -585,6 +606,7 @@ test("uploaded Library Member document queries use the retained exact image", as
           document: {
             typeIdentity,
             memberName,
+            spelling,
             metadataToken: 0x06000001,
             baselineOrdinal,
             displaySignature: "void Run()",
@@ -605,6 +627,7 @@ test("uploaded Library Member document queries use the retained exact image", as
         accessibility,
         receiver,
         includeHidden,
+        spelling,
       ) {
         received = [
           declaredName,
@@ -614,6 +637,7 @@ test("uploaded Library Member document queries use the retained exact image", as
           accessibility,
           receiver,
           includeHidden,
+          spelling,
         ];
         return {
           outcome: "Available",
@@ -621,6 +645,7 @@ test("uploaded Library Member document queries use the retained exact image", as
           document: {
             typeIdentity,
             memberName,
+            spelling,
             count: 1,
             rows: [{
               metadataToken: 0x06000001,
@@ -677,6 +702,7 @@ test("uploaded Library Member document queries use the retained exact image", as
       "private",
       "static",
       false,
+      "metadata",
     );
   await state.environment.flushAsync();
 
@@ -689,6 +715,7 @@ test("uploaded Library Member document queries use the retained exact image", as
     "private",
     "static",
     false,
+    "metadata",
   ]);
   const population =
     state.client.metadata.queryUploadedLibraryTypeDocument(
@@ -714,6 +741,10 @@ test("uploaded Library Member document queries use the retained exact image", as
       "Run",
       1,
       "",
+      "private",
+      "all",
+      false,
+      "metadata",
     );
   await state.environment.flushAsync();
   assert.equal((await exact).outcome, "Available");
@@ -724,6 +755,10 @@ test("uploaded Library Member document queries use the retained exact image", as
     "Run",
     1,
     "",
+    "private",
+    "all",
+    false,
+    "metadata",
   ]);
 
   const mismatched =
@@ -734,6 +769,7 @@ test("uploaded Library Member document queries use the retained exact image", as
       "public",
       "all",
       false,
+      "csharp",
     );
   const mismatchFailure = assert.rejects(
     mismatched,
