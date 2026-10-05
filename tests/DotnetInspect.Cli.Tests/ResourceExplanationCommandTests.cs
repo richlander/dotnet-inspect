@@ -94,11 +94,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Empty(typeInfo.Error);
         using JsonDocument typeInfoDocument = JsonDocument.Parse(typeInfo.Output);
         JsonElement typeInfoRoot = typeInfoDocument.RootElement.GetProperty("resources")[0];
-        Assert.Equal(
-            "member",
-            typeInfoRoot.GetProperty("identity").GetProperty("catalog_name").GetString());
-        Assert.Equal("Table", typeInfoRoot.GetProperty("details").GetProperty("shape").GetString());
-        Assert.Equal("Scalar", typeInfoRoot.GetProperty("details").GetProperty("cardinality").GetString());
+        Assert.Equal("structural-section", ResourceType(typeInfoRoot));
+        Assert.Equal("member/sections/type-info", typeInfoRoot.GetProperty("path").GetString());
+        Assert.Equal("table", TextFact(typeInfoRoot, "shape"));
+        Assert.Equal("scalar", TextFact(typeInfoRoot, "cardinality"));
 
         // Source is a scalar Text until its Lines inventory is executed by
         // the CLI; the declaration follows the behavior, not the plan.
@@ -111,11 +110,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Empty(source.Error);
         JsonElement sourceRoot =
             JsonDocument.Parse(source.Output).RootElement.GetProperty("resources")[0];
-        Assert.Equal(
-            "member-detail",
-            sourceRoot.GetProperty("identity").GetProperty("catalog_name").GetString());
-        Assert.Equal("Text", sourceRoot.GetProperty("details").GetProperty("shape").GetString());
-        Assert.Equal("Scalar", sourceRoot.GetProperty("details").GetProperty("cardinality").GetString());
+        Assert.Equal("structural-section", ResourceType(sourceRoot));
+        Assert.Equal("member-detail/sections/source", sourceRoot.GetProperty("path").GetString());
+        Assert.Equal("text", TextFact(sourceRoot, "shape"));
+        Assert.Equal("scalar", TextFact(sourceRoot, "cardinality"));
 
         // Call Graph is a Graph: no shape, but the tree and Mermaid formats.
         var callGraph = await RunAsync(
