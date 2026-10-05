@@ -858,9 +858,10 @@ and `docs/decompiler-ir.md:20`:
 > Structured type identity must survive the pipeline: the moment a type degrades
 > to a string, every downstream consumer inherits the loss.
 
-This is the general form of `AGENTS.md`'s "Do not infer one from display text
-when a typed identity exists." Strings are a boundary format, not a working
-format.
+This is the general form of the
+[repository engineering rule](../repository-workflow.md#engineering-constraints)
+against inferring identity from display text. Strings are a boundary format,
+not a working format.
 
 The boundary is real and is also structural. `docs/decompiler-ir.md:10`:
 

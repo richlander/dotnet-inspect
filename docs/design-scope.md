@@ -1,11 +1,9 @@
 # Design scope and composition
 
 [Development practices](development-practices.md#design-establishes-the-footing)
-places design before implementation.
-[Design scope and composition](../AGENTS.md#design-scope-and-composition) states
-the binding rules: one architectural owner per design effort, and a broad,
-multi-component design requires explicit user approval. This document owns
-the full mechanics and recovery procedure.
+places design before implementation. This document owns the binding scope
+rules, full mechanics, and recovery procedure: one architectural owner per
+design effort, and explicit user approval for a broad, multi-component design.
 
 ## One owner per focused design
 
@@ -139,7 +137,7 @@ that it closes.
 
 If you discover that current work violates this guidance, stop broadening,
 repairing, or reviewing the design in place and apply the
-[scope-violation recovery transition](../AGENTS.md#recovery-transitions). Keep
+[scope-violation recovery transition](round-orchestration.md#review-clean-and-recovery). Keep
 a locked candidate unchanged while discussing the violation with the user. Name
 the components whose ownership has been combined, explain the closure or
 review evidence that exposed the problem, and propose component-sized

@@ -1,5 +1,6 @@
 export type AnalysisMode =
   | "complexity"
+  | "dependencies"
   | "relationships"
   | "performance"
   | "integrations";
@@ -10,6 +11,7 @@ export function isAnalysisMode(
   value: string | undefined,
 ): value is AnalysisMode {
   return value === "complexity"
+    || value === "dependencies"
     || value === "relationships"
     || value === "performance"
     || value === "integrations";
@@ -25,6 +27,7 @@ export interface AnalysisInspectorContext {
 
 const modes = [
   [defaultAnalysisMode, "Relationships"],
+  ["dependencies", "Dependencies"],
   ["complexity", "Complexity"],
   ["performance", "Performance"],
   ["integrations", "Integrations"],

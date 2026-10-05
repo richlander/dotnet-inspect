@@ -105,18 +105,18 @@ public sealed record CapabilityCatalogSearchRow(
                         static binding => binding.Gesture))));
 
     private static string KindName(
-        ResourceExplanationResourceKind kind) =>
+        CapabilityCatalogSearchResourceKind kind) =>
         kind switch
         {
-            ResourceExplanationResourceKind.InspectionDocument =>
+            CapabilityCatalogSearchResourceKind.InspectionDocument =>
                 "Document",
-            ResourceExplanationResourceKind.HostNeutralRoute =>
+            CapabilityCatalogSearchResourceKind.HostNeutralRoute =>
                 "Route",
-            ResourceExplanationResourceKind.QuerySpace =>
+            CapabilityCatalogSearchResourceKind.QuerySpace =>
                 "Query space",
-            ResourceExplanationResourceKind.QueryFacet =>
+            CapabilityCatalogSearchResourceKind.QueryFacet =>
                 "Query facet",
-            ResourceExplanationResourceKind.ConsumerBinding =>
+            CapabilityCatalogSearchResourceKind.ConsumerBinding =>
                 "Binding",
             _ => kind.ToString(),
         };
