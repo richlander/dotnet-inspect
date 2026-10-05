@@ -60,7 +60,7 @@ public class PayloadLensContainmentTests : IDisposable
     /// contract these tests pin is about the payload stream, not the flag, so
     /// the spelling lives in one place and the assertions did not change.
     /// </remarks>
-    private static readonly string[] ReadmeLens = ["-S", "Package README file", "--print"];
+    private static readonly string[] ReadmeLens = ["-S", "README", "--print"];
 
     private const string HostileReadme =
         "intro" + Bidi + "MARKERBIDI\n"
@@ -370,7 +370,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var package = HostilePackage.Create();
 
         var (output, error) = RunCli(
-            [package.Path, "-S", "Package skill files", "--print", "--raw"]);
+            [package.Path, "-S", "Skills", "--print", "--raw"]);
 
         Assert.Empty(error);
         Assert.Equal("skill payload\n", output.ReplaceLineEndings("\n"));

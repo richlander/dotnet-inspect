@@ -19,7 +19,7 @@ The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 `vocabulary` value rendering, `diff --history`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
-graph edges, a single package's layout lens, `Package files`, or
+graph edges, a single package's layout lens, `Files`, or
 `SourceLink: Files` section,
 one selected Project document section, explicit-source Type catalog listings,
 `match --similar` ranked candidates, and the exact `Clone Candidates` section
@@ -69,7 +69,7 @@ type filtering without reducing package, library, or PDB acquisition. The
 Package layout adoption selects complete normalized file paths after scoped
 enumeration, plumbing exclusion, and sorting without reducing package
 acquisition or archive extraction. The
-Package `Package files` adoption selects complete ordered package-file rows
+Package `Files` adoption selects complete ordered package-file rows
 after archive extraction, full file enumeration, and optional path filtering.
 The Project document adoption selects complete restored-package Skill or root
 README rows after inventory construction and validation when exactly one
@@ -868,7 +868,7 @@ range syntax.
 ## Package Files adoption
 
 Ordinary single-package `package` inspection declares one semantic row per
-`PackageFile` when the effective section selection is exactly `Package files`.
+`PackageFile` when the effective section selection is exactly `Files`.
 The `Files` alias and `--path` sugar reach the same declaration. Package
 resolution, extraction, complete ordered file enumeration, and optional path
 filtering finish before Head/Tail or strict Window stages select from the typed
@@ -895,8 +895,8 @@ $ dotnet-inspect package Markout@0.35.2 \
 Error: Package file row selection stage 1 requires row 6, but only 5 rows are available.
 ```
 
-The document-family sections (`Package nuspec file`, `Package README file`, and
-`Package skill files`), `@Files`, mixed sections, effective or static discovery,
+The document-family sections (`Nuspec`, `README`, and
+`Skills`), `@Files`, mixed sections, effective or static discovery,
 content output, embedded `--library`/`--all-libraries` inspection, range or
 version listing, and multiple-package inspection remain outside this
 declaration. Those surfaces retain their existing row contracts and use
@@ -1283,7 +1283,7 @@ retain their existing behavior.
 ## Project document row adoption
 
 The `project` command declares one semantic row per `ProjectDocumentRow` when
-the effective selection is exactly one of `Skills` or `Package README file`.
+the effective selection is exactly one of `Skills` or `README`.
 Project assets discovery, direct-package enumeration, document inventory
 construction, and row validation complete before Head/Tail or strict Window
 stages select from the ordered typed vector.

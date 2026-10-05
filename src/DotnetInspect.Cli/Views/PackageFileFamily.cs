@@ -3,8 +3,8 @@ namespace DotnetInspect.Cli.Views;
 using DotnetInspect.Cli.Models;
 
 /// <summary>
-/// The package file family: <c>Package &lt;X&gt; file(s)</c> listings, each scoped to one
-/// kind of document the package ships.
+/// The package file family: <c>Nuspec</c>, <c>README</c>, <c>Licenses</c>, and
+/// <c>Skills</c>, each scoped to one kind of document the package ships.
 ///
 /// This is the single declaration of which sections are in the family and what each
 /// one matches. The section descriptors, the view's row projections, the command's
