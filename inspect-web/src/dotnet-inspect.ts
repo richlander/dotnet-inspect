@@ -668,6 +668,7 @@ import {
 import {
   bindEcosystemPackageDiscovery,
   renderEcosystemPackageDiscovery,
+  type EcosystemPackageAddState,
   type EcosystemPackageCapacity,
 } from "./ecosystem-package-discovery.ts";
 import {
@@ -810,6 +811,7 @@ import type {
 import type {
   BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
+  BrowserEcosystemPackageWorkspaceAdmissionResult,
   BrowserPackageSurface as CatalogPackageSurface,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspacePackage,
@@ -3560,6 +3562,7 @@ interface EcosystemPackageDiscoveryState {
   capacity: EcosystemPackageCapacity;
   pendingCapacity: EcosystemPackageCapacity | null;
   navigationError: string;
+  packageAddStates: Map<string, EcosystemPackageAddState>;
   query: PackageQueryState;
 }
 
@@ -3568,8 +3571,16 @@ const ecosystemPackageDiscovery: EcosystemPackageDiscoveryState = {
   capacity: 24,
   pendingCapacity: null,
   navigationError: "",
+  packageAddStates: new Map(),
   query: initialQueryState(),
 };
+let ecosystemPackageAdmissionInFlight: {
+  readonly ecosystemId: string;
+  readonly retainedDefinitionId: string;
+  readonly realizationId: string;
+  readonly publicationOrdinal: number;
+  readonly key: string;
+} | null = null;
 let ecosystemPackageQueryRenderFrame: number | null = null;
 
 function scheduleEcosystemPackageQueryRender(): void {
@@ -9352,6 +9363,7 @@ function resetEcosystemPackageDiscovery(): void {
   ecosystemPackageDiscovery.capacity = 24;
   ecosystemPackageDiscovery.pendingCapacity = null;
   ecosystemPackageDiscovery.navigationError = "";
+  ecosystemPackageDiscovery.packageAddStates.clear();
   const initial = initialQueryState();
   ecosystemPackageDiscovery.query.request = initial.request;
   ecosystemPackageDiscovery.query.outcome = initial.outcome;
@@ -9389,6 +9401,253 @@ async function raiseEcosystemPackageCapacity(
   ecosystemPackageDiscovery.pendingCapacity = null;
   if (!granted) ecosystemPackageDiscovery.capacity = previous;
   render();
+}
+
+async function addEcosystemPackageToWorkspace(
+  packageId: string,
+  version: string,
+): Promise<void> {
+  const ecosystemId = ecosystemPackageDiscovery.ecosystemId;
+  const posting = activeRetainedWorkspacePosting;
+  const row = ecosystemPackageDiscovery.query.outcome.rows.find(candidate =>
+    candidate.packageId.toLowerCase() === packageId.toLowerCase()
+    && candidate.version.toLowerCase() === version.toLowerCase());
+  const admission = row?.ecosystemAdmission;
+  if (ecosystemId === null
+    || posting === null
+    || row === undefined
+    || admission === null
+    || admission === undefined) {
+    throw new Error(
+      "The Ecosystem Package admission is no longer available.",
+    );
+  }
+
+  const key = `${row.packageId}\u0000${row.version}`;
+  if (ecosystemPackageAdmissionInFlight !== null) return;
+  const inFlightAdmission = {
+    ecosystemId,
+    retainedDefinitionId: posting.retainedDefinitionId,
+    realizationId: posting.realizationId,
+    publicationOrdinal: posting.publicationOrdinal,
+    key,
+  };
+  ecosystemPackageAdmissionInFlight = inFlightAdmission;
+  ecosystemPackageDiscovery.packageAddStates.set(key, { status: "adding" });
+  render({ synchronizeUrl: false });
+
+  const navigationSeq = navigationSequence.begin();
+  let result: BrowserEcosystemPackageWorkspaceAdmissionResult | null = null;
+  let navigationAuthority:
+    readonly [string, number, string, string, string, string] | null = null;
+  let navigationSettled = false;
+  try {
+    result = await engineClient.catalog.admitEcosystemPackageToWorkspace(
+      posting.retainedDefinitionId,
+      posting.realizationId,
+      row.packageId,
+      row.version,
+      admission.ecosystemId,
+      admission.basis,
+      admission.registration,
+    );
+    const sameRealization = () => {
+      const retained = retainedWorkspacePostings.get(
+        posting.retainedDefinitionId);
+      return retainedWorkspaceActivation?.state.activeDefinitionId
+          === posting.retainedDefinitionId
+        && retained?.realizationId === posting.realizationId
+        && retained.publicationOrdinal === posting.publicationOrdinal;
+    };
+    const current = () =>
+      navigationSequence.isCurrent(navigationSeq)
+      && ecosystemPackageDiscovery.ecosystemId === ecosystemId
+      && sameRealization();
+    if (!current()) {
+      if (result.posting !== null) {
+        if (result.navigation !== null) {
+          navigationAuthority = managedNavigationAuthority(
+            result.posting,
+            result.navigation,
+          );
+          await recordManagedNavigationPosting(
+            result.navigation,
+            navigationAuthority,
+          );
+          const acknowledged = await engineClient.catalog
+            .acknowledgeRetainedWorkspaceNavigation(...navigationAuthority);
+          if (acknowledged !== "accepted") {
+            throw new Error(
+              `Managed Navigation acknowledgement returned '${acknowledged}'.`,
+            );
+          }
+          navigationSettled = true;
+        } else if (!sameRealization()) {
+          return;
+        }
+        if (!sameRealization()) return;
+        activeRetainedWorkspacePosting = result.posting;
+        retainedWorkspacePostings.set(
+          result.posting.retainedDefinitionId,
+          result.posting,
+        );
+        if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+          retainedWorkspacePresentation =
+            createNavigationDescriptorPresentation(result.posting);
+          ecosystemPackageDiscovery.packageAddStates.set(
+            key,
+            result.status === "admitted" || result.status === "noEffect"
+              ? { status: "added" }
+              : {
+                  status: "failed",
+                  message: result.message ?? "Package admission failed.",
+                },
+          );
+          render({ synchronizeUrl: false });
+        }
+      } else if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+        ecosystemPackageDiscovery.packageAddStates.set(key, {
+          status: "failed",
+          message: result.status === "superseded"
+            ? "The active Workspace changed before Package admission."
+            : result.message ?? "Package admission failed.",
+        });
+        render({ synchronizeUrl: false });
+      }
+      return;
+    }
+    if (result.status === "superseded") {
+      ecosystemPackageDiscovery.packageAddStates.set(key, {
+        status: "failed",
+        message: "The active Workspace changed before Package admission.",
+      });
+      render({ synchronizeUrl: false });
+      return;
+    }
+    if (result.posting === null) {
+      if (result.status === "failed") {
+        ecosystemPackageDiscovery.packageAddStates.set(key, {
+          status: "failed",
+          message: result.message ?? "Package admission failed.",
+        });
+        render({ synchronizeUrl: false });
+        return;
+      }
+      throw new Error(
+        `Ecosystem Package admission '${result.status}' omitted its posting.`,
+      );
+    }
+
+    if (result.navigation !== null) {
+      navigationAuthority = managedNavigationAuthority(
+        result.posting,
+        result.navigation,
+      );
+      await recordManagedNavigationPosting(
+        result.navigation,
+        navigationAuthority,
+      );
+    }
+
+    if (!current()) {
+      if (navigationAuthority !== null) {
+        const acknowledged = await engineClient.catalog
+          .acknowledgeRetainedWorkspaceNavigation(...navigationAuthority);
+        if (acknowledged !== "accepted") {
+          throw new Error(
+            `Managed Navigation acknowledgement returned '${acknowledged}'.`,
+          );
+        }
+        navigationSettled = true;
+      } else if (!sameRealization()) {
+        return;
+      }
+      if (!sameRealization()) return;
+      activeRetainedWorkspacePosting = result.posting;
+      retainedWorkspacePostings.set(
+        result.posting.retainedDefinitionId,
+        result.posting,
+      );
+      if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+        retainedWorkspacePresentation =
+          createNavigationDescriptorPresentation(result.posting);
+        ecosystemPackageDiscovery.packageAddStates.set(
+          key,
+          result.status === "admitted" || result.status === "noEffect"
+            ? { status: "added" }
+            : {
+                status: "failed",
+                message: result.message ?? "Package admission failed.",
+              },
+        );
+        render({ synchronizeUrl: false });
+      }
+      return;
+    }
+
+    const authorityToAcknowledge = navigationAuthority;
+    const settlement = await commitManagedSpotlightSelection({
+      isCurrent: current,
+      commit: () => {
+        activeRetainedWorkspacePosting = result!.posting;
+        retainedWorkspacePostings.set(
+          result!.posting!.retainedDefinitionId,
+          result!.posting!,
+        );
+        retainedWorkspacePresentation =
+          createNavigationDescriptorPresentation(result!.posting!);
+        ecosystemPackageDiscovery.packageAddStates.set(
+          key,
+          result!.status === "admitted" || result!.status === "noEffect"
+            ? { status: "added" }
+            : {
+                status: "failed",
+                message: result!.message ?? "Package admission failed.",
+              },
+        );
+        render({ synchronizeUrl: false });
+      },
+      ...(authorityToAcknowledge === null
+        ? {}
+        : {
+            acknowledge: () =>
+              engineClient.catalog
+                .acknowledgeRetainedWorkspaceNavigation(
+                  ...authorityToAcknowledge,
+                ),
+          }),
+    });
+    navigationSettled = settlement.acknowledged;
+    if (!settlement.committed || !settlement.current) return;
+  } catch (error) {
+    if (navigationAuthority !== null && !navigationSettled) {
+      const abandoned = await engineClient.catalog
+        .abandonRetainedWorkspaceNavigation(...navigationAuthority);
+      if (abandoned !== "accepted" && abandoned !== "invalidAuthority") {
+        throw new AggregateError(
+          [error, new Error(
+            `Managed Navigation abandonment returned '${abandoned}'.`,
+          )],
+          "Ecosystem Package admission and Navigation abandonment failed.",
+          { cause: error },
+        );
+      }
+    }
+    if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+      ecosystemPackageDiscovery.packageAddStates.set(key, {
+        status: "failed",
+        message: errorMessage(error) || "Package admission failed.",
+      });
+      render({ synchronizeUrl: false });
+    }
+  } finally {
+    if (ecosystemPackageAdmissionInFlight === inFlightAdmission) {
+      ecosystemPackageAdmissionInFlight = null;
+      if (ecosystemPackageDiscovery.ecosystemId !== null) {
+        render({ synchronizeUrl: false });
+      }
+    }
+  }
 }
 
 function renderRetainedEcosystemView(
@@ -9437,7 +9696,26 @@ function renderRetainedEcosystemView(
               </div>
             </header>
             ${renderEcosystemPackageDiscovery(
-              ecosystemPackageDiscovery,
+              {
+                ...ecosystemPackageDiscovery,
+                admissionPending:
+                  ecosystemPackageAdmissionInFlight !== null,
+                pendingAdmissionKey:
+                  ecosystemPackageAdmissionInFlight?.ecosystemId
+                    === ecosystemPackageDiscovery.ecosystemId
+                  && retainedWorkspaceActivation?.state.activeDefinitionId
+                    === ecosystemPackageAdmissionInFlight.retainedDefinitionId
+                  && retainedWorkspacePostings.get(
+                    ecosystemPackageAdmissionInFlight.retainedDefinitionId)
+                    ?.realizationId
+                    === ecosystemPackageAdmissionInFlight.realizationId
+                  && retainedWorkspacePostings.get(
+                    ecosystemPackageAdmissionInFlight.retainedDefinitionId)
+                    ?.publicationOrdinal
+                    === ecosystemPackageAdmissionInFlight.publicationOrdinal
+                    ? ecosystemPackageAdmissionInFlight.key
+                    : null,
+              },
               escapeHtml)}
           </article>
         </section>
@@ -9472,6 +9750,11 @@ function renderRetainedEcosystemView(
           undefined,
           "ecosystem"),
         "Opening an Ecosystem package");
+    },
+    onPackageAdd: (packageId, version) => {
+      observeAsync(
+        addEcosystemPackageToWorkspace(packageId, version),
+        "Adding an Ecosystem package to the Workspace");
     },
   });
 }
@@ -15751,6 +16034,13 @@ async function recordManagedSpotlightNavigation(
       ?? `Managed Navigation returned '${navigation.outcome.kind}'.`,
     );
   }
+  await recordManagedNavigationPosting(navigation, args);
+}
+
+async function recordManagedNavigationPosting(
+  _navigation: BrowserRetainedNavigationResult,
+  args: readonly [string, number, string, string, string, string],
+): Promise<void> {
   if (!await engineClient.catalog
       .validateRetainedWorkspaceNavigationAuthority(...args)) {
     throw new Error(
@@ -15767,6 +16057,13 @@ async function recordManagedSpotlightNavigation(
 }
 
 function managedSpotlightNavigationAuthority(
+  posting: BrowserRetainedWorkspacePosting,
+  navigation: BrowserRetainedNavigationResult,
+): readonly [string, number, string, string, string, string] {
+  return managedNavigationAuthority(posting, navigation);
+}
+
+function managedNavigationAuthority(
   posting: BrowserRetainedWorkspacePosting,
   navigation: BrowserRetainedNavigationResult,
 ): readonly [string, number, string, string, string, string] {
@@ -15796,9 +16093,16 @@ async function abandonManagedSpotlightNavigation(
     || activation.navigation === null) {
     return;
   }
+  await abandonManagedNavigation(posting, activation.navigation);
+}
+
+async function abandonManagedNavigation(
+  posting: BrowserRetainedWorkspacePosting,
+  navigation: BrowserRetainedNavigationResult,
+): Promise<void> {
   const abandoned = await engineClient.catalog
     .abandonRetainedWorkspaceNavigation(
-      ...managedSpotlightNavigationAuthority(posting, activation.navigation),
+      ...managedNavigationAuthority(posting, navigation),
     );
   if (abandoned !== "accepted" && abandoned !== "invalidAuthority") {
     throw new Error(

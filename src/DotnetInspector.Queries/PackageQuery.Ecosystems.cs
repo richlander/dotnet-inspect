@@ -14,6 +14,31 @@ public enum PackageQueryEcosystemMembershipBasis
 }
 
 /// <summary>
+/// Exact resource-free evidence that admitted one Package Query row through
+/// one canonical Ecosystem population declaration.
+/// </summary>
+public sealed record PackageQueryEcosystemAdmission
+{
+    public PackageQueryEcosystemAdmission(
+        WorkspaceEcosystemRegistrationId ecosystem,
+        PackageQueryEcosystemMembershipBasis basis,
+        string registration)
+    {
+        ArgumentNullException.ThrowIfNull(ecosystem);
+        ArgumentException.ThrowIfNullOrWhiteSpace(registration);
+        Ecosystem = ecosystem;
+        Basis = basis;
+        Registration = registration;
+    }
+
+    public WorkspaceEcosystemRegistrationId Ecosystem { get; }
+
+    public PackageQueryEcosystemMembershipBasis Basis { get; }
+
+    public string Registration { get; }
+}
+
+/// <summary>
 /// Resource-free package-population membership for one canonical ecosystem.
 /// </summary>
 public sealed class PackageQueryEcosystemMembershipDeclaration
