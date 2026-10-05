@@ -86,6 +86,7 @@ public partial class CommandExecutionTests
                     line => line.Contains(
                         "Microsoft.Extensions.AI",
                         StringComparison.Ordinal)));
+            Assert.Contains("Candidate", output, StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "ThirdParty.Client",
                 output,
@@ -152,11 +153,11 @@ public partial class CommandExecutionTests
                     "ecosystem_dependencies");
             JsonElement headDependency =
                 Assert.Single(
-                    headRecognition.GetProperty("dependencies")
+                    headRecognition.GetProperty("candidates")
                         .EnumerateArray());
             JsonElement tailDependency =
                 Assert.Single(
-                    tailRecognition.GetProperty("dependencies")
+                    tailRecognition.GetProperty("candidates")
                         .EnumerateArray());
             Assert.Equal(
                 "Microsoft.Extensions",
@@ -168,8 +169,67 @@ public partial class CommandExecutionTests
                 "Microsoft.Extensions.AI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
                 tailDependency.GetProperty("dependency").GetString());
             Assert.Equal(
-                2,
+                "Candidate",
+                tailDependency.GetProperty("recognition").GetString());
+            Assert.Equal(
+                0,
                 tailRecognition.GetProperty("ecosystems").GetArrayLength());
+            Assert.Equal(
+                2,
+                tailRecognition.GetProperty("candidate_ecosystems")
+                    .GetArrayLength());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryEcosystemDependencies_ExposeCatalogBackedEvidence()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"library-ecosystem-evidence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string path = Path.Combine(tempDir, "Sample.Library.dll");
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                path,
+                "Sample.Library",
+                "Microsoft.Extensions.Options");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "-S",
+                SectionNames.EcosystemDependencies,
+                "--json");
+
+            Assert.True(
+                exit == 0,
+                $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
+            Assert.Empty(error);
+            using JsonDocument result = JsonDocument.Parse(output);
+            JsonElement recognition = result.RootElement.GetProperty(
+                "ecosystem_dependencies");
+            JsonElement dependency = Assert.Single(
+                recognition.GetProperty("dependencies").EnumerateArray());
+            Assert.Equal(
+                "Catalog-backed",
+                dependency.GetProperty("recognition").GetString());
+            Assert.Equal(
+                "Microsoft.Extensions.Options@10.0.0/"
+                    + "lib/net10.0/Microsoft.Extensions.Options.dll",
+                dependency.GetProperty("assembly_evidence").GetString());
+            Assert.Empty(
+                recognition.GetProperty("candidates").EnumerateArray());
+            Assert.Equal(
+                ["Microsoft.Extensions"],
+                recognition.GetProperty("ecosystems")
+                    .EnumerateArray()
+                    .Select(static item => item.GetString()));
         }
         finally
         {
@@ -333,8 +393,17 @@ public partial class CommandExecutionTests
                 .Select(static ecosystem => ecosystem.GetString()!)
                 .ToArray();
             Assert.Contains("Microsoft.Extensions", ecosystems);
-            Assert.Contains("Aspire", ecosystems);
             Assert.DoesNotContain("Azure", ecosystems);
+            string[] candidates = inspections
+                .SelectMany(inspection =>
+                    inspection.GetProperty("ecosystem_dependencies")
+                        .GetProperty("candidate_ecosystems")
+                        .EnumerateArray())
+                .Select(static ecosystem => ecosystem.GetString()!)
+                .ToArray();
+            Assert.Contains("Aspire", candidates);
+            Assert.DoesNotContain("Aspire", ecosystems);
+            Assert.DoesNotContain("Azure", candidates);
         }
         finally
         {

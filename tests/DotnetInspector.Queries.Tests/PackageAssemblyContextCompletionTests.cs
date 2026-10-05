@@ -141,6 +141,7 @@ public sealed class PackageAssemblyContextCompletionTests
             projection.SurfaceRole;
         PackageAssemblyRoleParticipant participant =
             Assert.Single(role.Participants);
+        Assert.NotNull(role.IntrinsicCoreLibraryIneligibility);
         PackageIntrinsicCoreLibraryIneligibilityReceipt receipt =
             role.IntrinsicCoreLibraryIneligibility;
         PackageIntrinsicCoreLibraryParticipantEvidence evidence =

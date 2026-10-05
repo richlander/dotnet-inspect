@@ -36,7 +36,7 @@ public class JoinTypeConflictTests : IDisposable
         // br.s to the final 'return;' — the return is a branch target's only
         // statement, so trimming it would strand the label as invalid C#.
         var function = BuildSynthetic([0x2B, 0x00, 0x2A]);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.Contains("IL_0002:\nreturn;", output);
     }
@@ -85,7 +85,7 @@ public class JoinTypeConflictTests : IDisposable
         Assert.DoesNotContain(stores, s => s is { Slot: 0, Value.ResultType.Name: "Int64" });
 
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("int S_0 = 1;", output);
         Assert.Contains("long S_1;", output);
         Assert.DoesNotContain("S_0 = 2L;", output);

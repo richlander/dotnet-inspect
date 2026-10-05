@@ -63,7 +63,7 @@ type PackageOperationName =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackageDependencies"
-  | "queryPackagePruning"
+  | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion";
@@ -1199,13 +1199,13 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
     ),
-    queryPackagePruning: valueOperation(
-      "ordinary-package-query-pruning",
-      4,
+    queryPackageVulnerabilities: valueOperation(
+      "ordinary-package-query-vulnerabilities",
+      2,
       (
         facades,
-        ...args: Parameters<PackageFacade["queryPackagePruning"]>
-      ) => facades.package.queryPackagePruning(...args),
+        ...args: Parameters<PackageFacade["queryPackageVulnerabilities"]>
+      ) => facades.package.queryPackageVulnerabilities(...args),
     ),
     queryPackageVersions: valueOperation(
       "ordinary-package-query-versions",
@@ -2300,8 +2300,8 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
       ),
-      queryPackagePruning: bind(
-        engineWorkerOrdinaryOperations.package.queryPackagePruning,
+      queryPackageVulnerabilities: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageVulnerabilities,
       ),
       queryPackageVersions: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVersions,

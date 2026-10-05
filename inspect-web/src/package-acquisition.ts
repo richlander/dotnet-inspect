@@ -218,6 +218,7 @@ export function aggregateKnownPackageLibraryCount(
 
 export function createNuGetPackageSummaryModel(
   packageChildren: BrowserPackageChildrenInspection,
+  documents: readonly InspectedPackageDocument[],
   versionSettlement?: BrowserPackageVersionSettlementInspection,
   packageInfo?: BrowserPackageInfoMeasurementInspection,
 ): AppPackage {
@@ -253,7 +254,7 @@ export function createNuGetPackageSummaryModel(
     accessibility: [],
     totalTypes: hasNoManagedLibraries ? 0 : null,
     totalMembers: hasNoManagedLibraries ? 0 : null,
-    documents: [],
+    documents: [...documents],
     icon: null,
     inspectionErrors: inspectionError ? [inspectionError] : [],
     ...(inspectionError ? { inspectionError } : {}),
@@ -1122,6 +1123,7 @@ export function createPackageAcquisition(
         BrowserPackageInfoMeasurementInspection | undefined;
       let packageChildren:
         BrowserPackageChildrenInspection | undefined;
+      let documents: readonly InspectedPackageDocument[] = [];
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
@@ -1129,6 +1131,7 @@ export function createPackageAcquisition(
         const rootLoad =
           await dependencies.queryPackageRoot(request.rootRequest);
         packageChildren = rootLoad.packageChildren;
+        documents = rootLoad.documents;
       } else {
         const loadResult = await dependencies.queryPackageSummary(
           request.packageId,
@@ -1154,6 +1157,7 @@ export function createPackageAcquisition(
             "A settled package surface must carry Package children.");
         }
         packageChildren = loadResult.packageChildren;
+        documents = loadResult.documents;
         result = loadResult.surface ?? undefined;
       }
       if (request.isCurrent && !request.isCurrent()) return null;
@@ -1176,6 +1180,7 @@ export function createPackageAcquisition(
       } else if (packageChildren) {
         packageModel = createNuGetPackageSummaryModel(
           packageChildren,
+          documents,
           versionSettlement,
           packageInfo);
       } else {

@@ -4,6 +4,33 @@ namespace DotnetInspector.PlatformHouse.Tests;
 
 public sealed class PlatformTargetSelectorTests
 {
+    [Fact]
+    public async Task SelectionOnlyReturnsExactSelectedTarget()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package");
+        PlatformHouseRequest request = Request(
+            [installed],
+            [package]);
+        PlatformFamilyTarget expected =
+            Target("net11.0", "11.0.0-rc.1");
+
+        PlatformTargetSelectionOutcome outcome =
+            await PlatformHouseTargetSelector.SelectAsync(
+                request,
+                [
+                    Success(installed, expected),
+                    Success(package, Target("net10.0", "10.0.12")),
+                ]);
+
+        var selected =
+            Assert.IsType<PlatformTargetSelectionOutcome.Selected>(outcome);
+        Assert.Equal(expected, selected.Target);
+        Assert.Equal(1, selected.ConsumedWork.SourceOperations);
+    }
+
     [Theory]
     [InlineData("10.0.1", "net10.0")]
     [InlineData("11.0.0-rc.1", "net11.0")]

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Checks and times family-role row selection through LINQ, pinned NLinq, and
+    the shipping QuerySpace path. Publish NativeAOT to time:
+      dotnet publish tools/LibraryFamilyRoleScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
+    Check or time exact assembly assets:
+      dotnet run [project option] tools/LibraryFamilyRoleScorecard
+        [configuration option] Release [argument separator]
+        check <assembly>...
+      Use the time command with rounds 7 for measurement.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>library-family-role-scorecard</AssemblyName>
+    <RootNamespace>LibraryFamilyRoleScorecard</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tests\DotnetInspector.Queries.PerformanceOracles\DotnetInspector.Queries.PerformanceOracles.csproj" />
+  </ItemGroup>
+
+</Project>

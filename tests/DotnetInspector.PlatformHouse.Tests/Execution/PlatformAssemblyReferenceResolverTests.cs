@@ -2436,11 +2436,21 @@ public sealed class PlatformAssemblyReferenceResolverTests
             [
                 new PackageDependencyTraversalReachability(
                     ImmutableDictionary<int, int>.Empty,
-                    ImmutableDictionary<int, int>.Empty,
+                    ImmutableDictionary<int, int>.Empty.Add(0, 0),
                     ImmutableDictionary<int, int>.Empty),
             ],
             [],
-            [],
+            [
+                new PackageDependencyTraversalProjection(
+                    NodeIndex: 0,
+                    PackageDependencyTraversalProjectionKind.RootSupplied,
+                    PackageDependencyTraversalProjectionExpansion.Expanded,
+                    Evidence: null,
+                    Candidate: null,
+                    RootOccurrenceIndex: 0,
+                    Diagnostics: [],
+                    OutgoingEdgeIndexes: []),
+            ],
             [],
             [],
             [],

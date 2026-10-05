@@ -110,7 +110,7 @@ public class RaisingPassTests
         var function = IrImporter.Import(source, typeName, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function);
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
         Assert.True(result.Succeeded);
         return result.Output!.ReplaceLineEndings("\n").TrimEnd();
     }
@@ -135,7 +135,7 @@ public class RaisingPassTests
         // assignment of a fresh value, never the illegal handler..ctor(...). The
         // type is apparent on the declaration, so the creation renders target-typed.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var result = CSharpPrinter.Print(RunThroughStructConstructor(nameof(CfgSampleClass.InterpolatedStruct), source));
+        var result = DecidedPrint.Print(RunThroughStructConstructor(nameof(CfgSampleClass.InterpolatedStruct), source));
         Assert.True(result.Succeeded);
         string output = result.Output!.ReplaceLineEndings("\n").TrimEnd();
 
@@ -183,7 +183,7 @@ public class RaisingPassTests
         Assert.Equal(0, store.Index);
         var value = Assert.IsType<NewObject>(store.Value);
         Assert.Equal(ctor, value.Constructor);
-        Assert.Equal("Carrier V_0 = new(42);", CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim());
+        Assert.Equal("Carrier V_0 = new(42);", DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n").Trim());
     }
 
     [Fact]
@@ -336,7 +336,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.Contains("bool S_0", output);
         Assert.Contains("flag ? false : other", output);
@@ -383,7 +383,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.Contains("bool S_0", output);
         Assert.Contains("if (S_0)", output);
@@ -431,7 +431,7 @@ public class RaisingPassTests
         var function = new IrFunction("set_DateTimeFormat", owner, signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.Contains("string S_0", output);
         Assert.Contains("_fmt = S_0;", output);
@@ -467,7 +467,7 @@ public class RaisingPassTests
         var function = new IrFunction("set_Maybe", owner, signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.Contains("object S_0", output);
         Assert.DoesNotContain("MaybeStruct S_0 =", output);
@@ -772,7 +772,7 @@ public class RaisingPassTests
         var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
         Assert.True(raised.HasInitializer);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("Consume(stackalloc int[] { 1, 2, 3 });", output);
     }
 
@@ -981,7 +981,7 @@ public class RaisingPassTests
             [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref A();", output);
         Assert.Contains("V_0 = ref B();", output);
         Assert.DoesNotContain("V_0 = A();", output);
@@ -1014,7 +1014,7 @@ public class RaisingPassTests
             [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref A();", output);
         Assert.DoesNotContain("Unsafe.NullRef", output);
         AssertRefLocalBodyCompiles(output);
@@ -1048,7 +1048,7 @@ public class RaisingPassTests
             [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
         Assert.Contains("V_0 = ref A();", output);
         AssertRefLocalBodyCompiles(output);
@@ -1080,7 +1080,7 @@ public class RaisingPassTests
             [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
         Assert.Contains("V_0 = ref A();", output);
         AssertRefLocalBodyCompiles(output);
@@ -1106,7 +1106,7 @@ public class RaisingPassTests
             [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
         Assert.Contains("V_0 = ref A(ref V_0);", output);
         AssertRefLocalBodyCompiles(output);
@@ -1135,7 +1135,7 @@ public class RaisingPassTests
             [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
         AssertRefLocalBodyCompiles(output);
     }
@@ -1164,7 +1164,7 @@ public class RaisingPassTests
             () => new ResidualSlotBindingPass().Run(function, PassContext.None));
         Assert.Contains("managed-reference stack slot 0 reached residual storage binding", ex.Message);
 
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
         Assert.False(result.Succeeded);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Equal(DiagnosticIds.InternalError, diagnostic.Id);
@@ -1195,7 +1195,7 @@ public class RaisingPassTests
             HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref (flag ? ref a : ref b);", output);
     }
 
@@ -1227,7 +1227,7 @@ public class RaisingPassTests
             HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("(c ? p : q) ? ref a : ref b", output);
     }
 
@@ -1259,7 +1259,7 @@ public class RaisingPassTests
             HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("when (c ? b1 : b2) =>", output);
     }
 
@@ -1280,7 +1280,7 @@ public class RaisingPassTests
             [new Parameter("w", unknownType)], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.DoesNotContain("!= null", output);
         Assert.Contains("if (w) goto IL_0004;", output);
     }
@@ -1301,7 +1301,7 @@ public class RaisingPassTests
             [new Parameter("s", stringType)], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        Assert.Contains("if (s is not null) goto IL_0004;", CSharpPrinter.Print(function).Output!);
+        Assert.Contains("if (s is not null) goto IL_0004;", DecidedPrint.Print(function).Output!);
     }
 
     [Fact]
@@ -1320,7 +1320,7 @@ public class RaisingPassTests
             [new Parameter("a", doubleType), new Parameter("b", doubleType)], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        Assert.Equal("return !(a < b);", CSharpPrinter.Print(function).Output!.Trim());
+        Assert.Equal("return !(a < b);", DecidedPrint.Print(function).Output!.Trim());
     }
 
     [Fact]
@@ -1574,7 +1574,7 @@ public class RaisingPassTests
         IrPasses.Run(function);
 
         Assert.Equal(2, function.Descendants.OfType<DoWhileLoop>().Count());
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain("IL_", output);
         function.CheckInvariant();
@@ -2116,7 +2116,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("V_0 = default;", output);
     }
@@ -2143,7 +2143,7 @@ public class RaisingPassTests
             GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("int V_0 = default;", output);
         Assert.Contains("null => V_0", output);
@@ -2175,7 +2175,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "Owner"), signature, [], container);
 
         IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(_ => null));
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("Helper()", output);
         Assert.Contains("__Outer_g__Helper_0_0()", output);
@@ -2204,7 +2204,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("x++;", output);
         Assert.DoesNotContain("*", output);
@@ -2244,7 +2244,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("if (a < 0 || b < 0 || a > b)", output);
         Assert.DoesNotContain("goto", output);
@@ -2288,7 +2288,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         // The prologue survives, the chain folds into one || guard, no goto left.
         Assert.Contains("= a + b", output);
@@ -2341,7 +2341,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("if (b <= 0 || c <= 0)", output);
         Assert.Contains("V_0 = 2;", output);
@@ -2435,7 +2435,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType, intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Equal("""
             int V_0;
@@ -2491,7 +2491,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType, intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("goto", output);
         Assert.Contains("IL_0018", output);
@@ -2535,7 +2535,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Equal("""
             if (!(a < 0 || b < 0))
@@ -2567,7 +2567,7 @@ public class RaisingPassTests
         Assert.NotNull(function);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain(function.Descendants.OfType<ConditionalBranch>(), _ => true);
@@ -2613,7 +2613,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         // The prologue forbids the fold: no combined || guard, and the always-correct
         // flat goto form survives.
@@ -2654,7 +2654,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("a < 0 || b < 0", output);
     }
@@ -2674,7 +2674,7 @@ public class RaisingPassTests
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.SlotDiamondDispatch));
         Assert.NotNull(function);
         IrPasses.Run(function!);
-        string output = CSharpPrinter.Print(function!).Output!;
+        string output = DecidedPrint.Print(function!).Output!;
 
         Assert.DoesNotContain("goto", output);
         Assert.Contains("return y >= 16 && y <= 31;", output);   // a folded diamond arm survives as a short-circuit terminator
@@ -2812,7 +2812,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("goto", output);
         Assert.Contains("if (a < 0)", output);
@@ -2845,7 +2845,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("goto", output);
         Assert.Contains("if (a <= 0)", output);
@@ -2876,7 +2876,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("== 0", output);   // no `bool == int` (CS0019)
     }
@@ -2903,7 +2903,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("== 0", output);   // no `bool == int` (CS0019)
     }
@@ -2942,7 +2942,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Equal("""
             if (a < 0)
@@ -2997,7 +2997,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Equal("""
             if (a < 0)
@@ -3071,7 +3071,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("switch (x)", output);
         Assert.Contains("case 0:", output);
@@ -3109,7 +3109,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("switch (x)", output);
         Assert.Contains("case 1:", output);
@@ -3154,7 +3154,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("switch (x)", output);
         Assert.Contains("case 0:", output);
@@ -3194,7 +3194,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("switch (x)", output);
         Assert.Contains("case 0:", output);
@@ -3238,7 +3238,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("switch (x)", output);
         Assert.Contains("case 0:", output);
@@ -3289,7 +3289,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
 
         IrPasses.Run(function);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("switch", output);
         Assert.Contains("0 or 1 or 4 => true", output);
@@ -3358,7 +3358,7 @@ public class RaisingPassTests
             var function = IrImporter.Import(source, type, method);
             Assert.NotNull(function);
             IrPasses.Run(function);  // CheckInvariant runs after every pass in debug
-            Assert.True(CSharpPrinter.Print(function).Succeeded);
+            Assert.True(DecidedPrint.Print(function).Succeeded);
         }
     }
 }

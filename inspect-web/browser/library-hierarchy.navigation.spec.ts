@@ -462,11 +462,19 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.getByRole("heading", { level: 1 })).toHaveText("Example.Package");
     expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
     await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
-    await expect(overview.locator("#package-version")).toBeVisible();
+    await expect(overview.locator("#package-version")).toHaveCount(0);
+    await expect(page.locator(".package-framework-nav #package-version"))
+      .toHaveCount(1);
+    if (width === 390) {
+      await expect(page.locator(".package-framework-nav #package-version"))
+        .toBeHidden();
+    } else {
+      await expect(page.locator(".package-framework-nav #package-version"))
+        .toBeVisible();
+    }
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
-    await expect(page.locator(".overview-surface-head p"))
-      .toHaveText("Type Count unavailable · Member Count unavailable");
+    await expect(overview.locator(".overview-surface-head")).toHaveCount(0);
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "Example.Package@1.0.0", "net10.0",
     ]);

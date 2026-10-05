@@ -102,7 +102,7 @@ public class SlotMaterializationPassTests
 
         Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == slot);
         Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == slot);
-        Assert.Contains("bool S_", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant();
     }
@@ -172,7 +172,7 @@ public class SlotMaterializationPassTests
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(4, function.Locals.Length);
@@ -217,7 +217,7 @@ public class SlotMaterializationPassTests
         new SlotMaterializationPass().Run(function, PassContext.None);
         new CoercionInsertionPass().Run(function, PassContext.None);
 
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Contains("bool S_0", output);
@@ -396,7 +396,7 @@ public class SlotMaterializationPassTests
         var conditional = Assert.IsType<Conditional>(materialized.Value);
         Assert.Equal(Boolean, conditional.ResultType);
         Assert.Equal(Int32, materialized.Type);
-        Assert.Contains("? 1 : 0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("? 1 : 0", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant();
     }
@@ -440,7 +440,7 @@ public class SlotMaterializationPassTests
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(Boolean, Assert.Single(function.Locals));
-        Assert.Contains("bool S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 
@@ -470,7 +470,7 @@ public class SlotMaterializationPassTests
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(2, function.Locals.Length);
-        Assert.Contains("bool S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 
@@ -612,7 +612,7 @@ public class SlotMaterializationPassTests
         Assert.Equal(Int32, decision.Type);
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Equal(Int32, Assert.Single(function.Locals));
-        Assert.Contains("S_0 != 0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("S_0 != 0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 

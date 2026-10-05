@@ -79,13 +79,20 @@ Metadata-owned identity and API-surface values. It therefore keeps the broad
 semantic analyzer input until focused #8779 successors retire those low-level
 edges; the positive rules prevent either graph from expanding meanwhile.
 
+The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-ratchet`
+rules preserve the Catalog facade's evaluated-project and compiled-assembly
+boundaries. Home-demo call graphs use Web Core's shared lowering of the
+host-neutral call-graph projection, so neither graph admits
+`ILInspector.Analysis`.
+
 Web Core and the capability facades other than CallGraph still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
-boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both evaluated
-analyzer inputs and resolves every complete banned documentation ID, including
-generic arity and parameter types, so a renamed or malformed entry cannot
-silently become vacuous. The broad list continues to ban opening or minting a
-retained descriptor and invoking low-level inspection APIs in those projects.
+boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both
+evaluated analyzer inputs and resolves every complete banned documentation ID,
+including generic arity and parameter types, so a renamed or malformed entry
+cannot silently become vacuous. The broad list continues to ban opening or
+minting a retained descriptor and invoking low-level inspection APIs in those
+projects.
 Descriptors may carry typed identity into a product operation, but package
 selection, identity decoding, descriptor creation, and image content remain
 product-owned. A selected malformed entry receives an artifact-neutral,
@@ -994,24 +1001,19 @@ the browser does not open another assembly session. Package Dependencies shows
 only NuGet dependency groups; Library References shows only the selected
 Library's assembly references.
 
-`QueryPackagePruning` is a separate explicit operation on Package Dependencies.
-It evaluates only the normalized active group against one exact platform target
-and selected runtime or ASP.NET Core supply family. JavaScript transports the
-validated platform-index inventory; managed candidate resolution and
-`PackageHouseDependencyPruningQuery` own version selection and policy. Opening
-Dependencies does not start candidate discovery. Selecting **Evaluate** may
-query nuget.org for non-exact ranges, but it does not acquire dependency
-payloads, mutate the dependency graph, or load PlatformHouse content. Each
-explicit evaluation starts a new request after the prior request settles, and
-the result keeps the evaluated normalized group plus the exact platform
-framework, family, and version visible.
+`QueryPackageVulnerabilities` is a separate operation used by the Package
+Vulnerabilities lens for exact nuget.org package coordinates. It delegates
+advisory acquisition and range evaluation to `GitHubNuGetAdvisoryService`, then
+projects the current matching reviewed advisories, observation time, and typed
+availability and failure states into the Browser contract. Opening the lens
+starts this explicit network work; the result is cached for the active package
+coordinate.
 
-The result keeps the selected candidate and platform-supplied version in
-separate fields. `PlatformDelegation` means the platform supplies that candidate
-or a newer version; an older supplied version leaves the candidate retained.
-Candidate failure and non-evaluation remain visible rows, and operation-level
-inventory or manifest failures remain visible failures rather than
-success-shaped empty results.
+A complete result with no matches states only that no GitHub-reviewed NuGet
+advisory matched that exact package version. Partial and unavailable results
+retain their failures and never become a safe or secure conclusion. Advisory
+identity, severity, dates, and GitHub destination remain separate fields in the
+rendered result.
 
 For open-package navigation, JavaScript supplies the loaded coordinates and
 their typed package-versus-platform provenance to
