@@ -35,11 +35,42 @@ async function openIntegrations(page: Page, location = root) {
     .toHaveAttribute("aria-selected", "true");
 }
 
+test("Analysis opens on Relationships as its first tab", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+
+  const tabs = page.getByRole("tablist", { name: "Analysis views" })
+    .getByRole("tab");
+  await expect(tabs).toHaveText([
+    "Relationships",
+    "Complexity",
+    "Performance",
+    "Integrations",
+    "Opportunities",
+  ]);
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-analysis-mode="relationships"]'))
+    .toHaveAttribute("aria-selected", "true");
+});
+
 async function openOpportunities(page: Page, location = root) {
   await openIntegrations(page, location);
   await page.locator('[data-analysis-mode="opportunities"]').click();
   await expect(page.locator('[data-analysis-mode="opportunities"]'))
     .toHaveAttribute("aria-selected", "true");
+}
+
+async function selectPerformanceAnalysis(page: Page) {
+  const performance = page.locator('[data-analysis-mode="performance"]');
+  await performance.click();
+  await expect(performance).toHaveAttribute("aria-selected", "true");
 }
 
 async function expectCompactAnalysisHeader(page: Page) {
@@ -48,8 +79,8 @@ async function expectCompactAnalysisHeader(page: Page) {
   const tabs = header.getByRole("tablist", { name: "Analysis views" });
   await expect(tabs).toBeVisible();
   for (const name of [
-    "Complexity",
     "Relationships",
+    "Complexity",
     "Performance",
     "Integrations",
     "Opportunities",
@@ -159,6 +190,7 @@ async function openAnalysis(page: Page, location = root) {
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
+  await selectPerformanceAnalysis(page);
 }
 
 for (const width of [1440, 390]) {
@@ -256,6 +288,7 @@ for (const width of [1440, 390]) {
     await openPlatform(page, { mismatchedFile: true });
     await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
     await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+    await selectPerformanceAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
     await expect(frame.locator(".perf-row")).toHaveCount(2);
     const picker = frame.locator(".library-analysis-controls select");
@@ -310,6 +343,7 @@ test("ranked Analysis members replace sticky private Type population intent", as
 
   await chooseSubject(page, "library", "Library");
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await selectPerformanceAnalysis(page);
   await page.locator(".library-analysis-surface .perf-row").first().click();
 
   await expect(subjectTab(page, "member"))
@@ -387,6 +421,7 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
+  await selectPerformanceAnalysis(page);
 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
@@ -536,6 +571,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await selectPerformanceAnalysis(page);
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator(".library-analysis-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-analysis-surface")).not.toContainText(core.name);
