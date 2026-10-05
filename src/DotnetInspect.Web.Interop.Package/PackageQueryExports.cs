@@ -803,6 +803,13 @@ namespace DotnetInspect.Web.Interop.Package
                         Manifest = match.Value.Package.Manifest is { } manifest
                             ? Project(manifest)
                             : null,
+                        EcosystemAdmission =
+                            match.Value.EcosystemAdmission is { } admission
+                                ? new(
+                                    admission.Ecosystem.Value,
+                                    admission.Basis.ToString(),
+                                    admission.Registration)
+                                : null,
                     },
                     Failure: null,
                     Completion: null),

@@ -866,6 +866,12 @@ export interface BrowserPackageQueryDocument {
   readonly libraryLiteralAssessments: ReadonlyArray<BrowserPackageAssemblySemanticCandidateOutcome>;
 }
 
+export interface BrowserPackageQueryEcosystemAdmission {
+  readonly ecosystemId: string;
+  readonly basis: string;
+  readonly registration: string;
+}
+
 export interface BrowserPackageQueryEvent {
   readonly kind: BrowserPackageQueryEventKind;
   readonly row: BrowserPackageQueryRow | null;
@@ -980,6 +986,7 @@ export interface BrowserPackageQueryRow {
   readonly rootRequest: string | null;
   readonly owners: ReadonlyArray<string>;
   readonly manifest: BrowserPackageQueryManifest | null;
+  readonly ecosystemAdmission: BrowserPackageQueryEcosystemAdmission | null;
 }
 
 export interface BrowserPackageQueryTerm {

@@ -137,6 +137,7 @@ type CallGraphOperationName =
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
+  | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
   | "abandonRetainedWorkspaceNavigation"
@@ -1819,6 +1820,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.admitRetainedWorkspacePackage(...args),
     ),
+    admitEcosystemPackageToWorkspace: valueOperation(
+      "ordinary-catalog-admit-ecosystem-package-to-workspace",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["admitEcosystemPackageToWorkspace"]
+        >
+      ) => facades.catalog.admitEcosystemPackageToWorkspace(...args),
+    ),
     admitRetainedWorkspacePlatform: valueOperation(
       "ordinary-catalog-admit-retained-workspace-platform",
       4,
@@ -2493,6 +2504,10 @@ export function bindEngineWorkerOrdinaryClient(
       admitRetainedWorkspacePackage: bind(
         engineWorkerOrdinaryOperations.catalog
           .admitRetainedWorkspacePackage,
+      ),
+      admitEcosystemPackageToWorkspace: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .admitEcosystemPackageToWorkspace,
       ),
       admitRetainedWorkspacePlatform: bind(
         engineWorkerOrdinaryOperations.catalog

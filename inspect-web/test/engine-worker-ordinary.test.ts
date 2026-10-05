@@ -30,6 +30,7 @@ import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
+  BrowserEcosystemPackageWorkspaceAdmissionResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDefinitionState,
   BrowserRetainedWorkspacePackageAdmissionResult,
@@ -246,6 +247,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("abandonRetainedWorkspaceNavigation"),
     acknowledgeRetainedWorkspaceNavigation: () =>
       unexpected("acknowledgeRetainedWorkspaceNavigation"),
+    admitEcosystemPackageToWorkspace: () =>
+      unexpected("admitEcosystemPackageToWorkspace"),
     admitRetainedWorkspacePackage: () =>
       unexpected("admitRetainedWorkspacePackage"),
     admitRetainedWorkspacePlatform: () =>
@@ -959,6 +962,13 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     activationStatus: null,
     reason: null,
   } satisfies BrowserSpotlightActionResult;
+  const ecosystemPackageAdmission = {
+    status: "admitted",
+    posting,
+    navigation: posting.navigation,
+    message: null,
+  } satisfies BrowserEcosystemPackageWorkspaceAdmissionResult;
+  const ecosystemPackageArguments: (readonly unknown[])[] = [];
   const packageArguments: (readonly unknown[])[] = [];
   const platformArguments: (readonly unknown[])[] = [];
   const typeFindArguments: (readonly unknown[])[] = [];
@@ -975,6 +985,10 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       activateSpotlightDestination: async (...args) => {
         spotlightActivationArguments.push(args);
         return spotlightActivation;
+      },
+      admitEcosystemPackageToWorkspace: async (...args) => {
+        ecosystemPackageArguments.push(args);
+        return ecosystemPackageAdmission;
       },
       admitRetainedWorkspacePackage: async (...args) => {
         packageArguments.push(args);
@@ -1033,6 +1047,21 @@ test("retained Catalog transport preserves compact posting and bounded Package a
   await state.environment.flushAsync();
   assert.deepEqual(await packageResult, admittedPackage);
   assert.deepEqual(await supersededResult, supersededPackage);
+  const ecosystemPackageResult =
+    state.client.catalog.admitEcosystemPackageToWorkspace(
+      "definition-exact",
+      "realization-exact",
+      "Aspire.Hosting",
+      "9.0.0",
+      "ecosystem.aspire",
+      "ExactPackage",
+      "Aspire.Hosting",
+    );
+  await state.environment.flushAsync();
+  assert.deepEqual(
+    await ecosystemPackageResult,
+    ecosystemPackageAdmission,
+  );
 
   const platformResult =
     state.client.catalog.admitRetainedWorkspacePlatform(
@@ -1083,6 +1112,15 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     "old-realization",
     "package-navigation",
     0,
+  ]]);
+  assert.deepEqual(ecosystemPackageArguments, [[
+    "definition-exact",
+    "realization-exact",
+    "Aspire.Hosting",
+    "9.0.0",
+    "ecosystem.aspire",
+    "ExactPackage",
+    "Aspire.Hosting",
   ]]);
   assert.deepEqual(platformArguments, [[
     "definition-exact",
@@ -2352,6 +2390,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     catalog: [
       "abandonRetainedWorkspaceNavigation",
       "acknowledgeRetainedWorkspaceNavigation",
+      "admitEcosystemPackageToWorkspace",
       "admitRetainedWorkspacePackage",
       "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
@@ -2391,7 +2430,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 111);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 112);
 
   const state = fixture();
   const groups = [
