@@ -279,4 +279,51 @@ public sealed record PackageDependencyTraversalOutcome(
     public bool IsComplete => Summary.IsComplete;
 
     public bool IsSuccessful => Summary.IsSuccessful;
+
+    /// <summary>
+    /// Reprojects admitted directed edges from one exact reachable package
+    /// projection without adding siblings from its traversal root.
+    /// </summary>
+    public ImmutableDictionary<int, int> ReachableEdgesFromProjection(
+        int rootOccurrenceIndex,
+        int originProjectionIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(rootOccurrenceIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            rootOccurrenceIndex,
+            Roots.Length);
+        if ((uint)originProjectionIndex >= (uint)Projections.Length
+            || !RootReachability[rootOccurrenceIndex]
+                .ProjectionDistances.ContainsKey(originProjectionIndex))
+        {
+            throw new ArgumentException(
+                "The referencing projection must be reachable from the exact traversal root.",
+                nameof(originProjectionIndex));
+        }
+
+        PackageDependencyTraversalReachability reachability =
+            RootReachability[rootOccurrenceIndex];
+        var distances = ImmutableDictionary.CreateBuilder<int, int>();
+        var visited = new HashSet<int> { originProjectionIndex };
+        var pending = new Queue<(int ProjectionIndex, int Distance)>();
+        pending.Enqueue((originProjectionIndex, 0));
+        while (pending.TryDequeue(out var current))
+        {
+            foreach (int edgeIndex
+                in Projections[current.ProjectionIndex].OutgoingEdgeIndexes)
+            {
+                if (!reachability.IsEdgeAdmitted(edgeIndex, out _))
+                    continue;
+                distances.TryAdd(edgeIndex, current.Distance);
+                if (Edges[edgeIndex].Target
+                        is PackageDependencyTraversalEdgeTarget.Node node
+                    && visited.Add(node.ProjectionIndex))
+                {
+                    pending.Enqueue(
+                        (node.ProjectionIndex, current.Distance + 1));
+                }
+            }
+        }
+        return distances.ToImmutable();
+    }
 }

@@ -108,7 +108,7 @@ public class SwitchBranchRenderingTests
 
         var signature = new MethodSignature(Void, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("System", "Sample"), signature, [], container);
-        return CSharpPrinter.Print(function);
+        return DecidedPrint.Print(function);
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public class SwitchBranchRenderingTests
 
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
 
         Assert.Contains("if (__switchValue0 == 0) goto IL_0010;", output);
         Assert.DoesNotContain("goto IL_0014;", output);
@@ -231,7 +231,7 @@ public class SwitchBranchRenderingTests
 
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
 
         Assert.Contains("if (__switchValue0 == 0) goto IL_0010;", output);
         Assert.Contains("while (true)", output);
@@ -277,7 +277,7 @@ public class SwitchBranchRenderingTests
 
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
 
         Assert.Contains("if (__switchValue0 == 0) goto IL_0020;", output);
         Assert.Contains("while (flag)", output);
@@ -320,7 +320,7 @@ public class SwitchBranchRenderingTests
 
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
 
         Assert.Contains("while (flag)", output);
         Assert.DoesNotContain("goto IL_0020;", output);
@@ -369,7 +369,7 @@ public class SwitchBranchRenderingTests
 
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
 
         Assert.Empty(function.Descendants.OfType<WhileLoop>());
         Assert.Contains("goto IL_0024;", output);
@@ -412,7 +412,7 @@ public class SwitchBranchRenderingTests
         new StructuringPass().Run(function, PassContext.None);
         new BooleanFoldingPass().Run(function, PassContext.None);
         function.CheckInvariant();
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
 
         Assert.Contains("if (__switchValue0 == 0) goto IL_0010;", output);
         Assert.Contains("IL_0010:", output);

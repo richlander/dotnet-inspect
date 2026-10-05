@@ -88,6 +88,26 @@ internal static class BrowserCallGraphProjection
 {
     internal static BrowserCallGraphInfo Project(
         BrowserInspectionScope scope,
+        BrowserMemberResolution.Resolved resolution)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(resolution);
+
+        MemberCallGraphView view = scope.UseImplementation(group =>
+        {
+            using var session = new MemberCallGraphSession(
+                group,
+                resolution.ImplementationParticipant.Assembly,
+                resolution.Member.BodyToken);
+            return session.HasCrossLibraryScope
+                ? session.CrossLibrary()
+                : session.Callers();
+        });
+        return Project(scope, view);
+    }
+
+    internal static BrowserCallGraphInfo Project(
+        BrowserInspectionScope scope,
         MemberCallGraphView view)
     {
         ArgumentNullException.ThrowIfNull(scope);

@@ -126,7 +126,7 @@ defined, so a retirement slice can scope itself from the file list:
 | --- | --- |
 | Coercion routing (`CoerceText` and the enum routing family) | `.Numerics`; called from `.Statements`, `.Expressions`, `.Members` |
 | Join target compatibility | Decided pre-print in `Pipeline/PrimitiveJoinTargetCompatibility.cs` (#2095); `.Numerics` keeps only the join-arm spelling |
-| Definite assignment (consumer of `DefiniteAssignment.cs`) | `.Declarations` |
+| Definite assignment | Decided pre-print by `Pipeline/Passes/DefiniteAssignmentPass.cs` over `DefiniteAssignment.cs` (#2095); `.Declarations` spells the issued initializer |
 | Unsafe-context inference | `.UnsafeContext`; `_unsafeDepth` is read and updated from `.Statements` |
 | Cast-need predicates | `.Numerics`, plus `NeedsObjectBridgeForGenericUnbox` in `.Expressions` |
 | `var` inference (`SpellVar`, `VarInfersDeclaredType`) | `.Declarations` |

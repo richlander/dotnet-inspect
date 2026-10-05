@@ -174,7 +174,7 @@ public class ByRefLikeSlotMaterializationTests
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         invariant.Check();
-        Assert.Equal(before, CSharpPrinter.Print(function).Output);
+        Assert.Equal(before, DecidedPrint.Print(function).Output);
         Assert.Same(first, function.Descendants.OfType<StoreLocal>().First().Value);
         Assert.Same(second, function.Descendants.OfType<StoreLocal>().Last().Value);
         function.CheckInvariant(includeSemantics: true);
@@ -214,7 +214,7 @@ public class ByRefLikeSlotMaterializationTests
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        string after = CSharpPrinter.Print(function).Output!;
+        string after = DecidedPrint.Print(function).Output!;
         Assert.Equal(before, after);
         Assert.Contains("Span<int> S_0;", after);
         function.CheckInvariant(includeSemantics: true);
@@ -269,7 +269,7 @@ public class ByRefLikeSlotMaterializationTests
         Assert.True(decision.WillMaterialize, decision.Vetoes.ToString());
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        string after = CSharpPrinter.Print(function).Output!;
+        string after = DecidedPrint.Print(function).Output!;
         Assert.Equal(before, after);
         Assert.Contains("ReadOnlySpan<char> S_256 = (ReadOnlySpan<char>)s;", after);
         Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(),
@@ -301,7 +301,7 @@ public class ByRefLikeSlotMaterializationTests
     {
         var clone = (IrFunction)function.Clone();
         new ResidualSlotBindingPass().Run(clone, PassContext.None);
-        return CSharpPrinter.Print(clone).Output!;
+        return DecidedPrint.Print(clone).Output!;
     }
 
     static void KnowByRefLikeValue(IrFunction function, TypeRef definition)

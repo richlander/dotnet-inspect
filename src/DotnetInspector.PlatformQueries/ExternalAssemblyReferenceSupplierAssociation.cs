@@ -1,6 +1,7 @@
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.PlatformQueries;
@@ -224,7 +225,9 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 ValueTask<
                     PlatformAssemblyReferenceBindingOutcome>>
                 resolvePlatform,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork =
+                null)
     {
         ArgumentNullException.ThrowIfNull(packageRoute);
         ArgumentNullException.ThrowIfNull(
@@ -240,7 +243,8 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                     referencingContextSelection,
                     packageHouse,
                     packageSourceOperation,
-                    cancellationToken)
+                    cancellationToken,
+                    chargeWork)
                 .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         AssemblyBindingRequest request = packageRoute.Request;
