@@ -113,22 +113,6 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
                 Assert.IsAssignableFrom<
                     IPortablePdbSettlementCapability>(
                     context.PortablePdbSettlementCapability);
-            PortablePdbPackageBindingResult packageBinding =
-                await PortablePdbPackageComposition
-                    .PrepareForAssemblyAsync(
-                        participant.Assembly,
-                        BrowserPackageContentSource.Instance,
-                        TestContext.Current.CancellationToken);
-            var boundPackage =
-                Assert.IsType<
-                PortablePdbPackageBindingResult.Bound>(
-                    packageBinding);
-            Assert.Equal(
-                $"lib/{Framework}/{Assembly}",
-                (boundPackage.Value.Candidate.Row.ImplementationEntry
-                    ?? boundPackage.Value.Candidate.Row.CompileEntry)
-                    .Path);
-
             using (SourceLinkService first =
                 SourceLinkService.OpenEmbeddedPdbOnly(
                     participant.Assembly))
@@ -151,6 +135,13 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
                     PortablePdbPositiveStoreDisposition.Published,
                     packageLocal.PositiveStore);
                 Assert.False(packageLocal.NetworkOccurred);
+                Assert.Equal(
+                    $"lib/{Framework}/{Assembly}",
+                    (packageLocal.PackageLibraryRow!
+                            .ImplementationEntry
+                        ?? packageLocal.PackageLibraryRow
+                            .CompileEntry)
+                        .Path);
             }
 
             InspectionEnvelope<AssemblyTypeSourceEntry>
@@ -1607,21 +1598,4 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         }
     }
 
-    sealed class BrowserPackageContentSource :
-        IPortablePdbPackageContentSource
-    {
-        internal static BrowserPackageContentSource Instance
-        {
-            get;
-        } = new();
-
-        public Task<PackageHouseSettlement> AcquireAsync(
-            PackageSourceCoordinate coordinate,
-            PackageHouseContentQuery query,
-            CancellationToken cancellationToken = default) =>
-            BrowserPackageWorkspace.AcquireContentAsync(
-                coordinate,
-                query,
-                cancellationToken);
-    }
 }

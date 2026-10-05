@@ -313,6 +313,8 @@ internal static class BrowserPackageWorkspace
             "The browser product Workspace plan has not been configured.");
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorizationFor(Gallery);
+    internal static PackageProducerIdentity PackageProducer =>
+        Gallery.Source.Producer;
     internal static IPackageStore SessionPackageStore => Store;
     internal static BrowserSessionPackageStore PackageStoreFor(
         IPackageSourceClient source) => StoreFor(source);

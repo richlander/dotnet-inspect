@@ -124,6 +124,7 @@ public sealed class PortablePdbSettlementRequest
     private PortablePdbPackageCandidate? _packageCandidate;
     private PortablePdbPackageBindingFailureKind?
         _packageBindingFailure;
+    private PortablePdbPackagePreparation? _packagePreparation;
 
     public PortablePdbSettlementRequest(
         PdbContext context,
@@ -192,10 +193,11 @@ public sealed class PortablePdbSettlementRequest
         {
             if (value is not null)
             {
-                if (_packageBindingFailure is not null)
+                if (_packageBindingFailure is not null
+                    || _packagePreparation is not null)
                 {
                     throw new ArgumentException(
-                        "A Portable PDB settlement cannot carry both a package-local candidate and a package-binding failure.",
+                        "A Portable PDB settlement cannot carry more than one package-local preparation outcome.",
                         nameof(value));
                 }
                 ValidatePackageCandidate(value);
@@ -210,13 +212,38 @@ public sealed class PortablePdbSettlementRequest
         init
         {
             if (value is not null
-                && _packageCandidate is not null)
+                && (_packageCandidate is not null
+                    || _packagePreparation is not null))
             {
                 throw new ArgumentException(
-                    "A Portable PDB settlement cannot carry both a package-local candidate and a package-binding failure.",
+                    "A Portable PDB settlement cannot carry more than one package-local preparation outcome.",
                     nameof(value));
             }
             _packageBindingFailure = value;
+        }
+    }
+    public PortablePdbPackagePreparation? PackagePreparation
+    {
+        get => _packagePreparation;
+        init
+        {
+            if (value is not null)
+            {
+                if (_packageCandidate is not null
+                    || _packageBindingFailure is not null)
+                {
+                    throw new ArgumentException(
+                        "A Portable PDB settlement cannot carry more than one package-local preparation outcome.",
+                        nameof(value));
+                }
+                if (!ReferenceEquals(value.Assembly, Assembly))
+                {
+                    throw new ArgumentException(
+                        "Deferred package-local preparation must target the exact settlement assembly.",
+                        nameof(value));
+                }
+            }
+            _packagePreparation = value;
         }
     }
     public TimeSpan? Timeout
@@ -284,6 +311,10 @@ public sealed class PortablePdbSettlementRequest
                 nameof(candidate));
         }
     }
+
+    internal void ValidatePreparedPackageCandidate(
+        PortablePdbPackageCandidate candidate) =>
+        ValidatePackageCandidate(candidate);
 }
 
 /// <summary>
@@ -581,8 +612,13 @@ public static class PortablePdbSettlement
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        PortablePdbPackageCandidate? packageCandidate =
+            request.PackageCandidate;
+        PortablePdbPackageBindingFailureKind? packageBindingFailure =
+            request.PackageBindingFailure;
         PackageProducerIdentity? packageProducer =
-            request.PackageCandidate?.Producer;
+            packageCandidate?.Producer
+            ?? request.PackagePreparation?.Producer;
         if (request.PackageProducer is { } requestedProducer)
         {
             if (packageProducer is not null
@@ -596,8 +632,9 @@ public static class PortablePdbSettlement
             packageProducer = requestedProducer;
         }
         bool hasPackageAttempt =
-            request.PackageCandidate is not null
-            || request.PackageBindingFailure is not null;
+            packageCandidate is not null
+            || packageBindingFailure is not null
+            || request.PackagePreparation is not null;
 
         var receipts =
             ImmutableArray.CreateBuilder<
@@ -934,7 +971,7 @@ public static class PortablePdbSettlement
                     PortablePdbPositiveStoreDisposition.Reused,
                     networkOccurred: false,
                     packageLibraryRow:
-                        request.PackageCandidate?.Row,
+                        packageCandidate?.Row,
                     receipts.ToImmutable());
             }
 
@@ -967,26 +1004,54 @@ public static class PortablePdbSettlement
                 StoreFailure: storeProbe.Failure));
             positiveStoreReceiptRecorded = true;
 
-            if (request.PackageBindingFailure
-                is { } packageBindingFailure)
+            if (request.PackagePreparation is not null
+                && !request.CacheOnly)
+            {
+                PortablePdbPackagePreparationResult prepared =
+                    await request.PackagePreparation.PrepareAsync(
+                            operationToken)
+                        .ConfigureAwait(false);
+                if (prepared
+                    is PortablePdbPackagePreparationResult.Prepared
+                        preparedCandidate)
+                {
+                    packageCandidate = preparedCandidate.Candidate;
+                    request.ValidatePreparedPackageCandidate(
+                        packageCandidate);
+                    if (packageCandidate.Producer != packageProducer)
+                    {
+                        throw new ArgumentException(
+                            "Deferred package-local preparation returned a candidate from a different package producer.",
+                            nameof(request));
+                    }
+                }
+                else if (prepared
+                    is PortablePdbPackagePreparationResult.Terminal
+                        terminal)
+                {
+                    packageBindingFailure = terminal.Failure;
+                }
+            }
+
+            if (packageBindingFailure is { } bindingFailure)
             {
                 packageProbe =
                     PackageLocalProbe.BindingFailed(
-                        packageBindingFailure);
+                        bindingFailure);
                 receipts.Add(packageProbe.Receipt);
             }
-            else if (request.PackageCandidate is not null
+            else if (hasPackageAttempt
                 && request.CacheOnly)
             {
                 receipts.Add(Skipped(
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementSkipReason.CacheOnly));
             }
-            else if (request.PackageCandidate is not null)
+            else if (packageCandidate is not null)
             {
                 packageProbe =
                     await ProbePackageLocalAsync(
-                            request.PackageCandidate,
+                            packageCandidate,
                             request.PositiveStore,
                             positiveStoreKey,
                             positiveStoreProvenanceKey,
@@ -1011,7 +1076,7 @@ public static class PortablePdbSettlement
                     packageProbe.Receipt.Coordinates,
                     PortablePdbPositiveStoreDisposition.Published,
                     packageProbe.NetworkOccurred,
-                    request.PackageCandidate!.Row,
+                    packageCandidate!.Row,
                     receipts.ToImmutable());
             }
 
@@ -1284,7 +1349,7 @@ public static class PortablePdbSettlement
                 PortablePdbPositiveStoreDisposition.Published,
                 document.NetworkAttempts.Any(
                     static attempt => attempt.RequestCount > 0),
-                request.PackageCandidate?.Row,
+                packageCandidate?.Row,
                 settledReceipts);
         }
 

@@ -399,6 +399,62 @@ public sealed partial class PackageRangedRealizationTests
 
     [Fact]
     public async Task
+        LibraryInventoryOnly_RangedMaterializesNoLibraryAndIssuesExactPdbReference()
+    {
+        byte[] archive = CreateLibraryInventoryArchive();
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                store,
+                PackageHouseContentQuery
+                    .GetLibraryInventoryForTarget(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+        Assert.Null(acquired.Result.Evidence.LibraryAndInventory);
+        PackageHouseLibraryInventory inventory =
+            Assert.IsType<PackageHouseLibraryInventory>(
+                acquired.Result.Evidence.LibraryInventory);
+        PackageHouseLibraryInventoryRow alpha =
+            Assert.Single(
+                inventory.Rows,
+                static row =>
+                    row.CompileEntry.Path
+                    == "ref/net10.0/Alpha.dll");
+        Assert.Equal(
+            "lib/net10.0/Alpha.pdb",
+            alpha.PortablePdbEntry?.Path);
+
+        PackageHouseContentQuery files =
+            inventory.CreateFilesQuery(
+                [alpha.PortablePdbEntry!.Value]);
+        var exact = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                store,
+                files,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+        Assert.IsType<PackageHouseResult.Settled>(exact.Result);
+        Assert.Equal(
+            ["lib/net10.0/Alpha.pdb"],
+            exact.Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public async Task
         LibraryInventory_UnmatchedTargetIsTypedNoMatch()
     {
         byte[] archive = CreateLibraryInventoryArchive();

@@ -1520,6 +1520,55 @@ public class PdbAcquisitionServiceTests
 
     [Fact]
     public async Task
+        PackageSettlement_BindingFailureRetainsNuGetProviderAuthority()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Example.Package",
+                "1.0.0",
+                "net10.0",
+                rid: null,
+                assetPath:
+                    "lib/net10.0/Example.Package.dll"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler = new RecordingNotFoundHandler();
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    PackageBindingFailure =
+                        PortablePdbPackageBindingFailureKind
+                            .SelectedLibraryUnavailable,
+                    PackageProducer =
+                        NuGetFetch.PackageProducerIdentity
+                            .NuGetOrg,
+                },
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.PackageLocalFailed,
+            failed.Failure);
+        Assert.Contains(
+            handler.RequestUris,
+            uri => uri.Host.Equals(
+                "symbols.nuget.org",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task
         PackageSettlement_PrivateProducerDoesNotContactPublicSymbolProviders()
     {
         var (assembly, _) = CreateTestAssembly(
@@ -1599,13 +1648,17 @@ public class PdbAcquisitionServiceTests
                 "System.Example",
                 "1.0.0",
                 "net10.0",
-                rid: null));
+                rid: null,
+                assetPath:
+                    "lib/net10.0/System.Example.dll"));
         using var source =
             SourceLinkService.OpenEmbeddedPdbOnly(assembly);
         var handler =
             new PlatformSymbolHandler(
                 throwOnRequest: true);
         using var client = new HttpClient(handler);
+        var packageSource =
+            new ThrowingPackageContentSource();
 
         PortablePdbSettlementResult result =
             await PortablePdbSettlement.SettleAsync(
@@ -1615,7 +1668,16 @@ public class PdbAcquisitionServiceTests
                     client,
                     store,
                     new UniformPackageSourceAuthorization(
-                        [NuGetFetch.PackageSource.NuGetOrg])),
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    PackagePreparation =
+                        PortablePdbPackageComposition
+                            .DeferForAssembly(
+                                assembly,
+                                packageSource,
+                                NuGetFetch.PackageProducerIdentity
+                                    .NuGetOrg),
+                },
                 TestContext.Current.CancellationToken);
 
         var acquired =
@@ -1628,6 +1690,65 @@ public class PdbAcquisitionServiceTests
             PortablePdbPositiveStoreDisposition.Reused,
             acquired.PositiveStore);
         Assert.Empty(handler.RequestUris);
+        Assert.Equal(0, packageSource.Calls);
+    }
+
+    [Fact]
+    public async Task
+        PackageSettlement_NoPortableIdentitySkipsDeferredPackagePreparation()
+    {
+        var (assembly, _) = CreateSyntheticPdbAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Example.Package",
+                "1.0.0",
+                "net10.0",
+                rid: null,
+                assetPath:
+                    "lib/net10.0/Example.Package.dll"),
+            "Example.Package.pdb",
+            embeddedEntryCount: 0,
+            includeCodeView: false);
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var client = new HttpClient(handler);
+        var packageSource =
+            new ThrowingPackageContentSource();
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    PackagePreparation =
+                        PortablePdbPackageComposition
+                            .DeferForAssembly(
+                                assembly,
+                                packageSource,
+                                NuGetFetch.PackageProducerIdentity
+                                    .NuGetOrg),
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<
+            PortablePdbSettlementResult.Unavailable>(result);
+        Assert.Equal(0, packageSource.Calls);
+        PortablePdbSettlementReceipt packageReceipt =
+            Assert.Single(
+                result.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            PortablePdbSettlementSkipReason.NoPortableIdentity,
+            packageReceipt.SkipReason);
     }
 
     [Fact]
@@ -1944,6 +2065,22 @@ public class PdbAcquisitionServiceTests
 
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
+    private sealed class ThrowingPackageContentSource :
+        IPortablePdbPackageContentSource
+    {
+        internal int Calls { get; private set; }
+
+        public Task<PackageHouseSettlement> AcquireAsync(
+            NuGetFetch.PackageSourceCoordinate coordinate,
+            PackageHouseContentQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            throw new InvalidOperationException(
+                "Deferred package preparation should not run.");
         }
     }
 

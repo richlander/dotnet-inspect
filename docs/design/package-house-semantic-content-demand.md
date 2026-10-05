@@ -76,6 +76,10 @@ The result terminals are:
   `GetLibraryAndInventoryForTarget` requires TFM-wide narrowing and returns one
   policy-selected Library plus the complete logical Library inventory for that
   target.
+- **Library inventory for target.**
+  `GetLibraryInventoryForTarget` requires TFM-wide narrowing and returns the
+  same complete logical Library inventory without expanding any Library
+  content.
 - **Whole archive.** Return the complete package payload when the product
   question genuinely requires package-wide content. This terminal requires
   package-wide narrowing.
@@ -89,6 +93,9 @@ One implementation slice adds a narrowing form or terminal only with a
 production caller. `GetLibraryAndInventoryForTarget` is supported by package
 member Source Locations, which consumes its exact implementation and PDB
 references through later retained Files queries.
+`GetLibraryInventoryForTarget` is supported by Portable PDB settlement for an
+already-realized Browser/Wasm package assembly; it binds the exact provenance
+path to an inventory row before requesting only that row's PDB reference.
 
 Package-wide and TFM-wide Files and File List are implemented. Their results
 retain the exact acquired generation and, for TFM-wide narrowing, the existing
@@ -202,12 +209,17 @@ assembly and labels it acquired. The file list explains what else the package
 contains and can be requested next. The settlement and transfer receipt, not
 the file list, establish that the returned entry completed validation.
 
-## Library and inventory for target
+## Library inventory terminals
 
 `GetLibraryAndInventoryForTarget` is one composite terminal over TFM-wide
 narrowing. It does not accept package-wide or TFM-plus-root narrowing. A
 runtime identifier, when present in the target context, remains part of the
 owner-issued target.
+
+`GetLibraryInventoryForTarget` has the same narrowing and inventory semantics,
+but returns no selected-Library handoff and expands no compile or
+implementation entry. Its result is directory-derived evidence only. A later
+Files query may expand exact references issued by that inventory.
 
 The terminal returns:
 
@@ -447,6 +459,7 @@ All implementation gates run in Release.
 | Shared directory evidence | File List, exact-file admission, logical Library inventory, package-symbol evidence, and range spans derive from one validated snapshot plus owner-issued narrowing and correspondence. |
 | Exact files | Ranged execution expands only the exact referenced entries; complete fallback may transfer the archive but publishes only those entries. Every reference lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous reference fails visibly. |
 | `GetLibraryAndInventoryForTarget` without namespace | PackageHouse returns exactly one selected DLL, no PDB content, and one complete logical inventory whose selection receipt identifies that row. |
+| `GetLibraryInventoryForTarget` | PackageHouse returns one complete logical inventory and materializes no DLL or PDB entry; a later Files query may request only an exact issued reference. |
 | Reference primary plus listed implementation PDB | The selected reference DLL remains the only downloaded entry; its inventory row identifies the owner-issued implementation DLL and adjacent PDB for a later exact Files request. |
 | TFM-wide package-local PDB absence | The applicable inventory row proves the adjacent implementation PDB is absent without downloading package content or consulting a symbol provider. |
 | Library without implementation correspondence | Its inventory row reports Not applicable and invents neither an implementation DLL nor a PDB reference. |

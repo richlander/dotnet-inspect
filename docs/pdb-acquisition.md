@@ -80,8 +80,10 @@ dotnet-inspect member Instant \
 It exercises exact package provenance, an optional PackageHouse-issued
 package-local candidate, NuGet.org producer authorization, and external
 symbol-package or symbol-server fallback. Package-local consumption uses
-`GetLibraryAndInventoryForTarget`, supplies its exact Library row, and makes
-any distinct implementation assembly the symbol-bearing settlement binding;
+either `GetLibraryAndInventoryForTarget` while realizing an implementation or
+`GetLibraryInventoryForTarget` for an already-realized exact assembly,
+supplies its exact Library row, and makes any distinct implementation assembly
+the symbol-bearing settlement binding;
 settlement never inventories a package implicitly. `Newtonsoft.Json` remains
 the neighboring external-symbol-package fallback scenario because its ordinary
 package does not list an adjacent Portable PDB.
@@ -214,13 +216,18 @@ Library row, establish implementation correspondence, or prove PDB absence.
 Without a supplied Library row and its preserved correspondence receipt,
 package composition makes no package-local presence or absence claim. The
 settlement may continue to policy-authorized external providers for its exact
-symbol-bearing assembly; it does not silently issue a PackageHouse inventory
-query merely because symbols were requested.
+symbol-bearing assembly. A host may explicitly supply deferred package
+preparation for exact package provenance; settlement invokes it only after
+embedded classification, Portable PDB identity classification, and a verified
+positive-store miss.
 
 An owner-issued package-local candidate also carries the exact producer that
 supplied its PackageHouse generation. A separately supplied producer must match
 that receipt. Configured-source eligibility cannot widen external symbol
-authorization beyond the producer that supplied the package.
+authorization beyond the producer that supplied the package. Deferred
+preparation retains that typed producer before row binding, so a visible
+binding failure does not revoke otherwise authorized external symbol-package
+or symbol-server fallback.
 
 ### Provider policy
 
@@ -455,10 +462,13 @@ Browser member and type source use the same query operations and now opt into
 realization preserves the exact selected target, runtime identifier, and
 package-relative implementation path in assembly provenance, allowing
 PackageHouse to issue a candidate for the already-realized implementation
-without reacquiring its assembly bytes. A browser-session 24 MiB in-memory
-positive store is shared across source operations and never exposes a local
-path. Package-binding preparation failures remain typed package-local
-candidate failures while authorized later providers may still succeed.
+without reacquiring its assembly bytes. Settlement defers the inventory-only
+PackageHouse query until embedded and identity classification complete and the
+shared positive store misses; the inventory terminal itself materializes no
+Library content. A browser-session 24 MiB in-memory positive store is shared
+across source operations and never exposes a local path. Package-binding
+preparation failures remain typed package-local candidate failures while the
+Gallery's typed NuGet.org producer continues to authorize later providers.
 Platform participants use the same capability without a package candidate.
 Browser rendering, TypeScript exports, source-document fetching, and
 authored-versus-decompiled selection are unchanged.

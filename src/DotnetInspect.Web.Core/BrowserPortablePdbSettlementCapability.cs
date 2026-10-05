@@ -28,10 +28,7 @@ internal sealed class BrowserPortablePdbSettlementCapability :
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(assembly);
 
-        PortablePdbPackageCandidate? packageCandidate = null;
-        PortablePdbPackageBindingFailureKind?
-            packageBindingFailure = null;
-        PackageProducerIdentity? packageProducer = null;
+        PortablePdbPackagePreparation? packagePreparation = null;
         if (!target.HasEmbeddedPdb
             && assembly.Provenance
                 is AssemblyResolutionProvenance.PackageAsset
@@ -40,24 +37,11 @@ internal sealed class BrowserPortablePdbSettlementCapability :
                     AssetPath: not null,
                 })
         {
-            PortablePdbPackageBindingResult binding =
-                await PortablePdbPackageComposition
-                    .PrepareForAssemblyAsync(
-                        assembly,
-                        BrowserPortablePdbPackageContentSource.Instance,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            if (binding
-                is PortablePdbPackageBindingResult.Bound bound)
-            {
-                packageCandidate = bound.Value.Candidate;
-                packageProducer = packageCandidate.Producer;
-            }
-            else if (binding
-                is PortablePdbPackageBindingResult.Terminal terminal)
-            {
-                packageBindingFailure = terminal.Failure;
-            }
+            packagePreparation =
+                PortablePdbPackageComposition.DeferForAssembly(
+                    assembly,
+                    BrowserPortablePdbPackageContentSource.Instance,
+                    BrowserPackageWorkspace.PackageProducer);
         }
 
         var request =
@@ -69,9 +53,7 @@ internal sealed class BrowserPortablePdbSettlementCapability :
                 BrowserPackageWorkspace.PackageSourceAuthorization)
             {
                 Limits = BrowserSourceQueryContext.SourceSymbolLimits,
-                PackageCandidate = packageCandidate,
-                PackageBindingFailure = packageBindingFailure,
-                PackageProducer = packageProducer,
+                PackagePreparation = packagePreparation,
                 Timeout = BrowserPackageWorkspace.PackageOperationTimeout,
             };
         return await PortablePdbSettlement.SettleAsync(
