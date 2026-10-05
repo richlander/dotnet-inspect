@@ -129,7 +129,6 @@ src/DotnetInspect.Web.Interop.Package
 src/DotnetInspect.Web.Interop.Source
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
-src/DotnetInspector.InspectionContracts
 src/DotnetInspector.JsonSchema
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Local
@@ -220,10 +219,12 @@ tests/nuget/NuGetFetch.PluginFixture
 tests/nuget/PackageAssetSelection.BuildOracle/Consumer
 tests/nuget/PackageAssetSelection.BuildOracle/Package
 tests/runfaster.Tests
+tools/AddressTerminalScorecard
 tools/AnalysisHarness
 tools/AnalysisLibraryBodyUseAdmissionBenchmark
 tools/AotProbe
 tools/BodyUseScorecard
+tools/BodyUseScorecardKernel
 tools/CSharpDiffHarness
 tools/CSharpPrinter.Benchmarks
 tools/CatalogCallGraphScorecard
