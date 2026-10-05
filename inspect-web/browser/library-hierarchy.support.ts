@@ -326,6 +326,7 @@ async function installFacades(
   ecosystemAdmission: {
     holdAdmission?: boolean;
     holdPostingRecord?: boolean;
+    holdAcknowledgement?: boolean;
   } = {},
 ) {
   const catalogTarget: PlatformCatalogTarget = {
@@ -2720,14 +2721,21 @@ async function installFacades(
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
       let preparedRetainedWorkspace = null;
+      let nextRetainedPublicationOrdinal = 0;
       let ecosystemPackageAdmissionCount = 0;
       let ecosystemPackageAcknowledgementCount = 0;
+      let ecosystemPackageAcknowledgementHeld = false;
+      let holdNextEcosystemPackageAdmission =
+        ecosystemAdmissionOptions.holdAdmission === true;
+      let holdNextEcosystemPackagePostingRecord =
+        ecosystemAdmissionOptions.holdPostingRecord === true;
       function retainedWorkspacePosting(
         retainedDefinitionId,
         label,
         canonicalLocation,
         canonicalPacket,
       ) {
+        const publicationOrdinal = ++nextRetainedPublicationOrdinal;
         const workspaceId = "source-workspace";
         const packageSubjectId = "source-package";
         const definition = {
@@ -2880,8 +2888,8 @@ async function installFacades(
           label,
           canonicalLocation,
           canonicalPacket,
-          realizationId: "source-realization",
-          publicationOrdinal: 1,
+          realizationId: "source-realization-" + publicationOrdinal,
+          publicationOrdinal,
           definition,
           navigation,
           packages,
@@ -2896,6 +2904,7 @@ async function installFacades(
         canonicalLocation,
         ecosystemId,
       ) {
+        const publicationOrdinal = ++nextRetainedPublicationOrdinal;
         const workspaceId = "ecosystem-workspace";
         const ecosystemSubjectId = "ecosystem-subject";
         const activeSubject = {
@@ -2915,8 +2924,8 @@ async function installFacades(
           label,
           canonicalLocation,
           canonicalPacket: null,
-          realizationId: "ecosystem-realization",
-          publicationOrdinal: 1,
+          realizationId: "ecosystem-realization-" + publicationOrdinal,
+          publicationOrdinal,
           definition: {
             tabs: [],
             contexts: [],
@@ -3275,7 +3284,8 @@ async function installFacades(
         }
         document.documentElement.dataset.ecosystemPackageAdmissionCount =
           String(++ecosystemPackageAdmissionCount);
-        if (ecosystemAdmissionOptions.holdAdmission) {
+        if (holdNextEcosystemPackageAdmission) {
+          holdNextEcosystemPackageAdmission = false;
           document.documentElement.dataset.ecosystemPackageAdmissionPending =
             "true";
           await new Promise(resolve => document.addEventListener(
@@ -3394,7 +3404,8 @@ async function installFacades(
       }
       export async function recordRetainedWorkspaceNavigationPosting() {
         if (preparedRetainedWorkspace?.navigation.operation === "Scope"
-          && ecosystemAdmissionOptions.holdPostingRecord) {
+          && holdNextEcosystemPackagePostingRecord) {
+          holdNextEcosystemPackagePostingRecord = false;
           document.documentElement.dataset.ecosystemPackagePostingPending =
             "true";
           await new Promise(resolve => document.addEventListener(
@@ -3402,10 +3413,29 @@ async function installFacades(
         }
         return "accepted";
       }
-      export function acknowledgeRetainedWorkspaceNavigation() {
+      export async function acknowledgeRetainedWorkspaceNavigation(
+        _realizationId,
+        _publicationOrdinal,
+        _session,
+        revision,
+      ) {
+        const decision = "accepted";
         document.documentElement.dataset.ecosystemPackageAcknowledgementCount =
           String(++ecosystemPackageAcknowledgementCount);
-        return "accepted";
+        if (ecosystemAdmissionOptions.holdAcknowledgement
+          && revision === "ecosystem-admission-revision"
+          && !ecosystemPackageAcknowledgementHeld) {
+          ecosystemPackageAcknowledgementHeld = true;
+          document.documentElement.dataset.ecosystemPackageAcknowledgementPending =
+            "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-ecosystem-package-acknowledgement",
+            resolve,
+            { once: true }));
+          document.documentElement.dataset.ecosystemPackageAcknowledgementPending =
+            "false";
+        }
+        return decision;
       }
       export function abandonRetainedWorkspaceNavigation() {
         return "accepted";

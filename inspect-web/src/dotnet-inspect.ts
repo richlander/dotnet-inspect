@@ -9485,6 +9485,7 @@ async function addEcosystemPackageToWorkspace(
         } else if (!sameRealization()) {
           return;
         }
+        if (!sameRealization()) return;
         activeRetainedWorkspacePosting = result.posting;
         retainedWorkspacePostings.set(
           result.posting.retainedDefinitionId,
@@ -9561,6 +9562,7 @@ async function addEcosystemPackageToWorkspace(
       } else if (!sameRealization()) {
         return;
       }
+      if (!sameRealization()) return;
       activeRetainedWorkspacePosting = result.posting;
       retainedWorkspacePostings.set(
         result.posting.retainedDefinitionId,

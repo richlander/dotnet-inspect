@@ -179,6 +179,7 @@ async function installHomeDemo(
   ecosystemAdmission?: {
     holdAdmission?: boolean;
     holdPostingRecord?: boolean;
+    holdAcknowledgement?: boolean;
   },
 ): Promise<string> {
   const id = `${focusKind}-${section === "Methods" ? "methods" : "graph"}`;
@@ -316,6 +317,99 @@ test("Ecosystem posting survives navigation during Scope record", async ({
     .toContainText("1 loaded coordinate");
   await expect(additions).toHaveCount(24);
 });
+
+for (const staleAt of ["admission", "posting record"] as const) {
+  test(`A stale Ecosystem ${staleAt} cannot replace a newer Workspace`, async ({
+    page,
+  }) => {
+    await installHomeDemo(page, "Methods", "package", {
+      holdAdmission: staleAt === "admission",
+      holdPostingRecord: staleAt === "posting record",
+      holdAcknowledgement: true,
+    });
+    await page.goto("/");
+    await openProductDestination(page, "ecosystems");
+    await page.locator(
+      '[data-ecosystem="ecosystem.fixture-package"] [data-ecosystem-open]',
+    ).click();
+    const additions = page.locator("[data-ecosystem-package-add]");
+    const activeWorkspace = page.locator(".workspace-card.active");
+    const html = page.locator("html");
+    await expect(additions).toHaveCount(24);
+    await expect(activeWorkspace.locator("small")).toHaveText("Active");
+    const initialAcknowledgements = Number(
+      await html.getAttribute(
+        "data-ecosystem-package-acknowledgement-count") ?? "0");
+    const originalUrl = page.url();
+    await additions.first().click();
+
+    if (staleAt === "admission") {
+      await expect(html).toHaveAttribute(
+        "data-ecosystem-package-admission-pending",
+        "true",
+      );
+      await openProductDestination(page, "query");
+      await expect(page).toHaveURL("/query");
+      await releaseFacade(page, "finish-ecosystem-package-admission");
+    } else {
+      await expect(html).toHaveAttribute(
+        "data-ecosystem-package-posting-pending",
+        "true",
+      );
+      await activeWorkspace.click();
+      await expect(page).toHaveURL(originalUrl);
+      await releaseFacade(page, "finish-ecosystem-package-posting");
+    }
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-pending",
+      "true",
+    );
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-count",
+      String(initialAcknowledgements + 1),
+    );
+
+    await openProductDestination(page, "ecosystems");
+    await page.locator(
+      '[data-ecosystem="ecosystem.fixture-platform"] [data-ecosystem-open]',
+    ).click();
+    await expect(page).toHaveURL("/ecosystems/ecosystem.fixture-platform");
+    await expect(activeWorkspace).toContainText("Platform fixture");
+    await expect(activeWorkspace).toContainText("0 loaded coordinates");
+    await expect(activeWorkspace.locator("small")).toHaveText("Active");
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-count",
+      String(initialAcknowledgements + 2),
+    );
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-pending",
+      "true",
+    );
+
+    await releaseFacade(page, "finish-ecosystem-package-acknowledgement");
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-pending",
+      "false",
+    );
+    await expect(activeWorkspace).toContainText("Platform fixture");
+    await expect(activeWorkspace).toContainText("0 loaded coordinates");
+
+    await expect(additions).toHaveCount(24);
+    await expect(additions.first()).toBeEnabled();
+    await additions.first().click();
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-admission-count",
+      "2",
+    );
+    await expect(additions.first()).toHaveText("Added");
+    await expect(activeWorkspace).toContainText("Platform fixture");
+    await expect(activeWorkspace).toContainText("1 loaded coordinate");
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-admissions",
+      /"ecosystem\.fixture-platform"/u,
+    );
+  });
+}
 
 test("Ecosystems is a first-class product catalog destination", async ({
   page,
