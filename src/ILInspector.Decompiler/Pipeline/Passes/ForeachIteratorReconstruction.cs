@@ -238,7 +238,7 @@ internal static class ForeachIteratorReconstruction
         work.Regions = ImmutableArray<HandlerRegion>.Empty;
         work.ClearImportedExceptionFacts();
         work.Body.ReplaceWith(container);
-        IrPasses.Run(work, IrPasses.Default, context);
+        IrPasses.Run(work, IrPasses.ForIntermediateBody, context);
 
         foreach (var resource in resources.AsEnumerable().Reverse())
         {
@@ -250,7 +250,7 @@ internal static class ForeachIteratorReconstruction
                 return false;
             }
         }
-        IrPasses.Run(work, IrPasses.Default, context);
+        IrPasses.Run(work, IrPasses.ForIntermediateBody, context);
 
         if (work.Body.Descendants.Any(IsUnstructured)
             || work.Descendants.OfType<YieldReturn>().Count() != 2
@@ -487,10 +487,10 @@ internal static class ForeachIteratorReconstruction
         work.Regions = ImmutableArray<HandlerRegion>.Empty;
         work.ClearImportedExceptionFacts();
         work.Body.ReplaceWith(container);
-        IrPasses.Run(work, IrPasses.Default, context);
+        IrPasses.Run(work, IrPasses.ForIntermediateBody, context);
         if (!TryRaiseLockstepLoop(work, resources, locals))
             return false;
-        IrPasses.Run(work, IrPasses.Default, context);
+        IrPasses.Run(work, IrPasses.ForIntermediateBody, context);
 
         if (!RaiseNestedUsingResources(work, resources, locals))
             return false;
@@ -920,7 +920,7 @@ internal static class ForeachIteratorReconstruction
 
         // Re-run the pipeline: the enumerator loop is reducible now, so the structurer
         // forms the `while (e.MoveNext())` loop with the yields riding along.
-        IrPasses.Run(work, IrPasses.Default, context);
+        IrPasses.Run(work, IrPasses.ForIntermediateBody, context);
 
         // The normal pipeline may already have raised this enumerator when its
         // exact-named Current local survived. Otherwise use the single-use matcher.

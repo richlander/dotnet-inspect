@@ -373,13 +373,58 @@ both complete; otherwise every derived order, role, and designation remains
 visibly qualified. Physical-only body evidence therefore qualifies the result
 but does not manufacture a logical relationship.
 
-This slice is Research-only comparison evidence. It does not define a body-use
-namespace index, automatic acquisition, transport or cache identity, CLI
-surface, Browser/Wasm projection, or website behavior. Production adoption
-requires a separately costed consumer slice and does not justify widening a
-cheap body-use request into full call-graph acquisition. Analysis owns typed
-operand decoding and the existing direct-call index; Research adds neither a
-decoder nor a second general call index.
+This section defines Research comparison evidence. It does not define a
+body-use namespace index, CLI surface, or website behavior.
+[Inspect Web Type leverage](inspect-web-type-leverage.md) owns the separately
+costed Browser consumer, including automatic acquisition, transport, cache
+identity, and presentation. That adoption does not justify widening body use
+into full call-graph acquisition. Analysis owns typed operand decoding and the
+existing direct-call index; Research adds neither a decoder nor a second
+general call index.
+
+#### Signature/body comparative census
+
+The Deep Inspect package sweep records how signature and body Type-leverage
+results differ across its acquired package slice. The census validates every
+selected assembly against the package-sweep manifest's path and SHA-256, then
+invokes the product-owned signature and body shard producers. It does not
+reconstruct relationships, degrees, orders, roles, eligibility, or poles.
+An absent target framework remains valid acquisition provenance when the
+package selector issued a selected assembly without one.
+A selected assembly with no defined Types remains an observed zero population;
+the census retains its provenance and body coverage without constructing a
+namespace batch. Once acquisition succeeds, the census runs independently of
+the bounded decompiler report, while either sensor's failure remains visible.
+
+The census may join rows by exact Type address and report:
+
+- signature and body pole counts and densities within their owner-issued row
+  populations;
+- the same Type with the same pole, the same Type with opposite poles, and
+  signature-only or body-only poles;
+- exact-maximum versus near-maximum cohort membership for an already issued
+  pole;
+- absolute position differences among Types present in both owner-issued
+  incoming or outgoing orders; and
+- source disposition, body coverage, package provenance, and diagnostic
+  acquisition and projection time.
+
+Every aggregate retains per-assembly and per-Type evidence. Rank evidence
+retains the exact Type identity and owner-issued position in each applicable
+signature and body order. The body-use source disposition and the composed
+body-leverage disposition remain distinct: incomplete metadata qualifies the
+composed result even when Analysis completed body acquisition. Qualified body
+results remain qualified; physical-only bodies are reported rather than
+repaired or discarded. Signature and body row populations can differ, so
+their densities have separate denominators and do not define a shared coverage
+rate.
+
+The current-package sweep is observational evidence, not a pinned baseline or
+a product decision. Pole overlap does not establish that the modes are
+interchangeable, and disagreement does not establish which mode is more
+useful. CoreCLR timing is diagnostic feasibility evidence only; an accepted
+performance claim requires exact base/head NativeAOT measurement under the
+performance evidence contract.
 
 #### Sharding and exhaustive composition
 
@@ -419,9 +464,10 @@ degree, score, order, role, designation, or exclusion.
 Production body-use adoption remains a separately costed depth mode over the
 same namespace and Type questions. It defines both incoming and outgoing
 degree rather than silently assigning one producer to sea level and another
-to mountain peak. Adopting that mode requires its own acquisition,
-qualification, cache identity, and Browser/Wasm cost evidence; the Research
-pilot does not change the meaning of signature-level surface mode.
+to mountain peak. [Inspect Web Type leverage](inspect-web-type-leverage.md)
+owns the Browser acquisition, qualification, cache identity, and presentation;
+the Research mode does not change the meaning of signature-level surface
+evidence.
 
 ## Interpretation boundary
 
@@ -491,14 +537,15 @@ view. Its host-specific lowering serializes the same typed document through
 the existing managed boundary. The Browser DTO carries a module-local exact
 metadata type key separately from human display text, so same-name types with
 different generic arities remain distinct through relationship layout. The
-Browser presents dedicated `Complexity` and `Relationships` Analysis tabs from
-one shared Research document and acquisition. `Complexity` renders a
+Browser presents dedicated `Relationships` and `Complexity` Analysis tabs from
+one shared Research document and acquisition. `Relationships` is the first and
+default Analysis mode. The separately owned, explicit-demand Dependency
+Structure experience defined by
+[Library Dependency Structure](library-dependency-structure.md) occupies its
+own `Dependencies` tab and acquisition. `Complexity` renders a
 `Complexity Explorer` treemap from type summaries; `Relationships` renders a
-`Relationship Crossing` view from the bounded relationship projection and
-hosts the separately owned, explicit-demand Dependency Structure experience
-defined by
-[Library Dependency Structure](library-dependency-structure.md). Neither tab
-recomputes a report fact. Area represents
+`Relationship Crossing` view from the bounded relationship projection. Neither
+Library Metrics tab recomputes a report fact. Area represents
 instruction volume, treemap color represents average normal-flow complexity, and
 relationship stroke width represents retained call-site count. Complexity
 Explorer omits zero-body relationship-only summaries because they carry no

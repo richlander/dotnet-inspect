@@ -6,15 +6,14 @@ namespace DotnetInspect.Cli.Sections;
 /// <summary>
 /// Package output capabilities derived from each section's declared
 /// <see cref="DotnetInspector.Sections.SectionShape"/>, per
-/// <c>docs/design/section-shapes.md</c>. No homogeneous row family is declared
-/// yet: the design makes the package file family one Path/Size listing, but the
-/// command does not render a multi-section row stream until the presentation
-/// adoption lands, and discovery must not advertise a format the command
-/// rejects.
+/// <c>docs/design/section-shapes.md</c>. The package file family is the one
+/// homogeneous row family: its Text members lower to the same Path/Size fact
+/// row as its Table members, so <c>-S @Files --tsv</c> streams one listing.
 /// </summary>
 internal static class PackageOutputCapabilities
 {
     public static OutputCapabilityCatalog Catalog { get; } =
         OutputCapabilityCatalog.FromShapes(
-            PackageSectionDescriptors.CreateCatalog().Sections.SectionShapes);
+            PackageSectionDescriptors.CreateCatalog().Sections.SectionShapes,
+            [PackageFileFamily.SectionNames]);
 }

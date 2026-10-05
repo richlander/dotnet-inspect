@@ -28,11 +28,11 @@ public partial class CommandExecutionTests
         try
         {
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--raw");
+                "package", packagePath, "-S", "Skills", "--print", "--raw");
             var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--raw");
             var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+                "package", packagePath, "-S", "Skills", "--print", "--jsonl");
             var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
             var (contentExit, contentOutput, contentError) = await RunAppAsync(
@@ -405,7 +405,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("A.Project.First", output);
-            Assert.Contains("\"package_readme_file\"", output);
+            Assert.Contains("\"readme\"", output);
             Assert.DoesNotContain("B.Project.Second", output);
         }
         finally
@@ -522,7 +522,7 @@ public partial class CommandExecutionTests
             var projectOutputPath = Path.Combine(projectTempDir, "project-skill.md");
 
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--raw");
+                "package", packagePath, "-S", "Skills", "--print", "--raw");
             var (contentExit, contentOutput, contentError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
                 "--content", "--raw");
@@ -532,14 +532,14 @@ public partial class CommandExecutionTests
             var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--raw");
             var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+                "package", packagePath, "-S", "Skills", "--print", "--jsonl");
             var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
                 "--content", "--jsonl");
             var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
             var (packageFileExit, packageFileOutput, packageFileError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--raw",
+                "package", packagePath, "-S", "Skills", "--print", "--raw",
                 "--output", packageOutputPath);
             var (contentFileExit, contentFileOutput, contentFileError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
@@ -616,7 +616,7 @@ public partial class CommandExecutionTests
         try
         {
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--raw");
+                "package", packagePath, "-S", "Skills", "--print", "--raw");
             var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--raw");
 
@@ -669,7 +669,7 @@ public partial class CommandExecutionTests
             var projectOutput = Path.Combine(projectTempDir, "project-skill.md");
 
             var (packageExit, packageStdout, packageError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--raw",
+                "package", packagePath, "-S", "Skills", "--print", "--raw",
                 outputOption, packageOutput);
             var (packageContentExit, packageContentStdout, packageContentError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
@@ -1583,9 +1583,9 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal(
             """
-            @Project             category
-            Package README file  section
-            Skills               section
+            @Project  category
+            README    section
+            Skills    section
 
             """.ReplaceLineEndings(),
             output);
@@ -1604,8 +1604,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal(
             """
-            Package README file  section
-            Skills               section
+            README  section
+            Skills  section
 
             """.ReplaceLineEndings(),
             output);
@@ -1631,7 +1631,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "project",
-            "-D", "Skills,Package README file",
+            "-D", "Skills,README",
             "--table");
 
         Assert.Equal(0, exit);
@@ -1708,7 +1708,7 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("## Skills", output);
             Assert.Contains("Test.Project.DefaultSelect", output);
-            Assert.DoesNotContain("## Package README file", output);
+            Assert.DoesNotContain("## README", output);
         }
         finally
         {
@@ -1732,7 +1732,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--print");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -1766,7 +1766,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--jsonl");
 
             Assert.Equal(0, exit);
@@ -1810,7 +1810,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file");
+                "-S", "README");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1845,7 +1845,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--print",
                 "--rows", "2..2",
                 "--row", "1");
@@ -1879,14 +1879,14 @@ public partial class CommandExecutionTests
         {
             var selected = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--paths",
                 "--rows", "2..2",
                 "--row", "1",
                 "--json");
             var excluded = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--paths",
                 "--rows", "2..2",
                 "--row", "2",
@@ -1928,15 +1928,15 @@ public partial class CommandExecutionTests
         {
             var count = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--count");
             var paths = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--paths");
             var value = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--fields", "Version",
                 "--value");
 
@@ -1981,7 +1981,7 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             using var document = JsonDocument.Parse(output);
             Assert.Equal(
-                ["package_readme_file", "skills"],
+                ["readme", "skills"],
                 document.RootElement
                     .EnumerateObject()
                     .Select(property => property.Name));
@@ -1989,7 +1989,7 @@ public partial class CommandExecutionTests
                 document.RootElement.GetProperty("skills").EnumerateArray());
             Assert.Single(
                 document.RootElement
-                    .GetProperty("package_readme_file")
+                    .GetProperty("readme")
                     .EnumerateArray());
         }
         finally
@@ -2024,7 +2024,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--print",
                 "--jsonl");
 
@@ -2051,7 +2051,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file");
+                "-S", "README");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -2075,7 +2075,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--print");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -2120,7 +2120,7 @@ public partial class CommandExecutionTests
 
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--print",
                 "--out", outputPath);
 

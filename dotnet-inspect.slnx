@@ -160,10 +160,6 @@
     <Project Path="src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse/DotnetInspector.DocumentationHouse.csproj" />
-    <Project Path="src/DotnetInspector.DocumentationHouse.Direct/DotnetInspector.DocumentationHouse.Direct.csproj" />
-    <Project Path="src/DotnetInspector.DocumentationHouse.Packages/DotnetInspector.DocumentationHouse.Packages.csproj" />
-    <Project Path="src/DotnetInspector.DocumentationHouse.Platform/DotnetInspector.DocumentationHouse.Platform.csproj" />
-    <Project Path="src/DotnetInspector.DocumentationHouse.Source/DotnetInspector.DocumentationHouse.Source.csproj" />
     <Project Path="src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.JsonSchema/DotnetInspector.JsonSchema.csproj" />
@@ -299,13 +295,15 @@
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />
   </Folder>
   <Folder Name="/tools/">
-    <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
+   <Project Path="tools/AddressTerminalScorecard/AddressTerminalScorecard.csproj" />
+   <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/AotProbe/AotProbe.csproj" />
     <Project Path="tools/CatalogCallGraphScorecard/CatalogCallGraphScorecard.csproj" />
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
     <Project Path="tools/MemberBodySizeScorecard/MemberBodySizeScorecard.csproj" />
     <Project Path="tools/MemberGroupScorecard/MemberGroupScorecard.csproj" />
     <Project Path="tools/BodyUseScorecard/BodyUseScorecard.csproj" />
+    <Project Path="tools/BodyUseScorecardKernel/BodyUseScorecardKernel.csproj" />
     <Project Path="tools/MethodBodyTraversalScorecard/MethodBodyTraversalScorecard.csproj" />
     <Project Path="tools/MethodBodyDemandScorecard/MethodBodyDemandScorecard.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />

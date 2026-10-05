@@ -28,19 +28,19 @@ public class SlotResidualCensusTests
     }
 
     [Fact]
-    public void SlotUnifierCensus_PrintsPrinterTelemetryCard()
+    public void ResidualBindingCensus_PrintsBindingCard()
     {
-        string output = CaptureConsole(() => SlotUnifierCensus.Run([FixturePath], cap: 20, maxExamples: 2));
+        string output = CaptureConsole(() => ResidualBindingCensus.Run([FixturePath], cap: 20, maxExamples: 2));
 
-        Assert.Contains("STACK-SLOT UNIFIER CENSUS", output);
-        Assert.Contains("Un-unified split slots", output);
-        Assert.Contains("Multi-candidate slots unified by printer", output);
-        Assert.Contains("Direct slot-copy stores reaching printer", output);
-        Assert.Contains("Stack-slot declarations emitted", output);
+        Assert.Contains("RESIDUAL SLOT BINDING CENSUS", output);
+        Assert.Contains("Residual-bound webs", output);
+        Assert.Contains("Split webs", output);
+        Assert.Contains("Late-decidable webs", output);
+        Assert.Contains("Bound webs by binding kind and veto flags", output);
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_RecordsUnunifiedSplitSlots()
+    public void ResidualBinding_SplitsConflictingReferenceAndIntegerStores()
     {
         var obj = TypeRef.CoreLib("System", "Object");
         var str = TypeRef.CoreLib("System", "String");
@@ -61,18 +61,17 @@ public class SlotResidualCensusTests
             [],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
 
-        Assert.Equal(3, telemetry.StoreNodes);
-        Assert.Equal(1, telemetry.LoadNodes);
-        Assert.Equal(0, telemetry.DirectCopyStores);
-        Assert.Equal(1, telemetry.DistinctSlots);
-        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
-        Assert.Equal(0, telemetry.MultiCandidateUnifiedSlots);
+        Assert.DoesNotContain(function.Descendants, static node => node is StoreStackSlot or LoadStackSlot);
+        Assert.Equal(3, function.ResidualSlotBindings.Count);
+        Assert.All(function.ResidualSlotBindings.Values, binding => Assert.Equal(ResidualSlotBindingKind.Split, binding.Kind));
+        Assert.All(function.ResidualSlotBindings.Values, binding => Assert.Equal(0, binding.Slot));
+        Assert.Equal(["S_0", "S_0_1", "S_0_2"], function.ResidualSlotBindings.Keys.Order().Select(index => function.SynthesizedLocalNames[index]));
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_RecordsDirectSlotCopies()
+    public void ResidualBinding_UnifiesDirectSlotCopies()
     {
         var i32 = TypeRef.CoreLib("System", "Int32");
         var voidType = TypeRef.CoreLib("System", "Void");
@@ -86,19 +85,19 @@ public class SlotResidualCensusTests
         var function = new IrFunction(
             "M",
             TypeRef.CoreLib("Synthetic", "T"),
-            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            new MethodSignature(i32, [], HasThis: false, GenericParameterCount: 0),
             [],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
 
-        Assert.Equal(2, telemetry.StoreNodes);
-        Assert.Equal(2, telemetry.LoadNodes);
-        Assert.Equal(1, telemetry.DirectCopyStores);
+        Assert.Equal(2, function.ResidualSlotBindings.Count);
+        Assert.All(function.ResidualSlotBindings.Values, binding => Assert.Equal(ResidualSlotBindingKind.Unified, binding.Kind));
+        Assert.Equal([0, 256], function.ResidualSlotBindings.Values.Select(static binding => binding.Slot).Order());
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_IncludesNestedLambdaSlots()
+    public void ResidualBinding_LeavesNestedLambdaSlotsToTheirOwnPipeline()
     {
         var action = TypeRef.CoreLib("System", "Action");
         var i32 = TypeRef.CoreLib("System", "Int32");
@@ -131,232 +130,19 @@ public class SlotResidualCensusTests
             [action],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
 
-        Assert.Equal(2, telemetry.StoreNodes);
-        Assert.Equal(2, telemetry.LoadNodes);
-        Assert.Equal(1, telemetry.DirectCopyStores);
-        Assert.Equal(2, telemetry.DistinctSlots);
+        // The outer scope owns no slot; the nested body's slots are its own
+        // pipeline's job. Printing without that tail is a visible failure at
+        // the printer boundary, never success-shaped output.
+        Assert.Empty(function.ResidualSlotBindings);
+        var result = CSharpPrinter.Print(function);
+        Assert.Null(result.Output);
+        Assert.Contains("reached C# emission without residual storage binding", result.Diagnostics.Single().Message);
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_DoesNotDoubleCountSpeculativelyRenderedLambda()
-    {
-        var action = TypeRef.CoreLib("System", "Action");
-        var i32 = TypeRef.CoreLib("System", "Int32");
-        var voidType = TypeRef.CoreLib("System", "Void");
-        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
-
-        var lambdaBlock = new Block();
-        lambdaBlock.Add(new StoreStackSlot(256, new Constant(1, i32)));
-        lambdaBlock.Add(new StoreStackSlot(0, new LoadStackSlot(256, i32)));
-        lambdaBlock.Add(new ExpressionStatement(new LoadStackSlot(0, i32)));
-        lambdaBlock.Add(new Return(null));
-        var lambdaBody = new BlockContainer();
-        lambdaBody.Add(lambdaBlock);
-        var lambda = new Lambda(
-            action,
-            [],
-            [],
-            [],
-            usesUpdatedMemorySafetyRules: false,
-            skipLocalsInit: false,
-            lambdaBody);
-
-        var block = new Block();
-        block.Add(new ExpressionStatement(new Call(
-            new MethodRef(owner, "Use", voidType, [action], HasThis: false),
-            isVirtual: false,
-            [lambda])));
-        var body = new BlockContainer();
-        body.Add(block);
-        var function = new IrFunction(
-            "M",
-            owner,
-            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
-            [],
-            body);
-
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
-
-        Assert.Equal(2, telemetry.StoreNodes);
-        Assert.Equal(2, telemetry.LoadNodes);
-        Assert.Equal(1, telemetry.DirectCopyStores);
-        Assert.Equal(2, telemetry.DistinctSlots);
-    }
-
-    [Fact]
-    public void StackSlotUnifierTelemetry_DoesNotDoubleCountNestedScopesDuringSpeculativeRendering()
-    {
-        var action = TypeRef.CoreLib("System", "Action");
-        var i32 = TypeRef.CoreLib("System", "Int32");
-        var voidType = TypeRef.CoreLib("System", "Void");
-        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
-
-        var innerLambdaBlock = new Block();
-        innerLambdaBlock.Add(new StoreStackSlot(256, new Constant(1, i32)));
-        innerLambdaBlock.Add(new StoreStackSlot(0, new LoadStackSlot(256, i32)));
-        innerLambdaBlock.Add(new ExpressionStatement(new LoadStackSlot(0, i32)));
-        innerLambdaBlock.Add(new Return(null));
-        var innerLambdaBody = new BlockContainer();
-        innerLambdaBody.Add(innerLambdaBlock);
-        var innerLambda = new Lambda(
-            action,
-            [],
-            [],
-            [],
-            usesUpdatedMemorySafetyRules: false,
-            skipLocalsInit: false,
-            innerLambdaBody);
-
-        var localFunctionBlock = new Block();
-        localFunctionBlock.Add(new StoreLocal(0, action, innerLambda));
-        localFunctionBlock.Add(new Return(null));
-        var localFunctionBody = new BlockContainer();
-        localFunctionBody.Add(localFunctionBlock);
-        var localFunction = new LocalFunctionStatement(
-            "Local",
-            voidType,
-            [],
-            isStatic: true,
-            [action],
-            [],
-            usesUpdatedMemorySafetyRules: false,
-            skipLocalsInit: false,
-            localFunctionBody);
-
-        var outerLambdaBlock = new Block();
-        outerLambdaBlock.Add(localFunction);
-        outerLambdaBlock.Add(new Return(null));
-        var outerLambdaBody = new BlockContainer();
-        outerLambdaBody.Add(outerLambdaBlock);
-        var outerLambda = new Lambda(
-            action,
-            [],
-            [],
-            [],
-            usesUpdatedMemorySafetyRules: false,
-            skipLocalsInit: false,
-            outerLambdaBody);
-
-        var block = new Block();
-        block.Add(new ExpressionStatement(new Call(
-            new MethodRef(owner, "Use", voidType, [action], HasThis: false),
-            isVirtual: false,
-            [outerLambda])));
-        var body = new BlockContainer();
-        body.Add(block);
-        var function = new IrFunction(
-            "M",
-            owner,
-            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
-            [],
-            body);
-
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
-
-        Assert.Equal(2, telemetry.StoreNodes);
-        Assert.Equal(2, telemetry.LoadNodes);
-        Assert.Equal(1, telemetry.DirectCopyStores);
-        Assert.Equal(2, telemetry.DistinctSlots);
-    }
-
-    [Fact]
-    public void StackSlotUnifierTelemetry_CountsLoadInExpressionBodiedNestedLambda()
-    {
-        var i32 = TypeRef.CoreLib("System", "Int32");
-        var funcInt = TypeRef.GenericInstance(
-            TypeRef.CoreLib("System", "Func`1"),
-            [i32]);
-        var voidType = TypeRef.CoreLib("System", "Void");
-
-        var lambdaBlock = new Block();
-        lambdaBlock.Add(new Return(new LoadStackSlot(0, i32)));
-        var lambdaBody = new BlockContainer();
-        lambdaBody.Add(lambdaBlock);
-        var lambda = new Lambda(
-            funcInt,
-            [],
-            [],
-            [],
-            usesUpdatedMemorySafetyRules: false,
-            skipLocalsInit: false,
-            lambdaBody);
-
-        var block = new Block();
-        block.Add(new StoreLocal(0, funcInt, lambda));
-        var body = new BlockContainer();
-        body.Add(block);
-        var function = new IrFunction(
-            "M",
-            TypeRef.CoreLib("Synthetic", "T"),
-            new MethodSignature(
-                voidType,
-                [],
-                HasThis: false,
-                GenericParameterCount: 0),
-            [funcInt],
-            body);
-
-        var telemetry =
-            CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
-        var output = CSharpPrinter.Print(function).Output;
-
-        Assert.Contains("() => S_0", output);
-        Assert.Equal(
-            (LoadNodes: 1, DistinctSlots: 1),
-            (telemetry.LoadNodes, telemetry.DistinctSlots));
-    }
-
-    [Fact]
-    public void StackSlotUnifierTelemetry_CountsLoadInExpressionBodiedNestedLocalFunction()
-    {
-        var i32 = TypeRef.CoreLib("System", "Int32");
-        var voidType = TypeRef.CoreLib("System", "Void");
-
-        var localFunctionBlock = new Block();
-        localFunctionBlock.Add(
-            new Return(new LoadStackSlot(0, i32)));
-        var localFunctionBody = new BlockContainer();
-        localFunctionBody.Add(localFunctionBlock);
-        var localFunction = new LocalFunctionStatement(
-            "Local",
-            i32,
-            [],
-            isStatic: true,
-            [],
-            [],
-            usesUpdatedMemorySafetyRules: false,
-            skipLocalsInit: false,
-            localFunctionBody);
-
-        var block = new Block();
-        block.Add(localFunction);
-        var body = new BlockContainer();
-        body.Add(block);
-        var function = new IrFunction(
-            "M",
-            TypeRef.CoreLib("Synthetic", "T"),
-            new MethodSignature(
-                voidType,
-                [],
-                HasThis: false,
-                GenericParameterCount: 0),
-            [],
-            body);
-
-        var telemetry =
-            CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
-        var output = CSharpPrinter.Print(function).Output;
-
-        Assert.Contains("static int Local() => S_0;", output);
-        Assert.Equal(
-            (LoadNodes: 1, DistinctSlots: 1),
-            (telemetry.LoadNodes, telemetry.DistinctSlots));
-    }
-
-    [Fact]
-    public void StackSlotUnifierTelemetry_DoesNotOwnReferenceCoalesceAtObjectTarget()
+    public void ResidualBinding_DoesNotOwnReferenceCoalesceAtObjectTarget()
     {
         var obj = TypeRef.CoreLib("System", "Object");
         var str = TypeRef.CoreLib("System", "String");
@@ -382,16 +168,17 @@ public class SlotResidualCensusTests
             [str],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         var output = CSharpPrinter.Print(function).Output;
 
-        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        Assert.Equal(2, function.ResidualSlotBindings.Count);
+        Assert.All(function.ResidualSlotBindings.Values, binding => Assert.Equal(ResidualSlotBindingKind.Split, binding.Kind));
         Assert.Contains("string S_0 = V_0 ?? fallback;", output);
         Assert.Contains("Use(S_0_1);", output);
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_DoesNotUnifyObjectCoalesceToStringTarget()
+    public void ResidualBinding_DoesNotUnifyObjectCoalesceToStringTarget()
     {
         var obj = TypeRef.CoreLib("System", "Object");
         var str = TypeRef.CoreLib("System", "String");
@@ -418,16 +205,16 @@ public class SlotResidualCensusTests
             [],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         var output = CSharpPrinter.Print(function).Output;
 
-        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        Assert.Equal(2, function.ResidualSlotBindings.Count);
         Assert.Contains("object S_0 = left ?? right;", output);
         Assert.Contains("Use(S_0_1);", output);
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_DoesNotUnifyIncompatibleReferencesToObjectTarget()
+    public void ResidualBinding_DoesNotUnifyIncompatibleReferencesToObjectTarget()
     {
         var obj = TypeRef.CoreLib("System", "Object");
         var str = TypeRef.CoreLib("System", "String");
@@ -455,16 +242,16 @@ public class SlotResidualCensusTests
             [],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         var output = CSharpPrinter.Print(function).Output;
 
-        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        Assert.Equal(2, function.ResidualSlotBindings.Count);
         Assert.Contains("string S_0 = left ?? right;", output);
         Assert.Contains("Use(S_0_1);", output);
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_DoesNotUnifyNullNullCoalesceToObjectTarget()
+    public void ResidualBinding_DoesNotUnifyNullNullCoalesceToObjectTarget()
     {
         var obj = TypeRef.CoreLib("System", "Object");
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
@@ -487,13 +274,17 @@ public class SlotResidualCensusTests
             [],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
 
-        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        // A coalesce store never qualifies a candidate, so even same-typed
+        // occurrences split by the printer's frozen rule: both pieces share the
+        // object type key, so the split still yields one local.
+        Assert.Single(function.ResidualSlotBindings);
+        Assert.Equal(ResidualSlotBindingKind.Split, function.ResidualSlotBindings.Values.Single().Kind);
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_DoesNotOwnNullableValueCoalesceAtValueTarget()
+    public void ResidualBinding_DoesNotOwnNullableValueCoalesceAtValueTarget()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");
         var nullableInt32 = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Nullable`1"), [int32]);
@@ -519,16 +310,16 @@ public class SlotResidualCensusTests
             [],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         var output = CSharpPrinter.Print(function).Output;
 
-        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        Assert.Single(function.ResidualSlotBindings);
         Assert.Contains("int S_0 = left ?? 0;", output);
         Assert.Contains("Use(S_0);", output);
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_UnifiesUnknownEnumConstantStore()
+    public void ResidualBinding_UnifiesUnknownEnumConstantStore()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");
         var enumLike = TypeRef.Definition("Synthetic", "Samples", "MaybeEnum", ValueTypeHint.ValueType);
@@ -549,10 +340,11 @@ public class SlotResidualCensusTests
             [],
             body);
 
-        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         var output = CSharpPrinter.Print(function).Output;
 
-        Assert.Equal(0, telemetry.UnunifiedSplitSlots);
+        Assert.Single(function.ResidualSlotBindings);
+        Assert.Equal(ResidualSlotBindingKind.Unified, function.ResidualSlotBindings.Values.Single().Kind);
         Assert.DoesNotContain("S_0_1", output);
         Assert.Contains("S_0 = (MaybeEnum)0;", output);
     }

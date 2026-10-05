@@ -8,10 +8,10 @@ namespace ILInspector.Decompiler.Tests;
 public class NestedSlotMaterializationTests
 {
     [Theory]
-    [InlineData(false, "Microsoft.CodeAnalysis.SyntaxDiffer", "RecordChange", 1)]
-    [InlineData(true, "Microsoft.CodeAnalysis.CSharp.OverloadResolution", "BetterConversionTargetCore", 1)]
+    [InlineData(false, "Microsoft.CodeAnalysis.SyntaxDiffer", "RecordChange", 1, "CreateQueue")]
+    [InlineData(true, "Microsoft.CodeAnalysis.CSharp.OverloadResolution", "BetterConversionTargetCore", 1, null)]
     public void RealOuterSlotMaterializesIndependentlyOfNestedStorage(
-        bool csharp, string typeName, string methodName, int overloadIndex)
+        bool csharp, string typeName, string methodName, int overloadIndex, string? residualBoundLocalFunction)
     {
         string path = csharp
             ? typeof(CSharpSyntaxTree).Assembly.Location
@@ -44,10 +44,39 @@ public class NestedSlotMaterializationTests
             return index >= 0 && CoercionSinks.ScopeNodes(scope).OfType<StoreLocal>()
                 .Any(store => store.Index == index);
         }).ToArray();
-        if (csharp)
-            Assert.NotEmpty(materializedNested);
-        else
-            Assert.NotEmpty(nested);
+        // A nested body binds its own residual webs inside its own pipeline
+        // tail (residual storage binding) before the nested node exists, so by
+        // the outer materialization position no nested slot-256 decision
+        // remains: the nested web is already an S_256 local in the nested body.
+        // Where that local is residual-bound rather than materialized, the
+        // raised node carries the binding's provenance for hosts and the census.
+        Assert.Empty(nested);
+        Assert.NotEmpty(materializedNested);
+        Assert.All(materializedNested, scope =>
+        {
+            var (name, index, bound) = scope switch
+            {
+                Lambda lambda => (
+                    (string?)null,
+                    lambda.SynthesizedLocalNames.IndexOf("S_256"),
+                    lambda.ResidualSlotBindings),
+                LocalFunctionStatement localFunction => (
+                    localFunction.Name,
+                    localFunction.SynthesizedLocalNames.IndexOf("S_256"),
+                    localFunction.ResidualSlotBindings),
+                _ => throw new InvalidOperationException(),
+            };
+            int localIndex = index + (scope is Lambda l ? l.Locals.Length - l.SynthesizedLocalNames.Length : ((LocalFunctionStatement)scope).Locals.Length - ((LocalFunctionStatement)scope).SynthesizedLocalNames.Length);
+            if (name == residualBoundLocalFunction)
+            {
+                var binding = Assert.Contains(localIndex, bound);
+                Assert.Equal(256, binding.Slot);
+            }
+            else
+            {
+                Assert.DoesNotContain(localIndex, bound);
+            }
+        });
         Assert.All(nested, decision => Assert.Equal(SlotMaterializationVeto.NestedScope, decision.Vetoes));
         var retainedNodes = nested.Select(decision => decision.Scope)
             .Concat(materializedNested)

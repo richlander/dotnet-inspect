@@ -582,12 +582,11 @@ cache.
    outside the default `-v:m` view. It uses Markout for tables and the Mermaid
    graph lowering, and `--envelope` carries the complete Content with Share
    and diagnostics.
-4. **Browser/Wasm:** the Library Analysis inspector's Relationships tab adds a
-   levelized namespace view with cycles marked and drill-down from edge to
-   explaining type edges to Type. Initial Relationships activation requests
-   only Library Metrics; the tab presents an explicit **Load dependency
-   structure** gesture before spending the additional whole-library call-graph
-   budget.
+4. **Browser/Wasm:** the Library Analysis inspector exposes a dedicated
+   **Dependencies** tab with a levelized namespace view, marked cycles, and
+   drill-down from one selected namespace edge to its explaining Type edges.
+   Entering the tab does not spend the additional whole-library call-graph
+   budget; it presents an explicit **Load dependency structure** gesture.
    That gesture invokes a separate focused managed operation whose Analysis
    request selects only Method Evidence and whose Research query remains the
    singular owner of topology. Its QuerySpace request retains every namespace
@@ -595,13 +594,21 @@ cache.
    response carries the total edge count so the host discloses any omitted
    edges. TypeScript positions nodes by their issued levels, marks their issued
    cycle indices, preserves distinct directional arrows for reciprocal selected
-   relationships, and activates explaining types by exact type key. Dependency
-   loading rerenders preserve the Relationships selection and visible arc
-   control. Cycle badges describe the complete analyzed topology even when
-   edge selection
-   omits a cycle-forming relationship. It does not derive SCCs, levels,
-   completeness, or relationships. This interactive SVG and native-details
-   lowering deliberately bypasses Markout because
+   relationships, and activates explaining types by exact type key. One stable
+   detail panel below the graph names the selected source and target namespaces,
+   reports the edge's issued counts, and exposes only that edge's bounded Type
+   contributors. Selection uses exact namespace identity rather than display
+   text.
+
+   The global namespace remains in the returned typed document but is hidden
+   from the initial graph together with its incident selected edges and any
+   cycle that contains it. The inspector discloses those omissions and offers
+   an **Include global namespace** control. This keeps compiler-synthesized
+   global-namespace types from dominating the authored-structure view without
+   converting their absence into a product claim. Other nodes retain their
+   owner-issued levels; the Browser does not renumber them or derive a filtered
+   topology. It does not derive SCCs, levels, completeness, or relationships.
+   This interactive SVG lowering deliberately bypasses Markout because
    visual-edge selection and exact-Type activation are Browser interaction
    concerns. A later Library Metrics request and dependency request may repeat
    Analysis work; cross-request prepared sharing remains owned by

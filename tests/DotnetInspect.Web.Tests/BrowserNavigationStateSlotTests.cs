@@ -151,6 +151,47 @@ public sealed class BrowserNavigationStateSlotTests
     }
 
     [Fact]
+    public async Task StateSlot_ScopeRetirementReturnsTypedRetiredOutcome()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        BrowserNavigationStateSlot slot = fixture.Slot;
+        fixture.AcknowledgeInitialization();
+        var submitted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        WorkspaceScopeRequest request =
+            fixture.Workspace.IssueAddPackagesRequest(
+                fixture.Scope.Revision,
+                [fixture.RootBinding],
+                DateTimeOffset.UtcNow.AddMinutes(1));
+
+        async ValueTask<WorkspaceScopeOperationResult> WaitForRetirement(
+            WorkspaceScopeRequest _,
+            CancellationToken cancellationToken)
+        {
+            submitted.SetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "Retirement cancellation did not stop Scope submission.");
+        }
+
+        Task<BrowserNavigationScopeOperationResult> operation =
+            slot.ExecuteScopeOperationAsync(
+                request,
+                WaitForRetirement,
+                static (_, _, _) => throw new InvalidOperationException(
+                    "A retired Scope operation must not prepare Navigation."),
+                TestContext.Current.CancellationToken).AsTask();
+        await submitted.Task;
+
+        slot.Retire();
+
+        Assert.IsType<BrowserNavigationScopeOperationResult.Retired>(
+            await operation);
+    }
+
+    [Fact]
     public async Task StateSlot_RetirementSettlesBlockedSynchronization()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
@@ -291,17 +332,23 @@ public sealed class BrowserNavigationStateSlotTests
 
         Fixture(
             InspectionWorkspace workspace,
+            WorkspaceScopeSnapshot scope,
+            PackageRootBinding binding,
             NavigationEvaluationFacts facts,
             PackageAssemblyContextRealization realization,
             BrowserNavigationStateSlot slot)
         {
             Workspace = workspace;
+            Scope = scope;
+            RootBinding = binding;
             _facts = facts;
             _realization = realization;
             Slot = slot;
         }
 
         internal InspectionWorkspace Workspace { get; }
+        internal WorkspaceScopeSnapshot Scope { get; }
+        internal PackageRootBinding RootBinding { get; }
         internal BrowserNavigationStateSlot Slot { get; }
 
         internal static async Task<Fixture> CreateAsync()
@@ -353,6 +400,8 @@ public sealed class BrowserNavigationStateSlotTests
                     registry);
             return new Fixture(
                 workspace,
+                scope,
+                binding,
                 facts,
                 realization,
                 new BrowserNavigationStateSlot(

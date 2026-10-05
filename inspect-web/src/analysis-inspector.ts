@@ -1,18 +1,20 @@
 export type AnalysisMode =
   | "complexity"
+  | "dependencies"
   | "relationships"
   | "performance"
-  | "integrations"
-  | "opportunities";
+  | "integrations";
+
+export const defaultAnalysisMode: AnalysisMode = "relationships";
 
 export function isAnalysisMode(
   value: string | undefined,
 ): value is AnalysisMode {
   return value === "complexity"
+    || value === "dependencies"
     || value === "relationships"
     || value === "performance"
-    || value === "integrations"
-    || value === "opportunities";
+    || value === "integrations";
 }
 
 export interface AnalysisInspectorContext {
@@ -24,11 +26,11 @@ export interface AnalysisInspectorContext {
 }
 
 const modes = [
+  [defaultAnalysisMode, "Relationships"],
+  ["dependencies", "Dependencies"],
   ["complexity", "Complexity"],
-  ["relationships", "Relationships"],
   ["performance", "Performance"],
   ["integrations", "Integrations"],
-  ["opportunities", "Opportunities"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 
 export function renderAnalysisInspector(
