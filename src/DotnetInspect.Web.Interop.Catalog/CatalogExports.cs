@@ -30,7 +30,8 @@ public static partial class CatalogExports
     private static readonly Lazy<BrowserVocabularyInspection>
         VocabularyInspection =
             new(() => BrowserVocabulary.ToBrowserInspection(
-                ProductVocabularyInspection.Execute()));
+                ProductVocabularyInspection.Execute(
+                    BrowserVocabularyComposition.Snapshot)));
 
     [JSExport]
     public static string InspectVocabulary() =>

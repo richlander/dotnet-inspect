@@ -82,14 +82,16 @@ implicit:
   it can group the picker.
 
 The first production outcome keeps the existing Settings experience while
-removing those reconstructions. The product publishes one typed snapshot; the
-CLI projects its established vocabulary document from that snapshot, and
-Inspect Web groups choices through the declared `tier` term map.
+removing those reconstructions. Each host composes one typed snapshot from the
+owners' declarations; the CLI projects its established vocabulary document from
+its snapshot, and Inspect Web groups choices through the declared `tier` term
+map.
 
-Conceptually, the C# producer supplies:
+Conceptually, the C# host supplies:
 
 ```csharp
-VocabularySnapshot snapshot = VocabularyCatalog.Snapshot;
+VocabularySnapshot snapshot =
+    ProductVocabularyComposition.Compose(contributions);
 VocabularyMap tierMap = snapshot.GetMap(
     "csharp.style-choices",
     "tier");
