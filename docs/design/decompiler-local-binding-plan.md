@@ -34,10 +34,15 @@ The plan consumes, without redefining:
 - explicit presentation options supplied to the shared library path.
 
 [The thin writer](value-typed-emission.md) owns residual stack-slot
-materialization. A residual stack slot is not a materialized local and is not
-silently converted by this plan. Definite-assignment analysis owns whether a
+materialization and, for webs materialization declines, residual storage
+binding. Both issue ordinary locals before this plan runs; a residual-bound
+local is a materialized local to this plan, with its slot provenance carried
+separately. No stack-slot node reaches the plan's consumer. Definite-assignment analysis owns whether a
 declaration requires initialization such as `= default`; this plan consumes
-that disposition and does not redesign it.
+that disposition and does not redesign it. The one exception is the thin
+writer's: a residual-bound local is
+[never zero-initialised](value-typed-emission.md#residual-storage-binding),
+so an unreached read of one stays CS0165-visible instead of taking `= default`.
 
 The first production adoption uses the lexical structure already proved by
 the existing PDB-scope and scope-entry-local passes. Consolidating those
@@ -195,7 +200,7 @@ For a successful plan:
 
 The first production adoption gates the declaration-ownership subset in
 Release: `PdbLocalDeclarationScopeTests` checks that the plan owns
-materialized-local declarations, excludes residual stack slots, covers raised
+materialized-local declarations, including residual-bound locals, covers raised
 nested bodies, and supplies the emitted scopes consumed by exact-name
 allocation. Existing output behavior remains covered by
 `PdbLocalNameScopeTests`, `PdbLocalScopeFidelityTests`,
@@ -224,7 +229,8 @@ lambdas, and raised local functions. It must:
   body was incorrectly consuming its enclosing body's bindings;
 - preserve exact-name fidelity and Applied Taste disclosure;
 - remove the pipeline-to-printer declaration-analysis dependency; and
-- leave residual stack slots on the explicitly named #2095 path.
+- consume residual-bound locals issued on the #2095 path as ordinary
+  materialized locals.
 
 A side-by-side computation is bounded migration evidence. It is not a
 long-lived second authority: the adoption slice names the production consumer
@@ -236,8 +242,8 @@ syntax-owned declarations, verified `out` declarations, unsafe-placement
 dispositions, and exact emitted scopes. `ExactLocalNameAllocation` and
 `PdbLocalScopePass` consume those same emitted scopes directly. The former
 printer callback and its duplicate materialized-local collection path have
-been removed; residual `StoreStackSlot` declaration handling remains in the
-printer for the #2095 adoption.
+been removed, and the printer's residual `StoreStackSlot` declaration
+handling was deleted when residual storage binding landed.
 
 The scope-entry projection owner supplies declaration provenance with each
 logical local it has already proved from a compiler carrier. The declaration
@@ -255,8 +261,10 @@ and stable slot-fallback precedence; records the winning provenance, exact-name
 disposition, and preferred stem; and carries the explicit presentation options
 used for that render. `CSharpPrinter` now spells that binding and lowers
 approximate provenance into the existing Applied Taste decision. It no longer
-allocates materialized-local names or collision suffixes. Residual stack-slot
-and printer-generated helper names remain on their separately owned paths.
+allocates materialized-local names or collision suffixes. Residual-bound
+locals arrive with their `S_n` synthesized names and resolve collisions like
+any synthesized local; printer-generated helper names remain on their
+separately owned path.
 `ReadableLocalNamesTests`, `NestedScopeNameCollisionTests`,
 `PdbLocalNameScopeTests`, and `LambdaRaisingPassTests` gate the plan and its
 method, raised-lambda, raised-local-function, disclosure, and collision
@@ -277,8 +285,7 @@ Expression-bodied lambdas with local bindings render through the same isolated
 nested-body plan as block-bodied lambdas. They therefore preserve their own
 exact names and resolve fallback collisions against enclosing binders instead
 of accidentally consuming an enclosing binding with the same numeric index.
-Residual stack-slot and printer-generated helper names remain on their
-separately owned paths.
+Printer-generated helper names remain on their separately owned path.
 
 ## Pathological case
 

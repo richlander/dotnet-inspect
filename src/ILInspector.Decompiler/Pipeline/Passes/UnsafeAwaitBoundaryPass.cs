@@ -68,12 +68,6 @@ public sealed class UnsafeAwaitBoundaryPass : IIrPass
 
         var fixedLocals = function.DescendantsOutsideNestedFunctions
             .OfType<Fixed>()
-            .Where(fixedStatement => !fixedStatement.LocalIsStackSlot)
-            .Select(fixedStatement => fixedStatement.LocalIndex)
-            .ToHashSet();
-        var fixedStackSlots = function.DescendantsOutsideNestedFunctions
-            .OfType<Fixed>()
-            .Where(fixedStatement => fixedStatement.LocalIsStackSlot)
             .Select(fixedStatement => fixedStatement.LocalIndex)
             .ToHashSet();
 
@@ -102,11 +96,8 @@ public sealed class UnsafeAwaitBoundaryPass : IIrPass
             .GroupBy(store => store.Slot)
             .Select(group => group.First()))
         {
-            if (fixedStackSlots.Contains(store.Slot)
-                || !UnsafeAwaitOperand.ContainsPointer(store.Value.ResultType))
-            {
+            if (!UnsafeAwaitOperand.ContainsPointer(store.Value.ResultType))
                 continue;
-            }
             if (!UnsafeAwaitOperand.CanScopeLegacyPointerStackSlot(function, store))
                 return true;
         }

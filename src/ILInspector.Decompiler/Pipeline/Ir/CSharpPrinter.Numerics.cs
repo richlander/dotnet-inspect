@@ -2410,7 +2410,7 @@ public sealed partial class CSharpPrinter
         // every store — both diverge from the rendered type in slot-confused or
         // generic bodies, where a keyed cast would be illegal (CS0030). Leave
         // those to render as-is (the enum cast above is the one safe exception).
-        if (value is Conditional or Coalesce or LoadStackSlot)
+        if (value is Conditional or Coalesce)
             return TransparentCoercion(value);
         // A constant carries an exact value: C# converts an in-range one to the
         // target type implicitly (render bare), while an out-of-range one — a

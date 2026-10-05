@@ -606,6 +606,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 LocalNameImportCauses = body.LocalNameImportCauses,
                 MaterializedStackSlotLocals =
                     body.MaterializedStackSlotLocals,
+                ResidualSlotBindings = body.ResidualSlotBindings,
                 CapturedBinderNames = candidate.CapturedBinderNames,
             };
             declarations.Add(declaration);
