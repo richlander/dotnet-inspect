@@ -150,6 +150,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 result.VersionSettlement),
             PackageInfo: null,
             PackageChildren: null,
+            Documents: [],
             Surface: null);
         string json = JsonSerializer.Serialize(
             wireResult,
@@ -563,7 +564,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     new InspectionShare.NonProjectable(
                         "package-children/share",
                         "No canonical Workspace share projection."))),
-            new BrowserPackageSurface(
+            Documents: [],
+            Surface: new BrowserPackageSurface(
                 SettlementPackageId,
                 SettlementStableVersion,
                 Frameworks: [],

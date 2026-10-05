@@ -157,7 +157,7 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
 
     public PackageHouse House { get; }
 
-    internal PackageSourceOperationLease IssueOperation(
+    public PackageSourceOperationLease IssueOperation(
         PackageHouseOperation operation,
         CancellationToken cancellationToken)
     {
@@ -176,6 +176,25 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
 
         return sourceOperation;
     }
+}
+
+public sealed record PackageDependencyMemberCallGraphInspectionPreparation(
+    PackageDependencyMemberCallGraphInspectionRequest Request,
+    PackageDependencyMemberCallGraphInspectionSource Source,
+    PackageDependencyTraversalOutcome Traversal,
+    ImmutableArray<PackageDependencyEdgeRealizationExecution>
+        EdgeExecutions);
+
+public abstract class
+    PackageDependencyMemberCallGraphInspectionContinuation
+{
+    public abstract ValueTask<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteAsync(
+            PackageDependencyMemberCallGraphInspectionPreparation
+                preparation,
+            CancellationToken cancellationToken);
 }
 
 public sealed record PackageDependencyMemberCallGraphDocument(
@@ -243,6 +262,12 @@ public enum PackageDependencyMemberCallGraphInspectionUnavailableReason
     DependencyWorkspaceNotCommitted,
     FocusUnavailable,
     PackageContextCleanupFailed,
+    AssemblyReferenceResolutionUnavailable,
+    AssemblyReferenceResolutionRejected,
+    AssemblyReferenceResolutionIncomplete,
+    AssemblyReferenceContinuationRejected,
+    AssemblyReferenceContinuationIncomplete,
+    AssemblyReferenceContinuationFailed,
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -279,6 +304,22 @@ public static class PackageDependencyMemberCallGraphInspection
         ExecuteAsync(
             PackageDependencyMemberCallGraphInspectionRequest request,
             PackageDependencyMemberCallGraphInspectionSource source,
+            CancellationToken cancellationToken = default)
+        => await ExecuteAsync(
+                request,
+                source,
+                continuation: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public static async ValueTask<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteAsync(
+            PackageDependencyMemberCallGraphInspectionRequest request,
+            PackageDependencyMemberCallGraphInspectionSource source,
+            PackageDependencyMemberCallGraphInspectionContinuation?
+                continuation,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -340,6 +381,17 @@ public static class PackageDependencyMemberCallGraphInspection
                 .ConfigureAwait(false);
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
             executions = PrepareExecutions(request, traversal);
+        if (continuation is not null)
+        {
+            return await continuation.ExecuteAsync(
+                    new(
+                        request,
+                        source,
+                        traversal,
+                        executions),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         await using var workspace =
             new InspectionWorkspace(request.WorkspacePlan);
@@ -425,8 +477,17 @@ public static class PackageDependencyMemberCallGraphInspection
                     sourceOperation)
                 .ConfigureAwait(false);
 
+        return ProjectEnvelope(lowerOutcome);
+    }
+
+    public static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>
+        ProjectEnvelope(
+        PackageDependencyMemberCallGraphOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
         PackageDependencyMemberCallGraphInspectionOutcome content =
-            Project(lowerOutcome);
+            Project(outcome);
         return Envelope(
             content,
             content
@@ -435,6 +496,13 @@ public static class PackageDependencyMemberCallGraphInspection
                 ? Diagnostics(completed.Document)
                 : []);
     }
+
+    public static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>
+        ProjectUnavailable(
+        PackageDependencyMemberCallGraphInspectionUnavailableReason reason,
+        string detail) =>
+        Envelope(Unavailable(reason, detail));
 
     static ImmutableArray<PackageDependencyEdgeRealizationExecution>
         PrepareExecutions(
@@ -626,7 +694,7 @@ public static class PackageDependencyMemberCallGraphInspection
         return diagnostics.ToImmutable();
     }
 
-    static string DescribeScopeOperation(
+    public static string DescribeScopeOperation(
         WorkspaceScopeOperationResult result) =>
         result switch
         {

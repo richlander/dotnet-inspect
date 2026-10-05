@@ -8,22 +8,6 @@ export function platformCatalogFramework(tfm: string): string {
   return match?.[1] ?? tfm;
 }
 
-export function requirePlatformPackageSupplies(
-  target: PlatformCatalogTarget,
-): readonly PlatformPackageSupply[] {
-  if (target.supplies === null) {
-    throw new Error(
-      `Platform target ${target.tfm}@${target.version} has no exact package supply inventory.`,
-    );
-  }
-  return target.supplies;
-}
-
-export function isExactPlatformPruningFramework(tfm: string): boolean {
-  const match = /^net(\d+)\.(\d+)$/i.exec(tfm);
-  return match !== null && Number(match[1]) >= 5;
-}
-
 export interface PlatformAssemblyRow {
   readonly tfm: string;
   readonly pack: PlatformPack;
@@ -38,7 +22,7 @@ export interface PlatformAssemblyRow {
   readonly packVersion: string;
 }
 
-export interface PlatformPackageSupply {
+interface PlatformPackageSupply {
   readonly pack: "netcore.app" | "aspnetcore.app";
   readonly family: "Microsoft.NETCore.App" | "Microsoft.AspNetCore.App";
   readonly package: string;

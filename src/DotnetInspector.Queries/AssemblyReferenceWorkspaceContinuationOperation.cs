@@ -247,10 +247,35 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
             constructSuccessor,
         CancellationToken cancellationToken = default)
     {
+        return await ExecuteAsync(
+                coordinator,
+                predecessor,
+                demand,
+                constructSuccessor,
+                static () => ValueTask.CompletedTask,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public static async ValueTask<
+        AssemblyReferenceWorkspaceContinuationOutcome> ExecuteAsync(
+        WorkspaceReplacementCoordinator coordinator,
+        WorkspaceRealizationOperationLease predecessor,
+        AssemblyReferenceWorkspaceContinuationDemand demand,
+        Func<
+            InspectionWorkspace,
+            AssemblyReferenceWorkspaceContinuationDemand,
+            CancellationToken,
+            ValueTask<AssemblyReferenceResolutionRequest>>
+            constructSuccessor,
+        Func<ValueTask> releaseConstructedSuccessor,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(coordinator);
         ArgumentNullException.ThrowIfNull(predecessor);
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(constructSuccessor);
+        ArgumentNullException.ThrowIfNull(releaseConstructedSuccessor);
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -320,6 +345,34 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         }
 
         WorkspaceRealizationCandidate candidate = prepared.Candidate;
+        async ValueTask<
+            AssemblyReferenceWorkspaceContinuationOutcome.Failed?>
+            ReleaseFailureAsync(
+            bool cancel,
+            Exception? precedingFailure = null)
+        {
+            try
+            {
+                await releaseConstructedSuccessor().ConfigureAwait(false);
+                return null;
+            }
+            catch (Exception releaseFailure)
+            {
+                Exception failure = precedingFailure is null
+                    ? releaseFailure
+                    : new AggregateException(
+                        precedingFailure,
+                        releaseFailure);
+                return new AssemblyReferenceWorkspaceContinuationOutcome
+                    .Failed(
+                        failure,
+                        await RetireCandidateAsync(
+                                coordinator,
+                                candidate,
+                                cancel)
+                            .ConfigureAwait(false));
+            }
+        }
         AssemblyReferenceResolutionRequest successorRequest;
         bool successorMatches;
         try
@@ -344,6 +397,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
+            if (await ReleaseFailureAsync(cancel: true).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
                 await RetireCandidateAsync(
                         coordinator,
@@ -354,6 +412,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         catch (OperationCanceledException)
             when (deadlineCancellation.IsCancellationRequested)
         {
+            if (await ReleaseFailureAsync(cancel: true).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
                 demand.Request.Work.RecordDeadlineExhaustion(),
                 await RetireCandidateAsync(
@@ -362,8 +425,31 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
                         cancel: true)
                     .ConfigureAwait(false));
         }
+        catch (AssemblyReferenceResolutionWorkExhaustedException exhausted)
+        {
+            if (await ReleaseFailureAsync(cancel: true).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
+            return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
+                exhausted.Exhaustion,
+                await RetireCandidateAsync(
+                        coordinator,
+                        candidate,
+                        cancel: true)
+                    .ConfigureAwait(false));
+        }
         catch (Exception failure)
         {
+            if (await ReleaseFailureAsync(
+                    cancel: false,
+                    failure)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new AssemblyReferenceWorkspaceContinuationOutcome.Failed(
                 failure,
                 await RetireCandidateAsync(
@@ -374,6 +460,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         }
         if (!successorMatches)
         {
+            if (await ReleaseFailureAsync(cancel: false).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return await RejectCandidateAsync(
                     coordinator,
                     candidate,
@@ -393,6 +484,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
+            if (await ReleaseFailureAsync(cancel: true).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
                 await RetireCandidateAsync(
                         coordinator,
@@ -403,6 +499,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         catch (OperationCanceledException)
             when (deadlineCancellation.IsCancellationRequested)
         {
+            if (await ReleaseFailureAsync(cancel: true).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
                 demand.Request.Work.RecordDeadlineExhaustion(),
                 await RetireCandidateAsync(
@@ -413,6 +514,14 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         }
         catch (Exception failure)
         {
+            if (await ReleaseFailureAsync(
+                    cancel: false,
+                    failure)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new AssemblyReferenceWorkspaceContinuationOutcome.Failed(
                 failure,
                 await RetireCandidateAsync(
@@ -428,6 +537,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
             var rejected =
                 (WorkspaceRealizationCandidateCompletionResult.Rejected)
                     completion;
+            if (await ReleaseFailureAsync(cancel: false).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return await RejectCandidateAsync(
                     coordinator,
                     candidate,
@@ -442,6 +556,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
                 successorRequest,
                 ready.Definition))
         {
+            if (await ReleaseFailureAsync(cancel: false).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return await RejectCandidateAsync(
                     coordinator,
                     candidate,
@@ -451,6 +570,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         }
         if (cancellationToken.IsCancellationRequested)
         {
+            if (await ReleaseFailureAsync(cancel: true).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
                 await RetireCandidateAsync(
                         coordinator,
@@ -460,6 +584,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
         }
         if (deadlineCancellation.IsCancellationRequested)
         {
+            if (await ReleaseFailureAsync(cancel: true).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new AssemblyReferenceWorkspaceContinuationOutcome.Incomplete(
                 demand.Request.Work.RecordDeadlineExhaustion(),
                 await RetireCandidateAsync(
@@ -475,6 +604,11 @@ public static class AssemblyReferenceWorkspaceContinuationOperation
             is not WorkspaceRealizationCutoverResult.Activated activated)
         {
             var rejected = (WorkspaceRealizationCutoverResult.Rejected)cutover;
+            if (await ReleaseFailureAsync(cancel: false).ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return await RejectCandidateAsync(
                     coordinator,
                     candidate,

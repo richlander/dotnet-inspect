@@ -313,7 +313,7 @@ public class StructuringDiagnosticsTests
         Assert.Empty(function.Descendants.OfType<Leave>());
         Assert.Single(function.Descendants.OfType<IfStatement>());
 
-        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        var output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("try", output);
         Assert.Contains("finally", output);
         Assert.DoesNotContain("// leave", output);
@@ -346,7 +346,7 @@ public class StructuringDiagnosticsTests
         Assert.Equal(2, function.Descendants.OfType<Continue>().Count());
         Assert.Contains(function.Descendants.OfType<Leave>(), leave => leave.TargetOffset == 0x0040);
 
-        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        var output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("while (true)", output);
         Assert.Contains("continue;", output);
         Assert.Contains("catch", output);
@@ -368,7 +368,7 @@ public class StructuringDiagnosticsTests
         Assert.Single(function.Descendants.OfType<Continue>());
         Assert.True(function.Descendants.OfType<Break>().Count() >= 2);
 
-        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        var output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("while (true)", output);
         Assert.Contains("continue;", output);
         Assert.Contains("catch", output);

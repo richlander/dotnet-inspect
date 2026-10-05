@@ -1485,7 +1485,9 @@ public sealed partial class InspectionWorkspace
         PreparePackageRoleRealization(
         IEnumerable<PackageRootRealization> packages,
         PackageAssemblyContextRealizationOptions? options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IEnumerable<(PackageRootRealization Package, PackageCompileAsset Asset)>?
+            additionalImplementationAssets = null)
     {
         ArgumentNullException.ThrowIfNull(packages);
         options ??= new PackageAssemblyContextRealizationOptions();
@@ -1527,6 +1529,38 @@ public sealed partial class InspectionWorkspace
                             packageIndex,
                             package,
                             asset))),
+        ];
+        if (additionalImplementationAssets is not null)
+        {
+            var packageIndexes =
+                new Dictionary<PackageRootRealization, int>(
+                    ReferenceEqualityComparer.Instance);
+            for (int index = 0; index < packageRoots.Length; index++)
+                packageIndexes.Add(packageRoots[index], index);
+
+            implementationAssets =
+            [
+                .. implementationAssets,
+                .. additionalImplementationAssets.Select(item =>
+                    new RoleAsset(
+                        packageIndexes.TryGetValue(
+                            item.Package,
+                            out int packageIndex)
+                            ? packageIndex
+                            : throw new ArgumentException(
+                                "An additional implementation asset must belong to one selected package.",
+                                nameof(additionalImplementationAssets)),
+                        item.Package,
+                        item.Asset
+                            ?? throw new ArgumentException(
+                                "An additional implementation asset cannot be null.",
+                                nameof(additionalImplementationAssets)))),
+            ];
+        }
+        implementationAssets =
+        [
+            .. implementationAssets.Distinct(
+                RoleAssetIdentityComparer.Instance),
         ];
         ValidateAssetCount(surfaceAssets.Length, options);
         ValidateAssetCount(implementationAssets.Length, options);

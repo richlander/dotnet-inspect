@@ -210,7 +210,7 @@ public class LadderRung6GateTests
                     new LoadField(fieldY, (IrExpression)p.Clone()))),
             new Return(new LoadField(fieldX, (IrExpression)p.Clone())));
         new ScalarSelfUpdatePass().Run(function, PassContext.None);
-        var body = CSharpPrinter.Print(function).Output!;
+        var body = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("p->X += p->Y;", body);
         Assert.Contains("return unsafe(p->X);", body);
@@ -233,7 +233,7 @@ public class LadderRung6GateTests
         {
             BackingPropertyName = "X",
         };
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "ReadPointerBackingProperty",
             Int32,
             [new Parameter("p", recordPointer)],
@@ -256,7 +256,7 @@ public class LadderRung6GateTests
         var capture = TypeRef.Definition("Synthetic", "LadderRung6", "CapturePoint", ValueTypeHint.ValueType);
         var capturePointer = TypeRef.Pointer(capture);
         var field = new FieldRef(capture, "<X>P", Int32);
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "ReadPointerPrimaryConstructorCapture",
             Int32,
             [new Parameter("p", capturePointer)],
@@ -302,7 +302,7 @@ public class LadderRung6GateTests
                     new LoadProperty(indexer, (IrExpression)p.Clone(), [new Constant(1, Int32)])),
                 new Call(method, isVirtual: false, [(IrExpression)p.Clone()])),
             new Call(extension, isVirtual: false, [(IrExpression)p.Clone()]));
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "ReadPointerMembers",
             Int32,
             [new Parameter("p", pointPointer)],
@@ -364,7 +364,7 @@ public class LadderRung6GateTests
                 new LoadProperty(property, p, []),
                 new LoadProperty(indexer, (IrExpression)p.Clone(), [new Constant(1, Int32)])),
             new Call(method, isVirtual: true, [(IrExpression)p.Clone()]));
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "ReadInterfacePointerMembers",
             Int32,
             [new Parameter("p", pointer)],
@@ -418,7 +418,7 @@ public class LadderRung6GateTests
                 new LoadField(field, next),
                 new LoadProperty(indexer, (IrExpression)next.Clone(), [new Constant(1, Int32)])),
             new Call(method, isVirtual: false, [(IrExpression)next.Clone()]));
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "ReadPointerArithmeticReceiver",
             Int32,
             [new Parameter("p", pointPointer)],
@@ -452,7 +452,7 @@ public class LadderRung6GateTests
         var p = new LoadArgument(0, "p", bytePointer);
         var cast = new Pipeline.Convert(pointPointer, isChecked: false, isUnsigned: false, p);
         var field = new FieldRef(point, "X", Int32);
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "ReadPointerCastReceiver",
             Int32,
             [new Parameter("p", bytePointer)],
@@ -477,7 +477,7 @@ public class LadderRung6GateTests
         var p = new LoadArgument(0, "p", pointPointer);
         var increment = new IncrementDecrement(p, isIncrement: true, isPrefix: true);
         var method = new MethodRef(point, "M", Int32, [], HasThis: true);
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "ReadPointerIncrementReceiver",
             Int32,
             [new Parameter("p", pointPointer)],
@@ -500,7 +500,7 @@ public class LadderRung6GateTests
         var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
         var pointPointer = TypeRef.Pointer(point);
         var toString = new MethodRef(TypeRef.CoreLib("System", "Object"), "ToString", String, [], HasThis: true);
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "PointerToString",
             String,
             [new Parameter("p", pointPointer)],
@@ -523,7 +523,7 @@ public class LadderRung6GateTests
         var enumType = TypeRef.Definition("Synthetic", "LadderRung6", "E", ValueTypeHint.ValueType);
         var enumPointer = TypeRef.Pointer(enumType);
         var toString = new MethodRef(TypeRef.CoreLib("System", "Enum"), "ToString", String, [], HasThis: true);
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "PointerEnumToString",
             String,
             [new Parameter("p", enumPointer)],
@@ -549,7 +549,7 @@ public class LadderRung6GateTests
         {
             IsExtension = MetadataFactState.Yes,
         };
-        var body = CSharpPrinter.Print(Function(
+        var body = DecidedPrint.Print(Function(
             "PointerRefExtension",
             Int32,
             [new Parameter("p", pointPointer)],
@@ -903,10 +903,10 @@ public class LadderRung6GateTests
 
         var updatedFunction = CreateFunction();
         updatedFunction.UsesUpdatedMemorySafetyRules = true;
-        var updated = CSharpPrinter.Print(updatedFunction);
+        var updated = DecidedPrint.Print(updatedFunction);
         var legacyFunction = CreateFunction();
         legacyFunction.UsesUpdatedMemorySafetyRules = false;
-        var legacy = CSharpPrinter.Print(legacyFunction);
+        var legacy = DecidedPrint.Print(legacyFunction);
         const string declarations =
             "using System.Threading.Tasks; "
             + "public sealed class Holder { public unsafe int* Risky => (int*)0; }";
@@ -963,10 +963,10 @@ public class LadderRung6GateTests
 
         var updatedFunction = CreateFunction();
         updatedFunction.UsesUpdatedMemorySafetyRules = true;
-        var updated = CSharpPrinter.Print(updatedFunction);
+        var updated = DecidedPrint.Print(updatedFunction);
         var legacyFunction = CreateFunction();
         legacyFunction.UsesUpdatedMemorySafetyRules = false;
-        var legacy = CSharpPrinter.Print(legacyFunction);
+        var legacy = DecidedPrint.Print(legacyFunction);
         const string declarations =
             "using System.Threading.Tasks; "
             + "public static class Helpers { public static unsafe int Risky(int value) => value; }";
@@ -1043,10 +1043,10 @@ public class LadderRung6GateTests
 
         var updatedFunction = CreateFunction();
         updatedFunction.UsesUpdatedMemorySafetyRules = true;
-        var updated = CSharpPrinter.Print(updatedFunction);
+        var updated = DecidedPrint.Print(updatedFunction);
         var legacyFunction = CreateFunction();
         legacyFunction.UsesUpdatedMemorySafetyRules = false;
-        var legacy = CSharpPrinter.Print(legacyFunction);
+        var legacy = DecidedPrint.Print(legacyFunction);
         const string declarations =
             "using System.Threading.Tasks; "
             + "public sealed class Holder { public unsafe bool Risky => true; }";
@@ -1107,10 +1107,10 @@ public class LadderRung6GateTests
 
         var updatedFunction = CreateFunction();
         updatedFunction.UsesUpdatedMemorySafetyRules = true;
-        var updated = CSharpPrinter.Print(updatedFunction);
+        var updated = DecidedPrint.Print(updatedFunction);
         var legacyFunction = CreateFunction();
         legacyFunction.UsesUpdatedMemorySafetyRules = false;
-        var legacy = CSharpPrinter.Print(legacyFunction);
+        var legacy = DecidedPrint.Print(legacyFunction);
         const string declarations = "using System.Threading.Tasks;";
         const string header = "static async System.Threading.Tasks.Task M()";
 
@@ -1204,11 +1204,11 @@ public class LadderRung6GateTests
 
         void AssertRuleDifference(IrNode statement, ImmutableArray<TypeRef> locals)
         {
-            var updated = CSharpPrinter.Print(CreateFunction(
+            var updated = DecidedPrint.Print(CreateFunction(
                 updatedRules: true,
                 (IrNode)statement.Clone(),
                 locals));
-            var legacy = CSharpPrinter.Print(CreateFunction(
+            var legacy = DecidedPrint.Print(CreateFunction(
                 updatedRules: false,
                 statement,
                 locals));
@@ -1829,10 +1829,10 @@ public class LadderRung6GateTests
 
         var updatedFunction = CreateFunction();
         updatedFunction.UsesUpdatedMemorySafetyRules = true;
-        var updated = CSharpPrinter.Print(updatedFunction);
+        var updated = DecidedPrint.Print(updatedFunction);
         var legacyFunction = CreateFunction();
         legacyFunction.UsesUpdatedMemorySafetyRules = false;
-        var legacy = CSharpPrinter.Print(legacyFunction);
+        var legacy = DecidedPrint.Print(legacyFunction);
 
         Assert.Contains("V_0++;", updated.Output);
         Assert.DoesNotContain("unsafe", updated.Output);
@@ -1977,7 +1977,7 @@ public class LadderRung6GateTests
 
         var raisedPinned = PinnedLocalOwnedByFixed();
         Assert.Equal(DecompilationFidelity.Full, raisedPinned.Fidelity);
-        var raisedPinnedOutput = CSharpPrinter.Print(raisedPinned).Output;
+        var raisedPinnedOutput = DecidedPrint.Print(raisedPinned).Output;
         Assert.Contains("fixed (int* V_0 = ", raisedPinnedOutput);
         Assert.DoesNotContain("pinned", raisedPinnedOutput);
     }
@@ -2593,8 +2593,8 @@ public class LadderRung6GateTests
         var legacyFunction = createFunction();
         legacyFunction.UsesUpdatedMemorySafetyRules = false;
         return (
-            CSharpPrinter.Print(updatedFunction).Output!,
-            CSharpPrinter.Print(legacyFunction).Output!);
+            DecidedPrint.Print(updatedFunction).Output!,
+            DecidedPrint.Print(legacyFunction).Output!);
     }
 
     static IrFunction VolatileIndirectRead(bool isVolatile)

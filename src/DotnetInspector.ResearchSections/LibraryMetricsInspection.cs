@@ -502,7 +502,7 @@ public static class LibraryMetricsInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteSignatureUseQualification(
+    internal static void WriteSignatureUseQualification(
         Utf8JsonWriter writer,
         LibraryStructuralSignatureUseQualification qualification)
     {
@@ -748,7 +748,7 @@ public static class LibraryMetricsInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteGraphWorkReceipt(
+    internal static void WriteGraphWorkReceipt(
         Utf8JsonWriter writer,
         GraphExecutionWorkReceipt receipt,
         Dictionary<GraphDocumentIdentity, string> graphDocuments)

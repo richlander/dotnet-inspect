@@ -889,6 +889,81 @@ public sealed partial class AssemblyReferenceResolutionLadderTests
     }
 
     [Fact]
+    public async Task ThrownExternalWorkExhaustionReturnsIncomplete()
+    {
+        ResolutionEnvironment environment =
+            await ResolutionEnvironment.CreateAsync();
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        var version = new AssemblyBindingPolicyVersion();
+        AssemblyReferenceExternalRouteSet? routeSet = null;
+
+        AssemblyReferenceResolutionOutcome outcome =
+            await ExecuteAsync(
+                Request(
+                    environment,
+                    binding,
+                    version,
+                    (_, _) => ValueTask.FromResult<
+                        AssemblyReferenceResolutionContextOutcome>(
+                        new AssemblyReferenceResolutionContextOutcome
+                            .Selected(
+                                binding,
+                                environment.Generation,
+                                new(
+                                    version,
+                                    AssemblyBindingSelection
+                                        .NameNotOwned()))),
+                    (advancement, _, _) =>
+                    {
+                        var route = new TestExternalRoute(
+                            binding,
+                            environment.Generation);
+                        routeSet =
+                            new AssemblyReferenceExternalRouteSet(
+                                binding,
+                                environment.Generation,
+                                advancement,
+                                [route],
+                                (work, _) =>
+                                {
+                                    work.Charge(
+                                        AssemblyReferenceResolutionWorkKind
+                                            .SourceOperation,
+                                        amount: 2);
+                                    throw new InvalidOperationException(
+                                        "Exhausted work must stop external execution.");
+                                });
+                        return ValueTask.FromResult<
+                            AssemblyReferenceExternalRouteSetFormationOutcome>(
+                            new
+                                AssemblyReferenceExternalRouteSetFormationOutcome
+                                .Completed(routeSet));
+                    },
+                    budget: new(
+                        maxPackageRouteOccurrences: 1,
+                        maxPackageCandidateOperations: 1,
+                        maxSourceOperations: 1,
+                        maxAcquisitions: 1,
+                        maxRealizedAssemblies: 1,
+                        maxTransferBytes: 1,
+                        maxRetainedAssemblyBytes: 1,
+                        maxWorkspaceReplacements: 1,
+                        deadline:
+                            DateTimeOffset.UtcNow.AddMinutes(5))));
+
+        var incomplete = Assert.IsType<
+            AssemblyReferenceResolutionOutcome.Incomplete>(outcome);
+        var exhaustion = Assert.IsType<
+            AssemblyReferenceResolutionWorkExhaustion>(
+                incomplete.Evidence);
+        Assert.Equal(
+            AssemblyReferenceResolutionWorkKind.SourceOperation,
+            exhaustion.Kind);
+        Assert.Same(exhaustion, incomplete.Work.Exhaustion);
+    }
+
+    [Fact]
     public async Task ExpiredDeadlinePerformsNoContextWork()
     {
         ResolutionEnvironment environment =

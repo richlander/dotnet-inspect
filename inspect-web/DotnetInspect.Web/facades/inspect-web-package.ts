@@ -64,10 +64,6 @@ export type BrowserPackageDependencyDeclarationFailureKind = "ConflictingPackage
 
 export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
 
-export type BrowserPackagePruningCompletion = "Complete" | "Partial" | "Failed" | "NotApplicable" | number;
-
-export type BrowserPackagePruningDisposition = "PlatformDelegation" | "PackageRetained" | "CandidateUnavailable" | "NotEvaluated" | number;
-
 export type BrowserPackageQueryAcquisitionTier = "Nuspec" | "PackageContent" | "SearchMetadata" | "Assembly" | number;
 
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
@@ -95,6 +91,12 @@ export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageC
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
+
+export type BrowserPackageVulnerabilityAvailability = "Complete" | "Partial" | "Unavailable" | number;
+
+export type BrowserPackageVulnerabilityFailure = "RequestLimitReached" | "ResponseByteLimitReached" | "AggregateResponseByteLimitReached" | "DeadlineReached" | "RateLimitOrForbidden" | "SourceUnavailable" | "InvalidData" | "InvalidContinuation" | number;
+
+export type BrowserPackageVulnerabilitySeverity = "Unknown" | "Low" | "Medium" | "High" | "Critical" | number;
 
 export type BrowserPlatformForwarderStatus = "opened" | "unavailable" | "stale" | "ambiguous" | "refused" | "failed" | "incomplete" | "canceled" | number;
 
@@ -806,56 +808,8 @@ export interface BrowserPackageLoadResult {
   readonly versionSettlement: BrowserPackageVersionSettlementInspection;
   readonly packageInfo: BrowserPackageInfoMeasurementInspection | null;
   readonly packageChildren: BrowserPackageChildrenInspection | null;
+  readonly documents: ReadonlyArray<BrowserPackageDocument>;
   readonly surface: BrowserPackageSurface | null;
-}
-
-export interface BrowserPackagePruningRequest {
-  readonly schemaVersion: number;
-  readonly family: string;
-  readonly targetFramework: string;
-  readonly platformVersion: string;
-  readonly supplies: ReadonlyArray<BrowserPackagePruningSupply>;
-}
-
-export interface BrowserPackagePruningResult {
-  readonly schemaVersion: number;
-  readonly package: string;
-  readonly version: string;
-  readonly targetFramework: string;
-  readonly selectedFramework: string | null;
-  readonly family: string;
-  readonly platformVersion: string;
-  readonly completion: BrowserPackagePruningCompletion;
-  readonly rows: ReadonlyArray<BrowserPackagePruningRow>;
-  readonly declarationFailures: ReadonlyArray<BrowserPackageDependencyDeclarationFailure>;
-  readonly summary: BrowserPackagePruningSummary;
-  readonly message: string | null;
-}
-
-export interface BrowserPackagePruningRow {
-  readonly package: string;
-  readonly requestedRange: string;
-  readonly candidateVersion: string | null;
-  readonly platformSuppliedVersion: string | null;
-  readonly disposition: BrowserPackagePruningDisposition;
-  readonly reason: string;
-}
-
-export interface BrowserPackagePruningSummary {
-  readonly declarations: number;
-  readonly evaluated: number;
-  readonly delegated: number;
-  readonly retained: number;
-  readonly notEvaluated: number;
-  readonly failed: number;
-  readonly declarationFailures: number;
-}
-
-export interface BrowserPackagePruningSupply {
-  readonly pack: string;
-  readonly family: string;
-  readonly package: string;
-  readonly version: string;
 }
 
 export interface BrowserPackageQueryAnswer {
@@ -1056,6 +1010,7 @@ export interface BrowserPackageQueryTermDescriptor {
 
 export interface BrowserPackageRootLoadResult {
   readonly packageChildren: BrowserPackageChildrenInspection;
+  readonly documents: ReadonlyArray<BrowserPackageDocument>;
 }
 
 export interface BrowserPackageRuntimeIdentifierChild {
@@ -1144,6 +1099,25 @@ export interface BrowserPackageVersions {
   readonly currentVersionInsertionIndex: number;
   readonly previousVersion?: string;
   readonly previousVersionUnavailableReason?: string;
+}
+
+export interface BrowserPackageVulnerabilityAdvisory {
+  readonly ghsaId: string;
+  readonly cveId: string | null;
+  readonly severity: BrowserPackageVulnerabilitySeverity;
+  readonly advisoryUrl: string;
+  readonly publishedAt: DateTimeOffsetString;
+  readonly updatedAt: DateTimeOffsetString;
+}
+
+export interface BrowserPackageVulnerabilityResult {
+  readonly package: string;
+  readonly version: string;
+  readonly availability: BrowserPackageVulnerabilityAvailability;
+  readonly advisories: ReadonlyArray<BrowserPackageVulnerabilityAdvisory>;
+  readonly failures: ReadonlyArray<BrowserPackageVulnerabilityFailure>;
+  readonly advisoryProducer: string;
+  readonly observedAt: DateTimeOffsetString;
 }
 
 export interface BrowserParameterSurface {
@@ -1531,10 +1505,10 @@ type $ManagedExports = {
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
-            readonly "QueryPackagePruning.1579276339": (packageId: string, version: string, targetFramework: string, requestJson: string) => Promise<string>;
             readonly "QueryPackageRoot.976702342": (rootRequest: string) => Promise<string>;
             readonly "QueryPackageSummary.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageVersions.451505237": (packageId: string, currentVersion: string) => Promise<string>;
+            readonly "QueryPackageVulnerabilities.451505237": (packageId: string, version: string) => Promise<string>;
             readonly "QueryPlatformMemberDocumentation.1330709314": (framework: string, platformVersion: string, assemblyName: string, platformPack: string, documentationId: string) => Promise<string>;
             readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
@@ -1876,18 +1850,6 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "QueryPackagePruning.1579276339");
-    if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackagePruning.1579276339\u0027 is not callable.");
-    }
-  }
-  {
-    let value: unknown = exports;
-    value = $ownDataProperty(value, "DotnetInspect");
-    value = $ownDataProperty(value, "Web");
-    value = $ownDataProperty(value, "Interop");
-    value = $ownDataProperty(value, "Package");
-    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "QueryPackageRoot.976702342");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageRoot.976702342\u0027 is not callable.");
@@ -1915,6 +1877,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryPackageVersions.451505237");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageVersions.451505237\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryPackageVulnerabilities.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageVulnerabilities.451505237\u0027 is not callable.");
     }
   }
   {
@@ -2204,12 +2178,6 @@ export async function queryPackageDependencies(packageId: string, version: strin
   return $parsed as BrowserPackageDependencies;
 }
 
-export async function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: BrowserPackagePruningRequest): Promise<BrowserPackagePruningResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackagePruning.1579276339"](packageId, version, targetFramework, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Package.PackageExports.QueryPackagePruning.1579276339", "requestJson"));
-  const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserPackagePruningResult;
-}
-
 export async function queryPackageRoot(rootRequest: string): Promise<BrowserPackageRootLoadResult> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageRoot.976702342"](rootRequest);
   const $parsed: unknown = JSON.parse($result);
@@ -2226,6 +2194,12 @@ export async function queryPackageVersions(packageId: string, currentVersion: st
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageVersions.451505237"](packageId, currentVersion);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageVersions;
+}
+
+export async function queryPackageVulnerabilities(packageId: string, version: string): Promise<BrowserPackageVulnerabilityResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageVulnerabilities.451505237"](packageId, version);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageVulnerabilityResult;
 }
 
 export async function queryPlatformMemberDocumentation(framework: string, platformVersion: string, assemblyName: string, platformPack: string, documentationId: string): Promise<CompiledDocumentationOutcome> {
