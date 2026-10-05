@@ -639,6 +639,21 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task CanonicalUnknownPath_SuggestsAcrossFocusedCatalogs()
+    {
+        var result = await RunAsync(
+            "explain",
+            "library/package-query");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("was not found", result.Error);
+        Assert.Contains(
+            result.Error.Split('\n'),
+            static line => line.Trim() == "package-query");
+    }
+
+    [Fact]
     public async Task OversizedSearchText_IsRejectedBeforePathSuggestions()
     {
         var stopwatch = Stopwatch.StartNew();

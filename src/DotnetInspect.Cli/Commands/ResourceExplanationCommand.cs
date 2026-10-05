@@ -81,13 +81,7 @@ public static class ResourceExplanationCommand
 
             if (canonicalPath.Value.Contains('/'))
             {
-                ResourceExplanationCatalog completeCatalog =
-                    CreateCompleteCatalog()
-                    ?? throw new InvalidOperationException(
-                        "The complete structural resource catalog could not "
-                        + "be built.");
-                return WriteResolutionFailure(
-                    completeCatalog.Resolve(normalizedOperand));
+                return WriteCompleteResolutionFailure(normalizedOperand);
             }
         }
 
@@ -281,7 +275,7 @@ public static class ResourceExplanationCommand
                 path,
                 out ResourcePathResolution.Resolved? resolved))
         {
-            return WriteResolutionFailure(catalog.Resolve(path.Value));
+            return WriteCompleteResolutionFailure(path.Value);
         }
 
         if (maximumResults is not null)
@@ -298,6 +292,16 @@ public static class ResourceExplanationCommand
             format,
             envelopeOutput,
             outputPath);
+    }
+
+    private static int WriteCompleteResolutionFailure(string path)
+    {
+        ResourceExplanationCatalog completeCatalog =
+            CreateCompleteCatalog()
+            ?? throw new InvalidOperationException(
+                "The complete resource explanation catalog could not "
+                + "be built.");
+        return WriteResolutionFailure(completeCatalog.Resolve(path));
     }
 
     private static string RootSegment(ResourcePath path)
