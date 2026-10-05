@@ -399,7 +399,13 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.implementationBodySelected\)/);
   assert.match(
     documentationLoader,
-    /const implementationMember =\s*Boolean\(overload\.graphOnly\)[\s\S]*state\.typeMemberPopulation\.population\?\.declarationSource\s*=== "Implementation"[\s\S]*const signature = memberRequestKey\(\[[\s\S]*implementationMember \? "implementation" : "surface"[\s\S]*const requestIsCurrent = \(\) => \{[\s\S]*const pkg = currentPackage\(\);[\s\S]*const platformCoordinates = pkg\.isRuntimePack\s*\?\s*\(\(\) => \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return \{\s*assemblyFileName: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*\};\s*\}\)\(\)\s*:\s*null;\s*const assembly = platformCoordinates\?\.assemblyFileName \?\? type\.assembly;\s*const platformPack = platformCoordinates\?\.pack \?\? ""/);
+    /const implementationMember =\s*memberDeclarationUsesImplementation\(type, overload\);\s*const signature = memberOverviewRequestSignature\(type, overload\);\s*const requestIsCurrent = \(\) => \{[\s\S]*return memberOverviewRequestSignature\(currentType, currentOverload\)\s*=== signature;[\s\S]*const pkg = currentPackage\(\);[\s\S]*const platformCoordinates = pkg\.isRuntimePack\s*\?\s*\(\(\) => \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return \{\s*assemblyFileName: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*\};\s*\}\)\(\)\s*:\s*null;\s*const assembly = platformCoordinates\?\.assemblyFileName \?\? type\.assembly;\s*const platformPack = platformCoordinates\?\.pack \?\? ""/);
+  assert.match(
+    appSource,
+    /const documentationKey = memberOverviewRequestSignature\(type, overload\)/);
+  assert.match(
+    appSource,
+    /function memberOverviewRequestSignature\([\s\S]*memberRequestSignature\(type, overload\),[\s\S]*memberDeclarationUsesImplementation\(type, overload\)[\s\S]*"implementation"[\s\S]*"surface"/);
   assert.match(
     documentationLoader,
     /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*platformPack,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: requestIsCurrent/);

@@ -12663,7 +12663,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const overload = selectedOverload ?? member.overloads[0];
   if (!overload) return "";
   const pkg = currentPackage();
-  const documentationKey = memberRequestSignature(type, overload);
+  const documentationKey = memberOverviewRequestSignature(type, overload);
   const documentationState = scopedRequestState(
     state.memberDocumentationKey,
     documentationKey,
@@ -13313,7 +13313,7 @@ function bindTypePanelEvents() {
       const member = selectedMember(type);
       const overload = selectedMemberOverload(type, member);
       const signature = type && overload
-        ? memberRequestSignature(type, overload)
+        ? memberOverviewRequestSignature(type, overload)
         : "";
       if (type
         && overload
@@ -20808,32 +20808,16 @@ async function loadSelectedMemberDocumentation() {
     return;
   }
   const implementationMember =
-    Boolean(overload.graphOnly)
-    || (state.typeMemberPopulationKey === typeMemberPopulationKey(type)
-      && state.typeMemberPopulation?.outcome === "Available"
-      && state.typeMemberPopulation.population?.declarationSource
-        === "Implementation");
-  const signature = memberRequestKey([
-    memberRequestSignature(type, overload),
-    implementationMember ? "implementation" : "surface",
-  ]);
+    memberDeclarationUsesImplementation(type, overload);
+  const signature = memberOverviewRequestSignature(type, overload);
   const requestIsCurrent = () => {
     const currentType = selectedType();
     const currentMember = selectedMember(currentType);
     const currentOverload =
       selectedMemberOverload(currentType, currentMember);
     if (!currentType || !currentOverload) return false;
-    const currentImplementationMember =
-      Boolean(currentOverload.graphOnly)
-      || (state.typeMemberPopulationKey
-          === typeMemberPopulationKey(currentType)
-        && state.typeMemberPopulation?.outcome === "Available"
-        && state.typeMemberPopulation.population?.declarationSource
-          === "Implementation");
-    return memberRequestKey([
-      memberRequestSignature(currentType, currentOverload),
-      currentImplementationMember ? "implementation" : "surface",
-    ]) === signature;
+    return memberOverviewRequestSignature(currentType, currentOverload)
+      === signature;
   };
   const pkg = currentPackage();
   const platformCoordinates = pkg.isRuntimePack
@@ -21292,6 +21276,29 @@ function memberRequestSignature(
       state.selectedBodyTarget?.selectorKey ?? "");
   }
   return memberRequestKey(parts, includeTaste ? state.taste : []);
+}
+
+function memberDeclarationUsesImplementation(
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
+) {
+  return Boolean(overload.graphOnly)
+    || (state.typeMemberPopulationKey === typeMemberPopulationKey(type)
+      && state.typeMemberPopulation?.outcome === "Available"
+      && state.typeMemberPopulation.population?.declarationSource
+        === "Implementation");
+}
+
+function memberOverviewRequestSignature(
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
+) {
+  return memberRequestKey([
+    memberRequestSignature(type, overload),
+    memberDeclarationUsesImplementation(type, overload)
+      ? "implementation"
+      : "surface",
+  ]);
 }
 
 function memberRequestIsCurrent(
