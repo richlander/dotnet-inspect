@@ -576,14 +576,18 @@ public partial class LibraryBodyIndexTests
         var testIndex = BodyAnalysisTestExecution.Open(typeof(LibraryBodyIndexTests).Assembly.Location);
         var testAssemblyName = testIndex.CallGraph.Methods.First().AssemblyName;
 
-        // LibraryBodyAnalysisExecution.Open is a static method in the analysis assembly that this test
-        // assembly calls; scoping the test assembly must pull those external callers into the
-        // reverse graph and tag them with their source assembly.
-        var open = analysisIndex.CallGraph.Methods.First(method =>
-            method.DeclaringType.Name == nameof(LibraryBodyIndex) && method.Name == nameof(LibraryBodyIndex.Open));
+        // ExecutePath is a static method in the analysis assembly that this
+        // test assembly calls; scoping the test assembly must pull those
+        // external callers into the reverse graph and tag them with their
+        // source assembly.
+        var executePath = analysisIndex.CallGraph.Methods.First(method =>
+            method.DeclaringType.Name
+                == nameof(LibraryBodyAnalysisService)
+            && method.Name
+                == nameof(LibraryBodyAnalysisService.ExecutePath));
 
-        var scoped = analysisIndex.BuildCallerTree(open.MetadataToken, new[] { testIndex }, maxDepth: 2, maxNodes: 200);
-        var unscoped = analysisIndex.BuildCallerTree(open.MetadataToken, maxDepth: 2, maxNodes: 200);
+        var scoped = analysisIndex.BuildCallerTree(executePath.MetadataToken, new[] { testIndex }, maxDepth: 2, maxNodes: 200);
+        var unscoped = analysisIndex.BuildCallerTree(executePath.MetadataToken, maxDepth: 2, maxNodes: 200);
 
         Assert.Equal("target", scoped.Perf?.RootKind);
         // The target itself is not external.

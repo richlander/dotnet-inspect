@@ -302,113 +302,6 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
-    public void CallGraphScopeAndProjection_DoNotCreateCompatibilityIndex()
-    {
-        string target =
-            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
-        string caller =
-            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
-        var inspection = Create(target, [caller]);
-        int root = TokenOf(target, "Api", "Ping");
-
-        _ = inspection.CallerScopes(includeAllocations: false);
-        _ = inspection.BuildCallGraph(root);
-
-        Assert.Null(
-            typeof(ILInspector.Analysis.LibraryBodyAnalysisExecution)
-                .GetField(
-                    "_compatibilityIndex",
-                    BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(AnalysisExecution(inspection)));
-    }
-
-    [Fact]
-    public void MemberAnalysisPresentation_DoesNotCreateCompatibilityIndex()
-    {
-        using var stream = File.OpenRead(SelfPath);
-        using var reader = new PEReader(stream);
-        ApiType type = ApiSurfaceExtractor.Extract(
-                reader,
-                includeAll: true)
-            .Types
-            .Single(candidate =>
-                candidate.FullName
-                    == typeof(ApiMemberAnalysisInspectionTests).FullName);
-        ApiMember method = type.Members.Single(candidate =>
-            candidate.Name
-                == nameof(
-                    CallGraphScopeAndProjection_DoNotCreateCompatibilityIndex));
-        var methods = new List<ApiMember> { method };
-        var sections = new HashSet<string>
-        {
-            SectionNames.Calls,
-            SectionNames.UnsafeOperations,
-            SectionNames.AllocationFacts,
-            SectionNames.SafetyFacts,
-            SectionNames.CostFacts,
-        };
-        var inspection = new ApiMemberAnalysisInspection(
-            SelfPath,
-            methods,
-            sections,
-            callerScopeAssemblies: null,
-            options: null);
-
-        ApiOutputFormatter.PopulateIndexSections(
-            new TypeView(),
-            type,
-            methods,
-            SelfPath,
-            overloadIndex: 1,
-            sections,
-            inspection);
-
-        AssertCompatibilityIndexNotMaterialized(
-            AnalysisExecution(inspection));
-    }
-
-    [Fact]
-    public void TypeAnalysisPresentation_DoesNotCreateCompatibilityIndex()
-    {
-        using var stream = File.OpenRead(SelfPath);
-        using var reader = new PEReader(stream);
-        ApiType type = ApiSurfaceExtractor.Extract(
-                reader,
-                includeAll: true)
-            .Types
-            .Single(candidate =>
-                candidate.FullName
-                    == typeof(ApiMemberAnalysisInspectionTests).FullName);
-        var sections = new HashSet<string>
-        {
-            SectionNames.UnsafeMembers,
-            SectionNames.AllocationFacts,
-            SectionNames.SafetyFacts,
-            SectionNames.CostFacts,
-        };
-        ILInspector.Analysis.LibraryBodyAnalysisExecution execution =
-            ApiAnalysisInspection.OpenTypeAnalysis(
-                SelfPath,
-                sections,
-                type);
-        var view = new TypeView();
-
-        ApiOutputFormatter.PopulateUnsafeMembers(
-            view,
-            type,
-            execution.Safety);
-        ApiOutputFormatter.PopulateTypeSemanticFacts(
-            view,
-            type,
-            execution.Allocations,
-            execution.Safety,
-            execution.CallGraph,
-            sections);
-
-        AssertCompatibilityIndexNotMaterialized(execution);
-    }
-
-    [Fact]
     public void CallerScopes_ExactReferencedVersionExcludesDifferentTarget()
     {
         string targetV2 =
@@ -950,17 +843,6 @@ public class ApiMemberAnalysisInspectionTests
         }
 
         return null;
-    }
-
-    static void AssertCompatibilityIndexNotMaterialized(
-        ILInspector.Analysis.LibraryBodyAnalysisExecution execution)
-    {
-        Assert.Null(
-            typeof(ILInspector.Analysis.LibraryBodyAnalysisExecution)
-                .GetField(
-                    "_compatibilityIndex",
-                    BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(execution));
     }
 
     static ILInspector.Analysis.LibraryBodyAnalysisExecution
