@@ -54,7 +54,12 @@ public sealed partial class InspectionWorkspace
                     new(_identity, order, members.Count),
                     coordinate, assembly.Identity,
                     new WorkspaceDeclarationOrigin.ContextLoad(member.Declared, member.Realized),
-                    assembly.Provenance));
+                    assembly.Provenance,
+                    coordinate is ExactLibrarySourceCoordinate.Package
+                        ? new(
+                            request.Framework,
+                            request.RuntimeIdentifier)
+                        : null));
             }
         }
 

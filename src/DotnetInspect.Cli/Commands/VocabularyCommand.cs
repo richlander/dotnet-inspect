@@ -3,7 +3,6 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 using QuerySpace.Vocabulary;
 using Markout;
 
@@ -21,7 +20,7 @@ public static class VocabularyCommand
             ProductVocabularyInspection.Execute(
                 CliVocabularyComposition.Snapshot);
         VocabularyDocument document =
-            VocabularyCatalog.ProjectDocument(inspection.Content);
+            ProductVocabularyProjection.ToDocument(inspection.Content);
         SectionCatalog<VocabularyDocument> catalog = VocabularySections.Catalog;
         DocumentSchema schema = CreateSchema(document);
         string[]? projectedColumns = ResolveProjectedColumns(options);
@@ -73,7 +72,7 @@ public static class VocabularyCommand
 
         HashSet<string> selectedNames = selection.Sections
             ?? new HashSet<string>(
-                [VocabularyCatalog.SectionsSection],
+                [ProductVocabularyComposition.SectionsLabel],
                 StringComparer.OrdinalIgnoreCase);
         VocabularySection[] sections =
         [
