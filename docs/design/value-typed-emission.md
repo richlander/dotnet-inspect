@@ -295,10 +295,13 @@ A supplemental full 42,120-method product-render hash comparison reports only
 both changes move an existing `object` declaration to its materialized-local
 position without changing statements.
 
-### Primitive-join target testimony
+### Join target testimony
 
-Primitive integer-family join compatibility is decided before printing
-(#2095). One bounded relation serves `Conditional`, `SwitchExpression`, and
+Join target compatibility is decided before printing (#2095). Its
+integer-family part is the primitive relation below; its enum and `char`
+parts are two arm facts issued with it (the last subsection).
+
+Primitive integer-family join compatibility is decided before printing. One bounded relation serves `Conditional`, `SwitchExpression`, and
 `Coalesce`. It records whole-join compatibility and, for each target whose
 rendered arms are accepted, the effective source type that licenses
 target-aware arm rendering. Rendered-arm testimony is issued only for an actual
@@ -354,6 +357,46 @@ same-width signedness, constant behavior, boolean arms, differing-width and
 missing-type declines, enum/`char` non-preemption, clone/refresh, raised/lowered
 output, and the pinned witness. Fixed-input censuses and Render A/B measure
 population effects separately.
+
+#### Enum and `char` arm facts
+
+The same binding issues two arm facts over each join's rendered arms (both arms
+of a conditional, every switch-expression arm value, a coalesce's right
+operand): every rendered arm is integer-typed, and every rendered arm is a
+`char` constant. They are issued even when the join's own type is not an
+integer (an enum-typed conditional of integer arms is the enum route's case).
+One relation, `CanRenderValueJoinAt`, decides whether a join renders as a value
+join at a target, and both the printer's targeted join spellings and the
+residual storage policy query it:
+
+- a conditional of `char` constants at `char` keeps the literal route;
+- a join of integer arms at an enum-like target takes the enum route, a
+  coalesce only when its left operand is that enum's `Nullable<T>`;
+- otherwise the issued integer-family testimony decides.
+
+A conditional's full relation, `CanRenderConditionalAt`, adds the issued
+reference assignment testimony. Enum-likeness of the target
+(`CoercionRendering.IsEnumLikeInteger`: a named definition with no primitive
+family that the shape map does not class as a reference or struct, or a
+generic instance the map classes as an enum) is a property of the target, not
+of the arms, and is shared by every caller. A coalesce that is not a value join
+at an enum target still takes the whole-operand enum spelling; that cast is a
+spelling decision and stays with the writer.
+
+Binding and refresh follow the primitive relation: issued at construction and
+by the final binding, retained by cloning, refreshed by the next binding after
+an operand rewrite. Residual storage binding runs after the final binding and
+rewrites slot loads into typed locals, so it refreshes every join's testimony
+(primitive and arm facts alike) before its coercion discharge; on the pinned
+14-assembly corpus no join's testimony differs between the final binding and
+print time (6,581 joins), so the refresh closes the ordering gap without
+changing output. The printer's `CanRenderValueConditionalForTarget` and
+`CanRenderSwitchExpressionForTarget` and the residual policy's verbatim copy of
+the former are deleted; the printer asks the relation and only spells the
+join. `JoinTargetTestimonyTests` gates the three join kinds, the enum-typed
+join with integer arms, the `Nullable<T>` coalesce condition, the `char`
+route's conditional-only scope, the missing-type and reference declines, and
+clone and refresh.
 
 ## Instance 1 — coercion: the missing member of the type system
 

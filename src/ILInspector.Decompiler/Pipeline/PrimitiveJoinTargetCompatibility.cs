@@ -10,12 +10,17 @@ internal interface IPrimitiveJoin
 }
 
 /// <summary>
-/// Pre-print testimony for integer-family join target compatibility and
-/// target-aware arm rendering.
+/// Pre-print testimony for join target compatibility: the integer-family
+/// whole-join targets and target-aware arm sources, plus the two arm facts the
+/// enum and <c>char</c> routes read — every rendered arm is integer-typed, and
+/// every rendered arm is a <c>char</c> constant
+/// (value-typed-emission.md, "Join target testimony").
 /// </summary>
 internal sealed record PrimitiveJoinTargetCompatibility(
     ImmutableDictionary<TypeRef, TypeRef> WholeJoinTargets,
-    ImmutableDictionary<TypeRef, TypeRef> RenderedArmTargets)
+    ImmutableDictionary<TypeRef, TypeRef> RenderedArmTargets,
+    bool IntegerArms = false,
+    bool CharConstantArms = false)
 {
     internal static PrimitiveJoinTargetCompatibility Empty { get; } = new(
         ImmutableDictionary<TypeRef, TypeRef>.Empty,
@@ -43,10 +48,16 @@ internal sealed record PrimitiveJoinTargetCompatibility(
         IReadOnlyDictionary<TypeRef, TypeShape> shapes,
         IReadOnlyDictionary<TypeRef, TypeRef> enumUnderlyingTypes)
     {
+        bool integerArms = renderedArms.Count > 0
+            && renderedArms.All(static arm => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type));
+        bool charConstantArms = renderedArms.Count > 0
+            && renderedArms.All(static arm => CoercionRendering.TryCharConstantValue(arm, out _));
         if (CSharpExpressionType.Effective(expression) is not { } source
             || !TypeFamilies.IsIntegerLike(source))
         {
-            return Empty;
+            return integerArms || charConstantArms
+                ? Empty with { IntegerArms = integerArms, CharConstantArms = charConstantArms }
+                : Empty;
         }
 
         var wholeJoinTargets = ImmutableDictionary.CreateBuilder<TypeRef, TypeRef>();
@@ -81,7 +92,7 @@ internal sealed record PrimitiveJoinTargetCompatibility(
                 renderedArmTargets.Add(target, source);
             }
         }
-        return new(wholeJoinTargets.ToImmutable(), renderedArmTargets.ToImmutable());
+        return new(wholeJoinTargets.ToImmutable(), renderedArmTargets.ToImmutable(), integerArms, charConstantArms);
     }
 
     internal static bool CanCoerceArm(
@@ -144,6 +155,54 @@ internal static class PrimitiveJoinTargetBinding
         TypeRef target)
         => expression is IPrimitiveJoin join
             && join.PrimitiveTargets.WholeJoinTargets.ContainsKey(target);
+
+    /// <summary>
+    /// Whether a conditional, switch expression, or coalesce renders as a
+    /// value join at <paramref name="target"/>: the one decision the printer's
+    /// targeted join spellings and the residual storage policy share. A
+    /// conditional of <c>char</c> constants at <c>char</c> keeps its literal
+    /// route; a join of integer arms at an enum-like target takes the enum
+    /// route (a coalesce only when its left operand is that enum's
+    /// <c>Nullable&lt;T&gt;</c>); otherwise the issued integer-family testimony
+    /// decides. Reference arms are not value joins
+    /// (<see cref="CanRenderConditionalAt"/>).
+    /// </summary>
+    internal static bool CanRenderValueJoinAt(
+        this IrExpression expression,
+        TypeRef target,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (expression is not IPrimitiveJoin join)
+            return false;
+        var testimony = join.PrimitiveTargets;
+        if (testimony.WholeJoinTargets.ContainsKey(target))
+            return true;
+        return expression switch
+        {
+            Conditional => (testimony.CharConstantArms && IsCoreChar(target))
+                || (testimony.IntegerArms && CoercionRendering.IsEnumLikeInteger(target, shapes)),
+            SwitchExpression => testimony.IntegerArms && CoercionRendering.IsEnumLikeInteger(target, shapes),
+            Coalesce coalesce => testimony.IntegerArms
+                && CoercionRendering.IsEnumLikeInteger(target, shapes)
+                && CoercionRendering.NullableValueType(coalesce.Left.ResultType)?.Equals(target) == true,
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// A conditional's full target relation: a value join at
+    /// <paramref name="target"/> or reference arms the issued reference
+    /// assignment testimony admits there.
+    /// </summary>
+    internal static bool CanRenderConditionalAt(
+        this Conditional conditional,
+        TypeRef target,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => conditional.CanRenderValueJoinAt(target, shapes)
+            || conditional.CanAssignReferenceArmsTo(target, shapes);
+
+    static bool IsCoreChar(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
 
     internal static TypeRef? PrimitiveJoinArmSource(
         this IrExpression expression,
