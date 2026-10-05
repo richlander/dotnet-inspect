@@ -1059,17 +1059,18 @@ separate work.
 ### Library Analysis
 
 The Library inspector order is **Overview**, **References**, **Compare**,
-**Analysis**, and **Metadata**. Analysis contains direct **Performance**,
-**Integrations**, **Opportunities**, and **Metrics** tabs, following Compare's
-single-inspector mode composition. Integrations and Metrics are not separate
+**Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
+**Complexity**, **Performance**, and **Integrations** tabs, following
+Compare's single-inspector mode composition. These modes are not separate
 persistent inspectors.
 
-Performance is the default. The selected tab is session-local Browser
+Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
-starts its existing query; cached results retain their existing
+starts its existing query work; cached results retain their existing
 Library/coordinate freshness checks. Each mode keeps its own loading, failure,
-partial, empty, and available outcomes. No mode combines evidence or infers an
-outcome from another.
+partial, empty, and available outcomes. Integrations presents its detected and
+suggested evidence together while preserving the independent completion and
+failure state of each source.
 
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
@@ -1084,7 +1085,7 @@ existing Types control occupies the title's place and the tabs use the second
 header row.
 
 ```text
-Analysis  count/state   [Performance]  Integrations  Opportunities  Metrics
+Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
 optional platform Library selector
 mode-owned content
 Library asset and assembly identity              TFM · package@version
@@ -1092,12 +1093,15 @@ Library asset and assembly identity              TFM · package@version
 
 Performance retains product triage order, opportunity and loop counts, shape
 and confidence labels, and stable-selector Member navigation. Integrations
-retains category order, type-first signal sorting, badges, and counts.
-Opportunities retains Type navigation, suggested-package loading, "look for"
-search actions, and source identity. Metrics retains the Research-issued
-Complexity Explorer and Relationship Crossing views. Structural salience does
-not render in Metrics; its Browser presentation belongs to the ordinary Type
-inventory defined by
+merges detected signals and suggested integrations into one category-ordered
+list. It retains type-first signal sorting, badges, and counts together with
+Type navigation, suggested-package loading, "look for" search actions, and
+source identity. Either evidence source may populate independently, and a
+failure or partial result from one remains visible without hiding results from
+the other. Complexity and Relationships retain the Research-issued Complexity
+Explorer and Relationship Crossing views. Structural salience does not render
+in these modes; its Browser presentation belongs to the ordinary Type inventory
+defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
 The platform selector stays above scrolling results and keeps its existing
@@ -1106,9 +1110,9 @@ and package/version/framework context. Browser HTML lowering consumes the
 existing typed mode results; no producer, query, acquisition, CLI section, or
 result contract changes.
 
-Focused renderer and production-composition browser gates cover all four direct
-tabs, lazy loading, focus retention across asynchronous completion, wide/narrow
-layout, Library switching, row actions, and platform controls.
+Focused renderer and production-composition browser gates cover all four
+direct tabs, lazy loading, focus retention across asynchronous completion,
+wide/narrow layout, Library switching, row actions, and platform controls.
 
 ### Package Metadata
 
