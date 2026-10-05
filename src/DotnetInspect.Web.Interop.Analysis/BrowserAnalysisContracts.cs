@@ -258,6 +258,27 @@ public sealed record BrowserPackagePerformance(
     int TotalOpportunities,
     BrowserCompileLibraryAvailability CompileLibrary);
 
+public sealed record BrowserPackageUnsafeFindings(
+    BrowserUnsafeFinding[] Findings,
+    string? InspectionError,
+    int NonPublicFindings,
+    int TotalFindings,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserUnsafeFinding(
+    string Assembly,
+    string TypeId,
+    string MemberName,
+    string StableSelector,
+    string BodyMember,
+    string BodySelector,
+    int BodyToken,
+    string Kind,
+    string Location,
+    string? Offset,
+    string Operation,
+    string Evidence);
+
 public sealed record BrowserLibraryMetrics(
     string Outcome,
     string? MethodologyVersion,
@@ -605,6 +626,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserPackageUnsafeFindings))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
 [JsonSerializable(typeof(BrowserLibraryDependencyStructure))]
 [JsonSerializable(typeof(BrowserLibraryStructuralSalience))]

@@ -998,7 +998,7 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /memberSectionIdsFor\(\s*graphSelection\.group,\s*pkg\.isRuntimePack,\s*true\)\.includes\(view\.memberSection\)/);
   assert.match(
     appSource,
-    /const hasSelectedBody = bodyTargetMatchesOverload\([\s\S]*?memberSectionIdsFor\(\s*group,\s*state\.package\?\.isRuntimePack,\s*hasSelectedBody\)/);
+    /return bodyTargetMatchesMember\([\s\S]*?state\.selectedBodyTarget,[\s\S]*?member,[\s\S]*?state\.selectedOverloadIndex\);[\s\S]*?memberSectionIdsFor\(\s*group,\s*state\.package\?\.isRuntimePack,\s*hasSelectedBody\)/);
   assert.match(
     appSource,
     /function renderMember\(type: AppTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverload = selectedMemberOverload\(type, member\);[\s\S]*?const hasSelectedOverload =\s*state\.selectedOverloadIndex != null\s*&& selectedOverload !== undefined;[\s\S]*?const overload = selectedOverload \?\? member\.overloads\[0\];/);

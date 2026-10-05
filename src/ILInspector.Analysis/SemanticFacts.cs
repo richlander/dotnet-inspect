@@ -29,7 +29,14 @@ public sealed record SafetyFact(
     string SafetyKind,
     string Operation,
     string Requirement,
-    string Evidence);
+    string Evidence,
+    SafetyFactLocation Location);
+
+public enum SafetyFactLocation
+{
+    Declaration,
+    MethodBody,
+}
 
 public sealed record CostFact(
     MethodIdentity Method,
@@ -132,7 +139,8 @@ public static class SemanticFactProjection
             FormatUnsafetyKind(occurrence.Kind),
             occurrence.Detail ?? FormatUnsafetyKind(occurrence.Kind),
             "requires unsafe",
-            FormatUnsafetyKind(occurrence.Kind));
+            FormatUnsafetyKind(occurrence.Kind),
+            SafetyFactLocation.MethodBody);
 
     internal static SafetyFact ToSafetyFact(UnsafeEvidence evidence)
         => new(
@@ -141,7 +149,10 @@ public static class SemanticFactProjection
             evidence.Reason,
             evidence.Detail,
             "requires unsafe",
-            evidence.Kind);
+            evidence.Kind,
+            evidence.Kind is "api" or "signature"
+                ? SafetyFactLocation.Declaration
+                : SafetyFactLocation.MethodBody);
 
     public static ImmutableArray<CostFact> CostFacts(
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>> directCalls,

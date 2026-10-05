@@ -31,6 +31,13 @@ public sealed class MethodSafetyAnalysisTests
             declarationEvidence,
             evidence => Assert.Equal("api", evidence.Kind),
             evidence => Assert.Equal("signature", evidence.Kind));
+        Assert.All(
+            SemanticFactProjection.SafetyFacts(
+                declarationEvidence,
+                []),
+            fact => Assert.Equal(
+                SafetyFactLocation.Declaration,
+                fact.Location));
 
         var context = Context(
             method,
@@ -54,6 +61,11 @@ public sealed class MethodSafetyAnalysisTests
                 Assert.Equal("Pointer local", evidence.Reason);
                 Assert.StartsWith("V_1:", evidence.Detail);
             });
+        Assert.All(
+            SemanticFactProjection.SafetyFacts(localEvidence, []),
+            fact => Assert.Equal(
+                SafetyFactLocation.MethodBody,
+                fact.Location));
     }
 
     [Fact]

@@ -968,6 +968,7 @@ public sealed class BrowserMemberDeclarationTests
                     Analysis.CallGraphMemberResolver
                         .CreateSelector(type, member).Key,
                     member.MetadataToken ?? 0,
+                    implementationBodySelected: false,
                     "[]",
                     Assert.IsType<string>(resolution.ContextId));
             using JsonDocument censusDocument =

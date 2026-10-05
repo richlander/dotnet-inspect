@@ -15,6 +15,7 @@ import type {
   BrowserLibraryMetrics,
   BrowserPackageOpportunities,
   BrowserPackagePerformance,
+  BrowserPackageUnsafeFindings,
   BrowserPerformanceMember,
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
@@ -31,27 +32,28 @@ import type {
 } from "./library-metrics.ts";
 
 export type PackagePerformance = BrowserPackagePerformance;
+export type PackageUnsafeFindings = BrowserPackageUnsafeFindings;
 export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
 
-export interface ResolvedPackagePerformanceMember {
+export interface ResolvedPackageAnalysisMember {
   type: AppTypeSurface;
   member: AppMemberSurface;
 }
 
-export function resolvePackagePerformanceMember(
+export function resolvePackageAnalysisMember(
   packageModel: AppPackage,
-  performanceMember: Pick<
+  analysisMember: Pick<
     BrowserPerformanceMember,
     "assembly" | "typeId" | "stableSelector"
   >,
-): ResolvedPackagePerformanceMember | null {
+): ResolvedPackageAnalysisMember | null {
   const type = packageModel.types.find(candidate =>
-    candidate.assembly === performanceMember.assembly
-    && candidate.definitionId === performanceMember.typeId);
+    candidate.assembly === analysisMember.assembly
+    && candidate.definitionId === analysisMember.typeId);
   const member = type?.api.find(candidate =>
-    candidate.stableSelector === performanceMember.stableSelector);
+    candidate.stableSelector === analysisMember.stableSelector);
   return type && member ? { type, member } : null;
 }
 
@@ -104,6 +106,10 @@ export interface PackageInspectionState {
   packagePerformanceLoading: boolean;
   packagePerformanceError: string;
   packagePerformanceKey: string;
+  packageUnsafeFindings: PackageUnsafeFindings | null;
+  packageUnsafeFindingsLoading: boolean;
+  packageUnsafeFindingsError: string;
+  packageUnsafeFindingsKey: string;
   packageLibraryMetrics: PackageLibraryMetrics | null;
   packageLibraryMetricsLoading: boolean;
   packageLibraryMetricsError: string;
@@ -155,6 +161,10 @@ export interface PackageInspectionDependencies {
     packageModel: AppPackage,
     library: string,
   ): Promise<PackagePerformance>;
+  queryPackageUnsafeFindings(
+    packageModel: AppPackage,
+    library: string,
+  ): Promise<PackageUnsafeFindings>;
   queryPackageLibraryMetrics(
     packageModel: AppPackage,
     library: string,
@@ -169,6 +179,12 @@ export interface PackageInspectionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<PackagePerformance>;
+  queryPlatformUnsafeFindings(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+  ): Promise<PackageUnsafeFindings>;
   queryPlatformLibraryMetrics(
     framework: string,
     platformVersion: string,
@@ -223,6 +239,11 @@ export interface PackageInspectionCoordinator {
     scopedLibrary: string | null,
   ): Promise<void>;
   loadPerformance(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+  ): Promise<void>;
+  loadUnsafeFindings(
     packageModel: AppPackage,
     signature: string,
     scopedLibrary: string | null,
@@ -358,6 +379,10 @@ export function createPackageInspectionCoordinator(
       state.packagePerformanceLoading = false;
       state.packagePerformanceError = "";
       state.packagePerformanceKey = "";
+      state.packageUnsafeFindings = null;
+      state.packageUnsafeFindingsLoading = false;
+      state.packageUnsafeFindingsError = "";
+      state.packageUnsafeFindingsKey = "";
       state.packageLibraryMetrics = null;
       state.packageLibraryMetricsLoading = false;
       state.packageLibraryMetricsError = "";
@@ -605,6 +630,52 @@ export function createPackageInspectionCoordinator(
       } finally {
         if (ownsRequest()) {
           state.packagePerformanceLoading = false;
+        }
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
+      }
+    },
+
+    async loadUnsafeFindings(packageModel, signature, scopedLibrary) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      if (state.packageUnsafeFindingsKey === signature
+        && (state.packageUnsafeFindings || state.packageUnsafeFindingsError)) {
+        dependencies.render();
+        return;
+      }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageUnsafeFindingsKey === signature
+        && generation === packageResultGeneration;
+      state.packageUnsafeFindingsKey = signature;
+      state.packageUnsafeFindings = null;
+      state.packageUnsafeFindingsError = "";
+      state.packageUnsafeFindingsLoading = true;
+      dependencies.render();
+      try {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        const result = coordinates
+          ? await dependencies.queryPlatformUnsafeFindings(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack)
+          : await dependencies.queryPackageUnsafeFindings(
+              packageModel,
+              scopedLibrary ?? "");
+        if (ownsRequest()) {
+          state.packageUnsafeFindings = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packageUnsafeFindingsError = dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packageUnsafeFindingsLoading = false;
         }
         if (generation === packageResultGeneration) {
           dependencies.render();

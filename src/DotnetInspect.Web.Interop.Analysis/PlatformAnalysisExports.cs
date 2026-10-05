@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Research;
+using ILAnalysis = ILInspector.Analysis;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
@@ -403,4 +404,136 @@ public static partial class AnalysisExports
         string assemblyFileName,
         string pack) =>
         throw Unavailable("Platform performance", NoPlatformProjection);
+
+    [JSExport]
+    public static async Task<string> QueryPlatformMemberFacts(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        bool implementationBodySelected,
+        string? contextId)
+    {
+        BrowserMemberFacts facts = await PlatformMemberFactsAsync(
+            targetFramework,
+            platformVersion,
+            assemblyFileName,
+            pack,
+            typeIdentity,
+            memberName,
+            memberSignature,
+            selectorKey,
+            metadataToken,
+            implementationBodySelected,
+            contextId);
+        return JsonSerializer.Serialize(
+            facts,
+            BrowserAnalysisJsonContext.Default.BrowserMemberFacts);
+    }
+
+    static async Task<BrowserMemberFacts> PlatformMemberFactsAsync(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        bool implementationBodySelected,
+        string? contextId)
+    {
+        _ = memberSignature;
+        if (implementationBodySelected)
+        {
+            await using BrowserMemberResolution
+                .ScopedPlatformImplementationParticipant exact =
+                    await BrowserMemberResolution
+                        .PlatformImplementationParticipantAsync(
+                            targetFramework,
+                            platformVersion,
+                            assemblyFileName,
+                            pack,
+                            contextId);
+            AssemblyMethodAnalysis exactAnalysis =
+                BrowserSurfaceProjection.Require(
+                    exact.Scope.UseParticipant(
+                        exact.Participant,
+                        (group, participant) =>
+                            AssemblyContextMethodAnalysisQuery
+                                .ExecuteParticipant(
+                                    group,
+                                    participant,
+                                    metadataToken)),
+                    $"Facts for '{typeIdentity}.{memberName}'");
+            return ProjectMemberFacts(exactAnalysis);
+        }
+
+        await using BrowserMemberResolution.ScopedPlatformResolution
+            resolved =
+                await BrowserMemberResolution
+                    .PlatformImplementationMemberAsync(
+                        targetFramework,
+                        platformVersion,
+                        assemblyFileName,
+                        pack,
+                        typeIdentity,
+                        memberName,
+                        selectorKey,
+                        0,
+                        contextId);
+        AssemblyMethodAnalysis analysis =
+            BrowserSurfaceProjection.Require(
+                resolved.Scope.UseParticipant(
+                    resolved.Participant,
+                    (group, participant) =>
+                        AssemblyContextMethodAnalysisQuery
+                            .ExecuteParticipant(
+                                group,
+                                participant,
+                                resolved.Member.BodyToken)),
+                $"Facts for '{typeIdentity}.{memberName}'");
+        return ProjectMemberFacts(analysis);
+    }
+
+    [JSExport]
+    public static async Task<string> QueryPlatformUnsafeFindings(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack)
+    {
+        BrowserPackageUnsafeFindings findings;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            AssemblyContextEntry<AssemblyUnsafeFindings> entry =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    AssemblyContextUnsafeFindingsQuery
+                        .ExecuteParticipant);
+            findings = ProjectUnsafeFindings(
+                entry,
+                assemblyFileName,
+                new BrowserCompileLibraryAvailability(
+                    BrowserCompileLibraryStatus.Selected,
+                    resolution.Scope.Framework,
+                    null));
+        }
+
+        return JsonSerializer.Serialize(
+            findings,
+            BrowserAnalysisJsonContext.Default
+                .BrowserPackageUnsafeFindings);
+    }
 }

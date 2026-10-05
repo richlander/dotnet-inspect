@@ -179,6 +179,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   analysis: {
     queryCloneCandidates: () => unexpected("queryCloneCandidates"),
     queryMemberFacts: () => unexpected("queryMemberFacts"),
+    queryPlatformMemberFacts: () => unexpected("queryPlatformMemberFacts"),
     queryPackageTypeImplementationHeat: () =>
       unexpected("queryPackageTypeImplementationHeat"),
     queryPackageTypeMethodLeverage: () =>
@@ -197,6 +198,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformOpportunities"),
     queryPackagePerformance: () =>
       unexpected("queryPackagePerformance"),
+    queryPackageUnsafeFindings: () =>
+      unexpected("queryPackageUnsafeFindings"),
     queryPackageLibraryDependencyStructure: () =>
       unexpected("queryPackageLibraryDependencyStructure"),
     queryPackageLibraryMetrics: () =>
@@ -211,6 +214,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformLibraryStructuralSalience"),
     queryPlatformPerformance: () =>
       unexpected("queryPlatformPerformance"),
+    queryPlatformUnsafeFindings: () =>
+      unexpected("queryPlatformUnsafeFindings"),
   },
   source: {
     queryMemberSource: () => unexpected("queryMemberSource"),
@@ -2351,12 +2356,14 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     analysis: [
       "queryCloneCandidates",
       "queryMemberFacts",
+      "queryPlatformMemberFacts",
       "queryPackageIntegrations",
       "queryPackageLibraryDependencyStructure",
       "queryPackageLibraryMetrics",
       "queryPackageLibraryStructuralSalience",
       "queryPackageOpportunities",
       "queryPackagePerformance",
+      "queryPackageUnsafeFindings",
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
       "queryPlatformIntegrations",
@@ -2365,6 +2372,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformLibraryStructuralSalience",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
+      "queryPlatformUnsafeFindings",
       "queryPlatformTypeImplementationHeat",
       "queryPlatformTypeMethodLeverage",
     ],
@@ -2430,7 +2438,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 112);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 115);
 
   const state = fixture();
   const groups = [

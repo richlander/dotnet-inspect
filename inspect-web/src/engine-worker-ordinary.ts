@@ -100,11 +100,13 @@ type MetadataFacadeOperationName =
 type AnalysisOperationName =
   | "queryCloneCandidates"
   | "queryMemberFacts"
+  | "queryPlatformMemberFacts"
   | "queryPackageIntegrations"
   | "queryPlatformIntegrations"
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageUnsafeFindings"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -115,7 +117,8 @@ type AnalysisOperationName =
   | "queryPlatformLibraryDependencyStructure"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformLibraryStructuralSalience"
-  | "queryPlatformPerformance";
+  | "queryPlatformPerformance"
+  | "queryPlatformUnsafeFindings";
 
 type SourceOperationName =
   | "queryMemberSource"
@@ -1546,6 +1549,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryMemberFacts"]>
       ) => facades.analysis.queryMemberFacts(...args),
     ),
+    queryPlatformMemberFacts: valueOperation(
+      "ordinary-analysis-query-platform-member-facts",
+      11,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformMemberFacts"]>
+      ) => facades.analysis.queryPlatformMemberFacts(...args),
+    ),
     queryPackageIntegrations: valueOperation(
       "ordinary-analysis-query-package-integrations",
       4,
@@ -1585,6 +1596,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
+    ),
+    queryPackageUnsafeFindings: valueOperation(
+      "ordinary-analysis-query-package-unsafe-findings",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPackageUnsafeFindings"]>
+      ) => facades.analysis.queryPackageUnsafeFindings(...args),
     ),
     queryPackageLibraryDependencyStructure: valueOperation(
       "ordinary-analysis-query-package-library-dependency-structure",
@@ -1651,6 +1670,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<AnalysisFacade["queryPlatformPerformance"]>
       ) => facades.analysis.queryPlatformPerformance(...args),
+    ),
+    queryPlatformUnsafeFindings: valueOperation(
+      "ordinary-analysis-query-platform-unsafe-findings",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformUnsafeFindings"]>
+      ) => facades.analysis.queryPlatformUnsafeFindings(...args),
     ),
   },
   source: {
@@ -1756,7 +1783,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberFindingCensus: valueOperation(
       "ordinary-source-query-member-finding-census",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberFindingCensus"]>
@@ -1764,7 +1791,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberFindingCensus: valueOperation(
       "ordinary-source-query-platform-member-finding-census",
-      12,
+      13,
       (
         facades,
         ...args: Parameters<SourceFacade["queryPlatformMemberFindingCensus"]>
@@ -2386,6 +2413,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,
       ),
+      queryPlatformMemberFacts: bind(
+        engineWorkerOrdinaryOperations.analysis.queryPlatformMemberFacts,
+      ),
       queryPackageIntegrations: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageIntegrations,
@@ -2405,6 +2435,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackagePerformance: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
+      ),
+      queryPackageUnsafeFindings: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageUnsafeFindings,
       ),
       queryPackageLibraryDependencyStructure: bind(
         engineWorkerOrdinaryOperations.analysis
@@ -2433,6 +2467,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryPlatformPerformance: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformPerformance,
+      ),
+      queryPlatformUnsafeFindings: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformUnsafeFindings,
       ),
     },
     source: {

@@ -25,6 +25,8 @@ using ILInspector.Metadata;
 using NuGetFetch;
 
 using DotnetInspect.Web.Interop.Package;
+using BrowserMemberFacts = DotnetInspect.Web.Interop.Analysis.BrowserMemberFacts;
+using BrowserUnsafeFinding = DotnetInspect.Web.Interop.Analysis.BrowserUnsafeFinding;
 using BrowserMetadataJsonContext = DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
 using BrowserAnalysisJsonContext = DotnetInspect.Web.Interop.Analysis.BrowserAnalysisJsonContext;
 using BrowserSourceJsonContext = DotnetInspect.Web.Interop.Source.BrowserSourceJsonContext;
@@ -36,6 +38,7 @@ using BrowserAnalysisCompileLibraryStatus = DotnetInspect.Web.Interop.Analysis.B
 using BrowserPackageIntegrations = DotnetInspect.Web.Interop.Analysis.BrowserPackageIntegrations;
 using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPackageOpportunities;
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
+using BrowserPackageUnsafeFindings = DotnetInspect.Web.Interop.Analysis.BrowserPackageUnsafeFindings;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserLibraryStructuralSalience = DotnetInspect.Web.Interop.Analysis.BrowserLibraryStructuralSalience;
@@ -1068,6 +1071,49 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             opportunities.CompileLibrary.Status);
+        BrowserPackageUnsafeFindings unsafeFindings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPlatformUnsafeFindings(
+                            "net11.0",
+                            version,
+                            "DotnetInspect.Web.Tests.dll",
+                            "netcore.app"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        Assert.True(unsafeFindings.TotalFindings > 0);
+        BrowserUnsafeFinding stackAllocation =
+            Assert.Single(
+                unsafeFindings.Findings,
+                finding =>
+                    finding.MemberName
+                        == nameof(PerformanceStackAllocProbe)
+                    && finding.Kind == "stackalloc");
+        Assert.Equal(
+            BrowserAnalysisCompileLibraryStatus.Selected,
+            unsafeFindings.CompileLibrary.Status);
+        BrowserMemberFacts memberFacts =
+            Assert.IsType<BrowserMemberFacts>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPlatformMemberFacts(
+                            "net11.0",
+                            version,
+                            "DotnetInspect.Web.Tests.dll",
+                            "netcore.app",
+                            stackAllocation.TypeId,
+                            stackAllocation.BodyMember,
+                            memberSignature: "",
+                            stackAllocation.BodySelector,
+                            stackAllocation.BodyToken,
+                            implementationBodySelected: true,
+                            contextId: null),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserMemberFacts));
+        Assert.Contains(
+            memberFacts.Safety,
+            fact => fact.Kind == "stackalloc");
         BrowserPackageMetadata metadata =
             Assert.IsType<BrowserPackageMetadata>(
                 JsonSerializer.Deserialize(

@@ -1067,7 +1067,7 @@ separate work.
 
 The Library inspector order is **Overview**, **References**, **Compare**,
 **Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
-**Complexity**, **Performance**, and **Integrations** tabs, following
+**Complexity**, **Performance**, **Unsafe**, and **Integrations** tabs, following
 Compare's single-inspector mode composition. These modes are not separate
 persistent inspectors.
 
@@ -1092,14 +1092,24 @@ existing Types control occupies the title's place and the tabs use the second
 header row.
 
 ```text
-Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
+Analysis  count/state   [Relationships]  Complexity  Performance  Unsafe  Integrations
 optional platform Library selector
 mode-owned content
 Library asset and assembly identity              TFM · package@version
 ```
 
 Performance retains product triage order, opportunity and loop counts, shape
-and confidence labels, and stable-selector Member navigation. Integrations
+and confidence labels, and stable-selector Member navigation. Unsafe is an
+ungraded list of product-issued findings from compiled declarations and IL.
+It preserves category, operation, evidence, Analysis-issued declaration or
+method-body location, and optional IL offset. Package and Platform rows retain
+both the public navigation identity and exact physical body identity, then
+select the Member Safety Facts view. Unsafe assigns no severity, confidence,
+rank, compliance verdict, remediation, or recommendation; unsafe code can be
+intentional and legitimate. A complete empty result states only that no
+navigable public-member findings were produced by this analysis, while partial
+results retain their findings and surface the diagnostic without claiming
+absence. Integrations
 merges detected signals and suggested integrations into one category-ordered
 list. It retains type-first signal sorting, badges, and counts together with
 Type navigation, suggested-package loading, "look for" search actions, and
@@ -1117,7 +1127,7 @@ and package/version/framework context. Browser HTML lowering consumes the
 existing typed mode results; no producer, query, acquisition, CLI section, or
 result contract changes.
 
-Focused renderer and production-composition browser gates cover all four
+Focused renderer and production-composition browser gates cover all five
 direct tabs, lazy loading, focus retention across asynchronous completion,
 wide/narrow layout, Library switching, row actions, and platform controls.
 

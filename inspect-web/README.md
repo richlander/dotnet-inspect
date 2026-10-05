@@ -942,10 +942,11 @@ is aggregated under its owning property or event with every body token retained.
 Rows open the supported member Overview. Non-public opportunities remain visible
 in the aggregate count.
 
-`QueryMemberFacts` resolves the selected reference-preferred member to its exact
-implementation body through the product's opaque member correspondence, then
-invokes `AssemblyContextMethodAnalysisQuery` for that participant and physical
-MethodDef token. The query owns retained-image, metadata-context, and Analysis
+`QueryMemberFacts` and `QueryPlatformMemberFacts` resolve the selected
+reference-preferred member to its exact implementation body through the
+product's opaque member correspondence, then invoke
+`AssemblyContextMethodAnalysisQuery` for that participant and physical
+MethodDef token. The queries own retained-image, metadata-context, and Analysis
 index lifetime. The browser only formats signals, allocation and call
 occurrences, unsafe evidence, exception regions, opportunities, and visible
 diagnostics. Allocation occurrences retain the product's heap-counting

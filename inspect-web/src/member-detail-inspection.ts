@@ -60,6 +60,7 @@ interface MemberFindingCensusCoordinates {
   memberSignature: string;
   selectorKey: string;
   metadataToken: number;
+  implementationBodySelected: boolean;
   taste: string;
   embeddedSession?: boolean;
   isCurrent(): boolean;
@@ -87,6 +88,9 @@ export type MemberFindingCensusRequest =
 
 export interface MemberFactsRequest extends MemberCoordinates {
   signature: string;
+  isRuntimePack: boolean;
+  platformPack: string;
+  contextId: string | null;
   typeIdentity: string;
   selectorKey: string;
   metadataToken: number;

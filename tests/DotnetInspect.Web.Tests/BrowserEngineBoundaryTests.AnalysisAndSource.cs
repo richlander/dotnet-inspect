@@ -38,6 +38,9 @@ using BrowserAnalysisCompileLibraryStatus = DotnetInspect.Web.Interop.Analysis.B
 using BrowserPackageIntegrations = DotnetInspect.Web.Interop.Analysis.BrowserPackageIntegrations;
 using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPackageOpportunities;
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
+using BrowserPackageUnsafeFindings = DotnetInspect.Web.Interop.Analysis.BrowserPackageUnsafeFindings;
+using BrowserUnsafeFinding = DotnetInspect.Web.Interop.Analysis.BrowserUnsafeFinding;
+using BrowserMemberFacts = DotnetInspect.Web.Interop.Analysis.BrowserMemberFacts;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
@@ -90,6 +93,378 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Equal(0, performance.NonPublicOpportunities);
         Assert.Empty(performance.Members);
+    }
+
+    [Fact]
+    public async Task PackageUnsafeFindings_ProjectsUngradedNavigableEvidence()
+    {
+        const string PackageId = "Browser.Unsafe.Findings";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string json =
+            await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .QueryPackageUnsafeFindings(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll");
+        BrowserPackageUnsafeFindings findings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+
+        Assert.True(findings.TotalFindings > 0);
+        BrowserUnsafeFinding stackAllocation =
+            Assert.Single(
+                findings.Findings,
+                finding =>
+                    finding.MemberName
+                        == nameof(PerformanceStackAllocProbe)
+                    && finding.Kind == "stackalloc"
+                    && finding.Location == "method body"
+                    && finding.BodyToken > 0
+                    && !string.IsNullOrWhiteSpace(
+                        finding.BodySelector)
+                    && finding.Offset is not null);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement finding = Assert.Single(
+            document.RootElement
+                .GetProperty("findings")
+                .EnumerateArray(),
+            item =>
+                item.GetProperty("memberName").GetString()
+                    == nameof(PerformanceStackAllocProbe)
+                && item.GetProperty("kind").GetString()
+                    == "stackalloc");
+        Assert.False(finding.TryGetProperty("severity", out _));
+        Assert.False(finding.TryGetProperty("confidence", out _));
+        Assert.False(finding.TryGetProperty("rank", out _));
+
+        string censusJson =
+            await DotnetInspect.Web.Interop.Source
+                .SourceExports.QueryMemberFindingCensus(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    stackAllocation.TypeId,
+                    stackAllocation.TypeId,
+                    stackAllocation.BodyMember,
+                    stackAllocation.MemberName,
+                    stackAllocation.BodySelector,
+                    stackAllocation.BodyToken,
+                    implementationBodySelected: true,
+                    styleOptionsJson: "[]");
+        using JsonDocument census = JsonDocument.Parse(censusJson);
+        Assert.True(
+            census.RootElement.GetProperty("annotatedSource")
+                .GetProperty("viewerCatalog")
+                .GetProperty("callRelationships")
+                .GetProperty("available")
+                .GetBoolean());
+
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(
+                coordinate,
+                $"{PackageId}.dll");
+        AssemblyContextEntry<AssemblyUnsafeFindings> available =
+            scope.UseImplementationParticipant(
+                participant,
+                AssemblyContextUnsafeFindingsQuery
+                    .ExecuteParticipant);
+        var failed =
+            new AssemblyContextEntry<AssemblyUnsafeFindings>.Failed(
+                available.Subject,
+                new InvalidDataException("expected failure"));
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => DotnetInspect.Web.Interop.Analysis
+                    .AnalysisExports.ProjectUnsafeFindings(
+                        failed,
+                        $"{PackageId}.dll",
+                        findings.CompileLibrary));
+        Assert.Contains(
+            "inspection failed",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageUnsafeFindings_OpenLiftedBodyFactsAndAnnotatedSource()
+    {
+        const string PackageId = "Browser.Unsafe.Async.Findings";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackageUnsafeFindings findings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryPackageUnsafeFindings(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        BrowserUnsafeFinding stackAllocation =
+            Assert.Single(
+                findings.Findings,
+                finding =>
+                    finding.MemberName
+                        == "AwaitInitializedStackalloc"
+                    && finding.Kind == "stackalloc");
+        Assert.Equal("MoveNext", stackAllocation.BodyMember);
+
+        BrowserMemberFacts facts =
+            Assert.IsType<BrowserMemberFacts>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryMemberFacts(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll",
+                            stackAllocation.TypeId,
+                            stackAllocation.BodyMember,
+                            memberSignature: "",
+                            stackAllocation.BodySelector,
+                            stackAllocation.BodyToken,
+                            implementationBodySelected: true),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserMemberFacts));
+        Assert.Equal(
+            stackAllocation.BodyToken,
+            facts.MetadataToken);
+        Assert.Contains(
+            facts.Safety,
+            fact => fact.Kind == "stackalloc");
+
+        string censusJson =
+            await DotnetInspect.Web.Interop.Source
+                .SourceExports.QueryMemberFindingCensus(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    stackAllocation.TypeId,
+                    stackAllocation.TypeId,
+                    stackAllocation.BodyMember,
+                    memberSignature:
+                        stackAllocation.MemberName,
+                    stackAllocation.BodySelector,
+                    stackAllocation.BodyToken,
+                    implementationBodySelected: true,
+                    styleOptionsJson: "[]");
+        using JsonDocument census = JsonDocument.Parse(censusJson);
+        Assert.Contains(
+            census.RootElement.GetProperty("facts").EnumerateArray(),
+            fact => fact.GetProperty("category").GetString()
+                    == "Unsafety"
+                && fact.GetProperty("id").GetString()
+                    == "unsafe.stackalloc");
+        Assert.Equal(
+            JsonValueKind.Object,
+            census.RootElement.GetProperty("annotatedSource")
+                .GetProperty("document")
+                .ValueKind);
+    }
+
+    [Fact]
+    public async Task PackageUnsafeFindings_OpenDeclarationOnlyFacts()
+    {
+        const string PackageId =
+            "Browser.Unsafe.DeclarationOnly.Findings";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.MetadataMethodImplContracts.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackageUnsafeFindings findings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryPackageUnsafeFindings(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        BrowserUnsafeFinding declaration =
+            Assert.Single(
+                findings.Findings,
+                finding =>
+                    finding.MemberName == "M"
+                    && finding.Kind == "Unsafe signature"
+                    && finding.Location == "declaration");
+
+        BrowserMemberFacts facts =
+            Assert.IsType<BrowserMemberFacts>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryMemberFacts(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll",
+                            declaration.TypeId,
+                            declaration.BodyMember,
+                            memberSignature: "",
+                            declaration.BodySelector,
+                            declaration.BodyToken,
+                            implementationBodySelected: true),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserMemberFacts));
+        Assert.Equal(declaration.BodyToken, facts.MetadataToken);
+        Assert.True(facts.Signals.Unsafe);
+        Assert.Contains(
+            facts.Safety,
+            fact => fact.Kind == "Unsafe signature");
+        Assert.Empty(facts.Allocations);
+        Assert.Empty(facts.Calls);
+        Assert.Empty(facts.ExceptionRegions);
+        Assert.Empty(facts.PerformanceOpportunities);
+    }
+
+    [Fact]
+    public async Task PackageUnsafeFindings_RetainLiftedPropertyOwner()
+    {
+        const string PackageId =
+            "Browser.Unsafe.LiftedProperty.Findings";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackageUnsafeFindings findings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryPackageUnsafeFindings(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        BrowserUnsafeFinding propertyFinding =
+            Assert.Single(
+                findings.Findings,
+                finding =>
+                    finding.MemberName == "LiftedStackAllocation"
+                    && finding.Kind == "stackalloc");
+
+        Assert.Contains(
+            "g__Local",
+            propertyFinding.BodyMember,
+            StringComparison.Ordinal);
+        Assert.NotEqual(
+            propertyFinding.StableSelector,
+            propertyFinding.BodySelector);
+    }
+
+    [Fact]
+    public async Task PackageUnsafeFindings_ReferenceOnlyLibraryFailsBeforeRows()
+    {
+        const string PackageId = "Browser.Unsafe.ReferenceOnly";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate =
+            await Coordinate(
+                PackageId,
+                Package(
+                    image,
+                    $"ref/net11.0/{PackageId}.dll"));
+        string assemblyId =
+            Assert.Single(coordinate.Selection.Assets).Id;
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => DotnetInspect.Web.Interop.Analysis
+                    .AnalysisExports.QueryPackageUnsafeFindings(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        assemblyId));
+
+        Assert.Contains(
+            "no managed implementation assembly",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageUnsafeFindings_BoundsNavigableRowsAsPartial()
+    {
+        var failures = new List<string>();
+        BrowserUnsafeFinding[] findings =
+            DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .ApplyUnsafeFindingLimit(
+                    Enumerable.Range(0, 501)
+                        .Select(index =>
+                            new BrowserUnsafeFinding(
+                                "Probe.dll",
+                                "Probe.Type",
+                                $"Method{index}",
+                                $"Method{index}",
+                                $"Method{index}",
+                                $"Method{index}~0~static~()->System.Void",
+                                0x06000001 + index,
+                                "Unsafe call",
+                                "method body",
+                                $"IL_{index:X4}",
+                                "Unsafe.Operation",
+                                "Unsafe call")),
+                    failures);
+
+        Assert.Equal(500, findings.Length);
+        Assert.Single(failures);
+        Assert.Contains("truncated", failures[0]);
     }
 
     [Fact]
@@ -546,6 +921,7 @@ public sealed partial class BrowserEngineBoundaryTests
             CallerCanonicalIdentity,
             member.GetProperty("graphSelectorKey").GetString()!,
             member.GetProperty("metadataToken").GetInt32(),
+            implementationBodySelected: false,
             "[]");
         using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
         JsonElement root = censusDocument.RootElement;
@@ -667,6 +1043,7 @@ public sealed partial class BrowserEngineBoundaryTests
             member.GetProperty("signature").GetString()!,
             member.GetProperty("graphSelectorKey").GetString()!,
             member.GetProperty("metadataToken").GetInt32(),
+            implementationBodySelected: false,
             "[]");
         using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
         JsonElement root = censusDocument.RootElement;
@@ -856,6 +1233,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -951,6 +1329,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1038,6 +1417,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1128,6 +1508,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1213,6 +1594,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1342,6 +1724,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 member.GetProperty("signature").GetString()!,
                 member.GetProperty("graphSelectorKey").GetString()!,
                 member.GetProperty("metadataToken").GetInt32(),
+                implementationBodySelected: false,
                 "[]");
         using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
         JsonElement root = censusDocument.RootElement;
