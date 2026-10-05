@@ -139,7 +139,7 @@ public sealed class TypeMemberCompositionTests
                         type,
                         MetadataMemberSpelling.CSharp,
                         includeHidden: false,
-                        MetadataMethodAccessibilityFilter.All),
+                        MetadataMethodAccessibilityFilter.Public),
                     new(
                         int.MaxValue,
                         int.MaxValue,
@@ -163,7 +163,7 @@ public sealed class TypeMemberCompositionTests
                     startOrdinal: 0,
                     maximumRows: int.MaxValue,
                     materializeRows: true,
-                    MetadataMethodAccessibilityFilter.All,
+                    MetadataMethodAccessibilityFilter.Public,
                     MetadataMethodReceiverFilter.All,
                     MetadataMemberSpelling.CSharp,
                     includeHidden: false,
@@ -175,8 +175,68 @@ public sealed class TypeMemberCompositionTests
         Assert.Equal(group.CompleteCount, exact.Count);
         Assert.All(
             exact.Rows,
-            row => Assert.True(
-                row.IsExplicitInterfaceImplementation));
+            row =>
+            {
+                Assert.True(row.IsExplicitInterfaceImplementation);
+                Assert.Equal("public", row.Accessibility);
+            });
+    }
+
+    [Fact]
+    public void ArrayEnumerator_MetadataPrivateMethodGroupMatchesPhysicalPopulation()
+    {
+        MetadataTypeDefinitionName type =
+            Name(
+                "System.Text.Json",
+                "JsonElement",
+                "ArrayEnumerator");
+        using var session = AssemblyInspectionSession.Open(PackageJsonPath);
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        type,
+                        MetadataMemberSpelling.Metadata,
+                        includeHidden: true,
+                        MetadataMethodAccessibilityFilter.Private),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+        MetadataTypeMemberPopulationGroup group = population.Groups.First(
+            candidate =>
+                candidate.Kind == "method"
+                && candidate.Members.Any(
+                    member =>
+                        member.IsExplicitInterfaceImplementation));
+
+        using var declaration = session.CreateDeclarationSession(
+            new MetadataOperationContext(
+                MetadataOperationPolicy.Unbounded));
+        MetadataMethodGroupInspectionOutcome.Read exact = Assert.IsType<
+            MetadataMethodGroupInspectionOutcome.Read>(
+                declaration.InspectMethodGroup(
+                    type,
+                    group.Name,
+                    startOrdinal: 0,
+                    maximumRows: int.MaxValue,
+                    materializeRows: true,
+                    MetadataMethodAccessibilityFilter.Private,
+                    MetadataMethodReceiverFilter.All,
+                    MetadataMemberSpelling.Metadata,
+                    includeHidden: true,
+                    maximumMembers: int.MaxValue,
+                    maximumRetainedTextCharacters: int.MaxValue,
+                    category: MetadataTypeMemberGroupCategory.Method));
+
+        Assert.Equal(group.CompleteCount, exact.Count);
+        Assert.All(
+            exact.Rows,
+            row => Assert.Equal("private", row.Accessibility));
     }
 
     [Theory]

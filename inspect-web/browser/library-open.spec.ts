@@ -709,10 +709,19 @@ test("uploaded Library private method family renders private exact rows", async 
     await expect(page.locator(".member-surface-list .overload-row"))
       .toHaveCount(2);
     await expect(page.locator(".member-identity")).toHaveCount(0);
+    const spelling = page.locator("[data-member-spelling]");
+    if (!await spelling.isVisible())
+      await page.locator("#member-filter-summary").click();
+    await spelling.selectOption("metadata");
     await chooseSubject(page, "library", "Library");
     await expect(subjectTab(page, "library"))
       .toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(page.locator("[data-member-spelling]"))
+      .toHaveValue("metadata");
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(page.locator("[data-member-spelling]"))
+      .toHaveValue("csharp");
     await expect(page.locator(".member-surface-list .overload-row"))
       .toHaveCount(2);
     await page.getByRole("button", { name: "Back", exact: true }).click();
@@ -720,9 +729,14 @@ test("uploaded Library private method family renders private exact rows", async 
       .toContainText("Widget Parse(ReadOnlySpan<char> json)");
     await expect(page.locator(".member-identity"))
       .toContainText("owner-issued exact declaration");
+    await expect(page.locator("[data-member-spelling]"))
+      .toHaveValue("csharp");
     await page.getByRole("button", { name: "Forward", exact: true }).click();
     await expect(page.locator(".member-surface-list .overload-row"))
       .toHaveCount(2);
+    await page.getByRole("button", { name: "Forward", exact: true }).click();
+    await expect(page.locator("[data-member-spelling]"))
+      .toHaveValue("metadata");
     await page.getByRole("button", { name: "Forward", exact: true }).click();
     await expect(subjectTab(page, "library"))
       .toHaveAttribute("aria-selected", "true");

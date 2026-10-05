@@ -361,7 +361,9 @@ internal static class MetadataDeclaredMemberGroupInspection
                 displaySignature =
                     MetadataDeclarationQuery.GetMethodSignatureText(
                         methodDeclaration);
-                accessibility = methodDeclaration.Accessibility;
+                accessibility =
+                    ApiSurfaceExtractor.AccessibilityBucketName(
+                        member.Access);
                 break;
             case HandleKind.PropertyDefinition:
                 PropertyDefinition property =
@@ -380,7 +382,9 @@ internal static class MetadataDeclaredMemberGroupInspection
                 displaySignature =
                     MetadataDeclarationQuery.GetPropertySignatureText(
                         propertyDeclaration);
-                accessibility = propertyDeclaration.Accessibility;
+                accessibility =
+                    ApiSurfaceExtractor.AccessibilityBucketName(
+                        member.Access);
                 break;
             case HandleKind.FieldDefinition:
                 FieldDefinition field =
@@ -399,7 +403,9 @@ internal static class MetadataDeclaredMemberGroupInspection
                 displaySignature =
                     MetadataDeclarationQuery.GetFieldSignatureText(
                         fieldDeclaration);
-                accessibility = fieldDeclaration.Accessibility;
+                accessibility =
+                    ApiSurfaceExtractor.AccessibilityBucketName(
+                        member.Access);
                 break;
             case HandleKind.EventDefinition:
                 EventDefinition @event =
@@ -415,7 +421,9 @@ internal static class MetadataDeclaredMemberGroupInspection
                         reader,
                         type,
                         @event);
-                accessibility = Accessibility(member.Access);
+                accessibility =
+                    ApiSurfaceExtractor.AccessibilityBucketName(
+                        member.Access);
                 break;
             default:
                 throw new InvalidOperationException(
@@ -479,17 +487,6 @@ internal static class MetadataDeclaredMemberGroupInspection
             MetadataMethodReceiverFilter.Extension =>
                 candidate is MetadataMethodReceiver.Extension,
             _ => throw new ArgumentOutOfRangeException(nameof(request)),
-        };
-
-    private static string Accessibility(MethodAttributes accessibility) =>
-        ApiSurfaceExtractor.AccessibilityBucket(accessibility) switch
-        {
-            MetadataMethodAccessibilityFilter.Public => "public",
-            MetadataMethodAccessibilityFilter.Protected => "protected",
-            MetadataMethodAccessibilityFilter.Internal => "internal",
-            MetadataMethodAccessibilityFilter.Private => "private",
-            _ => throw new InvalidOperationException(
-                "Unknown declared Member accessibility."),
         };
 
     private sealed class MemberBoundExceededException(int measured)
