@@ -17,11 +17,13 @@ public abstract class AssemblyContextHierarchyRelationIndexPreparation
     public sealed class Ready
         : AssemblyContextHierarchyRelationIndexPreparation
     {
-        private readonly PreparedHierarchyRelationIndexStore _owner;
+        private readonly AssemblyContextGroup.ParticipantResource<
+            PreparedHierarchyRelationIndexStore> _owner;
 
         internal Ready(
             AssemblyContextSubject subject,
-            PreparedHierarchyRelationIndexStore owner,
+            AssemblyContextGroup.ParticipantResource<
+                PreparedHierarchyRelationIndexStore> owner,
             AssemblyAcquisitionRegistration registration,
             AssemblyInspectionSession session,
             MetadataHierarchyRelationIndex index,
@@ -50,8 +52,33 @@ public abstract class AssemblyContextHierarchyRelationIndexPreparation
         /// Borrows the prepared reverse index for repeated target analysis.
         /// </summary>
         public AssemblyContextHierarchyRelationIndexExecution
-            OpenExecution() =>
-            _owner.OpenExecution(this);
+            OpenExecution()
+        {
+            AssemblyContextGroup.ParticipantResourceBorrow<
+                PreparedHierarchyRelationIndexStore> borrow =
+                    _owner.Borrow(Registration);
+            try
+            {
+                borrow.State.ValidateReady(this);
+                return new(
+                    Index,
+                    borrow);
+            }
+            catch (Exception operationFailure)
+            {
+                try
+                {
+                    borrow.Dispose();
+                }
+                catch (Exception releaseFailure)
+                {
+                    throw new AggregateException(
+                        operationFailure,
+                        releaseFailure);
+                }
+                throw;
+            }
+        }
 
         public MetadataHierarchyRelationAnalysisOutcome Analyze(
             MetadataHierarchyRelationAnalysisRequest request,
@@ -136,12 +163,13 @@ public sealed class AssemblyContextHierarchyRelationIndexExecution
     : IDisposable
 {
     private readonly MetadataHierarchyRelationIndex _index;
-    private AssemblyContextGroup.AssemblyContextGroupResourceBorrow?
-        _borrow;
+    private AssemblyContextGroup.ParticipantResourceBorrow<
+        PreparedHierarchyRelationIndexStore>? _borrow;
 
     internal AssemblyContextHierarchyRelationIndexExecution(
         MetadataHierarchyRelationIndex index,
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow)
+        AssemblyContextGroup.ParticipantResourceBorrow<
+            PreparedHierarchyRelationIndexStore> borrow)
     {
         _index = index;
         _borrow = borrow;
@@ -159,8 +187,9 @@ public sealed class AssemblyContextHierarchyRelationIndexExecution
 
     public void Dispose()
     {
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow? borrow =
-            Interlocked.Exchange(ref _borrow, null);
+        AssemblyContextGroup.ParticipantResourceBorrow<
+            PreparedHierarchyRelationIndexStore>? borrow =
+                Interlocked.Exchange(ref _borrow, null);
         borrow?.Dispose();
     }
 }
@@ -171,11 +200,9 @@ public sealed class AssemblyContextHierarchyRelationIndexExecution
 /// </summary>
 public static class AssemblyContextHierarchyRelationIndexQuery
 {
-    private static readonly Func<
-        AssemblyContextGroup,
-        PreparedHierarchyRelationIndexStore> s_createStore =
-            static owner =>
-                new PreparedHierarchyRelationIndexStore(owner);
+    private static readonly Func<PreparedHierarchyRelationIndexStore>
+        s_createStore =
+            static () => new PreparedHierarchyRelationIndexStore();
 
     public static AssemblyContextHierarchyRelationIndexPreparation
         PrepareParticipant(
@@ -189,25 +216,34 @@ public static class AssemblyContextHierarchyRelationIndexQuery
         ArgumentNullException.ThrowIfNull(preparationPolicy);
         cancellationToken.ThrowIfCancellationRequested();
 
-        PreparedHierarchyRelationIndexStore store =
-            group.GetOrCreateOwnedResource<
-                PreparedHierarchyRelationIndexStore,
-                AssemblyContextGroup>(
-                    group,
-                    s_createStore);
-        return store.Prepare(
+        AssemblyContextGroup.ParticipantResource<
+            PreparedHierarchyRelationIndexStore> resource =
+                group.GetOrCreateParticipantResource(s_createStore);
+        return resource.Prepare(
             participant,
-            preparationPolicy,
-            cancellationToken);
+            cancellationToken,
+            (
+                Resource: resource,
+                Registration: participant.Assembly.Registration,
+                Subject: new AssemblyContextSubject(participant.Assembly),
+                Policy: preparationPolicy,
+                CancellationToken: cancellationToken),
+            static (store, access, state) =>
+                store.Prepare(
+                    state.Resource,
+                    state.Registration,
+                    state.Subject,
+                    state.Policy,
+                    access,
+                    state.CancellationToken));
     }
 }
 
 internal sealed class PreparedHierarchyRelationIndexStore
     : IDisposable,
-        IAssemblyContextParticipantOwnedResource
+        IAssemblyContextParticipantResourceState
 {
     private readonly object _gate = new();
-    private readonly AssemblyContextGroup _group;
     private readonly Dictionary<
         PreparedHierarchyRelationIndexKey,
         AssemblyContextHierarchyRelationIndexPreparation> _preparations =
@@ -217,35 +253,20 @@ internal sealed class PreparedHierarchyRelationIndexStore
         object> _preparationGates = [];
     private bool _disposed;
 
-    internal PreparedHierarchyRelationIndexStore(
-        AssemblyContextGroup group)
-    {
-        _group = group;
-    }
-
     internal AssemblyContextHierarchyRelationIndexPreparation Prepare(
-        AssemblyContextParticipant participant,
+        AssemblyContextGroup.ParticipantResource<
+            PreparedHierarchyRelationIndexStore> resource,
+        AssemblyAcquisitionRegistration registration,
+        AssemblyContextSubject subject,
         MetadataOperationPolicy preparationPolicy,
+        AssemblyContextParticipantPreparationAccess access,
         CancellationToken cancellationToken)
     {
         var key =
             new PreparedHierarchyRelationIndexKey(
-                participant.Assembly.Registration,
+                registration,
                 preparationPolicy);
         object preparationGate;
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_preparations.TryGetValue(
-                    key,
-                    out AssemblyContextHierarchyRelationIndexPreparation?
-                        existing))
-            {
-                return existing;
-            }
-        }
-
-        _group.ValidateParticipant(participant);
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -281,57 +302,13 @@ internal sealed class PreparedHierarchyRelationIndexStore
                     }
                 }
 
-                cancellationToken.ThrowIfCancellationRequested();
-                using AssemblyContextGroup
-                    .AssemblyContextGroupResourceBorrow preparationBorrow =
-                        _group.BorrowOwnedResource(
-                            this,
-                            key.Registration);
-                var subject =
-                    new AssemblyContextSubject(participant.Assembly);
-                AssemblyImageAccessResult<
-                    AssemblyContextHierarchyRelationIndexPreparation>
-                    access =
-                        preparationBorrow.UseSnapshot(
-                            cancellationToken,
-                            (
-                                Owner: this,
-                                Key: key,
-                                Subject: subject,
-                                Policy: preparationPolicy,
-                                CancellationToken: cancellationToken),
-                            static (snapshot, state) =>
-                                state.Owner.PrepareAndPublish(
-                                    state.Key,
-                                    state.Subject,
-                                    snapshot,
-                                    state.Policy,
-                                    state.CancellationToken));
-                AssemblyContextHierarchyRelationIndexPreparation prepared =
-                    access switch
-                    {
-                        AssemblyImageAccessResult<
-                            AssemblyContextHierarchyRelationIndexPreparation>
-                            .Available available =>
-                                available.Value,
-                        AssemblyImageAccessResult<
-                            AssemblyContextHierarchyRelationIndexPreparation>
-                            .Rejected rejected =>
-                                new AssemblyContextHierarchyRelationIndexPreparation
-                                    .ParticipantRejected(
-                                        subject,
-                                        rejected.Failure),
-                        _ => throw new InvalidOperationException(
-                            "Unknown assembly image access result."),
-                    };
-                if (access
-                    is AssemblyImageAccessResult<
-                        AssemblyContextHierarchyRelationIndexPreparation>
-                        .Rejected)
-                {
-                    PublishIfAlive(key, prepared);
-                }
-                return prepared;
+                return PrepareAndPublish(
+                    resource,
+                    key,
+                    subject,
+                    access,
+                    preparationPolicy,
+                    cancellationToken);
             }
         }
         finally
@@ -340,46 +317,67 @@ internal sealed class PreparedHierarchyRelationIndexStore
         }
     }
 
-    internal AssemblyContextHierarchyRelationIndexExecution OpenExecution(
+    internal void ValidateReady(
         AssemblyContextHierarchyRelationIndexPreparation.Ready ready)
     {
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow =
-            _group.BorrowOwnedResource(
-                this,
-                ready.Registration);
-        try
+        var key =
+            new PreparedHierarchyRelationIndexKey(
+                ready.Registration,
+                ready.PreparationPolicy);
+        lock (_gate)
         {
-            var key =
-                new PreparedHierarchyRelationIndexKey(
-                    ready.Registration,
-                    ready.PreparationPolicy);
-            lock (_gate)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_preparations.TryGetValue(
+                    key,
+                    out AssemblyContextHierarchyRelationIndexPreparation?
+                        preparation)
+                || !ReferenceEquals(preparation, ready))
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                if (!_preparations.TryGetValue(
-                        key,
-                        out AssemblyContextHierarchyRelationIndexPreparation?
-                            preparation)
-                    || !ReferenceEquals(preparation, ready))
-                {
-                    throw new ObjectDisposedException(
-                        nameof(AssemblyContextParticipant));
-                }
+                throw new ObjectDisposedException(
+                    nameof(AssemblyContextParticipant));
             }
-
-            return new(
-                ready.Index,
-                borrow);
-        }
-        catch
-        {
-            borrow.Dispose();
-            throw;
         }
     }
 
     private AssemblyContextHierarchyRelationIndexPreparation
         PrepareAndPublish(
+            AssemblyContextGroup.ParticipantResource<
+                PreparedHierarchyRelationIndexStore> resource,
+            PreparedHierarchyRelationIndexKey key,
+            AssemblyContextSubject subject,
+            AssemblyContextParticipantPreparationAccess access,
+            MetadataOperationPolicy preparationPolicy,
+            CancellationToken cancellationToken)
+    {
+        AssemblyContextHierarchyRelationIndexPreparation prepared =
+            access switch
+            {
+                AssemblyContextParticipantPreparationAccess.Available
+                    available =>
+                        PrepareAvailable(
+                            resource,
+                            key,
+                            subject,
+                            available.Snapshot,
+                            preparationPolicy,
+                            cancellationToken),
+                AssemblyContextParticipantPreparationAccess.Rejected
+                    rejected =>
+                        new AssemblyContextHierarchyRelationIndexPreparation
+                            .ParticipantRejected(
+                                subject,
+                                rejected.Failure),
+                _ => throw new InvalidOperationException(
+                    "Unknown participant preparation access."),
+            };
+        Publish(key, prepared);
+        return prepared;
+    }
+
+    private AssemblyContextHierarchyRelationIndexPreparation
+        PrepareAvailable(
+            AssemblyContextGroup.ParticipantResource<
+                PreparedHierarchyRelationIndexStore> resource,
             PreparedHierarchyRelationIndexKey key,
             AssemblyContextSubject subject,
             AssemblyImageSnapshot snapshot,
@@ -399,7 +397,6 @@ internal sealed class PreparedHierarchyRelationIndexStore
                     .InspectionFailed(
                         subject,
                         ex.Message);
-            Publish(key, failed);
             return failed;
         }
 
@@ -407,12 +404,12 @@ internal sealed class PreparedHierarchyRelationIndexStore
         {
             AssemblyContextHierarchyRelationIndexPreparation prepared =
                 PrepareIndex(
+                    resource,
                     key.Registration,
                     subject,
                     session,
                     preparationPolicy,
                     cancellationToken);
-            Publish(key, prepared);
             if (prepared
                 is AssemblyContextHierarchyRelationIndexPreparation.Ready)
             {
@@ -428,6 +425,8 @@ internal sealed class PreparedHierarchyRelationIndexStore
 
     private AssemblyContextHierarchyRelationIndexPreparation
         PrepareIndex(
+            AssemblyContextGroup.ParticipantResource<
+                PreparedHierarchyRelationIndexStore> resource,
             AssemblyAcquisitionRegistration registration,
             AssemblyContextSubject subject,
             AssemblyInspectionSession session,
@@ -446,7 +445,7 @@ internal sealed class PreparedHierarchyRelationIndexStore
                     new AssemblyContextHierarchyRelationIndexPreparation
                         .Ready(
                             subject,
-                            this,
+                            resource,
                             registration,
                             session,
                             ready.Index,
@@ -489,17 +488,6 @@ internal sealed class PreparedHierarchyRelationIndexStore
         }
     }
 
-    private void PublishIfAlive(
-        PreparedHierarchyRelationIndexKey key,
-        AssemblyContextHierarchyRelationIndexPreparation prepared)
-    {
-        lock (_gate)
-        {
-            if (!_disposed)
-                _preparations.Add(key, prepared);
-        }
-    }
-
     private void RemoveSettledPreparationGate(
         PreparedHierarchyRelationIndexKey key,
         object preparationGate)
@@ -517,7 +505,7 @@ internal sealed class PreparedHierarchyRelationIndexStore
         }
     }
 
-    void IAssemblyContextParticipantOwnedResource
+    void IAssemblyContextParticipantResourceState
         .ReleaseParticipant(
             AssemblyAcquisitionRegistration registration)
     {
