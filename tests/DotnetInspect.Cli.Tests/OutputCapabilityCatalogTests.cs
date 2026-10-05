@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
 
@@ -94,6 +95,51 @@ public class OutputCapabilityCatalogTests
     }
 
     [Fact]
+    public void ApiCatalogAdvertisesOnlyExecutedFormatsPerRoute()
+    {
+        // The executed set: Tables lower to the row formats, Texts to their
+        // payload, JSON only where the type document or a dedicated lowering
+        // carries the section (derived from the JSON code's own tables), and
+        // the type-command-only JSON sections only on the type command's view.
+        OutputCapabilityCatalog detail = ApiOutputCapabilities.For(
+            StructuralViewRegistry.Route(
+                StructuralViewIdentity.MemberTarget,
+                InspectionCatalogIdentity.ApiMemberDetail));
+        OutputCapabilityCatalog typeView = ApiOutputCapabilities.For(
+            StructuralViewRegistry.Route(
+                StructuralViewIdentity.Type,
+                InspectionCatalogIdentity.ApiMember));
+        OutputCapabilityCatalog memberTypeView = ApiOutputCapabilities.For(
+            StructuralViewRegistry.Route(
+                StructuralViewIdentity.MemberType,
+                InspectionCatalogIdentity.ApiMember));
+        OutputCapabilityCatalog listing = ApiOutputCapabilities.For(
+            StructuralViewRegistry.Route(
+                StructuralViewIdentity.Type,
+                InspectionCatalogIdentity.ApiType));
+
+        Assert.Equal(ApiOutputCapabilities.TextFormats, detail.FormatsForSection(SectionNames.DecompiledSource));
+        Assert.Equal(ApiOutputCapabilities.TextFormats, detail.FormatsForSection(SectionNames.IL));
+        Assert.Equal(
+            [DiscoveryOutputMode.Markdown, DiscoveryOutputMode.PlainText, DiscoveryOutputMode.Json],
+            detail.FormatsForSection(SectionNames.Source));
+        Assert.Equal(
+            [DiscoveryOutputMode.Markdown, DiscoveryOutputMode.PlainText, DiscoveryOutputMode.Json],
+            detail.FormatsForSection(SectionNames.FindingCensus));
+        Assert.Equal(ApiOutputCapabilities.TableFormats, detail.FormatsForSection(SectionNames.Signature));
+        Assert.Equal(ApiOutputCapabilities.TableFormats, detail.FormatsForSection(SectionNames.ExceptionRegions));
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, detail.FormatsForSection(SectionNames.Calls));
+        Assert.Equal(OutputCapabilityCatalog.FormatOrder, detail.FormatsForSection(SectionNames.CallGraph));
+        Assert.Equal(ApiOutputCapabilities.TableFormats, typeView.FormatsForSection(SectionNames.TypeMetrics));
+        Assert.Equal(ApiOutputCapabilities.TableFormats, typeView.FormatsForSection(SectionNames.PerformanceTriage));
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.Methods));
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.TypeInfo));
+        Assert.Contains(DiscoveryOutputMode.Json, typeView.FormatsForSection(SectionNames.ApiDeclarations));
+        Assert.DoesNotContain(DiscoveryOutputMode.Json, memberTypeView.FormatsForSection(SectionNames.ApiDeclarations));
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, listing.FormatsForSection(SectionNames.Classes));
+    }
+
+    [Fact]
     public void ApiCatalogDerivesFormatsFromShapesAndKeepsCallGraphFormats()
     {
         // Type and member formats derive from each section's declared shape;
@@ -102,11 +148,19 @@ public class OutputCapabilityCatalogTests
         // advertises only the formats the CLI executes for it today: the row
         // formats need a fact row the type and member owners do not have yet
         // (round-4 finding: --jsonl on Decompiled Source returned nothing).
-        OutputCapabilityCatalog catalog = ApiOutputCapabilities.Catalog;
+        OutputCapabilityCatalog catalog = ApiOutputCapabilities.For(
+            StructuralViewRegistry.Route(
+                StructuralViewIdentity.MemberTarget,
+                InspectionCatalogIdentity.ApiMemberDetail));
 
+        // Methods lives in the overload catalog, not the exact-member one.
         Assert.Equal(
             OutputCapabilityCatalog.StandardSectionFormats,
-            catalog.FormatsForSection(SectionNames.Methods));
+            ApiOutputCapabilities.For(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.MemberTarget,
+                    InspectionCatalogIdentity.ApiMemberOverload))
+                .FormatsForSection(SectionNames.Methods));
         Assert.Equal(
             [
                 DiscoveryOutputMode.Markdown,
@@ -116,7 +170,7 @@ public class OutputCapabilityCatalogTests
             catalog.FormatsForSection(SectionNames.Source));
         Assert.Equal(
             ApiOutputCapabilities.TextFormats,
-            catalog.FormatsForSection(SectionNames.FindingCensus));
+            catalog.FormatsForSection(SectionNames.SemanticsOverlay));
         Assert.Equal(
             OutputCapabilityCatalog.FormatOrder,
             catalog.FormatsForSection(SectionNames.CallGraph));

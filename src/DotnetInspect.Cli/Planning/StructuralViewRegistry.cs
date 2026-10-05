@@ -955,7 +955,7 @@ public static class StructuralViewRegistry
                 // Type and member adopt Section shapes: formats derive from
                 // the declared shapes rather than a hand-kept list.
                 sectionShapes = pipeline.SectionShapes;
-                outputCapabilities = ApiOutputCapabilities.Catalog;
+                outputCapabilities = ApiOutputCapabilities.For(route);
                 sectionCardinalities =
                     ApiTypeSectionCardinality.Declarations;
                 break;
@@ -992,7 +992,7 @@ public static class StructuralViewRegistry
                         route.Catalog
                             == InspectionCatalogIdentity.ApiMemberOverload);
                 sectionShapes = pipeline.SectionShapes;
-                outputCapabilities = ApiOutputCapabilities.Catalog;
+                outputCapabilities = ApiOutputCapabilities.For(route);
                 sectionCardinalities =
                     ApiMemberSectionCardinality.For(selectableSections);
                 break;
