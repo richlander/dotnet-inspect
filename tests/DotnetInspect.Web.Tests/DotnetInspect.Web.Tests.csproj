@@ -99,4 +99,9 @@
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The one product vocabulary pin, shared with the CLI suite so both hosts assert one value. -->
+    <Compile Include="..\DotnetInspect.Cli.Tests\ProductVocabularyPin.cs" Link="ProductVocabularyPin.cs" />
+  </ItemGroup>
 </Project>

@@ -1,26 +1,27 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Web.Interop.Catalog;
 
 namespace DotnetInspect.Web.Tests;
 
 /// <summary>
 /// Inspect Web composes its own product vocabulary list. Its snapshot identity
-/// is pinned to the same digest the CLI suite pins for the CLI composition, so
-/// the two hosts' lists cannot drift apart without one suite failing.
+/// is asserted against <see cref="ProductVocabularyPin"/>, the one pin the CLI
+/// suite also asserts, so the two hosts' lists cannot drift apart without one
+/// suite failing.
 /// </summary>
 [SupportedOSPlatform("browser")]
 public sealed class BrowserVocabularyCompositionTests
 {
-    private const string ProductSnapshotIdentity =
-        "sha256:79f5a1cddcbabc41e23e85a96ecefbe582416382ec00fb79794f444e794c308e";
-
     [Fact]
-    public void BrowserCompositionMatchesTheProductSnapshotIdentity()
+    public void BrowserCompositionMatchesTheProductVocabularyPin()
     {
-        Assert.Equal(1, BrowserVocabularyComposition.Snapshot.FormatVersion);
         Assert.Equal(
-            ProductSnapshotIdentity,
+            ProductVocabularyPin.FormatVersion,
+            BrowserVocabularyComposition.Snapshot.FormatVersion);
+        Assert.Equal(
+            ProductVocabularyPin.SnapshotIdentity,
             BrowserVocabularyComposition.Snapshot.Identity.Value);
     }
 
@@ -32,7 +33,7 @@ public sealed class BrowserVocabularyCompositionTests
             BrowserCatalogJsonContext.Default.BrowserVocabularyInspection);
 
         Assert.NotNull(inspection);
-        Assert.Equal(ProductSnapshotIdentity, inspection.Content.Identity.Value);
+        Assert.Equal(ProductVocabularyPin.SnapshotIdentity, inspection.Content.Identity.Value);
         Assert.Equal(
             [
                 "vocabulary.sections",

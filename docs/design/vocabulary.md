@@ -131,12 +131,15 @@ owner. It rejects a declaration under another catalog and a contribution with
 no accepting input. Hosts may select a section for a purpose-specific control,
 but they do not restate its values, labels, order, defaults, or selection
 semantics. Equal contribution lists yield one snapshot identity, so drift
-between the hosts is detectable by identity. The gate is a pair of pins: the
-CLI suite (`ProductVocabularySnapshotTests`) and the Inspect Web suite
-(`BrowserVocabularyCompositionTests`) each pin their host's snapshot to the
-same digest. No test project references both hosts, so two pins of one value
-stand in for a single shared comparison; changing either host's list fails one
-suite until both pins move together.
+between the hosts is detectable by identity. The gate is one pinned digest,
+`ProductVocabularyPin` in `tests/DotnetInspect.Cli.Tests`, which the Inspect
+Web suite compiles as a linked file. The CLI suite
+(`ProductVocabularySnapshotTests`) and the Inspect Web suite
+(`BrowserVocabularyCompositionTests`) each assert their own host's composed
+snapshot against that one value. No test project references both hosts, so the
+shared pin stands in for a direct comparison: changing the pin for one host's
+list fails the other host's suite until that host composes the same
+snapshot.
 
 Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
 step 6 retires it, `DotnetInspector.Vocabulary` holds only the CLI-compatible

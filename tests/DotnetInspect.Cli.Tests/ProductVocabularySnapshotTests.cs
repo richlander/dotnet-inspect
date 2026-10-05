@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
@@ -10,14 +11,6 @@ namespace DotnetInspect.Cli.Tests;
 
 public sealed class ProductVocabularySnapshotTests
 {
-    /// <summary>
-    /// The product snapshot identity. Inspect Web's suite pins the same value
-    /// for its own composition, so the two hosts' lists cannot drift apart
-    /// without one suite failing.
-    /// </summary>
-    private const string ProductSnapshotIdentity =
-        "sha256:79f5a1cddcbabc41e23e85a96ecefbe582416382ec00fb79794f444e794c308e";
-
     [Fact]
     public void ProductSnapshotAuthenticatesStyleChoiceTierMap()
     {
@@ -26,8 +19,8 @@ public sealed class ProductVocabularySnapshotTests
             new(snapshot.Catalog, "csharp.style-choices"));
         VocabularyMapDefinition tier = choices.GetMap("tier");
 
-        Assert.Equal(1, snapshot.FormatVersion);
-        Assert.Equal(ProductSnapshotIdentity, snapshot.Identity.Value);
+        Assert.Equal(ProductVocabularyPin.FormatVersion, snapshot.FormatVersion);
+        Assert.Equal(ProductVocabularyPin.SnapshotIdentity, snapshot.Identity.Value);
         Assert.Equal(
             VocabularyMapCardinality.ExactlyOne,
             tier.Cardinality);
@@ -99,6 +92,21 @@ public sealed class ProductVocabularySnapshotTests
                 Assert.Equal(declaredEntry.Values, composedEntry.Values);
             }
         }
+    }
+
+    [Fact]
+    public void ProjectionOfASnapshotMissingAProductSectionFailsVisibly()
+    {
+        VocabularySnapshot partial = ProductVocabularyComposition.Compose(
+            [
+                new(
+                    ApiAccessibilityVocabulary.Declare(ProductVocabularyComposition.Catalog),
+                    "api.type-inventory"),
+            ]);
+
+        KeyNotFoundException error = Assert.Throws<KeyNotFoundException>(
+            () => VocabularyCatalog.ProjectDocument(partial));
+        Assert.Contains("csharp.style-tiers", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

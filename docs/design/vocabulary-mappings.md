@@ -548,10 +548,10 @@ projection of the declarations, written with `Utf8JsonWriter`. The projection
 moves to `QuerySpace.Primitives` unchanged; `System.Text.Json` is a platform
 assembly the floor may reference, as the `Inspector.Findings` floor already
 does, so no rewrite is needed and every existing digest is preserved by
-construction. The product snapshot's pinned digest is the gate: it stays
-beside the product composition (`ProductVocabularySnapshotTests` in the CLI
-suite until #9250 step 5 moves composition to the hosts) and must pass
-unchanged across every move. The pattern's own construction, validation, and
+construction. The product snapshot's pinned digest is the gate. It is one
+value, `ProductVocabularyPin`, that both host suites assert against their own
+composed snapshot (see [Product Vocabulary ownership](vocabulary.md#ownership)),
+and it must pass unchanged across every move. The pattern's own construction, validation, and
 identity gates (`VocabularyMappingsTests`) run in the `Primitives` suite,
 `tests/DotnetInspector.PortableQueries.Tests`, over test-owned catalogs. The
 declaration types use the `QuerySpace.Vocabulary` namespace under the
