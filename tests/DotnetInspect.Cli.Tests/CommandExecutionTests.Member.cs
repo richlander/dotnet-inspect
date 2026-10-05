@@ -709,9 +709,10 @@ public partial class CommandExecutionTests
     {
         // Member adopts Section shapes: the exact-member catalog is published
         // as member-detail and the overload catalog as member-overload, each
-        // section with its declared shape and cardinality. Source is the one
-        // Text with a declared inventory (its Lines); Call Graph is a Graph
-        // with no shape but its own tree and Mermaid formats.
+        // section with its declared shape and cardinality. Every Text payload
+        // is scalar, Source included until its Lines inventory is executed;
+        // Call Graph is a Graph with no shape but its own tree and Mermaid
+        // formats.
         var (exit, output, error) = await RunAppAsync(
             "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
             "--library", TestAssemblyPath,
@@ -740,7 +741,8 @@ public partial class CommandExecutionTests
         using JsonDocument sourceDocument = JsonDocument.Parse(source);
         JsonElement sourceRow = Assert.Single(sourceDocument.RootElement.EnumerateArray());
         Assert.Equal("text", sourceRow.GetProperty("shape").GetString());
-        Assert.Equal("inventory", sourceRow.GetProperty("cardinality").GetString());
+        Assert.Equal("scalar", sourceRow.GetProperty("cardinality").GetString());
+        Assert.Empty(sourceRow.GetProperty("terminals").EnumerateArray());
 
         var (graphExit, graph, graphError) = await RunAppAsync(
             "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",

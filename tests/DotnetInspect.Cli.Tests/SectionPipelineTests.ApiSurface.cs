@@ -1275,15 +1275,17 @@ public partial class SectionPipelineTests
     public void ApiMemberSectionCardinality_ScalarsAreFieldSetsAndInventorylessTexts()
     {
         // Member cardinality: Type Info, Summary, and Signature are field sets;
-        // Source keeps the Lines inventory that Source document cardinality
-        // owns; every other Text payload declares no inventory and is scalar;
+        // every Text payload declares no inventory and is scalar, Source
+        // included until Source document cardinality's Lines inventory is
+        // executed by the CLI (today Count and the row formats do not observe
+        // lines, so advertising rows/count would be a false contract);
         // listings are inventories.
         var declarations = ApiMemberSectionCardinality.Declarations;
 
         Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.TypeInfo].Kind);
         Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.Signature].Kind);
         Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.DecompiledSource].Kind);
-        Assert.Equal(SectionCardinalityKind.Inventory, declarations[SectionNames.Source].Kind);
+        Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.Source].Kind);
         Assert.Equal(SectionCardinalityKind.Inventory, declarations[SectionNames.Methods].Kind);
         Assert.Equal(SectionCardinalityKind.Inventory, declarations[SectionNames.CallGraph].Kind);
 

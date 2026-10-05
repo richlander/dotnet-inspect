@@ -8,10 +8,12 @@ namespace DotnetInspect.Cli.Sections;
 /// overload, and exact-member catalogs together because a name means the same
 /// section in each. Field-set records (<c>Type Info</c>, <c>Summary</c>,
 /// <c>Signature</c>) and Text payloads whose owner declares no inventory are
-/// scalar. <c>Source</c> is the one Text with a declared inventory: its rows
-/// are the ordered <c>Lines</c> owned by
-/// <c>docs/design/source-document-cardinality.md</c>. Every listing is an
-/// inventory with Rows and Count.
+/// scalar. That includes <c>Source</c> for now: the ordered <c>Lines</c>
+/// inventory that <c>docs/design/source-document-cardinality.md</c> owns is
+/// not yet executed by the CLI (Count and the row formats do not observe
+/// lines), and a declaration must not advertise terminals ahead of the
+/// behavior. The adoption that lands <c>Lines</c> flips <c>Source</c> to an
+/// inventory. Every listing is an inventory with Rows and Count.
 /// </summary>
 internal static class ApiMemberSectionCardinality
 {
@@ -21,6 +23,7 @@ internal static class ApiMemberSectionCardinality
         SectionNames.Summary,
         SectionNames.Signature,
         SectionNames.ApiDeclarations,
+        SectionNames.Source,
         SectionNames.DecompiledSource,
         SectionNames.AnnotatedSource,
         SectionNames.AnnotatedSourceDocument,

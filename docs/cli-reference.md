@@ -710,10 +710,10 @@ for one section, beside its formats and members. The catalogs are `library`,
 
 ```bash
 dotnet-inspect package System.Text.Json -D --details
-dotnet-inspect package System.Text.Json -D Files --details --json
+dotnet-inspect package System.Text.Json -D "Target Frameworks" --details --json
 dotnet-inspect type System.String -D --details
 dotnet-inspect member System.String.Trim:1 -D --details
-dotnet-inspect explain package/sections/files
+dotnet-inspect explain package/sections/target-frameworks
 dotnet-inspect explain member-detail/sections/source
 ```
 
