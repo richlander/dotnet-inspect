@@ -78,13 +78,17 @@ function renderResult(
       </section>`
     : "";
   if (result.advisories.length === 0) {
-    const message = result.availability === "Complete"
+    const complete = result.availability === "Complete";
+    const heading = complete
+      ? "No matching reviewed advisories"
+      : "Advisory lookup incomplete";
+    const message = complete
       ? "No GitHub-reviewed NuGet advisories match this exact package version."
-      : "No matching advisory was available from the incomplete lookup.";
+      : "The lookup did not establish whether GitHub-reviewed NuGet advisories match this exact package version.";
     return `${failures}
       <section class="document-section empty-document package-vulnerability-empty">
         <span class="large-glyph">◇</span>
-        <h2>No matching reviewed advisories</h2>
+        <h2>${heading}</h2>
         <p>${escapeHtml(message)}</p>
       </section>`;
   }

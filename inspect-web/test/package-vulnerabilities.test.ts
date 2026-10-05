@@ -42,6 +42,31 @@ test("complete empty vulnerability evidence remains qualified", () => {
   assert.doesNotMatch(html, /safe|secure/iu);
 });
 
+for (const [availability, failure] of [
+  ["Partial", "RateLimitOrForbidden"],
+  ["Unavailable", "SourceUnavailable"],
+] as const) {
+  test(`${availability} empty vulnerability evidence does not claim no match`, () => {
+    const html = renderPackageVulnerabilities({
+      packageId: "Example.Package",
+      packageVersion: "1.2.3",
+      loading: false,
+      error: "",
+      result: result({
+        availability,
+        failures: [failure],
+      }),
+      escapeHtml,
+    });
+
+    assert.match(html, /Advisory lookup incomplete/);
+    assert.match(
+      html,
+      /did not establish whether GitHub-reviewed NuGet advisories match/);
+    assert.doesNotMatch(html, /No matching reviewed advisories/);
+  });
+}
+
 test("vulnerability advisories retain identity severity dates and destination", () => {
   const html = renderPackageVulnerabilities({
     packageId: "Example.Package",
