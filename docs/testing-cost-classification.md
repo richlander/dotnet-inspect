@@ -73,12 +73,11 @@ public void SomeExpensiveTheory(string assemblyName)
 
 ## Existing consumers (no workflow changes needed to add a tag)
 
-The PR workflow has a ceiling of **16 runner jobs** when every PR-eligible
-validation is selected. Count matrix entries separately and include the
-always-run `changes` and `ci-required` jobs. The workflow contract checks this
-ceiling so a new shard or standalone job cannot silently increase the maximum.
-The current fully selected PR expands to 15 jobs. The push-only
-dependency-policy job is outside the PR count.
+The CI workflow has a ceiling of **16 runner jobs** for any event. Count matrix
+entries separately and include the always-run `changes` and `ci-required` jobs.
+The workflow contract counts even path-gated jobs to maintain a safe upper
+bound as routing changes. The current fully selected PR expands to 15 jobs;
+the remaining definition is the push-only dependency-policy job.
 
 - `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
   Analysis suites. Six CLI selections run across two matrix jobs: five

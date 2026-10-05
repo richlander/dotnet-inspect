@@ -15,11 +15,10 @@ internal static partial class WorkflowContract
             root =>
             {
                 YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
-                AddNode(jobs, "extra-pr-job-a", new YamlMappingNode(), "jobs");
-                AddNode(jobs, "extra-pr-job-b", new YamlMappingNode(), "jobs");
+                AddNode(jobs, "extra-job", new YamlMappingNode(), "jobs");
             },
             "16-runner-job budget",
-            "additional PR job exceeds runner budget");
+            "additional job exceeds runner budget");
 
         AssertAccepted(
             repository,

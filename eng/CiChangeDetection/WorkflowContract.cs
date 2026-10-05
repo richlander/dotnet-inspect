@@ -244,13 +244,14 @@ internal static partial class WorkflowContract
             }
         }
 
-        // dependency-policy is push-only. Count every other job, including
-        // changes, the web aggregate, and ci-required, even if path-gated.
-        int pullRequestJobs = jobs.Children.Count - 1 + TestShards.Length - 1;
-        if (pullRequestJobs > 16)
+        // Count every job, including changes, ci-required, path-gated jobs,
+        // and the push-only dependency-policy job. This is an upper bound for
+        // every event even if selection rules change.
+        int maximumJobs = jobs.Children.Count + TestShards.Length - 1;
+        if (maximumJobs > 16)
         {
             throw new InvalidOperationException(
-                $"PR CI exceeds the 16-runner-job budget: {pullRequestJobs}.");
+                $"CI exceeds the 16-runner-job budget: {maximumJobs}.");
         }
     }
 
