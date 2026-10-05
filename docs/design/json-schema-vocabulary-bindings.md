@@ -241,9 +241,18 @@ Equivalent input and output plans may reuse one schema identity, but each
 requested descriptor still states its direction. A one-way contract is
 available only in its authenticated direction.
 
-The schema is a JSON value inside the typed descriptor. Generated TypeScript
-represents that value with the existing recursive `JsonValue` contract rather
-than a handwritten TypeScript model of every JSON Schema keyword.
+The schema is a JSON value inside the typed descriptor. The generated
+TypeScript static projection preserves safe JSON numbers as `number` literals
+and integral JSON numbers outside the IEEE-754 safe range as `bigint`
+literals. The latter is an exact in-memory projection of the JSON integer, not
+a change to the canonical JSON artifact or schema semantics. Generated hosts
+must not round an unsafe integer through `number` or `JSON.parse`.
+
+Before a generated host uses a descriptor, it recomputes the schema and
+descriptor identities from the actual in-memory projection. Canonicalization
+writes `bigint` values as their JSON integer spelling. An identity mismatch,
+inconsistent schema `$id`, unavailable digest implementation, or unsupported
+runtime value fails startup visibly.
 
 ## Identity
 

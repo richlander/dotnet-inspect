@@ -43,10 +43,10 @@ export interface PackageQueryDurableRowLayout
   readonly fields: readonly PackageQueryDurableRowField[];
 }
 
-export function resolvePackageQueryDurableRowLayout(
+export async function resolvePackageQueryDurableRowLayout(
   descriptors: DescriptorSet,
   inspection: BrowserVocabularyInspection,
-): PackageQueryDurableRowLayout {
+): Promise<PackageQueryDurableRowLayout> {
   const diagnostic = inspection.diagnostics.find(candidate =>
     candidate.severity === "Error");
   if (diagnostic) {
@@ -68,6 +68,7 @@ export function resolvePackageQueryDurableRowLayout(
     throw new Error(
       "Package Query durable-row descriptor has an unsupported format.");
   }
+  await verifyDescriptorIdentity(descriptor);
 
   const snapshot = inspection.content;
   if (descriptor.vocabularyCatalog !== snapshot.catalog.value) {
@@ -145,6 +146,105 @@ export function resolvePackageQueryDurableRowLayout(
       descriptor.vocabularySnapshotIdentity,
     fields,
   };
+}
+
+async function verifyDescriptorIdentity(
+  descriptor: Descriptor,
+): Promise<void> {
+  const schemaIdentity = await digestIdentity(
+    canonicalJson(descriptor.schema, true));
+  if (schemaIdentity !== descriptor.schemaIdentity) {
+    throw new Error(
+      "Package Query durable-row schema does not match its exact identity.");
+  }
+  if (descriptor.schema.$id
+    !== `urn:dotnet-inspect:json-schema:${schemaIdentity}`) {
+    throw new Error(
+      "Package Query durable-row schema has an inconsistent $id.");
+  }
+
+  const descriptorIdentity = await digestIdentity(canonicalJson({
+    formatVersion: descriptor.formatVersion,
+    contract: descriptor.contract,
+    direction: descriptor.direction,
+    dialect: descriptor.dialect,
+    schemaIdentity: descriptor.schemaIdentity,
+    vocabularyCatalog: descriptor.vocabularyCatalog,
+    vocabularySnapshotIdentity:
+      descriptor.vocabularySnapshotIdentity,
+    schema: descriptor.schema,
+    bindings: descriptor.bindings,
+  }));
+  if (descriptorIdentity !== descriptor.descriptorIdentity) {
+    throw new Error(
+      "Package Query durable-row descriptor does not match its exact identity.");
+  }
+}
+
+function canonicalJson(
+  value: unknown,
+  omitRootId = false,
+  isRoot = true,
+): string {
+  if (value === null) return "null";
+  switch (typeof value) {
+    case "boolean":
+      return value ? "true" : "false";
+    case "bigint":
+      return value.toString();
+    case "number":
+      if (!Number.isFinite(value)) {
+        throw new Error(
+          "Package Query durable-row schema contains a non-finite number.");
+      }
+      return JSON.stringify(value);
+    case "string":
+      return JSON.stringify(value);
+    case "object": {
+      if (Array.isArray(value)) {
+        return `[${value.map(item =>
+          canonicalJson(item, false, false)).join(",")}]`;
+      }
+      if (!isRecord(value)) {
+        throw new Error(
+          "Package Query durable-row schema contains an unsupported object.");
+      }
+      const keys = Object.keys(value)
+        .filter(key => !(isRoot && omitRootId && key === "$id"))
+        .sort();
+      return `{${keys.map(key =>
+        `${JSON.stringify(key)}:${canonicalJson(
+          value[key],
+          false,
+          false,
+        )}`).join(",")}}`;
+    }
+    default:
+      throw new Error(
+        "Package Query durable-row schema contains an unsupported value.");
+  }
+}
+
+function isRecord(
+  value: unknown,
+): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value);
+}
+
+async function digestIdentity(canonicalJsonText: string): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle === undefined) {
+    throw new Error(
+      "Package Query durable-row identity verification requires Web Crypto.");
+  }
+  const digest = await subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonicalJsonText),
+  );
+  return `sha256:${Array.from(new Uint8Array(digest), byte =>
+    byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 export function packageQueryDurableRowField(

@@ -5,12 +5,15 @@ import type {
   BrowserVocabularyInspection,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import {
+  parseGeneratedStaticJson,
+} from "../scripts/generated-static-json.ts";
+import {
   packageQueryDurableRowField,
   resolvePackageQueryDurableRowLayout,
   type PackageQueryDurableRowDescriptors,
 } from "../src/package-query-durable-row.ts";
 
-function descriptors(): PackageQueryDurableRowDescriptors {
+async function descriptors(): Promise<PackageQueryDurableRowDescriptors> {
   const source = readFileSync(new URL(
     "../DotnetInspect.Web/facades/inspect-web-package.ts",
     import.meta.url), "utf8");
@@ -18,11 +21,26 @@ function descriptors(): PackageQueryDurableRowDescriptors {
     candidate.startsWith(
       "export const jsonSchemaVocabularyDescriptors = "));
   assert.ok(line);
-  const json = line.slice(
+  const initializer = line.slice(
     line.indexOf("=") + 1,
     line.lastIndexOf(" as const;")).trim();
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return JSON.parse(json) as PackageQueryDurableRowDescriptors;
+  const values = parseGeneratedStaticJson(initializer);
+  if (!isDescriptorSet(values)) {
+    throw new Error("Generated Package facade descriptor export is invalid.");
+  }
+  return values;
+}
+
+function isDescriptorSet(
+  value: unknown,
+): value is PackageQueryDurableRowDescriptors {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every(descriptor =>
+      typeof descriptor === "object"
+      && descriptor !== null
+      && "schema" in descriptor
+      && "bindings" in descriptor);
 }
 
 function vocabulary(
@@ -57,9 +75,9 @@ function vocabulary(
   };
 }
 
-test("Package Query resolves generated positional bindings through Vocabulary", () => {
-  const values = descriptors();
-  const layout = resolvePackageQueryDurableRowLayout(
+test("Package Query resolves generated positional bindings through Vocabulary", async () => {
+  const values = await descriptors();
+  const layout = await resolvePackageQueryDurableRowLayout(
     values,
     vocabulary(values));
 
@@ -71,10 +89,18 @@ test("Package Query resolves generated positional bindings through Vocabulary", 
     packageQueryDurableRowField(layout, "total-downloads")
       .term.displayLabel,
     "Label total-downloads");
+  assert.equal(
+    typeof values[0]?.schema.$defs.BrowserPackageQueryEvidence
+      .properties.number.anyOf[0].maximum,
+    "bigint");
+  assert.equal(
+    values[0]?.schema.$defs.BrowserPackageQueryEvidence
+      .properties.number.anyOf[0].maximum,
+    9223372036854775807n);
 });
 
-test("Package Query rejects a stale Vocabulary snapshot", () => {
-  const values = descriptors();
+test("Package Query rejects a stale Vocabulary snapshot", async () => {
+  const values = await descriptors();
   const current = vocabulary(values);
   const inspection: BrowserVocabularyInspection = {
     ...current,
@@ -84,7 +110,21 @@ test("Package Query rejects a stale Vocabulary snapshot", () => {
     },
   };
 
-  assert.throws(
-    () => resolvePackageQueryDurableRowLayout(values, inspection),
+  await assert.rejects(
+    resolvePackageQueryDurableRowLayout(values, inspection),
     /descriptor and Vocabulary snapshot differ/);
+});
+
+test("Package Query rejects runtime schema drift under an exact identity", async () => {
+  const values = await descriptors();
+  const maximum = values[0]?.schema.$defs.BrowserPackageQueryEvidence
+    .properties.number.anyOf[0];
+  assert.ok(maximum);
+  assert.equal(
+    Reflect.set(maximum, "maximum", 9223372036854775808n),
+    true);
+
+  await assert.rejects(
+    resolvePackageQueryDurableRowLayout(values, vocabulary(values)),
+    /schema does not match its exact identity/);
 });

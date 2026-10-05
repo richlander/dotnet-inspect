@@ -190,9 +190,15 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
             staticJsonExports: exports,
             declarationPlan: declarationPlan);
         Assert.Contains(
-            "export const jsonSchemaVocabularyDescriptors = "
-                + descriptorExport.Value.GetRawText()
-                + " as const;",
+            "export const jsonSchemaVocabularyDescriptors = ",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"maximum\":9223372036854775807n",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"minimum\":-9223372036854775808n",
             source,
             StringComparison.Ordinal);
     }

@@ -16,6 +16,12 @@ import type {
   BrowserHomeDemoRunResult,
   BrowserWorkspacePackageSourceRequirement,
 } from "../src/facades/inspect-web-catalog.d.ts";
+import type {
+  PackageQueryDurableRowDescriptors,
+} from "../src/package-query-durable-row.ts";
+import {
+  parseGeneratedStaticJson,
+} from "../scripts/generated-static-json.ts";
 import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
 
 function subjectTab(page: Page, subject: string) {
@@ -307,6 +313,18 @@ interface PackageLoadingFixture {
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
 
+function isPackageQueryDurableRowDescriptors(
+  value: unknown,
+): value is PackageQueryDurableRowDescriptors {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every(descriptor =>
+      typeof descriptor === "object"
+      && descriptor !== null
+      && "schema" in descriptor
+      && "bindings" in descriptor);
+}
+
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
@@ -565,44 +583,32 @@ async function installFacades(
     },
     noBody: false,
   };
-  const durableRowTerms = [
-    "package-id",
-    "version",
-    "tier",
-    "answers",
-    "evidence",
-    "total-downloads",
-    "verified",
-    "producer",
-    "description",
-    "root-request",
-    "owners",
-    "manifest",
-    "ecosystem-admission",
-  ];
-  const durableRowSnapshotIdentity = `sha256:${"0".repeat(64)}`;
-  const durableRowDescriptor = {
-    bindings: durableRowTerms.map((term, ordinal) => ({
-      schemaLocation: `/prefixItems/${ordinal}`,
-      term,
-      vocabulary: "package-query.durable-row",
-    })),
-    contract: "package-query.durable-row",
-    descriptorIdentity: `sha256:${"1".repeat(64)}`,
-    dialect: "https://json-schema.org/draft/2020-12/schema",
-    direction: "serialize",
-    formatVersion: 1,
-    schema: {
-      items: false,
-      maxItems: durableRowTerms.length,
-      minItems: durableRowTerms.length,
-      prefixItems: durableRowTerms.map(() => ({})),
-      type: "array",
-    },
-    schemaIdentity: `sha256:${"2".repeat(64)}`,
-    vocabularyCatalog: "dotnet-inspect.product",
-    vocabularySnapshotIdentity: durableRowSnapshotIdentity,
-  };
+  const packageFacadeSource = await readFile(new URL(
+    "../DotnetInspect.Web/facades/inspect-web-package.ts",
+    import.meta.url), "utf8");
+  const descriptorLine = packageFacadeSource.split("\n").find(candidate =>
+    candidate.startsWith(
+      "export const jsonSchemaVocabularyDescriptors = "));
+  if (descriptorLine === undefined) {
+    throw new Error("Generated Package facade has no schema descriptors.");
+  }
+  const durableRowDescriptorsSource = descriptorLine.slice(
+    descriptorLine.indexOf("=") + 1,
+    descriptorLine.lastIndexOf(" as const;")).trim();
+  const parsedDescriptors =
+    parseGeneratedStaticJson(durableRowDescriptorsSource);
+  if (!isPackageQueryDurableRowDescriptors(parsedDescriptors)) {
+    throw new Error("Generated Package facade descriptor export is invalid.");
+  }
+  const durableRowDescriptors = parsedDescriptors;
+  const durableRowDescriptor = durableRowDescriptors[0];
+  if (durableRowDescriptor === undefined) {
+    throw new Error("Generated Package facade has no durable-row descriptor.");
+  }
+  const durableRowTerms =
+    durableRowDescriptor.bindings.map(binding => binding.term);
+  const durableRowSnapshotIdentity =
+    durableRowDescriptor.vocabularySnapshotIdentity;
   const modules: Record<string, string> = {
     host: `
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -642,7 +648,7 @@ async function installFacades(
     package: `
       ${surfaceLookup}
       export const jsonSchemaVocabularyDescriptors =
-        ${JSON.stringify([durableRowDescriptor])};
+        ${durableRowDescriptorsSource};
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};

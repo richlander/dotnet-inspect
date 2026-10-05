@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -169,11 +171,82 @@ internal static class TypeScriptFacadeEmitter
         {
             sb.Append("export const ")
                 .Append(export.Name)
-                .Append(" = ")
-                .Append(export.Value.GetRawText())
-                .Append(" as const;\n\n");
+                .Append(" = ");
+            EmitStaticJsonValue(sb, export.Value);
+            sb.Append(" as const;\n\n");
         }
     }
+
+    static void EmitStaticJsonValue(
+        StringBuilder sb,
+        JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                sb.Append('{');
+                bool firstProperty = true;
+                foreach (JsonProperty property in value.EnumerateObject())
+                {
+                    if (!firstProperty)
+                    {
+                        sb.Append(',');
+                    }
+                    firstProperty = false;
+                    JsonEncodedText encodedName =
+                        JsonEncodedText.Encode(property.Name);
+                    sb.Append('"')
+                        .Append(Encoding.UTF8.GetString(
+                            encodedName.EncodedUtf8Bytes))
+                        .Append('"')
+                        .Append(':');
+                    EmitStaticJsonValue(sb, property.Value);
+                }
+                sb.Append('}');
+                break;
+            case JsonValueKind.Array:
+                sb.Append('[');
+                bool firstItem = true;
+                foreach (JsonElement item in value.EnumerateArray())
+                {
+                    if (!firstItem)
+                    {
+                        sb.Append(',');
+                    }
+                    firstItem = false;
+                    EmitStaticJsonValue(sb, item);
+                }
+                sb.Append(']');
+                break;
+            case JsonValueKind.Number:
+                string rawNumber = value.GetRawText();
+                sb.Append(rawNumber);
+                if (IsUnsafeInteger(rawNumber))
+                {
+                    sb.Append('n');
+                }
+                break;
+            case JsonValueKind.String:
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+            case JsonValueKind.Null:
+                sb.Append(value.GetRawText());
+                break;
+            default:
+                throw new UnsupportedWireContractException(
+                    "static JSON export",
+                    $"JSON value kind '{value.ValueKind}' is unsupported");
+        }
+    }
+
+    static bool IsUnsafeInteger(string rawNumber) =>
+        BigInteger.TryParse(
+            rawNumber,
+            NumberStyles.AllowLeadingSign,
+            CultureInfo.InvariantCulture,
+            out BigInteger value)
+        && (value < -9_007_199_254_740_991L
+            || value > 9_007_199_254_740_991L);
 
     static void ValidateRuntimeIdentities(
         IReadOnlyList<JsExportFunction> functions)

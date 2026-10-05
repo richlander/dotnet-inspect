@@ -166,7 +166,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   packageQueryFacade = packageFacade;
   packageChangesFacade = packageFacade;
   vocabularyInspection ??= catalogFacade.inspectVocabulary();
-  packageQueryDurableRowLayout = resolvePackageQueryDurableRowLayout(
+  packageQueryDurableRowLayout = await resolvePackageQueryDurableRowLayout(
     packageFacade.jsonSchemaVocabularyDescriptors,
     vocabularyInspection);
   ordinaryFacades = {
