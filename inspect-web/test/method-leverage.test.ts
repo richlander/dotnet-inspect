@@ -7,6 +7,7 @@ import type {
 import {
   createTypeMethodLeverageCoordinator,
   methodLeverageFor,
+  methodLeverageForGroup,
   projectTypeMethodLeverage,
   typeMethodLeverageCacheKey,
   type PackageTypeMethodLeverageRequest,
@@ -181,6 +182,11 @@ test("method leverage coordinator caches one exact Type result", async () => {
   assert.ok(methodLeverageFor(
     state.typeMethodLeverage,
     "HiddenWinner~1234567890",
+  ));
+  assert.ok(methodLeverageForGroup(
+    state.typeMethodLeverage,
+    "method",
+    "HiddenWinner",
   ));
 
   coordinator.request(request, () => true);
