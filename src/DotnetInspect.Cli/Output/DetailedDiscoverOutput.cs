@@ -155,7 +155,8 @@ internal static class DetailedDiscoverOutput
                 .. resource.OutputModes.Select(
                     OutputCapabilityCatalog.CliOption),
             ],
-            resource.Cardinality?.Shape.ToString().ToLowerInvariant(),
+            resource.Shape?.ToString().ToLowerInvariant(),
+            resource.Cardinality?.Kind.ToString().ToLowerInvariant(),
             resource.Cardinality is null
                 ? null
                 :

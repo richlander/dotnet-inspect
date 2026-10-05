@@ -56,6 +56,8 @@ public sealed class SectionCatalog<TModel>
     {
         Pipeline = pipeline;
         AllSectionNames = [.. pipeline.AllSectionNames];
+        SectionShapes = pipeline.SectionShapes.ToImmutableDictionary(
+            StringComparer.OrdinalIgnoreCase);
         AlphabeticalSectionOrder = [.. pipeline.AlphabeticalSectionOrder];
         DeclaredQueries = [.. pipeline.DeclaredQueries];
         SelectableSectionNames = [.. pipeline.SelectableSectionNames];
@@ -132,6 +134,9 @@ public sealed class SectionCatalog<TModel>
     public SectionPipeline<TModel> Pipeline { get; }
 
     public ImmutableArray<string> AllSectionNames { get; }
+
+    /// <summary>Declared section shapes by name; see <see cref="SectionShape"/>.</summary>
+    public ImmutableDictionary<string, SectionShape> SectionShapes { get; }
 
     public ImmutableArray<string> AlphabeticalSectionOrder { get; }
 

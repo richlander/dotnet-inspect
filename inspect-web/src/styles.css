@@ -2750,9 +2750,9 @@ kbd {
     width: 100%;
     height: 36px;
     justify-content: space-between;
-    gap: 4px;
+    gap: 0;
   }
-  .analysis-mode-tabs button { font-size: 10px; }
+  .analysis-mode-tabs button { font-size: clamp(9px, 2.6vw, 10px); }
 }
 .library-analysis-scroll { overflow-wrap: anywhere; }
 .library-analysis-note { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }

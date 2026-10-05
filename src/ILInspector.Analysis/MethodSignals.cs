@@ -317,7 +317,7 @@ public static class MethodSignalAnalysis
 
     // A constructed type is treated as an exception when it actually derives from
     // System.Exception. For types defined in the inspected assembly the base chain
-    // is resolved authoritatively (see LibraryBodyIndex's in-assembly exception map),
+    // is resolved authoritatively by the in-assembly exception map,
     // so a non-exception `*Exception` lookalike is not counted. For external types,
     // whose base chains cannot be walked without loading other assemblies, fall back
     // to the conservative simple-name suffix (a `corelib` exception almost always

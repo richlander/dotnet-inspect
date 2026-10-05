@@ -407,5 +407,4 @@ method-source work so one cost cannot hide the other.
 - No replacement for Query Operation Infrastructure or Inspection Operation
   Composition.
 - No parallel-execution requirement.
-- No claim that Library Body Analysis hubs or `LibraryBodyIndex` are already
-  retired.
+- No claim that the remaining Library Body Analysis hubs are already retired.
