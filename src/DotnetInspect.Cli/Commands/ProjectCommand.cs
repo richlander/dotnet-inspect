@@ -115,7 +115,7 @@ public class ProjectCommand
         {
             CommandError.Write(
                 "Select at least one project section: -S Skills or "
-                + "-S \"Package README file\".");
+                + "-S \"README\".");
             return 1;
         }
 
