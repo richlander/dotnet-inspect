@@ -276,6 +276,9 @@ public static class TypeFamilies
     /// <summary>True when two fixed-width integer primitives occupy the same byte width (ushort/char, int/uint) — a same-width cast subsumes any inner conversion to the sibling.</summary>
     public static bool SameWidth(TypeRef? a, TypeRef? b) => Width(a) is { } wa && wa == Width(b);
 
+    /// <summary>True for the 32-bit integer primitives (int/uint): the only I4-family types whose storage width equals the evaluation-stack width an I4 comparison or arithmetic operand actually has (ECMA-335 III.1.5).</summary>
+    public static bool HasInt32Width(TypeRef? type) => Width(type) == 4;
+
     /// <summary>True for the unsigned fixed-width integer primitives (char included; nuint excluded — platform width is unknown here).</summary>
     static bool IsUnsignedInteger(TypeRef? type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Byte" or "UInt16" or "Char" or "UInt32" or "UInt64" };
