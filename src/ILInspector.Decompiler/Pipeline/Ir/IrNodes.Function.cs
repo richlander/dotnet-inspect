@@ -229,6 +229,17 @@ public sealed class IrFunction : IrNode
         _residualSlotBindings = _residualSlotBindings.SetItem(index, binding);
     }
 
+    /// <summary>
+    /// The up-front locals whose declaration keeps its <c>= default</c>
+    /// initializer, issued by <see cref="DefiniteAssignmentPass"/>: the locals
+    /// definite assignment cannot prove assigned before every read, minus the
+    /// residual-bound locals (a residual piece read with no reaching store is a
+    /// binding gap that must stay CS0165-visible). Null means undecided; the
+    /// printer refuses to declare a non-ref up-front local from an undecided
+    /// body (value-typed-emission.md, Instance 3).
+    /// </summary>
+    public ImmutableHashSet<int>? ZeroInitializedLocals { get; internal set; }
+
     internal void RestoreMaterializedStackSlotLocals(
         ImmutableDictionary<int, MaterializedStackSlotLocal>
             materialized)

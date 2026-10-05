@@ -81,6 +81,6 @@ public class ElseReturnFoldTests
             [Bool],
             body);
         new BooleanFoldingPass().Run(function, PassContext.None);
-        return CSharpPrinter.Print(function).Output!.Trim();
+        return DecidedPrint.Print(function).Output!.Trim();
     }
 }
