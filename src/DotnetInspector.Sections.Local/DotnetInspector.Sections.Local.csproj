@@ -10,13 +10,13 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Package-neutral platform identity contracts and platform manifest format interpretation</Description>
+    <Description>Installed PlatformHouse integration for host-neutral inspection sections</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
-  <!-- Resource-free contract floor: no House, source, package, pruning, Metadata, or result dependency by design. UntrustedDocuments is the hardened JSON floor the manifest readers consume. -->
   <ItemGroup>
-    <ProjectReference Include="../UntrustedDocuments/UntrustedDocuments.csproj" />
+    <ProjectReference Include="../DotnetInspector.PlatformHouse.Local/DotnetInspector.PlatformHouse.Local.csproj" />
+    <ProjectReference Include="../DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
   </ItemGroup>
 
 </Project>
