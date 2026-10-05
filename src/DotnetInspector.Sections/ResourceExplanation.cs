@@ -1,66 +1,11 @@
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using QuerySpace.Explanation;
 
 namespace DotnetInspector.Sections;
-
-[JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationOwner>))]
-public enum ResourceExplanationOwner
-{
-    ResourceExplanation,
-    SchemaQuery,
-    InspectionCapabilityComposition,
-    QuerySpace,
-    Consumer,
-    AnalysisRequests,
-    Findings,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationResourceKind>))]
-public enum ResourceExplanationResourceKind
-{
-    Catalog,
-    NavigationCollection,
-    StructuralCategory,
-    StructuralSection,
-    StructuralItem,
-    InspectionDocument,
-    HostNeutralRoute,
-    QuerySpace,
-    QueryFacet,
-    ConsumerBinding,
-    Analysis,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationNavigationCollectionKind>))]
-public enum ResourceExplanationNavigationCollectionKind
-{
-    CatalogCategories,
-    CatalogSections,
-    StructuralItems,
-    StructuralItemKind,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationRelationshipKind>))]
-public enum ResourceExplanationRelationshipKind
-{
-    Navigation,
-    CatalogEntry,
-    CollectionMember,
-    CategoryMember,
-    StructuralItem,
-    Produces,
-    Route,
-    QuerySurface,
-    QueryFacet,
-    ConsumerBinding,
-    Invokes,
-    Exposes,
-    ExposedBy,
-    RequiredContext,
-    Participates,
-    Issues,
-}
 
 [JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationCompleteness>))]
 public enum ResourceExplanationCompleteness
@@ -75,6 +20,16 @@ public enum ResourceExplanationTruncationReason
     Depth,
     ResourceLimit,
     RelationshipLimit,
+    RelationshipTargetLimit,
+    SchemaDeclarationLimit,
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<ResourceExplanationTargetProjectionCompleteness>))]
+public enum ResourceExplanationTargetProjectionCompleteness
+{
+    Complete,
+    Truncated,
 }
 
 [JsonConverter(typeof(ResourcePathJsonConverter))]
@@ -189,236 +144,6 @@ public sealed class ResourcePathJsonConverter : JsonConverter<ResourcePath>
         writer.WriteStringValue(value.Value);
 }
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
-[JsonDerivedType(
-    typeof(ResourceExplanationIdentity.Catalog),
-    "catalog")]
-[JsonDerivedType(
-    typeof(ResourceExplanationIdentity.NavigationCollection),
-    "navigationCollection")]
-[JsonDerivedType(
-    typeof(ResourceExplanationIdentity.Structural),
-    "structural")]
-[JsonDerivedType(
-    typeof(ResourceExplanationIdentity.Capability),
-    "capability")]
-[JsonDerivedType(
-    typeof(ResourceExplanationIdentity.OperationSurface),
-    "operationSurface")]
-[JsonDerivedType(
-    typeof(ResourceExplanationIdentity.IssuedFinding),
-    "issuedFinding")]
-public abstract record ResourceExplanationIdentity
-{
-    private ResourceExplanationIdentity()
-    {
-    }
-
-    [JsonIgnore]
-    public abstract ResourceExplanationOwner Owner { get; }
-
-    public sealed record Catalog : ResourceExplanationIdentity
-    {
-        public Catalog(string catalogName)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(catalogName);
-            CatalogName = catalogName;
-        }
-
-        public string CatalogName { get; }
-
-        public override ResourceExplanationOwner Owner =>
-            ResourceExplanationOwner.SchemaQuery;
-    }
-
-    public sealed record NavigationCollection :
-        ResourceExplanationIdentity
-    {
-        public NavigationCollection(
-            Catalog catalogIdentity,
-            ResourceExplanationIdentity? parentIdentity,
-            ResourceExplanationNavigationCollectionKind collectionKind,
-            string? itemKind = null)
-        {
-            CatalogIdentity = catalogIdentity
-                ?? throw new ArgumentNullException(nameof(catalogIdentity));
-            ValidateCollectionIdentity(
-                catalogIdentity,
-                parentIdentity,
-                collectionKind,
-                itemKind);
-            ParentIdentity = parentIdentity;
-            CollectionKind = collectionKind;
-            ItemKind = itemKind;
-        }
-
-        public Catalog CatalogIdentity { get; }
-
-        public ResourceExplanationIdentity? ParentIdentity { get; }
-
-        public ResourceExplanationNavigationCollectionKind CollectionKind
-        {
-            get;
-        }
-
-        public string? ItemKind { get; }
-
-        public override ResourceExplanationOwner Owner =>
-            ResourceExplanationOwner.ResourceExplanation;
-
-        private static void ValidateCollectionIdentity(
-            Catalog catalogIdentity,
-            ResourceExplanationIdentity? parentIdentity,
-            ResourceExplanationNavigationCollectionKind collectionKind,
-            string? itemKind)
-        {
-            bool valid = collectionKind switch
-            {
-                ResourceExplanationNavigationCollectionKind
-                    .CatalogCategories
-                    or ResourceExplanationNavigationCollectionKind
-                        .CatalogSections =>
-                    parentIdentity is null && itemKind is null,
-                ResourceExplanationNavigationCollectionKind
-                    .StructuralItems =>
-                    parentIdentity
-                        is Structural
-                        {
-                            Resource.Kind:
-                                DiscoveryResourceKind.Section,
-                        }
-                    && itemKind is null,
-                ResourceExplanationNavigationCollectionKind
-                    .StructuralItemKind =>
-                    parentIdentity
-                        is NavigationCollection
-                        {
-                            CollectionKind:
-                                ResourceExplanationNavigationCollectionKind
-                                    .StructuralItems,
-                        } parent
-                    && parent.CatalogIdentity == catalogIdentity
-                    && !string.IsNullOrWhiteSpace(itemKind),
-                _ => false,
-            };
-            if (!valid)
-            {
-                throw new ArgumentException(
-                    "The collection kind, parent identity, and item kind "
-                    + "must describe one valid navigation collection.",
-                    nameof(collectionKind));
-            }
-        }
-    }
-
-    public sealed record Structural : ResourceExplanationIdentity
-    {
-        public Structural(
-            string catalogName,
-            DiscoveryResourceIdentity resource)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(catalogName);
-            CatalogName = catalogName;
-            Resource =
-                resource ?? throw new ArgumentNullException(nameof(resource));
-        }
-
-        /// <summary>
-        /// The structural catalog the resource belongs to (for example
-        /// <c>library</c> or <c>package</c>); two catalogs may author a
-        /// category or section of the same name.
-        /// </summary>
-        public string CatalogName { get; }
-
-        public DiscoveryResourceIdentity Resource { get; }
-
-        public override ResourceExplanationOwner Owner =>
-            ResourceExplanationOwner.SchemaQuery;
-    }
-
-    public sealed record Capability : ResourceExplanationIdentity
-    {
-        public Capability(InspectionCapabilityResourceIdentity resource)
-        {
-            Resource = resource
-                ?? throw new ArgumentNullException(nameof(resource));
-        }
-
-        public InspectionCapabilityResourceIdentity Resource { get; }
-
-        public override ResourceExplanationOwner Owner =>
-            Resource.Kind switch
-            {
-                InspectionCapabilityResourceKind.Document
-                    or InspectionCapabilityResourceKind.Route =>
-                    ResourceExplanationOwner
-                        .InspectionCapabilityComposition,
-                InspectionCapabilityResourceKind.QuerySpace
-                    or InspectionCapabilityResourceKind.QueryFacet =>
-                    ResourceExplanationOwner.QuerySpace,
-                InspectionCapabilityResourceKind.ConsumerBinding =>
-                    ResourceExplanationOwner.Consumer,
-                InspectionCapabilityResourceKind.Analysis =>
-                    ResourceExplanationOwner.AnalysisRequests,
-                InspectionCapabilityResourceKind.AnalysisCollection =>
-                    ResourceExplanationOwner.ResourceExplanation,
-                _ => throw new InvalidOperationException(
-                    "Unknown inspection capability resource kind."),
-            };
-    }
-
-    /// <summary>
-    /// One operation and report surface an analysis takes part in. It is a
-    /// typed relationship target, not a navigable resource.
-    /// </summary>
-    public sealed record OperationSurface : ResourceExplanationIdentity
-    {
-        public OperationSurface(string operation, string surface)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-            ArgumentException.ThrowIfNullOrWhiteSpace(surface);
-            Operation = operation;
-            Surface = surface;
-        }
-
-        public string Operation { get; }
-
-        public string Surface { get; }
-
-        public override ResourceExplanationOwner Owner =>
-            ResourceExplanationOwner.AnalysisRequests;
-    }
-
-    /// <summary>
-    /// One Finding descriptor an analysis issues at one operation and report
-    /// surface. It is a typed relationship target, not a navigable resource.
-    /// </summary>
-    public sealed record IssuedFinding : ResourceExplanationIdentity
-    {
-        public IssuedFinding(
-            string operation,
-            string surface,
-            string descriptor)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-            ArgumentException.ThrowIfNullOrWhiteSpace(surface);
-            ArgumentException.ThrowIfNullOrWhiteSpace(descriptor);
-            Operation = operation;
-            Surface = surface;
-            Descriptor = descriptor;
-        }
-
-        public string Operation { get; }
-
-        public string Surface { get; }
-
-        public string Descriptor { get; }
-
-        public override ResourceExplanationOwner Owner =>
-            ResourceExplanationOwner.Findings;
-    }
-}
-
 public sealed record StructuralResourcePathRegistration
 {
     public StructuralResourcePathRegistration(
@@ -496,569 +221,206 @@ public sealed record InspectionCapabilityResourcePathRegistration
     public ResourcePath Path { get; }
 }
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.CatalogDetails),
-    "catalog")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.NavigationCollectionDetails),
-    "navigationCollection")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.StructuralCategoryDetails),
-    "structuralCategory")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.StructuralSectionDetails),
-    "structuralSection")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.StructuralItemDetails),
-    "structuralItem")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.InspectionDocumentDetails),
-    "inspectionDocument")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.HostNeutralRouteDetails),
-    "hostNeutralRoute")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.QuerySpaceDetails),
-    "querySpace")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.QueryFacetDetails),
-    "queryFacet")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.ConsumerBindingDetails),
-    "consumerBinding")]
-[JsonDerivedType(
-    typeof(ResourceExplanationDetail.AnalysisDetails),
-    "analysis")]
-public abstract record ResourceExplanationDetail
-{
-    private ResourceExplanationDetail()
-    {
-    }
-
-    public abstract string Name { get; }
-
-    public sealed record CatalogDetails : ResourceExplanationDetail
-    {
-        public CatalogDetails(string name, int entryCount)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentOutOfRangeException.ThrowIfNegative(entryCount);
-            Name = name;
-            EntryCount = entryCount;
-        }
-
-        public override string Name { get; }
-
-        public int EntryCount { get; }
-    }
-
-    public sealed record NavigationCollectionDetails :
-        ResourceExplanationDetail
-    {
-        public NavigationCollectionDetails(
-            string name,
-            int memberCount)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentOutOfRangeException.ThrowIfNegative(memberCount);
-            Name = name;
-            MemberCount = memberCount;
-        }
-
-        public override string Name { get; }
-
-        public int MemberCount { get; }
-    }
-
-    public sealed record StructuralCategoryDetails :
-        ResourceExplanationDetail
-    {
-        public StructuralCategoryDetails(
-            string name,
-            ImmutableArray<DiscoveryOutputMode> outputModes,
-            int memberCount)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentOutOfRangeException.ThrowIfNegative(memberCount);
-            Name = name;
-            OutputModes = NormalizeOutputModes(outputModes);
-            MemberCount = memberCount;
-        }
-
-        public override string Name { get; }
-
-        public ImmutableArray<DiscoveryOutputMode> OutputModes { get; }
-
-        public int MemberCount { get; }
-    }
-
-    public sealed record StructuralSectionDetails :
-        ResourceExplanationDetail
-    {
-        public StructuralSectionDetails(
-            string name,
-            ImmutableArray<DiscoveryOutputMode> outputModes,
-            int memberCount,
-            SectionShape? shape = null,
-            SectionCardinalityKind? cardinality = null)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentOutOfRangeException.ThrowIfNegative(memberCount);
-            Name = name;
-            OutputModes = NormalizeOutputModes(outputModes);
-            MemberCount = memberCount;
-            Shape = shape;
-            Cardinality = cardinality;
-        }
-
-        public override string Name { get; }
-
-        public ImmutableArray<DiscoveryOutputMode> OutputModes { get; }
-
-        public int MemberCount { get; }
-
-        /// <summary>Declared shape (Table, Hierarchy, Text) when the owner has adopted shapes.</summary>
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public SectionShape? Shape { get; }
-
-        /// <summary>Declared cardinality (scalar or inventory) when the owner declares one.</summary>
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public SectionCardinalityKind? Cardinality { get; }
-    }
-
-    public sealed record StructuralItemDetails :
-        ResourceExplanationDetail
-    {
-        public StructuralItemDetails(string name, string itemKind)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentException.ThrowIfNullOrWhiteSpace(itemKind);
-            Name = name;
-            ItemKind = itemKind;
-        }
-
-        public override string Name { get; }
-
-        public string ItemKind { get; }
-    }
-
-    public sealed record InspectionDocumentDetails :
-        ResourceExplanationDetail
-    {
-        public InspectionDocumentDetails(
-            string identity,
-            string name,
-            string summary,
-            string resultContract)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
-            ArgumentException.ThrowIfNullOrWhiteSpace(resultContract);
-            Identity = identity;
-            Name = name;
-            Summary = summary;
-            ResultContract = resultContract;
-        }
-
-        public string Identity { get; }
-
-        public override string Name { get; }
-
-        public string Summary { get; }
-
-        public string ResultContract { get; }
-    }
-
-    public sealed record HostNeutralRouteDetails :
-        ResourceExplanationDetail
-    {
-        public HostNeutralRouteDetails(
-            string identity,
-            string name,
-            string summary,
-            string subjectRole,
-            string resultGrain,
-            string profile,
-            string resultContract)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
-            ArgumentException.ThrowIfNullOrWhiteSpace(subjectRole);
-            ArgumentException.ThrowIfNullOrWhiteSpace(resultGrain);
-            ArgumentException.ThrowIfNullOrWhiteSpace(profile);
-            ArgumentException.ThrowIfNullOrWhiteSpace(resultContract);
-            Identity = identity;
-            Name = name;
-            Summary = summary;
-            SubjectRole = subjectRole;
-            ResultGrain = resultGrain;
-            Profile = profile;
-            ResultContract = resultContract;
-        }
-
-        public string Identity { get; }
-
-        public override string Name { get; }
-
-        public string Summary { get; }
-
-        public string SubjectRole { get; }
-
-        public string ResultGrain { get; }
-
-        public string Profile { get; }
-
-        public string ResultContract { get; }
-    }
-
-    public sealed record QuerySpaceDetails :
-        ResourceExplanationDetail
-    {
-        public QuerySpaceDetails(
-            string identity,
-            string name,
-            string summary,
-            int facetCount)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
-            ArgumentOutOfRangeException.ThrowIfNegative(facetCount);
-            Identity = identity;
-            Name = name;
-            Summary = summary;
-            FacetCount = facetCount;
-        }
-
-        public string Identity { get; }
-
-        public override string Name { get; }
-
-        public string Summary { get; }
-
-        public int FacetCount { get; }
-    }
-
-    public sealed record QueryFacetDetails :
-        ResourceExplanationDetail
-    {
-        public QueryFacetDetails(
-            string identity,
-            string key,
-            string name,
-            string summary,
-            IEnumerable<string> operators,
-            string valueKind,
-            IEnumerable<string> values,
-            IEnumerable<string> examples,
-            IEnumerable<string> effects)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
-            ArgumentException.ThrowIfNullOrWhiteSpace(key);
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
-            ArgumentException.ThrowIfNullOrWhiteSpace(valueKind);
-            Identity = identity;
-            Key = key;
-            Name = name;
-            Summary = summary;
-            Operators = NormalizeValues(operators, nameof(operators));
-            ValueKind = valueKind;
-            Values = NormalizeValues(values, nameof(values));
-            Examples = NormalizeValues(examples, nameof(examples));
-            Effects = NormalizeValues(effects, nameof(effects));
-        }
-
-        public string Identity { get; }
-
-        public string Key { get; }
-
-        public override string Name { get; }
-
-        public string Summary { get; }
-
-        public ImmutableArray<string> Operators { get; }
-
-        public string ValueKind { get; }
-
-        public ImmutableArray<string> Values { get; }
-
-        public ImmutableArray<string> Examples { get; }
-
-        public ImmutableArray<string> Effects { get; }
-    }
-
-    public sealed record ConsumerBindingDetails :
-        ResourceExplanationDetail
-    {
-        public ConsumerBindingDetails(
-            string identity,
-            string name,
-            string summary,
-            InspectionConsumerKind consumerKind,
-            string gesture,
-            int exposedFacetCount)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
-            if (!Enum.IsDefined(consumerKind))
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(consumerKind));
-            }
-            ArgumentException.ThrowIfNullOrWhiteSpace(gesture);
-            ArgumentOutOfRangeException.ThrowIfNegative(exposedFacetCount);
-            Identity = identity;
-            Name = name;
-            Summary = summary;
-            ConsumerKind = consumerKind;
-            Gesture = gesture;
-            ExposedFacetCount = exposedFacetCount;
-        }
-
-        public string Identity { get; }
-
-        public override string Name { get; }
-
-        public string Summary { get; }
-
-        public InspectionConsumerKind ConsumerKind { get; }
-
-        public string Gesture { get; }
-
-        public int ExposedFacetCount { get; }
-    }
-
-    /// <summary>Descriptive facts issued by one analysis descriptor.</summary>
-    public sealed record AnalysisDetails : ResourceExplanationDetail
-    {
-        public AnalysisDetails(
-            string identity,
-            int revision,
-            string cost,
-            IEnumerable<string> participations)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(revision);
-            ArgumentException.ThrowIfNullOrWhiteSpace(cost);
-            Identity = identity;
-            Revision = revision;
-            Cost = cost;
-            Participations = NormalizeValues(
-                participations,
-                nameof(participations));
-        }
-
-        public string Identity { get; }
-
-        public override string Name => Identity;
-
-        public int Revision { get; }
-
-        public string Cost { get; }
-
-        /// <summary>One entry per operation and report surface.</summary>
-        public ImmutableArray<string> Participations { get; }
-    }
-
-    private static ImmutableArray<DiscoveryOutputMode> NormalizeOutputModes(
-        ImmutableArray<DiscoveryOutputMode> outputModes)
-    {
-        ImmutableArray<DiscoveryOutputMode> normalized =
-            outputModes.IsDefault ? [] : outputModes;
-        if (normalized.Distinct().Count() != normalized.Length)
-        {
-            throw new ArgumentException(
-                "Explanation output modes must be unique.",
-                nameof(outputModes));
-        }
-        return normalized;
-    }
-
-    private static ImmutableArray<string> NormalizeValues(
-        IEnumerable<string> values,
-        string parameterName)
-    {
-        ArgumentNullException.ThrowIfNull(values);
-        ImmutableArray<string> normalized =
-        [
-            .. values.Select(value =>
-            {
-                ArgumentException.ThrowIfNullOrWhiteSpace(value);
-                return value;
-            }),
-        ];
-        if (normalized.Distinct(StringComparer.Ordinal).Count()
-            != normalized.Length)
-        {
-            throw new ArgumentException(
-                "Explanation values must be unique.",
-                parameterName);
-        }
-        return normalized;
-    }
-}
-
+/// <summary>One installed snapshot and its canonical Resource Explanation path.</summary>
 public sealed record ResourceExplanationResource
 {
     public ResourceExplanationResource(
         ResourcePath path,
-        ResourceExplanationIdentity identity,
-        ResourceExplanationResourceKind resourceKind,
-        ResourceExplanationDetail details)
+        ExplanationResourceKey key,
+        ExplanationSchemaVersion schemaVersion,
+        ExplanationSnapshotScope scope,
+        IEnumerable<ExplanationPublicAddress> addresses,
+        IEnumerable<ExplanationFactObservation> facts)
+        : this(
+            path,
+            key,
+            schemaVersion,
+            scope,
+            [
+                .. addresses
+                    ?? throw new ArgumentNullException(nameof(addresses)),
+            ],
+            [
+                .. facts
+                    ?? throw new ArgumentNullException(nameof(facts)),
+            ])
+    {
+    }
+
+    [JsonConstructor]
+    public ResourceExplanationResource(
+        ResourcePath path,
+        ExplanationResourceKey key,
+        ExplanationSchemaVersion schemaVersion,
+        ExplanationSnapshotScope scope,
+        ImmutableArray<ExplanationPublicAddress> addresses,
+        ImmutableArray<ExplanationFactObservation> facts)
     {
         Path = path ?? throw new ArgumentNullException(nameof(path));
-        Identity =
-            identity ?? throw new ArgumentNullException(nameof(identity));
-        Details =
-            details ?? throw new ArgumentNullException(nameof(details));
-        ValidateKind(identity, resourceKind, details);
-
-        ResourceKind = resourceKind;
+        Key = key ?? throw new ArgumentNullException(nameof(key));
+        SchemaVersion = schemaVersion;
+        Scope = scope;
+        Addresses = addresses.IsDefault ? [] : addresses;
+        Facts = facts.IsDefault ? [] : facts;
     }
 
     public ResourcePath Path { get; }
 
-    public ResourceExplanationIdentity Identity { get; }
+    public ExplanationResourceKey Key { get; }
 
-    public ResourceExplanationResourceKind ResourceKind { get; }
+    public ExplanationSchemaVersion SchemaVersion { get; }
 
-    public ResourceExplanationOwner Owner => Identity.Owner;
+    public ExplanationSnapshotScope Scope { get; }
 
-    public ResourceExplanationDetail Details { get; }
+    public ImmutableArray<ExplanationPublicAddress> Addresses { get; }
 
-    private static void ValidateKind(
-        ResourceExplanationIdentity identity,
-        ResourceExplanationResourceKind resourceKind,
-        ResourceExplanationDetail details)
-    {
-        bool valid = (identity, resourceKind, details) switch
-        {
-            (
-                ResourceExplanationIdentity.Catalog,
-                ResourceExplanationResourceKind.Catalog,
-                ResourceExplanationDetail.CatalogDetails) => true,
-            (
-                ResourceExplanationIdentity.NavigationCollection,
-                ResourceExplanationResourceKind.NavigationCollection,
-                ResourceExplanationDetail.NavigationCollectionDetails) => true,
-            (
-                ResourceExplanationIdentity.Structural
-                {
-                    Resource.Kind: DiscoveryResourceKind.Category,
-                },
-                ResourceExplanationResourceKind.StructuralCategory,
-                ResourceExplanationDetail.StructuralCategoryDetails) => true,
-            (
-                ResourceExplanationIdentity.Structural
-                {
-                    Resource.Kind: DiscoveryResourceKind.Section,
-                },
-                ResourceExplanationResourceKind.StructuralSection,
-                ResourceExplanationDetail.StructuralSectionDetails) => true,
-            (
-                ResourceExplanationIdentity.Structural
-                {
-                    Resource.Kind: DiscoveryResourceKind.Item,
-                },
-                ResourceExplanationResourceKind.StructuralItem,
-                ResourceExplanationDetail.StructuralItemDetails) => true,
-            (
-                ResourceExplanationIdentity.Capability
-                {
-                    Resource.Kind:
-                        InspectionCapabilityResourceKind.Document,
-                },
-                ResourceExplanationResourceKind.InspectionDocument,
-                ResourceExplanationDetail.InspectionDocumentDetails) => true,
-            (
-                ResourceExplanationIdentity.Capability
-                {
-                    Resource.Kind:
-                        InspectionCapabilityResourceKind.Route,
-                },
-                ResourceExplanationResourceKind.HostNeutralRoute,
-                ResourceExplanationDetail.HostNeutralRouteDetails) => true,
-            (
-                ResourceExplanationIdentity.Capability
-                {
-                    Resource.Kind:
-                        InspectionCapabilityResourceKind.QuerySpace,
-                },
-                ResourceExplanationResourceKind.QuerySpace,
-                ResourceExplanationDetail.QuerySpaceDetails) => true,
-            (
-                ResourceExplanationIdentity.Capability
-                {
-                    Resource.Kind:
-                        InspectionCapabilityResourceKind.QueryFacet,
-                },
-                ResourceExplanationResourceKind.QueryFacet,
-                ResourceExplanationDetail.QueryFacetDetails) => true,
-            (
-                ResourceExplanationIdentity.Capability
-                {
-                    Resource.Kind:
-                        InspectionCapabilityResourceKind.ConsumerBinding,
-                },
-                ResourceExplanationResourceKind.ConsumerBinding,
-                ResourceExplanationDetail.ConsumerBindingDetails) => true,
-            (
-                ResourceExplanationIdentity.Capability
-                {
-                    Resource.Kind:
-                        InspectionCapabilityResourceKind.Analysis,
-                },
-                ResourceExplanationResourceKind.Analysis,
-                ResourceExplanationDetail.AnalysisDetails) => true,
-            (
-                ResourceExplanationIdentity.Capability
-                {
-                    Resource.Kind:
-                        InspectionCapabilityResourceKind.AnalysisCollection,
-                },
-                ResourceExplanationResourceKind.NavigationCollection,
-                ResourceExplanationDetail.NavigationCollectionDetails) => true,
-            _ => false,
-        };
-        if (!valid)
-        {
-            throw new ArgumentException(
-                "The resource kind does not match its typed identity.",
-                nameof(resourceKind));
-        }
-    }
+    public ImmutableArray<ExplanationFactObservation> Facts { get; }
+
+    [JsonIgnore]
+    public ExplanationResourceTypeIdentity ResourceType => Key.ResourceType;
+
+    [JsonIgnore]
+    public ExplanationOwnerIdentity Owner => Key.Owner;
+
+    internal static ResourceExplanationResource FromSnapshot(
+        ResourcePath path,
+        ExplanationResourceSnapshot snapshot) =>
+        new(
+            path,
+            snapshot.Key,
+            snapshot.SchemaVersion,
+            snapshot.Scope,
+            snapshot.Addresses,
+            snapshot.Facts);
 }
 
+/// <summary>One relationship target projected into a bounded Document.</summary>
+public sealed record ResourceExplanationRelationshipTarget
+{
+    public ResourceExplanationRelationshipTarget(
+        ExplanationResourceKey resource,
+        IEnumerable<ExplanationPublicAddress>? addresses = null)
+        : this(resource, [.. addresses ?? []])
+    {
+    }
+
+    [JsonConstructor]
+    public ResourceExplanationRelationshipTarget(
+        ExplanationResourceKey resource,
+        ImmutableArray<ExplanationPublicAddress> addresses)
+    {
+        Resource = resource
+            ?? throw new ArgumentNullException(nameof(resource));
+        Addresses = addresses.IsDefault ? [] : addresses;
+        if (Addresses.Any(static address => address is null)
+            || Addresses.Distinct().Count() != Addresses.Length)
+        {
+            throw new ArgumentException(
+                "Projected target addresses must be unique and non-null.",
+                nameof(addresses));
+        }
+    }
+
+    public ExplanationResourceKey Resource { get; }
+
+    public ImmutableArray<ExplanationPublicAddress> Addresses { get; }
+}
+
+/// <summary>
+/// One source relationship observation with bounded target projection.
+/// </summary>
 public sealed record ResourceExplanationRelationship
 {
     public ResourceExplanationRelationship(
-        ResourceExplanationIdentity source,
-        ResourceExplanationRelationshipKind relationshipKind,
-        ResourceExplanationIdentity target,
-        ResourcePath? targetPath)
+        ExplanationResourceKey source,
+        ExplanationRelationshipIdentity relationship,
+        ExplanationObservationState state,
+        IEnumerable<ResourceExplanationRelationshipTarget>? targets,
+        ExplanationValue? outcomeData,
+        ResourceExplanationTargetProjectionCompleteness targetCompleteness)
+        : this(
+            source,
+            relationship,
+            state,
+            [.. targets ?? []],
+            outcomeData,
+            targetCompleteness)
     {
-        Source = source ?? throw new ArgumentNullException(nameof(source));
-        RelationshipKind = relationshipKind;
-        Target = target ?? throw new ArgumentNullException(nameof(target));
-        TargetPath = targetPath;
     }
 
-    public ResourceExplanationIdentity Source { get; }
+    [JsonConstructor]
+    public ResourceExplanationRelationship(
+        ExplanationResourceKey source,
+        ExplanationRelationshipIdentity relationship,
+        ExplanationObservationState state,
+        ImmutableArray<ResourceExplanationRelationshipTarget> targets,
+        ExplanationValue? outcomeData,
+        ResourceExplanationTargetProjectionCompleteness targetCompleteness)
+    {
+        Source = source ?? throw new ArgumentNullException(nameof(source));
+        Relationship = relationship;
+        State = state;
+        Targets = targets.IsDefault ? [] : targets;
+        OutcomeData = outcomeData;
+        TargetCompleteness = targetCompleteness;
+        if (relationship.ResourceType != source.ResourceType)
+        {
+            throw new ArgumentException(
+                "A projected relationship must belong to its source "
+                + "resource type.",
+                nameof(relationship));
+        }
+        if (Targets.Any(static target => target is null))
+        {
+            throw new ArgumentException(
+                "Projected relationship targets must not contain null.",
+                nameof(targets));
+        }
+        bool payloadValid = state switch
+        {
+            ExplanationObservationState.Available =>
+                outcomeData is null,
+            ExplanationObservationState.Absent =>
+                Targets.IsEmpty && outcomeData is null,
+            ExplanationObservationState.Unavailable
+                or ExplanationObservationState.Failed =>
+                Targets.IsEmpty && outcomeData is not null,
+            _ => false,
+        };
+        if (!payloadValid)
+        {
+            throw new ArgumentException(
+                "The projected relationship payload does not match its "
+                + "observation state.",
+                nameof(targets));
+        }
+        if (state != ExplanationObservationState.Available
+            && targetCompleteness
+                != ResourceExplanationTargetProjectionCompleteness.Complete)
+        {
+            throw new ArgumentException(
+                "Only available relationship targets can be truncated.",
+                nameof(targetCompleteness));
+        }
+    }
 
-    public ResourceExplanationOwner SourceOwner => Source.Owner;
+    public ExplanationResourceKey Source { get; }
 
-    public ResourceExplanationRelationshipKind RelationshipKind { get; }
+    public ExplanationRelationshipIdentity Relationship { get; }
 
-    public ResourceExplanationIdentity Target { get; }
+    public ExplanationObservationState State { get; }
 
-    public ResourceExplanationOwner TargetOwner => Target.Owner;
+    public ImmutableArray<ResourceExplanationRelationshipTarget> Targets
+    {
+        get;
+    }
 
-    public ResourcePath? TargetPath { get; }
+    public ExplanationValue? OutcomeData { get; }
+
+    public ResourceExplanationTargetProjectionCompleteness TargetCompleteness
+    {
+        get;
+    }
 }
 
 public sealed record ResourceExplanationRequest
@@ -1066,17 +428,27 @@ public sealed record ResourceExplanationRequest
     public ResourceExplanationRequest(
         int depth,
         int resourceLimit,
-        int relationshipLimit)
+        int relationshipLimit,
+        int relationshipTargetLimit = 4096,
+        int schemaDeclarationLimit = 4096)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(depth);
         ArgumentOutOfRangeException.ThrowIfLessThan(resourceLimit, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             relationshipLimit,
             1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            relationshipTargetLimit,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            schemaDeclarationLimit,
+            1);
 
         Depth = depth;
         ResourceLimit = resourceLimit;
         RelationshipLimit = relationshipLimit;
+        RelationshipTargetLimit = relationshipTargetLimit;
+        SchemaDeclarationLimit = schemaDeclarationLimit;
     }
 
     public int Depth { get; }
@@ -1084,6 +456,10 @@ public sealed record ResourceExplanationRequest
     public int ResourceLimit { get; }
 
     public int RelationshipLimit { get; }
+
+    public int RelationshipTargetLimit { get; }
+
+    public int SchemaDeclarationLimit { get; }
 }
 
 public sealed record ResourceExplanationTraversalReceipt
@@ -1092,18 +468,26 @@ public sealed record ResourceExplanationTraversalReceipt
         int requestedDepth,
         int requestedResourceLimit,
         int requestedRelationshipLimit,
+        int requestedRelationshipTargetLimit,
+        int requestedSchemaDeclarationLimit,
         int completedDepth,
         int visitedResourceCount,
         int emittedRelationshipCount,
+        int emittedRelationshipTargetCount,
+        int emittedSchemaDeclarationCount,
         ResourceExplanationCompleteness completeness,
         IEnumerable<ResourceExplanationTruncationReason>? truncationReasons)
         : this(
             requestedDepth,
             requestedResourceLimit,
             requestedRelationshipLimit,
+            requestedRelationshipTargetLimit,
+            requestedSchemaDeclarationLimit,
             completedDepth,
             visitedResourceCount,
             emittedRelationshipCount,
+            emittedRelationshipTargetCount,
+            emittedSchemaDeclarationCount,
             completeness,
             (truncationReasons ?? []).ToImmutableArray())
     {
@@ -1114,9 +498,13 @@ public sealed record ResourceExplanationTraversalReceipt
         int requestedDepth,
         int requestedResourceLimit,
         int requestedRelationshipLimit,
+        int requestedRelationshipTargetLimit,
+        int requestedSchemaDeclarationLimit,
         int completedDepth,
         int visitedResourceCount,
         int emittedRelationshipCount,
+        int emittedRelationshipTargetCount,
+        int emittedSchemaDeclarationCount,
         ResourceExplanationCompleteness completeness,
         ImmutableArray<ResourceExplanationTruncationReason> truncationReasons)
     {
@@ -1127,27 +515,30 @@ public sealed record ResourceExplanationTraversalReceipt
         ArgumentOutOfRangeException.ThrowIfLessThan(
             requestedRelationshipLimit,
             1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            requestedRelationshipTargetLimit,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            requestedSchemaDeclarationLimit,
+            1);
         ArgumentOutOfRangeException.ThrowIfNegative(completedDepth);
         ArgumentOutOfRangeException.ThrowIfNegative(visitedResourceCount);
         ArgumentOutOfRangeException.ThrowIfNegative(
             emittedRelationshipCount);
-        if (completedDepth > requestedDepth)
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            emittedRelationshipTargetCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            emittedSchemaDeclarationCount);
+        if (completedDepth > requestedDepth
+            || visitedResourceCount > requestedResourceLimit
+            || emittedRelationshipCount > requestedRelationshipLimit
+            || emittedRelationshipTargetCount
+                > requestedRelationshipTargetLimit
+            || emittedSchemaDeclarationCount
+                > requestedSchemaDeclarationLimit)
         {
             throw new ArgumentException(
-                "Completed depth cannot exceed requested depth.",
-                nameof(completedDepth));
-        }
-        if (visitedResourceCount > requestedResourceLimit)
-        {
-            throw new ArgumentException(
-                "Visited resources cannot exceed the requested limit.",
-                nameof(visitedResourceCount));
-        }
-        if (emittedRelationshipCount > requestedRelationshipLimit)
-        {
-            throw new ArgumentException(
-                "Emitted relationships cannot exceed the requested limit.",
-                nameof(emittedRelationshipCount));
+                "The traversal receipt exceeds one of its requested bounds.");
         }
 
         ImmutableArray<ResourceExplanationTruncationReason> reasons =
@@ -1164,9 +555,13 @@ public sealed record ResourceExplanationTraversalReceipt
         RequestedDepth = requestedDepth;
         RequestedResourceLimit = requestedResourceLimit;
         RequestedRelationshipLimit = requestedRelationshipLimit;
+        RequestedRelationshipTargetLimit = requestedRelationshipTargetLimit;
+        RequestedSchemaDeclarationLimit = requestedSchemaDeclarationLimit;
         CompletedDepth = completedDepth;
         VisitedResourceCount = visitedResourceCount;
         EmittedRelationshipCount = emittedRelationshipCount;
+        EmittedRelationshipTargetCount = emittedRelationshipTargetCount;
+        EmittedSchemaDeclarationCount = emittedSchemaDeclarationCount;
         Completeness = completeness;
         TruncationReasons = reasons;
     }
@@ -1177,11 +572,19 @@ public sealed record ResourceExplanationTraversalReceipt
 
     public int RequestedRelationshipLimit { get; }
 
+    public int RequestedRelationshipTargetLimit { get; }
+
+    public int RequestedSchemaDeclarationLimit { get; }
+
     public int CompletedDepth { get; }
 
     public int VisitedResourceCount { get; }
 
     public int EmittedRelationshipCount { get; }
+
+    public int EmittedRelationshipTargetCount { get; }
+
+    public int EmittedSchemaDeclarationCount { get; }
 
     public ResourceExplanationCompleteness Completeness { get; }
 
@@ -1191,23 +594,29 @@ public sealed record ResourceExplanationTraversalReceipt
 
 public sealed record ResourceExplanationDocument
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public ResourceExplanationDocument(
         ResourcePath requestedPath,
-        ResourceExplanationIdentity rootIdentity,
+        ExplanationResourceKey root,
+        IEnumerable<ExplanationSchema> schemas,
         IEnumerable<ResourceExplanationResource> resources,
         IEnumerable<ResourceExplanationRelationship> relationships,
         ResourceExplanationTraversalReceipt traversal)
         : this(
             CurrentSchemaVersion,
             requestedPath,
-            rootIdentity,
-            (resources ?? throw new ArgumentNullException(nameof(resources)))
-                .ToImmutableArray(),
-            (relationships
-                ?? throw new ArgumentNullException(nameof(relationships)))
-                .ToImmutableArray(),
+            root,
+            [.. schemas ?? throw new ArgumentNullException(nameof(schemas))],
+            [
+                .. resources
+                    ?? throw new ArgumentNullException(nameof(resources)),
+            ],
+            [
+                .. relationships
+                    ?? throw new ArgumentNullException(
+                        nameof(relationships)),
+            ],
             traversal)
     {
     }
@@ -1216,7 +625,8 @@ public sealed record ResourceExplanationDocument
     public ResourceExplanationDocument(
         int schemaVersion,
         ResourcePath requestedPath,
-        ResourceExplanationIdentity rootIdentity,
+        ExplanationResourceKey root,
+        ImmutableArray<ExplanationSchema> schemas,
         ImmutableArray<ResourceExplanationResource> resources,
         ImmutableArray<ResourceExplanationRelationship> relationships,
         ResourceExplanationTraversalReceipt traversal)
@@ -1232,17 +642,19 @@ public sealed record ResourceExplanationDocument
         RequestedPath =
             requestedPath
             ?? throw new ArgumentNullException(nameof(requestedPath));
-        RootIdentity =
-            rootIdentity
-            ?? throw new ArgumentNullException(nameof(rootIdentity));
+        Root = root ?? throw new ArgumentNullException(nameof(root));
+        Schemas = schemas.IsDefault ? [] : schemas;
         Resources = resources.IsDefault ? [] : resources;
         Relationships = relationships.IsDefault ? [] : relationships;
         Traversal =
             traversal ?? throw new ArgumentNullException(nameof(traversal));
-        if (Resources.IsEmpty || Resources[0].Identity != RootIdentity)
+        if (Schemas.IsEmpty
+            || Resources.IsEmpty
+            || Resources[0].Key != Root)
         {
             throw new ArgumentException(
-                "The first explanation resource must be the root identity.",
+                "The Document must contain a schema slice and begin with the "
+                + "root resource.",
                 nameof(resources));
         }
         if (Resources[0].Path != RequestedPath)
@@ -1251,7 +663,7 @@ public sealed record ResourceExplanationDocument
                 "The requested path must identify the first resource.",
                 nameof(requestedPath));
         }
-        if (Resources.Select(static resource => resource.Identity)
+        if (Resources.Select(static resource => resource.Key)
                 .Distinct()
                 .Count()
             != Resources.Length
@@ -1261,19 +673,22 @@ public sealed record ResourceExplanationDocument
             != Resources.Length)
         {
             throw new ArgumentException(
-                "Explanation resources must have unique identities and paths.",
+                "Explanation resources must have unique keys and paths.",
                 nameof(resources));
         }
         if (Traversal.VisitedResourceCount != Resources.Length
-            || Traversal.EmittedRelationshipCount != Relationships.Length)
+            || Traversal.EmittedRelationshipCount != Relationships.Length
+            || Traversal.EmittedRelationshipTargetCount
+                != Relationships.Sum(static relationship =>
+                    relationship.Targets.Length))
         {
             throw new ArgumentException(
                 "The traversal receipt must describe the emitted graph.",
                 nameof(traversal));
         }
 
-        HashSet<ResourceExplanationIdentity> included =
-            [.. Resources.Select(static resource => resource.Identity)];
+        HashSet<ExplanationResourceKey> included =
+            [.. Resources.Select(static resource => resource.Key)];
         if (Relationships.Any(relationship =>
                 !included.Contains(relationship.Source)))
         {
@@ -1282,13 +697,24 @@ public sealed record ResourceExplanationDocument
                 + "resource.",
                 nameof(relationships));
         }
+        foreach (ResourceExplanationResource resource in Resources)
+        {
+            ExplanationConformance.ValidateResourceProjection(
+                Schemas,
+                resource.Key,
+                resource.SchemaVersion,
+                resource.Addresses,
+                resource.Facts);
+        }
     }
 
     public int SchemaVersion { get; }
 
     public ResourcePath RequestedPath { get; }
 
-    public ResourceExplanationIdentity RootIdentity { get; }
+    public ExplanationResourceKey Root { get; }
+
+    public ImmutableArray<ExplanationSchema> Schemas { get; }
 
     public ImmutableArray<ResourceExplanationResource> Resources { get; }
 
@@ -1308,7 +734,7 @@ public abstract record ResourcePathResolution
 
     public sealed record Resolved(
         ResourcePath Path,
-        ResourceExplanationIdentity Identity) :
+        ExplanationResourceKey Key) :
         ResourcePathResolution;
 
     public sealed record Invalid(
@@ -1326,6 +752,71 @@ public abstract record ResourcePathResolution
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
+    UseStringEnumConverter = true,
+    Converters = new[] { typeof(ExplanationBigIntegerJsonConverter) })]
 [JsonSerializable(typeof(ResourceExplanationDocument))]
+[JsonSerializable(
+    typeof(ExplanationValue.Scalar),
+    TypeInfoPropertyName = "ExplanationValueScalar")]
+[JsonSerializable(
+    typeof(ExplanationValue.VocabularyTerm),
+    TypeInfoPropertyName = "ExplanationValueVocabularyTerm")]
+[JsonSerializable(
+    typeof(ExplanationValue.Record),
+    TypeInfoPropertyName = "ExplanationValueRecord")]
+[JsonSerializable(
+    typeof(ExplanationValue.Choice),
+    TypeInfoPropertyName = "ExplanationValueChoice")]
+[JsonSerializable(
+    typeof(ExplanationDataShapeDeclaration.Scalar),
+    TypeInfoPropertyName = "ExplanationShapeScalar")]
+[JsonSerializable(
+    typeof(ExplanationDataShapeDeclaration.VocabularyTerm),
+    TypeInfoPropertyName = "ExplanationShapeVocabularyTerm")]
+[JsonSerializable(
+    typeof(ExplanationDataShapeDeclaration.Record),
+    TypeInfoPropertyName = "ExplanationShapeRecord")]
+[JsonSerializable(
+    typeof(ExplanationDataShapeDeclaration.Choice),
+    TypeInfoPropertyName = "ExplanationShapeChoice")]
+[JsonSerializable(
+    typeof(ExplanationDataShapeDeclaration.Reference),
+    TypeInfoPropertyName = "ExplanationShapeReference")]
 public partial class ResourceExplanationJsonContext : JsonSerializerContext;
+
+internal sealed class ExplanationBigIntegerJsonConverter :
+    JsonConverter<BigInteger>
+{
+    public override BigInteger Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        string? text = reader.TokenType == JsonTokenType.String
+            ? reader.GetString()
+            : null;
+        if (text is null
+            || !BigInteger.TryParse(
+                text,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out BigInteger value)
+            || !string.Equals(
+                text,
+                value.ToString(CultureInfo.InvariantCulture),
+                StringComparison.Ordinal))
+        {
+            throw new JsonException(
+                "Explanation arbitrary-precision integers must be "
+                + "canonical decimal strings.");
+        }
+        return value;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        BigInteger value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(
+            value.ToString(CultureInfo.InvariantCulture));
+}
