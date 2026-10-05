@@ -1380,14 +1380,7 @@ async function installFacades(
           return {
             outcome: "Rejected",
             detail: "The exact Type was not found.",
-            document: null,
-            share: {
-              kind: "NonProjectable",
-              fullUrl: null,
-              packet: null,
-              path: "type-document/fixture",
-              reason: "Fixture projection.",
-            },
+            population: null,
             diagnostics: [],
           };
         }
@@ -1464,44 +1457,54 @@ async function installFacades(
           }
           groups.set(key, group);
         }
-        const category = {
-          class: "Class",
-          interface: "Interface",
-          struct: "Struct",
-          enum: "Enum",
-          delegate: "Delegate",
-        }[type.kind] ?? "Class";
+        return {
+          outcome: "Available",
+          detail: null,
+          population: {
+            typeIdentity: type.queryId,
+            spelling,
+            accessibility,
+            composition,
+            selectorCounts,
+            groups: [...groups.values()],
+          },
+          diagnostics: [],
+        };
+      }
+      function typeDocument(
+        surface, typeIdentity, spelling, accessibility) {
+        const declarations = typeMemberPopulation(
+          surface, typeIdentity, spelling, accessibility);
+        const type = surface.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const share = {
+          kind: "NonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "type-document/share",
+          reason: "No canonical Browser share projection.",
+        };
+        if (!type || declarations.outcome !== "Available") {
+          return {
+            outcome: declarations.outcome,
+            detail: declarations.detail,
+            document: null,
+            share,
+            diagnostics: declarations.diagnostics,
+          };
+        }
         return {
           outcome: "Available",
           detail: null,
           document: {
             typeIdentity: type.queryId,
-            typeDefinitionToken:
-              0x02000000 + surface.types.indexOf(type) + 1,
-            category,
-            isByRefLike:
-              type.traitFacetIds?.includes("api.type-trait.by-ref-like")
-                ?? false,
+            typeDefinitionToken: 0x02000001,
+            category: type.kind,
+            isByRefLike: false,
             genericParameters: [],
-            declarations: {
-              outcome: "Available",
-              detail: null,
-              population: {
-                spelling,
-                accessibility,
-                composition,
-                selectorCounts,
-                groups: [...groups.values()],
-              },
-            },
+            declarations,
           },
-          share: {
-            kind: "NonProjectable",
-            fullUrl: null,
-            packet: null,
-            path: "type-document/fixture",
-            reason: "Fixture projection.",
-          },
+          share,
           diagnostics: [],
         };
       }
@@ -1526,7 +1529,7 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeMemberPopulation(
+        return typeDocument(
           surfaceFor(id, version, framework),
           typeIdentity,
           spelling,
@@ -1540,7 +1543,7 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeMemberPopulation(
+        return typeDocument(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           spelling,
@@ -1554,7 +1557,7 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeMemberPopulation(
+        return typeDocument(
           surfaces[0],
           typeIdentity,
           spelling,

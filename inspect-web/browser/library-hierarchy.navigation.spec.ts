@@ -765,7 +765,7 @@ test("aggregate Library remains active through Member entry and return", async (
   await expect(page.locator("#type-list")).toContainText("Neighbor");
 });
 
-test("metadata accessors retain visible groups when exact detail is unavailable", async ({
+test("metadata accessors retain their established overload detail route", async ({
   page,
 }) => {
   const accessor = {
@@ -803,12 +803,10 @@ test("metadata accessors retain visible groups when exact detail is unavailable"
   await expect(page.locator("#member-surface-title"))
     .toHaveText("get_Value");
   await expect(page.locator(".member-surface"))
-    .toContainText("MemberGroup unavailable");
-  await expect(page.locator(".member-surface"))
-    .toContainText("ordinary method group was not found");
+    .toContainText("int Example.Widget.get_Value()");
 });
 
-test("filtered non-public groups remain visible when exact detail is unavailable", async ({
+test("filtered non-public groups retain exact rows when group detail is unavailable", async ({
   page,
 }) => {
   const hidden = [1, 2, 3].map(index => ({
@@ -817,6 +815,8 @@ test("filtered non-public groups remain visible when exact detail is unavailable
     name: "Hidden",
     isStatic: index !== 2,
     accessibility: "private",
+    metadataToken: 0x06000010 + index,
+    declarationMetadataToken: 0x06000010 + index,
     stableSelector: `Hidden:${index}`,
     anchorDigest: `widget-hidden-${index}`,
     canonicalSignature: `void Example.Widget.Hidden(int value${index})`,
@@ -850,10 +850,16 @@ test("filtered non-public groups remain visible when exact detail is unavailable
     .toContainText("MemberGroup unavailable");
   await expect(page.locator(".member-surface"))
     .toContainText("ordinary method group was not found");
-  await expect(page.locator("[data-nav-overload]")).toHaveCount(0);
+  await expect(page.locator("[data-nav-overload]")).toHaveCount(2);
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
   )).toBeNull();
+
+  await page.locator('[data-nav-overload="2"]').click();
+  await expect(page.locator('[data-nav-overload="2"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".member-surface"))
+    .toContainText("void Example.Widget.Hidden(int value3)");
 });
 
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
@@ -889,18 +895,9 @@ test("aggregate Library remains active through Spotlight Type and Member results
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(0);
-  expect(JSON.parse(
-    await page.locator("html").getAttribute(
-      "data-member-group-document-request",
-    ) ?? "null",
-  )).toEqual([
-    "Example.Package",
-    "1.0.0",
-    "net10.0",
-    "Example.Core.dll",
-    "Example.Widget",
-    "Run",
-  ]);
+  expect(await page.locator("html").getAttribute(
+    "data-member-group-document-request",
+  )).toBeNull();
 
   await page.keyboard.press("1");
   await expect(page.locator(".member-surface-list .overload-row"))
@@ -1291,7 +1288,7 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const filteredRun = page.locator("#inspector-panel [data-member]");
   await expect(filteredRun).toHaveCount(1);
   await expect(filteredRun.locator("code"))
-    .toHaveText("Run");
+    .toHaveText("public void Run(int value)");
   await expect(filteredRun.locator("small")).not.toContainText("+");
 
   await filteredRun.click();

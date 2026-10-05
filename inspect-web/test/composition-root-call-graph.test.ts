@@ -1029,7 +1029,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     overview,
-    /const member = selectedMember\(selectedType\(\)\)[\s\S]*!member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*member\.overloads\.length === 0[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*loadSelectedMemberGroupAndSelectSingleton\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /const member = selectedMember\(selectedType\(\)\)[\s\S]*!member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*member\.overloads\.length === 0[\s\S]*member\.detailsPending[\s\S]*loadSelectedMemberGroupAndSelectSingleton\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
@@ -1161,7 +1161,7 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     ?? "";
   assert.match(
     pane,
-    /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
+    /memberCount: groups\.reduce\([\s\S]*group\.completeCount/);
 });
 
 test("unavailable exact Member populations omit selector counts", () => {
@@ -1385,7 +1385,10 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberGroupDocumentError[\s\S]*query failed/);
   assert.match(
     renderDeferredMemberGroup,
-    /document\.rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
+    /document\.rows\.filter\(row =>[\s\S]*memberAccessibilityBucket\(row\.accessibility\)[\s\S]*memberMatchesTrait\(resident, state\.memberTraitFilter\)/);
+  assert.match(
+    renderDeferredMemberGroup,
+    /rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
   assert.match(
     renderMember,
     /member\.overloads\.length === 0 && member\.kind !== "method"[\s\S]*renderDeferredMemberGroup\(type, member\)/);

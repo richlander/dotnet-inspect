@@ -428,7 +428,7 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
     .toHaveAttribute("aria-selected", "false");
 });
 
-test("different family navigation leaves exact Facts for the shared document", async ({
+test("different family navigation loads its exact group before Facts", async ({
   page,
 }) => {
   const widget = surface.types.find(

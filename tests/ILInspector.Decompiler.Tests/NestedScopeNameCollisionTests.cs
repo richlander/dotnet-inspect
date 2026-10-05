@@ -133,7 +133,7 @@ public class NestedScopeNameCollisionTests
             Body(new StoreLocal(1, FuncObjectBool, lambda)));
         function.MarkLocalEliminated(0);
 
-        string body = CSharpPrinter.Print(function).Output!
+        string body = CSharpPrinter.Print(function.BindResidualSlots()).Output!
             .ReplaceLineEndings("\n")
             .Trim();
 
@@ -259,7 +259,7 @@ public class NestedScopeNameCollisionTests
 
         var outerPlan = LocalDeclarationPlan.Create(function, 1);
         var nestedPlan = LocalDeclarationPlan.Create(localFunction, 1);
-        string body = CSharpPrinter.Print(function).Output!
+        string body = CSharpPrinter.Print(function.BindResidualSlots()).Output!
             .ReplaceLineEndings("\n")
             .Trim();
 
@@ -421,7 +421,7 @@ public class NestedScopeNameCollisionTests
         };
 
         DecompilerResult result = CSharpPrinter.Print(
-            function,
+            function.BindResidualSlots(),
             new PrinterOptions { ApproximatePdbLocalNames = true });
 
         string body = Assert.IsType<string>(result.Output);
@@ -478,6 +478,7 @@ public class NestedScopeNameCollisionTests
                 node => node is StoreStackSlot or LoadStackSlot);
             function.CheckInvariant(includeSemantics: true);
         }
+        function.BindResidualSlots();
         return CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim();
     }
 

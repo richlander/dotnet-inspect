@@ -264,14 +264,20 @@ CLI / Browser -------------------------> Queries
 
 DocumentationHouse invokes only a source-neutral deferred authored-
 documentation operation after the operation reaches the source stage. The
-SourceHouse integration assembly implements the adapter that creates that
-operation over one pre-authorized exact `AuthoredOnly` request and plan.
-DocumentationHouse never references SourceHouse types, chooses PDB policy, or
-widens source authorization. SourceHouse does not reference DocumentationHouse.
-PackageHouse and PlatformHouse likewise do not call DocumentationHouse;
-integration assemblies above both owners bind their resource-free evidence to
-exact shared Library content references in the source-neutral House
-contribution contract. Live content access comes only from the transferred
+SourceHouse adapter, compiled in the `Documentation` folder of the SourceHouse
+assembly, creates that operation over one pre-authorized exact `AuthoredOnly`
+request and plan. DocumentationHouse never references SourceHouse types,
+chooses PDB policy, or widens source authorization. SourceHouse, PackageHouse,
+and PlatformHouse never call DocumentationHouse: each owner assembly references
+only the DocumentationHouse.Contracts floor, and only its `Documentation`
+adapter folder uses a DocumentationHouse type, binding the owner's
+resource-free evidence to exact shared Library content references in the
+source-neutral House contribution contract. That folder boundary is a code
+review convention; no gate checks it, so it is `unverified`. The build gates
+acyclicity: Contracts cannot reference an owner without a cycle through the
+owners' Contracts references. That no owner references the DocumentationHouse
+core is a fact of the three owner project files at this head, held by code
+review and `unverified` by any gate. Live content access comes only from the transferred
 Library operation lease. This keeps every dependency acyclic and avoids
 `PackageHouse -> DocumentationHouse -> PackageHouse` and equivalent platform
 and source cycles.
@@ -371,8 +377,8 @@ or independently owned value before a callback returns; no borrow, view, or
 owner-backed span crosses `await`.
 
 PackageHouse, PlatformHouse, and direct-library or Workspace composition
-construct the shared Library owner and reference. Separately compiled adapters
-bind source-specific evidence into resource-free DocumentationHouse
+construct the shared Library owner and reference. Adapters compiled beside
+those owners bind source-specific evidence into resource-free DocumentationHouse
 contributions; they do not construct a documentation-ready wrapper or
 substitute lifetime. DocumentationHouse does not reopen a package, resolve a
 platform target, derive a sibling path, enumerate an ambient directory,
@@ -388,9 +394,10 @@ PlatformHouse publishes that content in the assembly's Artifact generation and
 constructs its `CompiledXmlDocumentation` Library correspondence, but performs
 no XML parsing or documentation settlement. A completed requested realization
 without that companion proves authoritative absence; a realization that did
-not request it proves only unavailability. The separately compiled
-`DotnetInspector.DocumentationHouse.Platform` adapter maps those states to one
-source-neutral contribution and retains no Library or Artifact authority.
+not request it proves only unavailability. `PlatformDocumentationHouseAdapter`, in the `Documentation` folder of
+`DotnetInspector.PlatformHouse` beside the realization it binds, maps those
+states to one source-neutral contribution and retains no Library or Artifact
+authority.
 
 ## Documentation demand
 
@@ -528,8 +535,9 @@ An adapter may provide explicit precedence among several associated
 companions. DocumentationHouse does not infer precedence from path order,
 framework spelling, package layout, or file timestamps.
 
-The PackageHouse adapter is implemented in the separately compiled
-`DotnetInspector.DocumentationHouse.Packages` project. It accepts one exact
+The PackageHouse adapter is implemented in the `Documentation` folder of
+`DotnetInspector.PackageHouse.Execution`, beside the materialization receipt it
+binds. It accepts one exact
 `PackageHouseLibraryMaterializationReceipt` and the caller's documentation
 subject, then binds the receipt's Library and API content to the exact
 API-associated compiled-XML content materialized by PackageHouse. A present
@@ -550,8 +558,9 @@ first operation lease while obtaining
 `LibraryApiSurfaceCorrespondence`, then issues a distinct second operation
 lease and transfers it to `DocumentationHouse.ExecuteAsync`.
 
-The direct-Library adapter is implemented in the separately compiled
-`DotnetInspector.DocumentationHouse.Direct` project. It accepts one exact
+The direct-Library adapter is implemented in the `Documentation` folder of
+`DotnetInspector.Queries`, beside the documentation queries that compose it. It
+accepts one exact
 direct Artifact-backed `LibraryReference` and the caller's documentation
 subject, then emits one candidate for every compiled-XML content reference
 associated with that Library's exact API assembly. It does not invent
@@ -613,8 +622,9 @@ declaration mechanics, attached-comment grammar, limits, and uncertainty. This
 design neither requires a particular CSharpText implementation nor redefines
 its outcomes.
 
-`SourceHouseDocumentationHouseAdapter` implements this boundary in
-`DotnetInspector.DocumentationHouse.Source`. It creates one deferred
+`SourceHouseDocumentationHouseAdapter` implements this boundary in the
+`Documentation` folder of `DotnetInspector.SourceHouse`, beside the House whose
+request it pre-authorizes. It creates one deferred
 source-neutral operation whose construction validates and
 retains only the stable DocumentationHouse binding and one pre-authorized
 SourceHouse request; it performs no source or Library work. Its single
@@ -802,19 +812,27 @@ DotnetInspector.DocumentationHouse.Contracts
 DotnetInspector.DocumentationHouse
   - Library lease consumption, XML snapshots, and channel/field settlement
 
-DotnetInspector.DocumentationHouse.Packages
+Adapters compile beside the source owner whose receipt they bind. Each owner
+gains one reference to DocumentationHouse.Contracts; the adapter keeps its
+own namespace.
+
+DotnetInspector.PackageHouse.Execution / Documentation
   -> PackageHouse contracts + Library contracts + DocumentationHouse contracts
+  (namespace DotnetInspector.DocumentationHouse.Packages)
 
-DotnetInspector.DocumentationHouse.Platform
+DotnetInspector.PlatformHouse / Documentation
   -> PlatformHouse contracts + Library contracts + DocumentationHouse contracts
+  (namespace DotnetInspector.DocumentationHouse.Platform)
 
-DotnetInspector.DocumentationHouse.Source
+DotnetInspector.SourceHouse / Documentation
   -> SourceHouse contracts + Library contracts + CSharpText operation
      + DocumentationHouse contracts
   - implements the deferred operation without exposing SourceHouse types
+  (namespace DotnetInspector.DocumentationHouse.Source)
 
-DotnetInspector.DocumentationHouse.Direct
+DotnetInspector.Queries / Documentation
   -> direct Library composition + DocumentationHouse contracts
+  (namespace DotnetInspector.DocumentationHouse.Direct)
 
 DotnetInspector.Queries
   -> QuerySpace + DocumentationHouse
@@ -824,19 +842,22 @@ DotnetInspector.Queries
   - publishes copied portable compiled/authored attempts and field evidence
 
 DotnetInspector.PlatformQueries
-  -> Queries + PlatformHouse + DocumentationHouse.Platform
+  -> Queries + PlatformHouse (which carries the Platform adapter)
   - accepts one completed exact Platform Library realization
   - resolves exact documentation subjects and executes DocumentationHouse
   - owns no package, installed-pack, or host acquisition
 ```
 
-PackageHouse, PlatformHouse, SourceHouse, direct-Library composition, and
-Workspace do not depend on DocumentationHouse contracts or implementation.
-Integration assemblies depend toward both the source owner and the
-source-neutral DocumentationHouse floor and cannot change either owner's
-evidence. The DocumentationHouse core does not reference an integration
-assembly; it invokes only the source-neutral deferred-operation contract and
-passes the Library lease to it solely by consuming invocation. Queries and
+PackageHouse, PlatformHouse, and SourceHouse depend on the source-neutral
+DocumentationHouse.Contracts floor only through the adapter each carries in its
+`Documentation` folder, and none depends on the DocumentationHouse
+implementation. The direct-Library adapter is carried in the `Documentation`
+folder of `DotnetInspector.Queries`, which also references the core as the
+executing composer. Workspace depends on neither. Adapters
+depend toward both the source owner and the Contracts floor and cannot change
+either owner's evidence. The DocumentationHouse core does not reference an
+owner or adapter; it invokes only the source-neutral deferred-operation
+contract and passes the Library lease to it solely by consuming invocation. Queries and
 hosts compose the applicable adapter above both owners, capture explicit
 authorization, obtain one exact Library operation lease, and transfer it before
 the House operation starts. `CompiledDocumentationQuery` owns no source adapter

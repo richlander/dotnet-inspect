@@ -2237,61 +2237,20 @@ internal static class LibraryMetadataService
         => Analysis.OptimizationOpportunityRanking.IteratesInLoop(
             opportunity);
 
-    internal static IEnumerable<Analysis.OptimizationOpportunity> FilterAndOrderTriageOpportunities(
-        IEnumerable<Analysis.OptimizationOpportunity> opportunities,
-        PerformanceTriageOptions? options)
-    {
-        options ??= PerformanceTriageOptions.Default;
-        IEnumerable<Analysis.OptimizationOpportunity> filtered = opportunities;
-        if (options.Shapes.Length > 0)
-        {
-            var shapes = options.Shapes.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            filtered = filtered.Where(opportunity => shapes.Contains(opportunity.Shape));
-        }
-
-        RowSelectionResult<Analysis.OptimizationOpportunity> result =
-            RowQueryExecutor.Apply(
-                filtered.ToArray(),
-                options.GetResolvedPlan());
-        if (!result.IsSuccess)
-        {
-            throw new InvalidOperationException(
-                "Performance Triage produced an unexpected row-window failure.");
-        }
-
-        return result.Values;
-    }
-
-    internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(
-        Analysis.LibraryOptimizationAnalysisResult optimization,
-        PerformanceTriageOptions? options)
-        => options?.IncludesAllocationFanout == true
-            ? optimization.Opportunities.Concat(optimization.AllocationFanoutOpportunities)
-            : optimization.Opportunities;
-
     static string? FormatToken(int? token)
         => token is { } value ? $"0x{value:X8}" : null;
 
     internal static string? FormatProvenance(Analysis.PerformanceTriageProvenance provenance)
-        => provenance switch
-        {
-            Analysis.PerformanceTriageProvenance.Exact => "exact",
-            Analysis.PerformanceTriageProvenance.Aggregate => "aggregate",
-            Analysis.PerformanceTriageProvenance.Unmatched => "unmatched",
-            _ => null,
-        };
+        => Analysis.OptimizationOpportunityRowSpace.ProvenanceText(
+            provenance);
 
     internal static string? FormatCallerLoop(Analysis.CallerLoopEvidence? evidence)
-        => evidence is null ? null : evidence.Depth == 1 ? "direct" : "transitive";
+        => Analysis.OptimizationOpportunityRowSpace.CallerLoopText(
+            evidence);
 
     internal static string? FormatCallerLoopWitness(Analysis.CallerLoopEvidence? evidence)
-    {
-        if (evidence is null || evidence.Witness.IsDefaultOrEmpty)
-            return null;
-
-        var calls = evidence.Witness.Select(step => $"{FormatMethod(step.Caller)} @ IL_{step.ILOffset:X4}");
-        return $"{string.Join(" -> ", calls)} -> {FormatMethod(evidence.Witness[^1].Callee)}";
-    }
+        => Analysis.OptimizationOpportunityRowSpace.CallerLoopWitnessText(
+            evidence);
 
     private static void ApplyQueryResults(
         string path,
@@ -2615,7 +2574,7 @@ internal static class LibraryMetadataService
             case OptimizationOpportunitiesResult.Available available:
                 ReportOptimizationDiagnostics(available.Diagnostics);
                 ImmutableArray<Analysis.OptimizationOpportunity> opportunities =
-                    SelectPerformanceTriageOpportunities(
+                    PerformanceTriageRowQuery.Select(
                         available,
                         inspection.PerformanceTriageOptions);
                 inspection.PerformanceTriageOpportunities = opportunities;
@@ -2767,25 +2726,6 @@ internal static class LibraryMetadataService
                     + $"'{result.GetType().Name}'.");
         }
     }
-
-    internal static ImmutableArray<Analysis.OptimizationOpportunity>
-        SelectPerformanceTriageOpportunities(
-            OptimizationOpportunitiesResult.Available available,
-            PerformanceTriageOptions options)
-        =>
-        [
-            .. FilterAndOrderTriageOpportunities(
-                available.Opportunities
-                    .Concat(available.AllocationFanoutOpportunities)
-                    .Where(opportunity =>
-                        opportunity.Shape
-                            == Analysis.AnalysisFindings
-                                .StringMaterializationShape
-                        || IncludePerformanceOpportunity(
-                            opportunity,
-                            available.GeneratedFrameworkTypes)),
-                options),
-        ];
 
     internal static void ApplyBodyShapesResult(
         LibraryInspection inspection,
