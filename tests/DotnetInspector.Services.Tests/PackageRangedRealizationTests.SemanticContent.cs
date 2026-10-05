@@ -289,6 +289,315 @@ public sealed partial class PackageRangedRealizationTests
     }
 
     [Fact]
+    public async Task
+        LibraryInventory_RangedSelectsAlphabeticalLibraryAndIssuesExactReferences()
+    {
+        byte[] archive = CreateLibraryInventoryArchive();
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery
+                .GetLibraryAndInventoryForTarget(target);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                store,
+                query,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Equal(
+            ["ref/net10.0/Alpha.dll"],
+            acquired.Payload.Content.EnumerateEntries());
+        PackageHouseLibraryAndInventory result =
+            Assert.IsType<PackageHouseLibraryAndInventory>(
+                acquired.Result.Evidence.LibraryAndInventory);
+        Assert.Equal(3, result.Inventory.Rows.Length);
+        Assert.Equal(
+            [
+                "ref/net10.0/Alpha.dll",
+                "ref/net10.0/Beta.dll",
+                "ref/net10.0/Gamma.dll",
+            ],
+            result.Inventory.Rows.Select(
+                static row => row.CompileEntry.Path));
+        Assert.Same(
+            result.Inventory.Rows[0],
+            result.Selection.SelectedRow);
+        Assert.False(result.Selection.IsPackageNamesake);
+        PackageHouseLibraryMaterializationOutcome.Completed materialized =
+            Assert.IsType<
+                PackageHouseLibraryMaterializationOutcome.Completed>(
+                await PackageHouseLibraryMaterializer
+                    .MaterializeSelectionAsync(
+                        acquired,
+                        result.SelectedLibrary,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+        Assert.Null(
+            materialized.Receipt.Library.ImplementationAssembly);
+        Assert.Single(materialized.Receipt.Library.Contents);
+        await materialized.Owner.DisposeAsync();
+        await materialized.Artifacts.DisposeAsync();
+
+        PackageHouseLibraryInventoryRow alpha =
+            result.Inventory.Rows[0];
+        Assert.Equal(
+            "lib/net10.0/Alpha.dll",
+            alpha.ImplementationEntry?.Path);
+        Assert.Equal(
+            PackageHousePortablePdbEvidenceKind.Listed,
+            alpha.PortablePdbEvidence);
+        Assert.Equal(
+            "lib/net10.0/Alpha.pdb",
+            alpha.PortablePdbEntry?.Path);
+        PackageHouseLibraryInventoryRow beta =
+            result.Inventory.Rows[1];
+        Assert.Equal(
+            PackageHousePortablePdbEvidenceKind.Absent,
+            beta.PortablePdbEvidence);
+        Assert.Null(beta.PortablePdbEntry);
+        PackageHouseLibraryInventoryRow gamma =
+            result.Inventory.Rows[2];
+        Assert.Null(gamma.ImplementationEntry);
+        Assert.Equal(
+            PackageHousePortablePdbEvidenceKind.NotApplicable,
+            gamma.PortablePdbEvidence);
+
+        PackageHouseContentQuery files =
+            result.Inventory.CreateFilesQuery(
+                [
+                    alpha.ImplementationEntry!.Value,
+                    alpha.PortablePdbEntry!.Value,
+                ]);
+        var exact = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                store,
+                files,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+        Assert.IsType<PackageHouseResult.Settled>(exact.Result);
+        Assert.Equal(
+            [
+                "lib/net10.0/Alpha.dll",
+                "lib/net10.0/Alpha.pdb",
+            ],
+            exact.Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public async Task
+        LibraryInventory_UnmatchedTargetIsTypedNoMatch()
+    {
+        byte[] archive = CreateLibraryInventoryArchive();
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net40");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery
+                    .GetLibraryAndInventoryForTarget(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        Assert.Null(acquired.Result.Evidence.LibraryAndInventory);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public async Task
+        LibraryInventory_ExplicitEmptyCompileGroupIsTypedNoMatch()
+    {
+        byte[] archive = CreateFrameworkArchive(
+            ("ref/net10.0/_._", []),
+            ("lib/net10.0/Unread.dll", [1, 2, 3]));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(
+                new RangeFeed(
+                    AddressPackageId,
+                    AddressPackageVersion,
+                    archive));
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery
+                    .GetLibraryAndInventoryForTarget(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        Assert.Null(acquired.Result.Evidence.LibraryAndInventory);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public async Task
+        LibraryInventory_LibraryPrimaryUsesSameImplementationEntry()
+    {
+        byte[] assembly = File.ReadAllBytes(
+            System.IO.Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PackageHouse",
+                "System.Text.Json.dll"));
+        byte[] archive = CreateFrameworkArchive(
+            ("lib/net10.0/Alpha.dll", assembly),
+            ("lib/net10.0/Alpha.pdb", "alpha-pdb"u8.ToArray()));
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery
+                    .GetLibraryAndInventoryForTarget(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        PackageHouseLibraryInventoryRow row = Assert.Single(
+            acquired.Result.Evidence.LibraryAndInventory!
+                .Inventory.Rows);
+        Assert.Equal(
+            PackageCompileAssetKind.Library,
+            row.CompileAsset.Kind);
+        Assert.Equal(row.CompileEntry, row.ImplementationEntry);
+        Assert.Equal(
+            PackageHousePortablePdbEvidenceKind.Listed,
+            row.PortablePdbEvidence);
+        Assert.Equal(
+            "lib/net10.0/Alpha.pdb",
+            row.PortablePdbEntry?.Path);
+        Assert.Equal(
+            ["lib/net10.0/Alpha.dll"],
+            acquired.Payload.Content.EnumerateEntries());
+        PackageHouseLibraryMaterializationOutcome.Completed materialized =
+            Assert.IsType<
+                PackageHouseLibraryMaterializationOutcome.Completed>(
+                await PackageHouseLibraryMaterializer
+                    .MaterializeSelectionAsync(
+                        acquired,
+                        acquired.Result.Evidence
+                            .LibraryAndInventory!
+                            .SelectedLibrary,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+        Assert.Same(
+            materialized.Receipt.Library.ApiAssembly,
+            materialized.Receipt.Library.ImplementationAssembly);
+        await materialized.Owner.DisposeAsync();
+        await materialized.Artifacts.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task
+        LibraryInventory_RangeCompleteAndCacheAgree()
+    {
+        byte[] archive = CreateLibraryInventoryArchive();
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery
+                .GetLibraryAndInventoryForTarget(target);
+
+        var rangedServer = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment rangedEnvironment =
+            RangedEnvironment.Create(rangedServer);
+        var ranged = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await rangedEnvironment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                query,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        var completeServer = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment completeEnvironment =
+            RangedEnvironment.Create(completeServer);
+        using var store = new TemporaryFileSystemPackageStore();
+        var complete = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await completeEnvironment.AcquireContentAsync(
+                store,
+                query,
+                sizeCut: archive.Length,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+        var cached = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await completeEnvironment.AcquireContentAsync(
+                store,
+                query,
+                sizeCut: archive.Length,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        AssertEquivalent(ranged);
+        AssertEquivalent(complete);
+        AssertEquivalent(cached);
+        Assert.Equal(1, completeServer.FullRequests);
+
+        static void AssertEquivalent(
+            PackageHouseSettlement.Acquired acquired)
+        {
+            Assert.IsType<PackageHouseResult.Settled>(
+                acquired.Result);
+            Assert.Equal(
+                ["ref/net10.0/Alpha.dll"],
+                acquired.Payload.Content.EnumerateEntries());
+            PackageHouseLibraryAndInventory result =
+                Assert.IsType<PackageHouseLibraryAndInventory>(
+                    acquired.Result.Evidence.LibraryAndInventory);
+            Assert.Equal(
+                [
+                    "ref/net10.0/Alpha.dll",
+                    "ref/net10.0/Beta.dll",
+                    "ref/net10.0/Gamma.dll",
+                ],
+                result.Inventory.Rows.Select(
+                    static row => row.CompileEntry.Path));
+            Assert.Equal(
+                "lib/net10.0/Alpha.pdb",
+                result.Selection.SelectedRow.PortablePdbEntry?.Path);
+        }
+    }
+
+    [Fact]
     public async Task TfmFiles_ExistingEntryOutsideTargetFailsWithoutBodyRead()
     {
         const string OutsideTarget =
@@ -1113,6 +1422,24 @@ public sealed partial class PackageRangedRealizationTests
                 [2]),
             ("ref/net9.0/System.Text.Json.dll", [3]),
             ("lib/net9.0/System.Text.Json.dll", [4]),
+            ("README.md", "outside target"u8.ToArray()));
+    }
+
+    private static byte[] CreateLibraryInventoryArchive()
+    {
+        byte[] assembly = File.ReadAllBytes(
+            System.IO.Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PackageHouse",
+                "System.Text.Json.dll"));
+        return CreateFrameworkArchive(
+            ("ref/net10.0/Alpha.dll", assembly),
+            ("ref/net10.0/Beta.dll", assembly),
+            ("ref/net10.0/Gamma.dll", assembly),
+            ("lib/net10.0/Alpha.dll", assembly),
+            ("lib/net10.0/Alpha.pdb", "alpha-pdb"u8.ToArray()),
+            ("lib/net10.0/Beta.dll", assembly),
             ("README.md", "outside target"u8.ToArray()));
     }
 
