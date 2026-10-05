@@ -87,6 +87,32 @@ export function memberMatchesTrait(
   }
 }
 
+export function memberDocumentRowMatchesTrait(
+  row: {
+    readonly receiver: string;
+    readonly isVirtual: boolean;
+    readonly isExplicitInterfaceImplementation: boolean;
+  },
+  trait: string,
+): boolean {
+  switch (trait) {
+    case "":
+      return true;
+    case "static":
+      return row.receiver === "Static";
+    case "instance":
+      return row.receiver === "This";
+    case "virtual":
+      return row.isVirtual;
+    case "interface":
+      return row.isExplicitInterfaceImplementation;
+    case "extensions":
+      return row.receiver === "Extension";
+    default:
+      return false;
+  }
+}
+
 export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
   groups: readonly TGroup[],
   filters: MemberGroupFilters,

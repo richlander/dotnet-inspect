@@ -75,29 +75,44 @@ public sealed class MetadataDeclarationSession : IDisposable
         bool includeHidden,
         int maximumMembers,
         int maximumRetainedTextCharacters,
-        MetadataMethodGroupCategory category =
-            MetadataMethodGroupCategory.Method)
+        MetadataTypeMemberGroupCategory category =
+            MetadataTypeMemberGroupCategory.Method)
     {
         EnsureAccess();
         if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
             return new MetadataMethodGroupInspectionOutcome.Failed();
 
-        return MetadataMethodGroupInspection.Read(
-            _assemblySession!
-                .GetMetadataReaderForDeclarationSession(),
-            _methodSemanticsAssociations!.Post(),
-            declaringType,
-            methodName,
-            startOrdinal,
-            maximumRows,
-            materializeRows,
-            accessibility,
-            receiver,
-            spelling,
-            includeHidden,
-            maximumMembers,
-            maximumRetainedTextCharacters,
-            category);
+        MetadataReader reader = _assemblySession!
+            .GetMetadataReaderForDeclarationSession();
+        return category is MetadataTypeMemberGroupCategory.Method
+            ? MetadataMethodGroupInspection.Read(
+                reader,
+                _methodSemanticsAssociations!.Post(),
+                declaringType,
+                methodName,
+                startOrdinal,
+                maximumRows,
+                materializeRows,
+                accessibility,
+                receiver,
+                spelling,
+                includeHidden,
+                maximumMembers,
+                maximumRetainedTextCharacters)
+            : MetadataDeclaredMemberGroupInspection.Read(
+                reader,
+                declaringType,
+                methodName,
+                category,
+                startOrdinal,
+                maximumRows,
+                materializeRows,
+                accessibility,
+                receiver,
+                spelling,
+                includeHidden,
+                maximumMembers,
+                maximumRetainedTextCharacters);
     }
 
     /// <summary>

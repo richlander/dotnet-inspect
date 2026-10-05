@@ -310,14 +310,6 @@ public sealed record MemberOverloadPopulationInspectionPlan
     {
         Subject = subject
             ?? throw new ArgumentNullException(nameof(subject));
-        if (Subject.Category is not (
-            MemberGroupCategory.Method
-            or MemberGroupCategory.ExplicitInterfaceImplementation))
-        {
-            throw new ArgumentException(
-                "The exact-overload population supports exact method-family groups only.",
-                nameof(subject));
-        }
         Overloads = overloads
             ?? throw new ArgumentNullException(nameof(overloads));
         Bounds = bounds

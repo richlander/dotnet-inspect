@@ -1038,7 +1038,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     singleton,
-    /resolved\?\.overloads\.length !== 1[\s\S]*memberGroupUsesFamilySurface\(resolved\)/);
+    /memberGroupUsesFamilySurface\(resolved\)[\s\S]*resolved\.overloads\.length === 1[\s\S]*document\?\.rows\.length !== 1[\s\S]*loadSelectedMemberDocument\([\s\S]*document\.rows\[0\]!\.baselineOrdinal\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
@@ -1063,7 +1063,7 @@ test("fallback ordinary families load the shared document", () => {
     /member\.completeCountStatus === "available"/);
   assert.match(
     groupDocument,
-    /!exactMethodGroup\(member\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*member\.name,\s*member\.kind,[\s\S]*state\.memberAccessibilityFilter[\s\S]*memberGroupReceiverIntent\(\)[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
+    /member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument\([\s\S]*member\.name,\s*member\.kind,[\s\S]*inspectPlatformMemberGroupDocument\([\s\S]*member\.name,\s*member\.kind,[\s\S]*inspectMemberGroupDocument\([\s\S]*member\.name,\s*member\.kind,/);
   assert.match(
     appSource,
     /function memberGroupDocumentRequestKey[\s\S]*state\.memberSpelling[\s\S]*state\.memberAccessibilityFilter[\s\S]*state\.memberTraitFilter/);
@@ -1398,9 +1398,6 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     renderDeferredMemberGroup,
     /document\.rows\.filter\(row =>[\s\S]*memberAccessibilityBucket\(row\.accessibility\)[\s\S]*memberMatchesTrait\(resident, state\.memberTraitFilter\)[\s\S]*memberDocumentRowMatchesTrait/);
-  assert.match(
-    appSource,
-    /function memberDocumentRowMatchesTrait\([\s\S]*row\.receiver === "Static"[\s\S]*row\.receiver === "Extension"[\s\S]*isVirtual: row\.isVirtual[\s\S]*row\.isExplicitInterfaceImplementation/);
   assert.match(
     renderDeferredMemberGroup,
     /rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-member-document-ordinal="\$\{row\.baselineOrdinal}"/);

@@ -47,4 +47,22 @@ internal static class BrowserExactMemberPolicy
                 _ => throw new InvalidOperationException(
                     "Unknown exact Type identity parse result."),
             };
+
+    internal static MemberGroupCategory ParseMemberCategory(
+        string category) =>
+        category switch
+        {
+            "method" => MemberGroupCategory.Method,
+            "constructor" => MemberGroupCategory.Constructor,
+            "operator" => MemberGroupCategory.Operator,
+            "finalizer" => MemberGroupCategory.Finalizer,
+            "explicit-interface" =>
+                MemberGroupCategory.ExplicitInterfaceImplementation,
+            "property" => MemberGroupCategory.Property,
+            "field" => MemberGroupCategory.Field,
+            "event" => MemberGroupCategory.Event,
+            _ => throw new ArgumentException(
+                $"Unknown Member-group category '{category}'.",
+                nameof(category)),
+        };
 }

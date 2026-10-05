@@ -198,17 +198,20 @@ public sealed class TypeMemberGroupPopulationInspectionOperationTests
     }
 
     [Fact]
-    public void ExactOverloadPlan_StillRejectsNonMethodGroups()
+    public void ExactMemberPlanRetainsNonMethodCategory()
     {
-        Assert.Throws<ArgumentException>(
-            () => new MemberOverloadPopulationInspectionPlan(
+        var plan = new MemberOverloadPopulationInspectionPlan(
                 new(
                     Name("System.Text.Json", "JsonSerializer"),
                     "Options",
                     MemberGroupCategory.Property),
                 new(
                     new MemberOverloadCountRequest()),
-                s_bounds));
+                s_bounds);
+
+        Assert.Equal(
+            MemberGroupCategory.Property,
+            plan.Subject.Category);
     }
 
     [Fact]

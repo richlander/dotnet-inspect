@@ -118,6 +118,20 @@ internal readonly struct ExtensionReceiver
 
 public static partial class ApiSurfaceExtractor
 {
+    internal static string GetEventSignatureText(
+        MetadataReader reader,
+        TypeDefinition type,
+        EventDefinition @event)
+    {
+        string eventType = ResolveRequiredTypeName(
+            reader,
+            @event.Type,
+            GenericContext.ForType(reader, type),
+            beforeRetainText: null,
+            beforeDecodeWork: null);
+        return $"{eventType} {SanitizeIdentifier(reader.GetString(@event.Name))}";
+    }
+
     /// <summary>
     /// Classifies every admitted declaration of one Type under one spelling,
     /// applying the same admission rules as extraction. A public-only caller

@@ -353,6 +353,7 @@ test("uploaded Library method family renders owner-backed receiver kinds", async
       4,
       "Example.Widget",
       "Run",
+      "method",
       "csharp",
       "public",
       "all",
@@ -427,6 +428,111 @@ test("uploaded Library singleton property opens from resident exact rows", async
   await expect(page.locator("html")).not.toHaveAttribute(
     "data-uploaded-library-member-group-document-request",
     /RootElement/);
+});
+
+test("uploaded Library private property opens from a nonresident exact row", async ({
+  page,
+}) => {
+  const widget = surface.types.find(
+    candidate => candidate.definitionId === "Example.Widget",
+  );
+  if (!widget) throw new Error("The upload fixture has no Widget Type.");
+  const isDisposable = {
+    ...run,
+    kind: "property",
+    name: "IsDisposable",
+    signature: "private bool IsDisposable { get; }",
+    accessibility: "private",
+    isStatic: false,
+    metadataToken: 0x17000002,
+    declarationMetadataToken: 0x17000002,
+    stableSelector: "IsDisposable",
+    anchorDigest: "widget-is-disposable",
+    canonicalSignature: "P:Example.Widget.IsDisposable",
+    bodySelectors: [],
+  };
+  const uploadedSurface = {
+    ...surface,
+    assemblies: [{
+      ...surface.assemblies[0]!,
+      publicTypes: 1,
+      publicMembers: 0,
+    }],
+    types: [{
+      ...widget,
+      members: 1,
+      api: [],
+      exactApi: [isDisposable],
+    }],
+    accessibility: [{
+      id: "private",
+      label: "Private",
+      order: 3,
+      isDefault: false,
+      count: 1,
+    }],
+    totalMembers: 1,
+  };
+  await installLibraryUploadFacades(
+    page,
+    "available",
+    {},
+    uploadedSurface,
+  );
+  await page.goto(root);
+  await waitForExamplePackageReady(page);
+
+  await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    `#type-list [data-type="${widget.id}"]`,
+  ).click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("[data-member-access-filter]").selectOption("private");
+  await page.locator(
+    '[data-member="property:IsDisposable"]',
+  ).click();
+
+  await expect(page.locator("#member-surface-title"))
+    .toHaveText("IsDisposable");
+  await expect(page.locator(".signature-code"))
+    .toContainText("bool IsDisposable { get; }");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("private · This");
+  await expect(page.locator(".member-identity"))
+    .toContainText("owner-issued exact declaration");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-uploaded-library-member-group-document-request",
+    JSON.stringify([
+      "Uploaded.Library.dll",
+      4,
+      "Example.Widget",
+      "IsDisposable",
+      "property",
+      "csharp",
+      "private",
+      "all",
+      false,
+    ]),
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-uploaded-library-member-document-request",
+    JSON.stringify([
+      "Uploaded.Library.dll",
+      4,
+      "Example.Widget",
+      "IsDisposable",
+      "property",
+      1,
+      "",
+      "private",
+      "all",
+      false,
+      "csharp",
+    ]),
+  );
 });
 
 test("uploaded resident members wait for Type document authority", async ({
@@ -611,6 +717,7 @@ test("uploaded Library private method family renders private exact rows", async 
         4,
         "Example.Widget",
         "Parse",
+        "method",
         "csharp",
         "private",
         "all",

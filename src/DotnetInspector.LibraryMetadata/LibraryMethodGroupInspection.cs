@@ -9,6 +9,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         LibraryReference library,
         MetadataTypeDefinitionName declaringType,
         string methodName,
+        MetadataTypeMemberGroupCategory category,
         int startOrdinal,
         int maximumRows,
         bool materializeRows,
@@ -17,8 +18,6 @@ public sealed record LibraryMethodGroupInspectionRequest
         MetadataMemberSpelling spelling,
         ApiSurfaceExtractionBounds bounds,
         bool includeHidden = false,
-        MetadataMethodGroupCategory category =
-            MetadataMethodGroupCategory.Method,
         Guid? expectedModuleVersionId = null)
     {
         Library = library
@@ -26,6 +25,13 @@ public sealed record LibraryMethodGroupInspectionRequest
         DeclaringType = declaringType
             ?? throw new ArgumentNullException(nameof(declaringType));
         ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
+        if (!Enum.IsDefined(category))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(category),
+                category,
+                "Unknown Member-group category.");
+        }
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
         if (!Enum.IsDefined(accessibility))
@@ -49,13 +55,6 @@ public sealed record LibraryMethodGroupInspectionRequest
                 spelling,
                 "Unknown Method-group spelling.");
         }
-        if (!Enum.IsDefined(category))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(category),
-                category,
-                "Unknown Method-group category.");
-        }
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
         if (expectedModuleVersionId == Guid.Empty)
@@ -66,6 +65,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         }
 
         MethodName = methodName;
+        Category = category;
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
         MaterializeRows = materializeRows;
@@ -73,13 +73,13 @@ public sealed record LibraryMethodGroupInspectionRequest
         Receiver = receiver;
         Spelling = spelling;
         IncludeHidden = includeHidden;
-        Category = category;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
     public LibraryReference Library { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
     public string MethodName { get; }
+    public MetadataTypeMemberGroupCategory Category { get; }
     public int StartOrdinal { get; }
     public int MaximumRows { get; }
     public bool MaterializeRows { get; }
@@ -87,7 +87,6 @@ public sealed record LibraryMethodGroupInspectionRequest
     public MetadataMethodReceiverFilter Receiver { get; }
     public MetadataMemberSpelling Spelling { get; }
     public bool IncludeHidden { get; }
-    public MetadataMethodGroupCategory Category { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public Guid? ExpectedModuleVersionId { get; }
 }

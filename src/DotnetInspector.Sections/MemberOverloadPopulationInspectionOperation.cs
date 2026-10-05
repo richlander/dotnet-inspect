@@ -57,6 +57,7 @@ public static class MemberOverloadPopulationInspectionOperation
                         request.Library,
                         request.Plan.Subject.DeclaringType,
                         request.Plan.Subject.Name,
+                        Category(request.Plan.Subject.Category),
                         startOrdinal,
                         rows?.MaximumRows ?? 1,
                         materializeRows:
@@ -67,7 +68,6 @@ public static class MemberOverloadPopulationInspectionOperation
                         Spelling(request.Plan.Subject.Spelling),
                         request.Plan.Bounds,
                         query.IncludeHidden,
-                        Category(request.Plan.Subject.Category),
                         expectedModuleVersionId:
                             compatibleContinuation
                                 ? rows?.Continuation?.Binding
@@ -368,6 +368,31 @@ public static class MemberOverloadPopulationInspectionOperation
                 "Unknown exact-Member accessibility filter."),
         };
 
+    private static MetadataTypeMemberGroupCategory Category(
+        MemberGroupCategory category) =>
+        category switch
+        {
+            MemberGroupCategory.Method =>
+                MetadataTypeMemberGroupCategory.Method,
+            MemberGroupCategory.Constructor =>
+                MetadataTypeMemberGroupCategory.Constructor,
+            MemberGroupCategory.Operator =>
+                MetadataTypeMemberGroupCategory.Operator,
+            MemberGroupCategory.Finalizer =>
+                MetadataTypeMemberGroupCategory.Finalizer,
+            MemberGroupCategory.ExplicitInterfaceImplementation =>
+                MetadataTypeMemberGroupCategory
+                    .ExplicitInterfaceImplementation,
+            MemberGroupCategory.Property =>
+                MetadataTypeMemberGroupCategory.Property,
+            MemberGroupCategory.Field =>
+                MetadataTypeMemberGroupCategory.Field,
+            MemberGroupCategory.Event =>
+                MetadataTypeMemberGroupCategory.Event,
+            _ => throw new InvalidOperationException(
+                "Unknown Member-group category."),
+        };
+
     private static MetadataMethodReceiverFilter Receiver(
         MemberOverloadReceiverFilter receiver) =>
         receiver switch
@@ -395,14 +420,6 @@ public static class MemberOverloadPopulationInspectionOperation
             _ => throw new InvalidOperationException(
                 "Unknown exact-Member spelling."),
         };
-
-    private static MetadataMethodGroupCategory Category(
-        MemberGroupCategory category) =>
-            category is MemberGroupCategory
-                    .ExplicitInterfaceImplementation
-                ? MetadataMethodGroupCategory
-                    .ExplicitInterfaceImplementation
-                : MetadataMethodGroupCategory.Method;
 
     private static InspectionEnvelope<
         MemberOverloadPopulationInspectionOutcome> Rejected(

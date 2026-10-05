@@ -15,12 +15,6 @@ public enum MetadataMethodReceiver
     Extension,
 }
 
-public enum MetadataMethodGroupCategory
-{
-    Method,
-    ExplicitInterfaceImplementation,
-}
-
 public enum MetadataMethodAccessibilityFilter
 {
     Public,
@@ -125,7 +119,6 @@ internal static class MetadataMethodGroupInspection
             ApiSurfaceExtractor.InterfaceImplementationAccess>
             _interfaceImplementations;
         private readonly MetadataMemberSpelling _spelling;
-        private readonly MetadataMethodGroupCategory _category;
 
         internal Analysis(
             MetadataReader reader,
@@ -139,8 +132,7 @@ internal static class MetadataMethodGroupInspection
             Dictionary<
                 MethodDefinitionHandle,
                 ApiSurfaceExtractor.InterfaceImplementationAccess>
-                interfaceImplementations,
-            MetadataMethodGroupCategory category)
+                interfaceImplementations)
         {
             Reader = reader;
             DeclaringType = declaringType;
@@ -152,7 +144,6 @@ internal static class MetadataMethodGroupInspection
             _explicitImplementationBodies =
                 explicitImplementationBodies;
             _interfaceImplementations = interfaceImplementations;
-            _category = category;
         }
 
         internal MetadataReader Reader { get; }
@@ -176,16 +167,11 @@ internal static class MetadataMethodGroupInspection
             bool includeHidden,
             ref bool? extensionContainer)
         {
-            bool explicitInterfaceImplementation =
-                _explicitImplementationBodies.Contains(handle);
-            if (!Reader.StringComparer.Equals(method.Name, MethodName)
-                || explicitInterfaceImplementation
-                    != (_category
-                        is MetadataMethodGroupCategory
-                            .ExplicitInterfaceImplementation)
+            if (!Reader.StringComparer.Equals(
+                    method.Name,
+                    MethodName)
                 || (_spelling is MetadataMemberSpelling.CSharp
-                    && (_category is MetadataMethodGroupCategory.Method
-                        && !IsOrdinaryMethodName(MethodName)
+                    && (!IsOrdinaryMethodName(MethodName)
                         || _accessors.Contains(handle))))
             {
                 return CandidateKind.OutsideGroup;
@@ -205,7 +191,6 @@ internal static class MetadataMethodGroupInspection
                     receiver,
                     ref extensionContainer)
                 || (!includeHidden
-                    && _category is MetadataMethodGroupCategory.Method
                     && ApiSurfaceExtractor.IsHiddenMethod(
                         Reader,
                         method.GetCustomAttributes(),
@@ -495,9 +480,7 @@ internal static class MetadataMethodGroupInspection
         MetadataTypeDefinitionName declaringType,
         string methodName,
         MetadataMemberSpelling spelling =
-            MetadataMemberSpelling.CSharp,
-        MetadataMethodGroupCategory category =
-            MetadataMethodGroupCategory.Method)
+            MetadataMemberSpelling.CSharp)
     {
         TypeDefinitionHandle typeHandle = default;
         foreach (TypeDefinitionHandle candidate
@@ -557,8 +540,7 @@ internal static class MetadataMethodGroupInspection
                     type),
                 ApiSurfaceExtractor.GetInterfaceImplementations(
                     reader,
-                    type),
-                category));
+                    type)));
     }
 
     public static MetadataMethodGroupInspectionOutcome Read(
@@ -574,9 +556,7 @@ internal static class MetadataMethodGroupInspection
         MetadataMemberSpelling spelling,
         bool includeHidden,
         int maximumMembers,
-        int maximumRetainedTextCharacters,
-        MetadataMethodGroupCategory category =
-            MetadataMethodGroupCategory.Method)
+        int maximumRetainedTextCharacters)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(methodSemantics);
@@ -605,13 +585,6 @@ internal static class MetadataMethodGroupInspection
                 spelling,
                 "Unknown Method-group spelling.");
         }
-        if (!Enum.IsDefined(category))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(category),
-                category,
-                "Unknown Method-group category.");
-        }
         ArgumentOutOfRangeException.ThrowIfNegative(maximumMembers);
         ArgumentOutOfRangeException.ThrowIfNegative(
             maximumRetainedTextCharacters);
@@ -624,8 +597,7 @@ internal static class MetadataMethodGroupInspection
                     methodSemantics,
                     declaringType,
                     methodName,
-                    spelling,
-                    category);
+                    spelling);
             if (preparation
                 is PreparationResult.Rejected rejected)
             {

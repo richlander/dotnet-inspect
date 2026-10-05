@@ -9,6 +9,7 @@ import {
   invalidateMemberCallGraphWork,
   invalidateSourceDestinationWork,
   memberKindCount,
+  memberDocumentRowMatchesTrait,
   memberGroupUsesFamilySurface,
   memberMatchesTrait,
   memberGroupMatches,
@@ -22,6 +23,32 @@ import {
   selectedConcreteOverload,
   selectedSourceOverload,
 } from "../src/member-filtering.ts";
+
+test("exact Member rows match producer-issued traits without a resident row", () => {
+  const staticRow = {
+    receiver: "Static",
+    isVirtual: false,
+    isExplicitInterfaceImplementation: false,
+  };
+  const instanceRow = {
+    receiver: "This",
+    isVirtual: true,
+    isExplicitInterfaceImplementation: true,
+  };
+  const extensionRow = {
+    receiver: "Extension",
+    isVirtual: false,
+    isExplicitInterfaceImplementation: false,
+  };
+
+  assert.equal(memberDocumentRowMatchesTrait(staticRow, "static"), true);
+  assert.equal(memberDocumentRowMatchesTrait(instanceRow, "instance"), true);
+  assert.equal(memberDocumentRowMatchesTrait(extensionRow, "extensions"), true);
+  assert.equal(memberDocumentRowMatchesTrait(instanceRow, "virtual"), true);
+  assert.equal(memberDocumentRowMatchesTrait(instanceRow, "interface"), true);
+  assert.equal(memberDocumentRowMatchesTrait(staticRow, "virtual"), false);
+  assert.equal(memberDocumentRowMatchesTrait(extensionRow, "interface"), false);
+});
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
   const member = { name: "Value" };

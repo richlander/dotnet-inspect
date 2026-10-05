@@ -684,6 +684,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "InspectWeb.DocumentationFixtures.dll",
                     "InspectWeb.DocumentationFixtures.WidgetExtensions",
                     "Measure",
+                    "method",
                     "csharp",
                     "public",
                     "all",
@@ -708,8 +709,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     "InspectWeb.DocumentationFixtures.dll",
                     "InspectWeb.DocumentationFixtures.WidgetExtensions",
                     "Measure",
+                    "method",
                     row.BaselineOrdinal,
-                    ""),
+                    "",
+                    "public",
+                    "all",
+                    includeHidden: false,
+                    spelling: "csharp"),
                 BrowserMetadataJsonContext.Default
                     .BrowserMemberDocumentInspection)!;
 

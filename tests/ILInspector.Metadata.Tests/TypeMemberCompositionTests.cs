@@ -169,7 +169,7 @@ public sealed class TypeMemberCompositionTests
                     includeHidden: false,
                     maximumMembers: int.MaxValue,
                     maximumRetainedTextCharacters: int.MaxValue,
-                    category: MetadataMethodGroupCategory
+                    category: MetadataTypeMemberGroupCategory
                         .ExplicitInterfaceImplementation));
 
         Assert.Equal(group.CompleteCount, exact.Count);

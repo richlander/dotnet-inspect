@@ -91,6 +91,7 @@ import {
   invalidateMemberDestinationWork,
   invalidateSourceDestinationWork,
   memberGroupUsesFamilySurface,
+  memberDocumentRowMatchesTrait,
   MEMBER_TRAITS,
   memberMatchesTrait,
   memberNavTargetIndex,
@@ -6818,20 +6819,6 @@ function documentMemberOverload(
   };
 }
 
-function memberDocumentRowMatchesTrait(
-  row: BrowserMemberGroupDocumentRow,
-  trait: string,
-): boolean {
-  return memberMatchesTrait({
-    signature: row.displaySignature,
-    isStatic: row.receiver === "Static",
-    isExtension: row.receiver === "Extension",
-    isVirtual: row.isVirtual,
-    isExplicitInterfaceImplementation:
-      row.isExplicitInterfaceImplementation,
-  }, trait);
-}
-
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
@@ -8442,17 +8429,32 @@ async function loadSelectedMemberOverview(): Promise<void> {
 async function loadSelectedMemberGroupAndSelectSingleton() {
   await loadSelectedMemberGroupDocument();
   const resolved = selectedMember(selectedType());
-  if (resolved?.overloads.length !== 1
+  if (!resolved
     || memberGroupUsesFamilySurface(resolved)
     || resolved.kind === "explicit-interface-implementation"
     || state.selectedOverloadIndex !== null) {
     return false;
   }
-  state.selectedOverloadIndex =
-    memberNavOverloadSourceIndex(resolved, 0);
-  normalizeCurrentNavEntry();
-  renderPreservingMemberFocus();
-  return true;
+  if (resolved.overloads.length === 1) {
+    state.selectedOverloadIndex =
+      memberNavOverloadSourceIndex(resolved, 0);
+    normalizeCurrentNavEntry();
+    renderPreservingMemberFocus();
+    return true;
+  }
+  const document =
+    state.memberGroupDocumentKey
+        === memberGroupDocumentRequestKey(
+          selectedType(),
+          resolved)
+      && state.memberGroupDocument?.outcome === "Available"
+      ? state.memberGroupDocument.document
+      : null;
+  if (document?.rows.length !== 1)
+    return false;
+  await loadSelectedMemberDocument(
+    document.rows[0]!.baselineOrdinal);
+  return false;
 }
 
 function loadMemberSectionContent(id: MemberSection) {
@@ -21462,7 +21464,7 @@ async function loadSelectedMemberGroupDocument() {
   const member = selectedMember(type);
   if (!type
     || !member
-    || !exactMethodGroup(member)) {
+    || member.overloads.some(overload => overload.graphOnly)) {
     renderPreservingMemberFocus();
     return;
   }

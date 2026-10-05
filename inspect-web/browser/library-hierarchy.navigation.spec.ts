@@ -800,7 +800,7 @@ test("owner-issued metadata accessors open an exact Member document without resi
 
   await expect(page.locator("#member-surface-title"))
     .toHaveText("get_Value");
-  await page.locator("[data-member-document-ordinal]").click();
+  await expect(page.locator("[data-member-document-ordinal]")).toHaveCount(0);
   await expect(page.locator(".member-surface"))
     .toContainText("int Example.Widget.get_Value()");
   await expect(page.locator(".member-surface"))
@@ -817,6 +817,7 @@ test("owner-issued metadata accessors open an exact Member document without resi
       "Example.Core.dll",
       "Example.Widget",
       "get_Value",
+      "method",
       "metadata",
       "public",
       "all",
@@ -833,6 +834,7 @@ test("owner-issued metadata accessors open an exact Member document without resi
     `${core.name}.dll`,
     "Example.Widget",
     "get_Value",
+    "method",
     1,
     "",
     "public",
@@ -879,8 +881,8 @@ test("owner-issued private rows open exact Member documents without public-surfa
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-access-filter]").selectOption("private");
   await chooseSubject(page, "member", "Member");
-  await page.locator("[data-member-document-ordinal]").click();
 
+  await expect(page.locator("[data-member-document-ordinal]")).toHaveCount(0);
   await expect(page.locator(".member-surface"))
     .toContainText("void Example.Widget.Run(int value)");
   await expect(page.locator(".member-surface"))
@@ -898,6 +900,7 @@ test("owner-issued private rows open exact Member documents without public-surfa
     `${core.name}.dll`,
     "Example.Widget",
     "Run",
+    "method",
     1,
     "",
     "private",

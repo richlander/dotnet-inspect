@@ -473,6 +473,7 @@ public sealed class BrowserMethodBodyOperationTests
                             AssemblyName,
                             typeof(Left).FullName!,
                             nameof(Left.Compute),
+                            "method",
                             "csharp",
                             "public",
                             "all",
