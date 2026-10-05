@@ -35,11 +35,42 @@ async function openIntegrations(page: Page, location = root) {
     .toHaveAttribute("aria-selected", "true");
 }
 
+test("Analysis opens on Relationships as its first tab", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+
+  const tabs = page.getByRole("tablist", { name: "Analysis views" })
+    .getByRole("tab");
+  await expect(tabs).toHaveText([
+    "Relationships",
+    "Complexity",
+    "Performance",
+    "Integrations",
+    "Opportunities",
+  ]);
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-analysis-mode="relationships"]'))
+    .toHaveAttribute("aria-selected", "true");
+});
+
 async function openOpportunities(page: Page, location = root) {
   await openIntegrations(page, location);
   await page.locator('[data-analysis-mode="opportunities"]').click();
   await expect(page.locator('[data-analysis-mode="opportunities"]'))
     .toHaveAttribute("aria-selected", "true");
+}
+
+async function selectPerformanceAnalysis(page: Page) {
+  const performance = page.locator('[data-analysis-mode="performance"]');
+  await performance.click();
+  await expect(performance).toHaveAttribute("aria-selected", "true");
 }
 
 async function expectCompactAnalysisHeader(page: Page) {
@@ -48,8 +79,8 @@ async function expectCompactAnalysisHeader(page: Page) {
   const tabs = header.getByRole("tablist", { name: "Analysis views" });
   await expect(tabs).toBeVisible();
   for (const name of [
-    "Complexity",
     "Relationships",
+    "Complexity",
     "Performance",
     "Integrations",
     "Opportunities",
@@ -159,6 +190,7 @@ async function openAnalysis(page: Page, location = root) {
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
+  await selectPerformanceAnalysis(page);
 }
 
 for (const width of [1440, 390]) {
@@ -256,6 +288,7 @@ for (const width of [1440, 390]) {
     await openPlatform(page, { mismatchedFile: true });
     await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
     await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+    await selectPerformanceAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
     await expect(frame.locator(".perf-row")).toHaveCount(2);
     const picker = frame.locator(".library-analysis-controls select");
@@ -310,6 +343,7 @@ test("ranked Analysis members replace sticky private Type population intent", as
 
   await chooseSubject(page, "library", "Library");
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await selectPerformanceAnalysis(page);
   await page.locator(".library-analysis-surface .perf-row").first().click();
 
   await expect(subjectTab(page, "member"))
@@ -387,6 +421,7 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
+  await selectPerformanceAnalysis(page);
 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
@@ -536,6 +571,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await selectPerformanceAnalysis(page);
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator(".library-analysis-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-analysis-surface")).not.toContainText(core.name);
@@ -909,12 +945,18 @@ for (const width of [1440, 390]) {
     await openReferences(page);
     const frame = page.locator(".library-references-surface");
     await expect(frame.locator(".dep-list li")).toHaveCount(1);
+    await expect(frame.locator(".reference-graph-section .graph-viewport"))
+      .toBeVisible();
+    await expect(frame.locator(".reference-graph-section")).toContainText(
+      "inspected assembly");
+    await expect(frame.locator(".reference-list-section")).toContainText(
+      "Assembly references");
     await expect(frame.locator("header")).toContainText("1 direct reference");
     await expect(frame.locator("footer")).toContainText(core.asset);
     await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
     await expect(frame.locator("footer")).toContainText("Example.Package@1.0.0");
     await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
-    await expect(frame.locator("h2")).toHaveCount(0);
+    await expect(frame.locator("h2")).toHaveCount(2);
     const panelBox = await page.locator("#inspector-panel").boundingBox();
     const frameBox = await frame.boundingBox();
     expect(panelBox).not.toBeNull();
@@ -922,8 +964,9 @@ for (const width of [1440, 390]) {
     expect(Math.abs(frameBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
     expect(Math.abs(frameBox!.height - panelBox!.height)).toBeLessThanOrEqual(2);
     const listBox = await frame.locator(".dep-list").boundingBox();
-    expect(Math.abs(listBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(listBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
+    expect(listBox!.x).toBeGreaterThan(frameBox!.x);
+    expect(listBox!.x + listBox!.width)
+      .toBeLessThan(frameBox!.x + frameBox!.width);
     await page.screenshot({ path: testInfo.outputPath("references.png") });
     if (width === 390) {
       const back = page.getByRole("button", { name: "Libraries", exact: true });
@@ -945,6 +988,8 @@ for (const width of [1440, 390]) {
     await openReferences(page);
     const frame = page.locator(".library-references-surface");
     await expect(frame.locator(".dep-list li")).toHaveCount(80);
+    await expect(frame.locator(".reference-graph-section")).toContainText(
+      "Reference graph shows 79 of 80 direct references");
     await expect(frame.locator("header")).toContainText("80 direct references");
     await expect(frame.locator("footer span").first()).toHaveAttribute("title", new RegExp(longCore.name));
     const headerBox = await frame.locator("header").boundingBox();

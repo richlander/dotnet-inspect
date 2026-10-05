@@ -32,6 +32,8 @@ internal static class LibraryMetadataService
 {
     internal const int DiscoveryMaxEmbeddedPdbBytes =
         64 * 1024 * 1024;
+    // Runtime gate for the document-only CLI path.
+    internal static int InspectionCountForTests;
 
     /// <summary>
     /// Full inspection pipeline for a single assembly.
@@ -54,6 +56,8 @@ internal static class LibraryMetadataService
         bool discoveryOnly = false,
         Sections.InspectionTrace? trace = null)
     {
+        System.Threading.Interlocked.Increment(
+            ref InspectionCountForTests);
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
         try

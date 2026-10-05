@@ -72,6 +72,7 @@ jobs:
         run: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 
       - name: Prepare top-package slice
+        id: acquisition
         shell: bash
         run: |
           set -o pipefail
@@ -86,6 +87,8 @@ jobs:
             | tee artifacts/package-sweep/acquisition.txt
 
       - name: Run bounded library report
+        id: library_report
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
@@ -97,6 +100,26 @@ jobs:
             --top-patterns 25 \
             --max-examples 3 \
             | tee artifacts/package-sweep/report.md
+
+      - name: Compare signature and body Type leverage
+        if: ${{ !cancelled() && steps.acquisition.outcome == 'success' }}
+        run: >-
+          dotnet run -c Release
+          eng/census-library-type-leverage.cs --
+          artifacts/package-sweep/manifest.json
+          artifacts/package-sweep/type-leverage.json
+          artifacts/package-sweep/type-leverage.md
+
+      - name: Check bounded library report result
+        if: >-
+          ${{
+            !cancelled()
+            && steps.acquisition.outcome == 'success'
+            && steps.library_report.outcome != 'success'
+          }}
+        run: |
+          echo "::error::The bounded library report failed; the independent Type-leverage census still ran." >&2
+          exit 1
 
       - name: Upload package sweep artifacts
         if: always()

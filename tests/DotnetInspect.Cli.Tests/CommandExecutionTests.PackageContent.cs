@@ -94,14 +94,17 @@ public partial class CommandExecutionTests
     {
         // The README section is a listing of one row, so --count answers over the same rows the
         // section renders rather than over the document body.
-        var (exit, output, _) = await RunAppAsync(
+        // The README section is one Text payload (scalar): it has no Count,
+        // while --paths still names the single file it renders.
+        var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--count");
         var (pathsExit, pathsOutput, _) = await RunAppAsync(
             "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--paths");
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Section 'Package README file' is scalar", error);
         Assert.Equal(0, pathsExit);
-        Assert.Equal("1", output.Trim());
         Assert.Single(pathsOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries));
     }
 
@@ -779,7 +782,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "System.CommandLine",
-            "-S", "Source Files", "-n", "18", "--lines");
+            "-S", "Source Files", "-n", "18", "--lines", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1056,7 +1059,7 @@ public partial class CommandExecutionTests
                 "-S", "Package files",
                 "-n", "1", "--tail",
             ];
-            var markdown = await RunAppAsync(args);
+            var markdown = await RunAppAsync([.. args, "--markdown"]);
             var table = await RunAppAsync([.. args, "--table"]);
             var tsv = await RunAppAsync([.. args, "--tsv", "--no-headers"]);
             var jsonl = await RunAppAsync([.. args, "--jsonl"]);
@@ -1145,7 +1148,7 @@ public partial class CommandExecutionTests
                 "--tfm", "net8.0",
                 "-S", "Package files",
             ];
-            var markdown = await RunAppAsync(selectedFiles);
+            var markdown = await RunAppAsync([.. selectedFiles, "--markdown"]);
             var table = await RunAppAsync([.. selectedFiles, "--table"]);
             var tsv = await RunAppAsync(
                 [.. selectedFiles, "--tsv", "--no-headers"]);
@@ -1592,8 +1595,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, category.Exit);
             Assert.Empty(category.Error);
-            Assert.Equal(0, family.Exit);
-            Assert.Empty(family.Error);
+            // The README section is scalar, so a row window on it alone is
+            // rejected before acquisition (Section shapes).
+            Assert.Equal(1, family.Exit);
+            Assert.Contains("Section 'Package README file' is scalar", family.Error);
             Assert.Equal(0, mixed.Exit);
             Assert.Empty(mixed.Error);
         }
@@ -1637,7 +1642,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Manifest");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Manifest", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Manifest", output);
@@ -1728,6 +1733,7 @@ public partial class CommandExecutionTests
                 $"{PackageFixtureId}@{PackageFixtureVersion}",
                 "-S",
                 "Manifest",
+                "--markdown",
                 "--source",
                 PackageFixtureFeed,
                 "--nugetconfig",
@@ -1779,13 +1785,13 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            var (readmeExit, readmeOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package README file");
+            var (readmeExit, readmeOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--markdown");
             Assert.Equal(0, readmeExit);
             Assert.Contains("## Package README file", readmeOutput);
             Assert.Contains("| README.md |", readmeOutput);
             Assert.DoesNotContain("| lib/net8.0/Layout.dll |", readmeOutput);
 
-            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package nuspec file");
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package nuspec file", "--markdown");
             Assert.Equal(0, nuspecExit);
             Assert.Contains("## Package nuspec file", nuspecOutput);
             // The manifest section is a path listing, not the document itself.
@@ -1806,7 +1812,7 @@ public partial class CommandExecutionTests
         {
             // Regression: the manifest used to be classified as zip plumbing, which made it
             // unreachable through Files, --path, and --layout alike.
-            var (exit, output, _) = await RunAppAsync("package", packagePath, "-S", "Files");
+            var (exit, output, _) = await RunAppAsync("package", packagePath, "-S", "Files", "--markdown");
             Assert.Equal(0, exit);
             Assert.Contains("Test.Layout.nuspec", output);
 
@@ -1847,7 +1853,8 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "-S",
-                "Package license files");
+                "Package license files",
+                "--markdown");
             Assert.Equal(0, listExit);
             Assert.Contains("| LICENSE.md |", listOutput);
             Assert.Contains("| OSMFEULA.txt |", listOutput);
@@ -1904,7 +1911,8 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "-S",
-                "Package license files");
+                "Package license files",
+                "--markdown");
             Assert.Equal(0, listExit);
             Assert.Contains("| legal/TERMS.bin |", listOutput);
             Assert.Empty(listError);
@@ -1977,13 +1985,16 @@ public partial class CommandExecutionTests
         var mapPath = Path.Combine(tempDir, "map-count.txt");
         try
         {
+            var (stdoutExit, stdoutCount, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package files", "--count");
             var (scalarExit, scalarOutput, scalarError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package nuspec file", "--count", "--out", scalarPath);
+                "package", packagePath, "-S", "Package files", "--count", "--out", scalarPath);
 
+            Assert.Equal(0, stdoutExit);
             Assert.Equal(0, scalarExit);
             Assert.Empty(scalarOutput);
             Assert.Empty(scalarError);
-            Assert.Equal("1\n", File.ReadAllText(scalarPath));
+            Assert.Equal(stdoutCount, File.ReadAllText(scalarPath));
 
             var (mapExit, mapOutput, mapError) = await RunAppAsync(
                 "package", packagePath, "-S", "@Files", "--count", "--out", mapPath);
@@ -2061,7 +2072,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Info", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package Info");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package Info", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("| Readme | README.md |", output);
@@ -2080,7 +2091,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Section", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package README file", output);
@@ -2101,7 +2112,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Grounding.Alias", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package README file", output);
@@ -2517,7 +2528,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
-            Assert.Contains("found no package file", result.Error);
+            Assert.Contains("Section 'Package README file' is scalar", result.Error);
             Assert.Equal(sentinel, File.ReadAllText(outputPath));
         }
         finally

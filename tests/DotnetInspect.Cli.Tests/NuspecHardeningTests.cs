@@ -53,7 +53,8 @@ public sealed class NuspecHardeningTests : IDisposable
             "package",
             package,
             "-S",
-            "Files");
+            "Files",
+            "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -82,7 +83,8 @@ public sealed class NuspecHardeningTests : IDisposable
             "package",
             package,
             "-S",
-            "Ecosystem Dependencies");
+            "Ecosystem Dependencies",
+            "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -124,7 +126,8 @@ public sealed class NuspecHardeningTests : IDisposable
                 "package",
                 package,
                 "-S",
-                "Package Info");
+                "Package Info",
+                "--markdown");
 
         Assert.Equal(0, markdownExit);
         Assert.Empty(markdownError);
