@@ -1442,7 +1442,9 @@ public static class OutputFormatter
             projection,
             inspection,
             writerOptions.IncludeSections,
-            rows);
+            rows,
+            fields,
+            columns);
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
@@ -1489,7 +1491,9 @@ public static class OutputFormatter
         CountProjection projection,
         LibraryInspection inspection,
         IReadOnlyCollection<string>? includedSections,
-        RowWindow? rows)
+        RowWindow? rows,
+        string[]? fields = null,
+        string[]? columns = null)
     {
         if (includedSections is null
             || inspection.PerformanceTriageCounts is not
@@ -1498,6 +1502,13 @@ public static class OutputFormatter
             return;
         }
 
+        DocumentSchema? schema =
+            fields is { Length: > 0 }
+            || columns is { Length: > 0 }
+                ? InspectionContext.Default
+                    .GetSchemaInfo<LibraryInspectionView>()!
+                    .ToDocumentSchema()
+                : null;
         foreach (string section in includedSections)
         {
             if (!PerformanceKinds.Sections.Contains(
@@ -1507,8 +1518,16 @@ public static class OutputFormatter
                 continue;
             }
 
-            int count = counts.Count(
-                PerformanceKinds.KindForSection(section));
+            bool projected = schema is null
+                || ProjectionMatchesSection(
+                    schema,
+                    section,
+                    fields,
+                    columns);
+            int count = projected
+                ? counts.Count(
+                    PerformanceKinds.KindForSection(section))
+                : 0;
             if (rows is { IsUnlimited: false } window)
             {
                 (int keepStart, int keepEnd) =
