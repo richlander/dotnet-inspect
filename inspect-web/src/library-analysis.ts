@@ -3,7 +3,7 @@ import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
 type LibraryAnalysisResult = Pick<
   BrowserPackagePerformance,
-  "members" | "inspectionError" | "nonPublicOpportunities" | "totalOpportunities"
+  "members" | "inspectionError" | "totalOpportunities"
 >;
 
 export interface LibraryAnalysisOptions {
@@ -51,15 +51,12 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
     } else {
       const members = resolved.members ?? [];
       const partial = Boolean(resolved.inspectionError);
-      const nonPublicStatus = resolved.nonPublicOpportunities > 0
-        ? ` \u00b7 ${resolved.nonPublicOpportunities.toLocaleString()} non-public`
-        : "";
-      status = `${members.length.toLocaleString()} public member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"}${nonPublicStatus}${partial ? " \u00b7 partial" : ""}`;
+      status = `${members.length.toLocaleString()} ranked member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"}${partial ? " \u00b7 partial" : ""}`;
       const warning = partial
         ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be analyzed completely</strong><ul><li><code>${escapeHtml(resolved.inspectionError)}</code></li></ul></section>`
         : "";
       const note = members.length
-        ? `<p class="library-analysis-note">Ranked by product triage policy. Static IL classification &mdash; confirm impact with a benchmark or profiler. Select a member to open its API details.</p>`
+        ? `<p class="library-analysis-note">All implementation accessibilities are ranked by product triage policy. Static IL classification &mdash; confirm impact with a benchmark or profiler. Select a declared member to open its details.</p>`
         : "";
       const rows = members.map(member => {
         const display = `${shortTypeName(member.typeId)}.${member.memberName}`;
@@ -69,18 +66,19 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
         const loopBadge = member.inLoopCount > 0
           ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">&#x21BB; ${member.inLoopCount}</span>`
           : "";
-        return `<button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">
+        const body = `
           <span class="perf-count">${member.opportunityCount}</span>
           <span class="perf-member"><span class="perf-name">${escapeHtml(display)}</span><span class="perf-shapes">${shapes}</span></span>
+          <span class="perf-accessibility">${escapeHtml(member.accessibility)}</span>
           <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "\u2014")}</span></span>
-        </button>`;
+        `;
+        return member.stableSelector
+          ? `<button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" data-perf-member="${escapeHtml(member.memberName)}" data-perf-token="${member.bodyTokens[0] ?? 0}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">${body}</button>`
+          : `<div class="perf-row perf-row-static" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)}">${body}</div>`;
       }).join("");
-      const nonPublicNote = resolved.nonPublicOpportunities > 0
-        ? ` ${resolved.nonPublicOpportunities.toLocaleString()} opportunit${resolved.nonPublicOpportunities === 1 ? "y is" : "ies are"} in non-public members.`
-        : "";
       const empty = partial
-        ? `<section class="document-section empty-document"><h2>Analysis incomplete</h2><p>No public-member results are available from this incomplete analysis.</p></section>`
-        : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No public allocation hot spots</h2><p>${resolved.totalOpportunities.toLocaleString()} allocation/performance opportunit${resolved.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${escapeHtml(libraryName)}.${nonPublicNote}</p></section>`;
+        ? `<section class="document-section empty-document"><h2>Analysis incomplete</h2><p>No ranked implementation results are available from this incomplete analysis.</p></section>`
+        : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No allocation or performance opportunities</h2><p>No ranked opportunities were found in the analyzed implementation bodies of ${escapeHtml(libraryName)}.</p></section>`;
       content = `${warning}${note}${members.length ? `<div class="perf-list">${rows}</div>` : empty}`;
     }
   }

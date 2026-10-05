@@ -96,10 +96,12 @@ public static class WorkspaceSharePacketTransposer
         WorkspaceSharePacket canonical = WorkspaceSharePacketCodec.Decode(
             WorkspaceSharePacketCodec.Encode(packet),
             cancellationToken);
-        if (canonical.FormatVersion != WorkspaceSharePacketCodec.LegacyFormatVersion)
+        if (canonical.FormatVersion is not (
+            WorkspaceSharePacketCodec.LegacyFormatVersion
+            or WorkspaceSharePacketCodec.Format6Version))
         {
             throw new ArgumentException(
-                "Use ToCommittedDefinitions for workspace share format 2, 3, or 4.",
+                "Use ToCommittedDefinitions for committed workspace share formats.",
                 nameof(packet));
         }
 
@@ -144,8 +146,12 @@ public static class WorkspaceSharePacketTransposer
                 members);
         }
 
+        int schemaVersion =
+            canonical.FormatVersion == WorkspaceSharePacketCodec.Format6Version
+                ? InspectionDefinitionSchema.Version6
+                : InspectionDefinitionSchema.Version1;
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version1,
+            schemaVersion,
             WorkspaceId,
             contexts);
 
@@ -169,13 +175,13 @@ public static class WorkspaceSharePacketTransposer
         }
 
         var navigation = new NavigationDefinition(
-            InspectionDefinitionSchema.Version1,
+            schemaVersion,
             NavigationId,
             navigationTabs,
             $"t{canonical.ActiveTabIndex}");
 
         var view = new ViewDefinition(
-            InspectionDefinitionSchema.Version1,
+            schemaVersion,
             ViewId,
             lens: canonical.Lens,
             type: canonical.Type,
@@ -183,10 +189,13 @@ public static class WorkspaceSharePacketTransposer
             memberSignature: canonical.MemberSignature,
             section: canonical.Section,
             libraries: canonical.Libraries,
-            sourceView: canonical.SourceView);
+            sourceView: canonical.SourceView,
+            memberAccessibility: canonical.MemberAccessibility,
+            declarationSourceRequirement:
+                canonical.DeclarationSourceRequirement);
 
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionSchema.Version1,
+            schemaVersion,
             ScenarioId,
             workspace: WorkspaceId,
             context: $"g{canonical.SelectedContextIndex}",
@@ -596,8 +605,14 @@ public static class WorkspaceSharePacketTransposer
             definitions,
             cancellationToken,
             canonicalizeFormat1: true,
-            WorkspaceSharePacketCodec.MaxFormat1Tabs,
-            "Packet v1");
+            definitions.Scenario.SchemaVersion
+                == InspectionDefinitionSchema.Version6
+                ? WorkspaceSharePacketCodec.MaxFormat6Tabs
+                : WorkspaceSharePacketCodec.MaxFormat1Tabs,
+            definitions.Scenario.SchemaVersion
+                == InspectionDefinitionSchema.Version6
+                ? "Packet v6"
+                : "Packet v1");
 
     private static WorkspaceSharePacketProjectionResult ToPacket(
         WorkspaceSharePacketDefinitionSet definitions,
@@ -976,18 +991,34 @@ public static class WorkspaceSharePacketTransposer
         }
 
         string[] libraries = [.. view.Libraries];
-        var packet = new WorkspaceSharePacket(
-            packetTabs,
-            packetContexts,
-            focusIndex,
-            selectedContextIndex,
-            view.Lens,
-            view.Type,
-            view.MemberAnchor,
-            view.MemberSignature,
-            view.Section,
-            libraries,
-            view.SourceView);
+        WorkspaceSharePacket packet =
+            view.SchemaVersion == InspectionDefinitionSchema.Version6
+                ? WorkspaceSharePacket.CreateV6(
+                    packetTabs,
+                    packetContexts,
+                    focusIndex,
+                    selectedContextIndex,
+                    view.Lens,
+                    view.Type,
+                    view.MemberAnchor,
+                    view.MemberSignature,
+                    view.Section,
+                    libraries,
+                    view.SourceView,
+                    view.MemberAccessibility,
+                    view.DeclarationSourceRequirement)
+                : new WorkspaceSharePacket(
+                    packetTabs,
+                    packetContexts,
+                    focusIndex,
+                    selectedContextIndex,
+                    view.Lens,
+                    view.Type,
+                    view.MemberAnchor,
+                    view.MemberSignature,
+                    view.Section,
+                    libraries,
+                    view.SourceView);
 
         if (!canonicalizeFormat1)
             return WorkspaceSharePacketProjectionResult.Success(packet);
@@ -1528,15 +1559,23 @@ public static class WorkspaceSharePacketTransposer
             (definitions.View, "view"),
             (definitions.Scenario, "scenario"),
         ];
+        int schemaVersion = definitions.Scenario.SchemaVersion;
+        if (schemaVersion is not (
+            InspectionDefinitionSchema.Version1
+            or InspectionDefinitionSchema.Version6))
+        {
+            return InvalidDefinition(
+                "scenario.schemaVersion",
+                "A flat Workspace share packet requires schema version 1 or 6.");
+        }
         foreach ((InspectionDefinitionRecord record, string path) in records)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (record.SchemaVersion
-                != InspectionDefinitionSchema.Version1)
+            if (record.SchemaVersion != schemaVersion)
             {
                 return InvalidDefinition(
                     path + ".schemaVersion",
-                    "WorkspaceSharePacket format 1 requires a schema-version-1 definition set.");
+                    $"Workspace share schema version {schemaVersion} requires matching peer definitions.");
             }
             try
             {

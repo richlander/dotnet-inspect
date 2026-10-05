@@ -422,10 +422,10 @@ test("shared package graph navigation retains portable accessor identity", () =>
 
   assert.match(
     shareState,
-    /memberAnchor = overload\.anchorDigest \|\| null/);
+    /memberAnchor = memberOverload\.anchorDigest \|\| null/);
   assert.match(
     shareState,
-    /memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
+    /memberSignature = memberAnchor\s*\? null\s*: memberOverload\.canonicalSignature \|\| null/);
   assert.doesNotMatch(shareState, /selectedBodyTarget:/);
   assert.match(graphLegendsSource, /solid border: no platform lookup/);
 });
@@ -848,7 +848,7 @@ test("restored selections reveal their accessibility bucket", () => {
     /const type = pkg\.types\.find[\s\S]*?if \(!state\.atPackageRoot && !state\.atLibraryRoot\) revealTypeInFilters\(type\)/);
   assert.match(
     deepLink,
-    /const selected = pkg\.types\.find[\s\S]*?selectTypeAccessibility\(selected\.accessibilityId\)[\s\S]*?const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
+    /const selected = pkg\.types\.find[\s\S]*?selectTypeAccessibility\(selected\.accessibilityId\)[\s\S]*?const type = requestedTypes\.length === 1[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
   assert.match(
     reveal,
     /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.typeTraitFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
@@ -1043,7 +1043,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     spotlight,
-    /setTypeMemberPopulationIntent\("public", "csharp"\)[\s\S]*state\.selectedMemberKey = result\.memberKey[\s\S]*const selectionData = loadSelectionData\(\)[\s\S]*await selectionData/);
+    /setTypeMemberPopulationIntent\("public", "csharp", "surface"\)[\s\S]*state\.selectedMemberKey = result\.memberKey[\s\S]*const selectionData = loadSelectionData\(\)[\s\S]*await selectionData/);
   assert.doesNotMatch(spotlight, /loadSelectedMemberOverview\(\)/);
 
   const groupDocument =

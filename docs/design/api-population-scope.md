@@ -238,6 +238,18 @@ the implementation analysis complete.
 | Which method bodies should a whole-library metric summarize? | Every admitted implementation body in the selected library population | Not a completeness switch; the report declares its own implementation population |
 | Which bodies should a type/member metric or call analysis inspect? | Every admitted body under the selected typed root | Not a substitute for selecting the root or changing its API visibility |
 
+Inspect Web applies the same distinction within Library Analysis. Integrations
+and Opportunities inspect signatures and therefore retain the public
+declaration population. Complexity, Relationships, and Performance inspect
+implementation bodies and therefore include every accessibility. A
+Performance row retains its declaration accessibility for presentation and
+requests the implementation participant's all-access member population only
+when the user follows that row. The ordinary API view remains
+reference-preferred, while a followed implementation-only Type is projected
+into that navigation context without joining the ordinary inventory. The host
+does not discard non-public body evidence because its ordinary API view
+defaults to public declarations.
+
 `--all-libraries` and similar package-population controls are separate
 selection mechanisms. They decide which Library occurrences participate; they
 do not redefine the meaning of API `--all` inside an already selected

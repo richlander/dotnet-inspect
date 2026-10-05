@@ -780,7 +780,6 @@ export interface BrowserPackageOpportunities {
 export interface BrowserPackagePerformance {
   readonly members: ReadonlyArray<BrowserPerformanceMember>;
   readonly inspectionError: string | null;
-  readonly nonPublicOpportunities: number;
   readonly totalOpportunities: number;
   readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
@@ -789,7 +788,8 @@ export interface BrowserPerformanceMember {
   readonly assembly: string;
   readonly typeId: string;
   readonly memberName: string;
-  readonly stableSelector: string;
+  readonly stableSelector: string | null;
+  readonly accessibility: string;
   readonly bodyTokens: ReadonlyArray<number>;
   readonly opportunityCount: number;
   readonly inLoopCount: number;

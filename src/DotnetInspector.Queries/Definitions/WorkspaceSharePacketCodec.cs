@@ -40,6 +40,7 @@ public static class WorkspaceSharePacketCodec
 
     public const int Format4Version = 4;
     public const int Format5Version = 5;
+    public const int Format6Version = 6;
     public const int MaxFormat1EncodedLength = 16 * 1024;
     public const int MaxFormat1DecodedUtf8Length = 12 * 1024;
     public const int MaxFormat1JsonDepth = 16;
@@ -53,6 +54,7 @@ public static class WorkspaceSharePacketCodec
     public const int MaxFormat3Tabs = 64;
     public const int MaxFormat4Tabs = 64;
     public const int MaxFormat5Tabs = 64;
+    public const int MaxFormat6Tabs = 12;
     public const int MaxContexts = 24;
     public const int MaxRegistrations = 24;
     public const int MaxPackageSources = 24;
@@ -217,7 +219,7 @@ public static class WorkspaceSharePacketCodec
         {
             int formatVersion = ReadFormatVersion(document.RootElement);
             ValidateDecodedLength(formatVersion, utf8Json.Length);
-            if (formatVersion == LegacyFormatVersion)
+            if (formatVersion is LegacyFormatVersion or Format6Version)
             {
                 ValidateJsonBudget(
                     utf8Json.Span,
@@ -360,14 +362,15 @@ public static class WorkspaceSharePacketCodec
             or Format2Version
             or CurrentFormatVersion
             or Format4Version
-            or Format5Version))
+            or Format5Version
+            or Format6Version))
         {
             throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {version}; expected "
                     + $"{LegacyFormatVersion}, {Format2Version}, "
                     + $"{CurrentFormatVersion}, {Format4Version}, or "
-                    + $"{Format5Version}.");
+                    + $"{Format5Version}, or {Format6Version}.");
         }
 
         return version;
@@ -379,6 +382,7 @@ public static class WorkspaceSharePacketCodec
         formatVersion switch
         {
             LegacyFormatVersion => BindFormat1(root),
+            Format6Version => BindFormat6(root),
             Format2Version => BindFormat2(root),
             CurrentFormatVersion => BindFormat3Or4(
                 root,
@@ -389,29 +393,59 @@ public static class WorkspaceSharePacketCodec
         };
 
     private static WorkspaceSharePacket BindFormat1(JsonElement root)
+        => BindFlat(root, LegacyFormatVersion);
+
+    private static WorkspaceSharePacket BindFormat6(JsonElement root)
+        => BindFlat(root, Format6Version);
+
+    private static WorkspaceSharePacket BindFlat(
+        JsonElement root,
+        int formatVersion)
     {
-        ValidateProperties(
-            root,
-            "f",
-            "t",
-            "g",
-            "a",
-            "x",
-            "v",
-            "y",
-            "m",
-            "s",
-            "c",
-            "o",
-            "l");
+        if (formatVersion == Format6Version)
+        {
+            ValidateProperties(
+                root,
+                "f",
+                "t",
+                "g",
+                "a",
+                "x",
+                "v",
+                "y",
+                "m",
+                "s",
+                "c",
+                "o",
+                "l",
+                "z",
+                "d");
+        }
+        else
+        {
+            ValidateProperties(
+                root,
+                "f",
+                "t",
+                "g",
+                "a",
+                "x",
+                "v",
+                "y",
+                "m",
+                "s",
+                "c",
+                "o",
+                "l");
+        }
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
-            LegacyFormatVersion);
+            formatVersion);
         WorkspaceShareContext[] contexts = ReadContexts(
             Required(root, "g"),
             tabs,
-            LegacyFormatVersion);
+            formatVersion);
 
         int activeTab = ReadIndex(Required(root, "a"), "a", tabs.Length);
         int selectedContext = ReadIndex(
@@ -426,11 +460,45 @@ public static class WorkspaceSharePacketCodec
         string? section = OptionalString(root, "c");
         string? sourceView = OptionalString(root, "o");
         string[] libraries = ReadLibraries(root);
+        WorkspaceShareMemberAccessibility? memberAccessibility =
+            formatVersion == Format6Version
+                ? ReadMemberAccessibility(root)
+                : null;
+        WorkspaceShareDeclarationSourceRequirement? declarationSourceRequirement =
+            formatVersion == Format6Version
+                ? ReadDeclarationSourceRequirement(root)
+                : null;
 
         if (memberAnchor is not null && memberSignature is not null)
             throw InvalidShape("Workspace share state cannot set both 'm' and 's'.");
         if ((memberAnchor is not null || memberSignature is not null) && type is null)
             throw InvalidShape("Workspace share member selection requires type field 'y'.");
+
+        if (formatVersion == Format6Version)
+        {
+            bool hasType = type is not null;
+            if (hasType != (memberAccessibility is not null)
+                || hasType != (declarationSourceRequirement is not null))
+            {
+                throw InvalidShape(
+                    "Workspace share format 6 requires fields 'z' and 'd' exactly when field 'y' is present.");
+            }
+
+            return WorkspaceSharePacket.CreateV6(
+                tabs,
+                contexts,
+                activeTab,
+                selectedContext,
+                lens,
+                type,
+                memberAnchor,
+                memberSignature,
+                section,
+                libraries,
+                sourceView,
+                memberAccessibility,
+                declarationSourceRequirement);
+        }
 
         return new WorkspaceSharePacket(
             tabs,
@@ -444,6 +512,55 @@ public static class WorkspaceSharePacketCodec
             section,
             libraries,
             sourceView);
+    }
+
+    private static WorkspaceShareMemberAccessibility? ReadMemberAccessibility(
+        JsonElement root)
+    {
+        if (!root.TryGetProperty("z", out JsonElement value))
+            return null;
+        return RequiredString(value, "member accessibility") switch
+        {
+            "all" => WorkspaceShareMemberAccessibility.All,
+            "public" => WorkspaceShareMemberAccessibility.Public,
+            "protected" => WorkspaceShareMemberAccessibility.Protected,
+            "internal" => WorkspaceShareMemberAccessibility.Internal,
+            "private" => WorkspaceShareMemberAccessibility.Private,
+            _ => throw InvalidShape(
+                "Workspace share field 'z' has an unsupported Member accessibility."),
+        };
+    }
+
+    private static WorkspaceShareDeclarationSourceRequirement?
+        ReadDeclarationSourceRequirement(JsonElement root)
+    {
+        if (!root.TryGetProperty("d", out JsonElement value))
+            return null;
+        if (value.ValueKind != JsonValueKind.Array
+            || value.GetArrayLength() != 2)
+        {
+            throw InvalidShape(
+                "Workspace share field 'd' must be a two-item declaration-source tuple.");
+        }
+
+        JsonElement.ArrayEnumerator items = value.EnumerateArray();
+        _ = items.MoveNext();
+        WorkspaceShareDeclarationSource source =
+            RequiredString(items.Current, "declaration source") switch
+            {
+                "surface" => WorkspaceShareDeclarationSource.Surface,
+                "implementation" =>
+                    WorkspaceShareDeclarationSource.Implementation,
+                _ => throw InvalidShape(
+                    "Workspace share field 'd' has an unsupported declaration source."),
+            };
+        _ = items.MoveNext();
+        string libraryAsset = RequiredString(
+            items.Current,
+            "declaration-source Library asset");
+        return new WorkspaceShareDeclarationSourceRequirement(
+            source,
+            libraryAsset);
     }
 
     private static WorkspaceSharePacket BindFormat2(JsonElement root)
@@ -813,6 +930,7 @@ public static class WorkspaceSharePacketCodec
             CurrentFormatVersion => MaxFormat3Tabs,
             Format4Version => MaxFormat4Tabs,
             Format5Version => MaxFormat5Tabs,
+            Format6Version => MaxFormat6Tabs,
             _ => throw new UnreachableException(),
         };
 
@@ -1803,15 +1921,26 @@ public static class WorkspaceSharePacketCodec
             Format5Version => WriteFormat3Or4CanonicalJson(
                 packet,
                 Format5Version),
+            Format6Version => WriteFormat6CanonicalJson(packet),
             _ => throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {packet.FormatVersion}."),
         };
 
     private static byte[] WriteFormat1CanonicalJson(WorkspaceSharePacket packet)
+        => WriteFlatCanonicalJson(packet, LegacyFormatVersion);
+
+    private static byte[] WriteFormat6CanonicalJson(WorkspaceSharePacket packet)
+        => WriteFlatCanonicalJson(packet, Format6Version);
+
+    private static byte[] WriteFlatCanonicalJson(
+        WorkspaceSharePacket packet,
+        int formatVersion)
     {
         var writer = new CanonicalWriter();
-        writer.WriteAscii("{\"f\":1,\"t\":["u8);
+        writer.WriteAscii("{\"f\":"u8);
+        writer.WriteInteger(formatVersion);
+        writer.WriteAscii(",\"t\":["u8);
         for (int index = 0; index < packet.Tabs.Count; index++)
         {
             if (index > 0)
@@ -1869,6 +1998,47 @@ public static class WorkspaceSharePacketCodec
             }
 
             writer.WriteByte((byte)']');
+        }
+        if (formatVersion == Format6Version)
+        {
+            if (packet.Type is not null)
+            {
+                WorkspaceShareMemberAccessibility accessibility =
+                    packet.MemberAccessibility
+                    ?? throw InvalidShape(
+                        "Workspace share format 6 Type selection requires Member accessibility.");
+                WorkspaceShareDeclarationSourceRequirement requirement =
+                    packet.DeclarationSourceRequirement
+                    ?? throw InvalidShape(
+                        "Workspace share format 6 Type selection requires a declaration source.");
+                writer.WriteAscii(",\"z\":"u8);
+                writer.WriteString(accessibility switch
+                {
+                    WorkspaceShareMemberAccessibility.All => "all",
+                    WorkspaceShareMemberAccessibility.Public => "public",
+                    WorkspaceShareMemberAccessibility.Protected => "protected",
+                    WorkspaceShareMemberAccessibility.Internal => "internal",
+                    WorkspaceShareMemberAccessibility.Private => "private",
+                    _ => throw new UnreachableException(),
+                });
+                writer.WriteAscii(",\"d\":["u8);
+                writer.WriteString(requirement.Source switch
+                {
+                    WorkspaceShareDeclarationSource.Surface => "surface",
+                    WorkspaceShareDeclarationSource.Implementation =>
+                        "implementation",
+                    _ => throw new UnreachableException(),
+                });
+                writer.WriteByte((byte)',');
+                writer.WriteString(requirement.LibraryAsset);
+                writer.WriteByte((byte)']');
+            }
+            else if (packet.MemberAccessibility is not null
+                || packet.DeclarationSourceRequirement is not null)
+            {
+                throw InvalidShape(
+                    "Workspace share format 6 view requirements require a Type selection.");
+            }
         }
 
         writer.WriteByte((byte)'}');
@@ -2493,7 +2663,7 @@ public static class WorkspaceSharePacketCodec
         int formatVersion,
         int length)
     {
-        int limit = formatVersion == LegacyFormatVersion
+        int limit = formatVersion is LegacyFormatVersion or Format6Version
             ? MaxFormat1EncodedLength
             : MaxEncodedLength;
         if (length > limit)
@@ -2509,7 +2679,7 @@ public static class WorkspaceSharePacketCodec
         int formatVersion,
         int length)
     {
-        int limit = formatVersion == LegacyFormatVersion
+        int limit = formatVersion is LegacyFormatVersion or Format6Version
             ? MaxFormat1DecodedUtf8Length
             : MaxDecodedUtf8Length;
         if (length > limit)

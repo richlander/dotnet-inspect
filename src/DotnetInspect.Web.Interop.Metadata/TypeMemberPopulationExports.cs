@@ -19,6 +19,9 @@ namespace DotnetInspect.Web.Interop.Metadata;
     nameof(MetadataExports.QueryTypeMemberPopulation),
     typeof(BrowserTypeMemberPopulationInspection))]
 [JsExportJsonOutput(
+    nameof(MetadataExports.QueryImplementationTypeMemberPopulation),
+    typeof(BrowserTypeMemberPopulationInspection))]
+[JsExportJsonOutput(
     nameof(MetadataExports.QueryPlatformTypeMemberPopulation),
     typeof(BrowserTypeMemberPopulationInspection))]
 [JsExportJsonOutput(
@@ -35,6 +38,46 @@ public static partial class MetadataExports
         string typeIdentity,
         string spelling,
         string accessibility)
+        => await QueryPackageTypeMemberPopulation(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                spelling,
+                accessibility,
+                implementation: false)
+            .ConfigureAwait(false);
+
+    [JSExport]
+    public static async Task<string> QueryImplementationTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility)
+        => await QueryPackageTypeMemberPopulation(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                spelling,
+                accessibility,
+                implementation: true)
+            .ConfigureAwait(false);
+
+    private static async Task<string> QueryPackageTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility,
+        bool implementation)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -49,25 +92,57 @@ public static partial class MetadataExports
                 $"{packageId} {version} has no selected compile Library "
                     + $"({coordinate.Selection.Status}).");
         }
-        BrowserWorkspaceParticipant participant =
-            scope.SurfaceParticipant(
+        BrowserWorkspaceParticipant participant = implementation
+            ? scope.LibraryParticipant(coordinate, assemblyName)
+            : scope.SurfaceParticipant(
                 coordinate,
                 coordinate.CompileAsset(assemblyName));
+        BrowserWorkspaceParticipant projectionParticipant = implementation
+            ? scope.TryGetSurfaceParticipant(participant) ?? participant
+            : participant;
+        AssemblyContextLibraryRole role =
+            scope.ImplementationParticipants.Contains(participant)
+                ? AssemblyContextLibraryRole.Implementation
+                : AssemblyContextLibraryRole.ApiOnly;
+        ValueTask<AssemblyContextLibraryAdapterResult> materialization =
+            implementation
+                ? scope.UseMetadataParticipant(
+                participant,
+                (group, member) =>
+                    AssemblyContextLibraryAdapter.MaterializeAsync(
+                        group,
+                        member,
+                        role,
+                        BrowserExactMemberPolicy
+                            .MaterializationLimits,
+                        CancellationToken.None))
+                : scope.UseSurfaceParticipant(
+                    participant,
+                    (group, member) =>
+                        AssemblyContextLibraryAdapter.MaterializeAsync(
+                            group,
+                            member,
+                            AssemblyContextLibraryRole.ApiOnly,
+                            BrowserExactMemberPolicy
+                                .MaterializationLimits,
+                            CancellationToken.None));
         BrowserTypeMemberPopulationInspection inspection =
             await ExecuteTypeMemberPopulationAsync(
-                    scope.UseSurfaceParticipant(
-                        participant,
-                        (group, member) =>
-                            AssemblyContextLibraryAdapter.MaterializeAsync(
-                                group,
-                                member,
-                                AssemblyContextLibraryRole.ApiOnly,
-                                BrowserExactMemberPolicy
-                                    .MaterializationLimits,
-                                CancellationToken.None)),
-                    typeIdentity,
-                    spelling,
-                    accessibility)
+                materialization,
+                typeIdentity,
+                spelling,
+                accessibility,
+                role == AssemblyContextLibraryRole.Implementation
+                    ? BrowserTypeMemberDeclarationSource.Implementation
+                    : BrowserTypeMemberDeclarationSource.Surface,
+                includeHidden: implementation,
+                implementation
+                    ? new TypeProjection(
+                        projectionParticipant.Asset.AssemblyName,
+                        projectionParticipant.Asset.Id,
+                        projectionParticipant.Assembly.Identity.Name,
+                        PlatformPack: null)
+                    : null)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -104,7 +179,10 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     spelling,
-                    accessibility)
+                    accessibility,
+                    BrowserTypeMemberDeclarationSource.Implementation,
+                    includeHidden: false,
+                    projection: null)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -129,7 +207,10 @@ public static partial class MetadataExports
                             .MaterializationLimits),
                     typeIdentity,
                     spelling,
-                    accessibility)
+                    accessibility,
+                    BrowserTypeMemberDeclarationSource.Implementation,
+                    includeHidden: false,
+                    projection: null)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -139,14 +220,17 @@ public static partial class MetadataExports
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
             string spelling,
-            string accessibility)
+            string accessibility,
+            BrowserTypeMemberDeclarationSource declarationSource,
+            bool includeHidden,
+            TypeProjection? projection)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         MetadataTypeMemberPopulationRequest request = new(
             BrowserExactMemberPolicy.ParseTypeIdentity(
                 typeIdentity),
             ParseSpelling(spelling),
-            includeHidden: false,
+            includeHidden,
             ParseAccessibility(accessibility));
         AssemblyContextLibraryInspectionRun<
             LibraryTypeMemberPopulationInspectionOutcome> run =
@@ -184,12 +268,16 @@ public static partial class MetadataExports
 
         return ProjectTypeMemberPopulation(
             outcome,
+            declarationSource,
+            projection,
             [.. run.CleanupFailures]);
     }
 
     private static BrowserTypeMemberPopulationInspection
         ProjectTypeMemberPopulation(
             LibraryTypeMemberPopulationInspectionOutcome outcome,
+            BrowserTypeMemberDeclarationSource declarationSource,
+            TypeProjection? projection,
             string[] diagnostics) =>
         outcome switch
         {
@@ -197,7 +285,11 @@ public static partial class MetadataExports
                 completed.Population switch
                 {
                     MetadataTypeMemberPopulationOutcome.Available available =>
-                        ProjectAvailable(available.Population, diagnostics),
+                        ProjectAvailable(
+                            available.Population,
+                            declarationSource,
+                            projection,
+                            diagnostics),
                     MetadataTypeMemberPopulationOutcome.TypeNotFound =>
                         Failed("The exact Type was not found.", diagnostics),
                     MetadataTypeMemberPopulationOutcome.TypeAmbiguous =>
@@ -229,6 +321,8 @@ public static partial class MetadataExports
 
     private static BrowserTypeMemberPopulationInspection ProjectAvailable(
         MetadataTypeMemberPopulation population,
+        BrowserTypeMemberDeclarationSource declarationSource,
+        TypeProjection? projection,
         string[] diagnostics)
     {
         MetadataTypeMemberComposition composition = population.Composition;
@@ -239,6 +333,18 @@ public static partial class MetadataExports
                 population.Type.ToEscapedFullName(),
                 population.Spelling.ToString(),
                 population.Accessibility.ToString(),
+                declarationSource,
+                projection is null
+                    ? null
+                    : BrowserMetadataWireProjection.Project(
+                        BrowserSurfaceProjection.Type(
+                            population.Subject,
+                            projection.Assembly,
+                            projection.AssemblyId,
+                            projection.AssemblyName,
+                            qualifyId: true,
+                            platformPack: projection.PlatformPack,
+                            selectedMembers: [])),
                 new(
                     composition.Public,
                     composition.Protected,
@@ -296,6 +402,12 @@ public static partial class MetadataExports
                 ]),
             diagnostics);
     }
+
+    private sealed record TypeProjection(
+        string Assembly,
+        string AssemblyId,
+        string AssemblyName,
+        string? PlatformPack);
 
     private static BrowserTypeMemberPopulationInspection Failed(
         string detail,

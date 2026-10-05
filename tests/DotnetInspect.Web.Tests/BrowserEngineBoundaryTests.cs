@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.ComponentModel;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -59,6 +60,11 @@ public sealed partial class BrowserEngineBoundaryTests
     const int MiB = 1024 * 1024;
 
     public static object PerformanceBoxingProbe(int value) => value;
+
+    static object PerformancePrivateBoxingProbe(int value) => value;
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static object PerformanceHiddenPrivateBoxingProbe(int value) => value;
 
     public static int PerformanceNoAllocationProbe(int value) => value;
 
@@ -309,7 +315,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static async Task AssertPerformanceParticipantIsolation(
         string packageId,
-        byte[] neighbor)
+        byte[] neighbor,
+        bool expectNeighborFailure)
     {
         byte[] selected = File.ReadAllBytes(
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -344,7 +351,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 await DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackagePerformance(
                     packageId, "1.0.0", "net11.0", neighborId),
                 BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
-        Assert.NotNull(neighborPerformance.InspectionError);
+        if (expectNeighborFailure)
+            Assert.NotNull(neighborPerformance.InspectionError);
+        else
+            Assert.Null(neighborPerformance.InspectionError);
         Assert.Empty(neighborPerformance.Members);
     }
 

@@ -693,7 +693,7 @@ test("package Methods demo retains all returned coordinates and publishes its ex
     activeTabId: "t1",
     selectedContextId: "g2",
     view: {
-      type: surface.types[0]!.id,
+      type: surface.types[0]!.definitionId,
       memberAnchor: null,
       section: null,
       libraries: [core.id],
@@ -712,7 +712,7 @@ test("package Call Graph demo applies the returned member and graph", async ({
   await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
   expect(share).toMatchObject({
     view: {
-      type: surface.types[0]!.id,
+      type: surface.types[0]!.definitionId,
       memberAnchor: run.anchorDigest,
       section: "call-graph",
       libraries: [core.id],
@@ -745,7 +745,7 @@ test("Platform Methods demo retains its non-first engine surface while loading f
       framework: "net11.0",
     }],
     view: {
-      type: platformFocusType.id,
+      type: platformFocusType.definitionId,
       memberAnchor: null,
       section: null,
       libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
@@ -781,7 +781,7 @@ test("Platform Call Graph demo publishes the exact Library and member", async ({
   );
   expect(share).toMatchObject({
     view: {
-      type: platformFocusType.id,
+      type: platformFocusType.definitionId,
       memberAnchor: run.anchorDigest,
       section: "call-graph",
       libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],

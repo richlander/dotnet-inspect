@@ -76,7 +76,6 @@ interface PackageMeasurement {
 interface PackagePerformanceResult {
   readonly totalOpportunities: number;
   readonly members: number;
-  readonly nonPublicOpportunities: number;
   readonly compileLibraryStatus: string | number;
 }
 
@@ -509,7 +508,6 @@ async function measurePackagePerformance(
         result: {
           totalOpportunities: result.totalOpportunities,
           members: result.members.length,
-          nonPublicOpportunities: result.nonPublicOpportunities,
           compileLibraryStatus: result.compileLibrary.status,
         },
       };
@@ -699,6 +697,9 @@ async function measureMethodComparison(
           section: null,
           libraries: [],
           sourceView: null,
+          memberAccessibility: null,
+          declarationSource: null,
+          declarationLibraryAsset: null,
         },
       });
     if (!encoded.succeeded || encoded.packet === null) {

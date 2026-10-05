@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   createPackageInspectionCoordinator,
-  resolvePackagePerformanceMember,
+  resolvePackagePerformanceType,
   workspaceDependencyKey,
   type PackageInspectionDependencies,
   type PackageInspectionState,
@@ -178,7 +178,6 @@ function performanceResult(): PackagePerformance {
   return {
     members: [],
     inspectionError: null,
-    nonPublicOpportunities: 0,
     totalOpportunities: 0,
     compileLibrary: selectedCompileLibrary,
   };
@@ -257,6 +256,7 @@ test(
       typeId: "Example.Outer+Inner",
       memberName: "Bounds",
       stableSelector: "Bounds~surface",
+      accessibility: "private",
       bodyTokens: [0x06001000],
       opportunityCount: 1,
       inLoopCount: 0,
@@ -265,12 +265,12 @@ test(
     };
 
     assert.deepEqual(
-      resolvePackagePerformanceMember(packageItem, performance),
-      { type, member });
+      resolvePackagePerformanceType(packageItem, performance),
+      type);
     assert.equal(
-      resolvePackagePerformanceMember(
+      resolvePackagePerformanceType(
         packageItem,
-        { ...performance, stableSelector: "Bounds~different" }),
+        { ...performance, typeId: "Example.Missing" }),
       null);
   });
 

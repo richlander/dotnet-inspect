@@ -13,9 +13,10 @@ public static class InspectionDefinitionSchema
     public const int Version3 = 3;
     public const int Version4 = 4;
     public const int Version5 = 5;
+    public const int Version6 = 6;
 
     internal static bool IsSupported(int value) =>
-        value is Version1 or Version2 or Version3 or Version4 or Version5;
+        value is Version1 or Version2 or Version3 or Version4 or Version5 or Version6;
 }
 
 /// <summary>
@@ -709,15 +710,19 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         string? section = null,
         string? library = null,
         IReadOnlyList<string>? libraries = null,
-        string? sourceView = null)
+        string? sourceView = null,
+        WorkspaceShareMemberAccessibility? memberAccessibility = null,
+        WorkspaceShareDeclarationSourceRequirement? declarationSourceRequirement = null)
         : base(schemaVersion, id)
     {
-        if (schemaVersion != InspectionDefinitionSchema.Version1)
+        if (schemaVersion is not (
+            InspectionDefinitionSchema.Version1
+            or InspectionDefinitionSchema.Version6))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "ViewDefinition is the schema-version-1 flat view record.");
+                "ViewDefinition is the schema-version-1-or-6 flat view record.");
         }
 
         lens = DefinitionText.NormalizeOptional(lens, nameof(lens));
@@ -749,6 +754,23 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
                 "Member selectors require type.",
                 nameof(type));
         }
+        if (schemaVersion == InspectionDefinitionSchema.Version1
+            && (memberAccessibility is not null
+                || declarationSourceRequirement is not null))
+        {
+            throw new ArgumentException(
+                "Schema-version-1 views cannot carry exact symbol view requirements.",
+                nameof(memberAccessibility));
+        }
+        bool hasType = type is not null;
+        if (schemaVersion == InspectionDefinitionSchema.Version6
+            && (hasType != (memberAccessibility is not null)
+                || hasType != (declarationSourceRequirement is not null)))
+        {
+            throw new ArgumentException(
+                "Schema-version-6 views require accessibility and declaration source exactly when a Type is selected.",
+                nameof(memberAccessibility));
+        }
 
         Lens = lens;
         Type = type;
@@ -757,6 +779,8 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         MemberKey = memberKey;
         Section = section;
         SourceView = sourceView;
+        MemberAccessibility = memberAccessibility;
+        DeclarationSourceRequirement = declarationSourceRequirement;
         if (libraries is null)
         {
             Libraries = library is null
@@ -812,6 +836,10 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
 
     public string? SourceView { get; }
 
+    public WorkspaceShareMemberAccessibility? MemberAccessibility { get; }
+
+    public WorkspaceShareDeclarationSourceRequirement? DeclarationSourceRequirement { get; }
+
     /// <summary>
     /// Legacy single-library projection. Null when the view has zero or
     /// multiple library identities.
@@ -831,12 +859,14 @@ public sealed record NavigationDefinition : InspectionDefinitionRecord
         string focus)
         : base(schemaVersion, id)
     {
-        if (schemaVersion != InspectionDefinitionSchema.Version1)
+        if (schemaVersion is not (
+            InspectionDefinitionSchema.Version1
+            or InspectionDefinitionSchema.Version6))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "NavigationDefinition is the schema-version-1 navigation record.");
+                "NavigationDefinition is the schema-version-1-or-6 navigation record.");
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(focus);

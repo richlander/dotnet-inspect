@@ -263,6 +263,7 @@ interface PlatformFixture {
   forwarderInternalType?: boolean;
   forwarderFailure?: boolean;
   forwarderPending?: boolean;
+  forwarderAdditionalLibrary?: string;
   warmup?: "pending" | "fail-once";
   discoveryFailure?: boolean;
   catalogFailure?: boolean;
@@ -290,7 +291,11 @@ interface DiagnosticsFixture {
   cachePending?: boolean;
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
+  deferGraphMemberSurface?: boolean;
   deferTypeMemberPopulation?: boolean;
+  deferImplementationTypeMemberPopulation?: boolean;
+  rejectImplementationTypeMemberPopulation?: boolean;
+  implementationTypeMemberDeclarationSource?: "Implementation" | "Surface";
   qualifiedStructuralSalience?: boolean;
   slowStructuralSalience?: boolean;
 }
@@ -317,7 +322,7 @@ async function installFacades(
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
-  analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
+  analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" | "implementation-only" | "implementation-race" = "ready",
   homeDemos?: HomeDemoFixture,
   diagnostics: DiagnosticsFixture = {},
   packageLoading: PackageLoadingFixture = {},
@@ -730,6 +735,29 @@ async function installFacades(
         if (!surface) {
           surface = JSON.parse(await loadRuntimePackAssembly(
             tfm, version, file, pack, catalogRow?.file ?? file));
+          if (platformOptions.forwarderAdditionalLibrary) {
+            const additionalRow = platformTarget.rows.find(row =>
+              row.assembly === platformOptions.forwarderAdditionalLibrary);
+            if (additionalRow) {
+              surface = {
+                ...surface,
+                assemblies: [
+                  ...surface.assemblies,
+                  {
+                    id: additionalRow.assembly,
+                    name: additionalRow.assembly,
+                    version: "11.0.0.0",
+                    culture: null,
+                    publicKeyToken: null,
+                    asset: additionalRow.file,
+                    publicTypes: additionalRow.publicTypes,
+                    publicMembers: additionalRow.publicTypes,
+                    platformPack: additionalRow.pack,
+                  },
+                ],
+              };
+            }
+          }
           forwarderSurfaces.set(key, surface);
         }
         const assembly = surface.assemblies.find(row => row.id === surface.defaultAssemblyId);
@@ -1360,7 +1388,12 @@ async function installFacades(
             id, version, framework, assembly, typeIdentity, memberName,
             selectorKey, metadataToken, implementationMember,
           ]);
-        const type = surfaceFor(id, version, framework).types.find(item =>
+        const declarationSurface = implementationMember
+          ? implementationSurface(
+              surfaceFor(id, version, framework),
+              typeIdentity)
+          : surfaceFor(id, version, framework);
+        const type = declarationSurface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         const member = type?.api.find(item =>
           item.name === memberName
@@ -1379,8 +1412,69 @@ async function installFacades(
               compatibility: false,
             };
       }
+      function implementationSurface(surface, typeIdentity) {
+          const existing = surface.types.find(item =>
+            item.definitionId === typeIdentity || item.queryId === typeIdentity);
+          const template = existing ?? surface.types[0];
+          const sourceMember = template?.api[0];
+          if (!template || !sourceMember) return surface;
+          const implementationOnly = existing == null;
+          const memberName = implementationOnly ? "Hidden" : "Transform";
+          const token = implementationOnly ? 100663399 : 100663299;
+          const member = {
+            ...sourceMember,
+            name: memberName,
+            signature: "void " + memberName + "()",
+            accessibility: "private",
+            metadataToken: token,
+            declarationMetadataToken: token,
+            documentationId: "M:" + typeIdentity + "." + memberName,
+            stableSelector: memberName,
+            anchorDigest: memberName.toLowerCase(),
+            canonicalSignature: "M:" + typeIdentity + "." + memberName,
+            anchorTypeFullName: typeIdentity,
+            graphSelectorKey: memberName,
+            isHidden: true,
+            bodySelectors: [{
+              token,
+              memberName,
+              selectorKey: memberName,
+            }],
+          };
+          const implementationType = implementationOnly
+            ? {
+                ...template,
+                id: template.id.replace(template.definitionId, typeIdentity),
+                definitionId: typeIdentity,
+                queryId: typeIdentity,
+                metadataId: typeIdentity,
+                name: typeIdentity.split(".").pop(),
+                displayName: typeIdentity.split(".").pop(),
+                namespace: typeIdentity.split(".").slice(0, -1).join("."),
+                accessibility: "public",
+                accessibilityId: "public",
+                members: 1,
+                api: [member],
+              }
+            : {
+                ...existing,
+                api: [
+                  ...existing.api.filter(item =>
+                    item.stableSelector !== member.stableSelector),
+                  member,
+                ],
+              };
+          return {
+            ...surface,
+            types: [
+              ...surface.types.filter(item => item !== existing),
+              implementationType,
+            ],
+          };
+      }
       function typeMemberPopulation(
-        surface, typeIdentity, spelling, accessibility) {
+        surface, typeIdentity, spelling, accessibility, declarationSource,
+        includeHidden) {
         function accessibilityBucket(member) {
           const value = member.accessibility || "public";
           if (value === "public") return "public";
@@ -1412,7 +1506,8 @@ async function installFacades(
             diagnostics: [],
           };
         }
-        const members = type.api.filter(member => !member.graphOnly);
+        const members = type.api.filter(member =>
+          !member.graphOnly && (includeHidden || !member.isHidden));
         const composition = {
           public: 0,
           protected: 0,
@@ -1498,6 +1593,10 @@ async function installFacades(
             typeIdentity: type.queryId,
             spelling,
             accessibility,
+            declarationSource,
+            type: declarationSource === "Implementation"
+              ? { ...type, api: [] }
+              : null,
             composition,
             selectorCounts,
             groups: [...groups.values()],
@@ -1507,6 +1606,7 @@ async function installFacades(
       }
       let typeMemberPopulationReleased =
         ${JSON.stringify(diagnostics.deferTypeMemberPopulation !== true)};
+      const deferredImplementationTypePopulations = new Set();
       async function waitForTypeMemberPopulationGate() {
         if (typeMemberPopulationReleased) return;
         await new Promise(resolve =>
@@ -1530,7 +1630,77 @@ async function installFacades(
           surfaceFor(id, version, framework),
           typeIdentity,
           spelling,
-          accessibility);
+          accessibility,
+          "Surface",
+          false);
+      }
+      export async function queryImplementationTypeMemberPopulation(
+        id, version, framework, assembly, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.implementationTypeMemberPopulationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, spelling,
+            accessibility,
+          ]);
+        if (${JSON.stringify(
+          diagnostics.deferImplementationTypeMemberPopulation === true)}
+          && !deferredImplementationTypePopulations.has(typeIdentity)) {
+          deferredImplementationTypePopulations.add(typeIdentity);
+          await new Promise(resolve =>
+            document.addEventListener(
+              "finish-implementation-type-member-population:" + typeIdentity,
+              resolve,
+              { once: true }));
+        }
+        await waitForTypeMemberPopulationGate();
+        if (${JSON.stringify(
+          diagnostics.rejectImplementationTypeMemberPopulation === true)}) {
+          return {
+            outcome: "Rejected",
+            detail: "The required implementation declaration is unavailable.",
+            population: null,
+            diagnostics: [],
+          };
+        }
+        return typeMemberPopulation(
+          implementationSurface(
+            surfaceFor(id, version, framework),
+            typeIdentity),
+          typeIdentity,
+          spelling,
+          accessibility,
+          ${JSON.stringify(
+            diagnostics.implementationTypeMemberDeclarationSource
+              ?? "Implementation")},
+          true);
+      }
+      export async function queryGraphMemberSurface(
+        id, version, framework, assembly, typeIdentity, memberName, selector, token) {
+        document.documentElement.dataset.graphMemberSurfaceRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, memberName,
+            selector, token,
+          ]);
+        if (${JSON.stringify(diagnostics.deferGraphMemberSurface === true)}) {
+          await new Promise(resolve =>
+            document.addEventListener(
+              "finish-graph-member-surface:" + typeIdentity,
+              resolve,
+              { once: true }));
+        }
+        const projected = implementationSurface(
+          surfaceFor(id, version, framework),
+          typeIdentity);
+        const type = projected.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const member = type?.api.find(item =>
+          item.stableSelector === selector);
+        if (!type || !member) {
+          throw new Error("The implementation member was not projected.");
+        }
+        return {
+          type: { ...type, api: [member] },
+          selectedBody: member.bodySelectors[0],
+        };
       }
       export async function queryPlatformTypeMemberPopulation(
         framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
@@ -1544,7 +1714,9 @@ async function installFacades(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           spelling,
-          accessibility);
+          accessibility,
+          "Implementation",
+          false);
       }
       export async function queryUploadedLibraryTypeMemberPopulation(
         declaredName, content, typeIdentity, spelling, accessibility) {
@@ -1558,7 +1730,9 @@ async function installFacades(
           surfaces[0],
           typeIdentity,
           spelling,
-          accessibility);
+          accessibility,
+          "Implementation",
+          false);
       }
       function memberDisplaySignature(member) {
         let signature = member.signature;
@@ -2597,21 +2771,71 @@ async function installFacades(
             "fixture-analysis-ready:" + requestKey, resolve, { once: true }));
         }
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
-        const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
+        const member = (
+          memberName,
+          opportunityCount,
+          inLoopCount,
+          shapes,
+          confidence,
+          accessibility = "public",
+        ) => ({
           assembly: selected.name + ".dll",
           typeId: selectedType.definitionId,
           memberName,
-          stableSelector: "Run",
-          bodyTokens: [100663297],
+          stableSelector: memberName,
+          accessibility,
+          bodyTokens: [
+            memberName === "Transform" ? 100663299 : 100663297,
+          ],
           opportunityCount,
           inLoopCount,
           shapes,
           confidence
         });
-        const members = scenario === "empty" || scenario === "partial-empty" ? [] : [
-          member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
-          member("Write", 1, 0, ["array-allocation"], "medium")
-        ];
+        const members = scenario === "empty" || scenario === "partial-empty"
+          ? []
+          : scenario === "implementation-only"
+            ? [{
+                ...member(
+                  "Hidden",
+                  2,
+                  0,
+                  ["stackalloc-candidate"],
+                  "high",
+                  "private"),
+                typeId: "Example.ImplementationOnly",
+                bodyTokens: [100663399],
+              }]
+            : scenario === "implementation-race"
+              ? [
+                  {
+                    ...member(
+                      "Hidden",
+                      2,
+                      0,
+                      ["stackalloc-candidate"],
+                      "high",
+                      "private"),
+                    typeId: "Example.FirstOnly",
+                    bodyTokens: [100663399],
+                  },
+                  {
+                    ...member(
+                      "Hidden",
+                      1,
+                      0,
+                      ["stackalloc-candidate"],
+                      "high",
+                      "private"),
+                    typeId: "Example.SecondOnly",
+                    bodyTokens: [100663399],
+                  },
+                ]
+            : [
+                member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
+                member("Write", 1, 0, ["array-allocation"], "medium"),
+                member("Transform", 2, 0, ["stackalloc-candidate"], "high", "private")
+              ];
         if (scenario === "long") {
           members.splice(0, members.length, ...Array.from({ length: 80 }, (_, index) =>
             member(
@@ -2625,8 +2849,7 @@ async function installFacades(
         return {
           members,
           inspectionError: partial ? "A method body could not be analyzed." : null,
-          nonPublicOpportunities: 2,
-          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0) + 2,
+          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0),
           compileLibrary: surface.compileLibrary
         };
       }

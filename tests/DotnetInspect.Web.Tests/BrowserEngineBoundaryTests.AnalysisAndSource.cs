@@ -17,6 +17,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
+using DotnetInspect.Web.Interop.Metadata;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
@@ -88,7 +89,6 @@ public sealed partial class BrowserEngineBoundaryTests
                         .BrowserPackagePerformance));
 
         Assert.Equal(0, performance.TotalOpportunities);
-        Assert.Equal(0, performance.NonPublicOpportunities);
         Assert.Empty(performance.Members);
     }
 
@@ -97,7 +97,8 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         await AssertPerformanceParticipantIsolation(
             "Browser.Performance.FailedNeighbor",
-            [0x01, 0x02, 0x03]);
+            [0x01, 0x02, 0x03],
+            expectNeighborFailure: true);
     }
 
     [Fact]
@@ -108,7 +109,8 @@ public sealed partial class BrowserEngineBoundaryTests
             BuildTransportAmplificationImage(
                 "A.Other",
                 typeCount: 10_000,
-                namespaceLength: 1_000));
+                namespaceLength: 1_000),
+            expectNeighborFailure: false);
     }
 
     [Fact]
@@ -1469,11 +1471,40 @@ public sealed partial class BrowserEngineBoundaryTests
                 JsonValueKind.Null,
                 declarationDocument.RootElement
                     .GetProperty("unavailable").ValueKind);
+
+            string populationJson =
+                await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                    .QueryImplementationTypeMemberPopulation(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        surfaceAsset.Id,
+                        typeof(BrowserEngineBoundaryTests).FullName!,
+                        "csharp",
+                        "all");
+            using JsonDocument populationDocument =
+                JsonDocument.Parse(populationJson);
+            JsonElement population = populationDocument.RootElement
+                .GetProperty("population");
+            Assert.Equal(
+                nameof(BrowserTypeMemberDeclarationSource.Implementation),
+                population.GetProperty("declarationSource").GetString());
+            JsonElement privateMethod = Assert.Single(
+                population.GetProperty("groups").EnumerateArray(),
+                group =>
+                    group.GetProperty("name").GetString()
+                    == method.Name);
+            Assert.Contains(
+                privateMethod.GetProperty("members").EnumerateArray(),
+                member =>
+                    member.GetProperty("stableSelector").GetString()
+                    == type.GetProperty("api")[0]
+                        .GetProperty("stableSelector").GetString());
         }
     }
 
     [Fact]
-    public async Task PackagePerformance_ExcludesMembersWithoutANavigableSurface()
+    public async Task PackagePerformance_IncludesPrivateImplementationMembers()
     {
         const string PackageId = "Browser.Performance.Reference";
         byte[] extraImplementation = File.ReadAllBytes(
@@ -1504,12 +1535,52 @@ public sealed partial class BrowserEngineBoundaryTests
         JsonElement root = document.RootElement;
         Assert.True(
             root.GetProperty("totalOpportunities").GetInt32() > 0);
-        Assert.Empty(
-            root.GetProperty("members").EnumerateArray());
+        JsonElement privateMember = Assert.Single(
+            root.GetProperty("members").EnumerateArray(),
+            member =>
+                member.GetProperty("memberName").GetString()
+                == "PerformancePrivateBoxingProbe");
+        Assert.Equal(
+            "private",
+            privateMember.GetProperty("accessibility").GetString());
+        Assert.NotNull(
+            privateMember.GetProperty("stableSelector").GetString());
+
+        JsonElement hiddenPrivateMember = Assert.Single(
+            root.GetProperty("members").EnumerateArray(),
+            member =>
+                member.GetProperty("memberName").GetString()
+                == "PerformanceHiddenPrivateBoxingProbe");
+        Assert.Equal(
+            "private",
+            hiddenPrivateMember.GetProperty("accessibility").GetString());
+        string hiddenSelector =
+            Assert.IsType<string>(
+                hiddenPrivateMember.GetProperty("stableSelector").GetString());
+
+        using JsonDocument populationDocument = JsonDocument.Parse(
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .QueryImplementationTypeMemberPopulation(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    hiddenPrivateMember.GetProperty("assembly").GetString()!,
+                    hiddenPrivateMember.GetProperty("typeId").GetString()!,
+                    "csharp",
+                    "all"));
+        JsonElement population = populationDocument.RootElement
+            .GetProperty("population");
+        Assert.Contains(
+            population.GetProperty("groups").EnumerateArray(),
+            group =>
+                group.GetProperty("members").EnumerateArray().Any(
+                    member =>
+                        member.GetProperty("stableSelector").GetString()
+                        == hiddenSelector));
     }
 
     [Fact]
-    public async Task PackagePerformance_ReportsSurfaceTruncation()
+    public async Task PackagePerformance_DoesNotConsumeSurfaceBudget()
     {
         const string PackageId = "Browser.Performance.Truncated";
         byte[] image = BuildTransportAmplificationImage(
@@ -1532,12 +1603,11 @@ public sealed partial class BrowserEngineBoundaryTests
             $"{PackageId}.dll");
 
         using JsonDocument document = JsonDocument.Parse(json);
-        Assert.Contains(
-            "truncated",
-            document.RootElement
-                .GetProperty("inspectionError")
-                .GetString(),
-            StringComparison.Ordinal);
+        JsonElement root = document.RootElement;
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("inspectionError").ValueKind);
+        Assert.Empty(root.GetProperty("members").EnumerateArray());
     }
 
     [Fact]
@@ -1549,6 +1619,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 $"Example.Type{index}",
                 "Run",
                 $"Run~{index}",
+                "private",
                 [0x06000001 + index],
                 1,
                 0,

@@ -66,7 +66,7 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onNamespaceJump: value => calls.push(`namespace:${value}`),
     onPerformanceMemberSelect: (target: PackagePerformanceTarget) =>
       calls.push(
-        `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
+        `performance:${target.stableSelector}:${target.assembly}:${target.typeId}:${target.memberName}:${target.metadataToken}`),
   };
 }
 
@@ -98,6 +98,8 @@ test("package view bindings decode navigation controls without eager work", () =
     perfSelector: "M:Example.Type.Run",
     perfAssembly: "Example.dll",
     perfType: "Example.Type",
+    perfMember: "Run",
+    perfToken: "100663297",
   });
   const defaultPerformance = new FakeElement();
   const packageLibrary = new FakeElement({
@@ -162,8 +164,8 @@ test("package view bindings decode navigation controls without eager work", () =
     "library:undefined:",
     "graph-type:System.String",
     "graph-type:",
-    "performance:M:Example.Type.Run:Example.dll:Example.Type",
-    "performance:::",
+    "performance:M:Example.Type.Run:Example.dll:Example.Type:Run:100663297",
+    "performance:::::0",
   ]);
 });
 

@@ -10,6 +10,7 @@ interface CommandType {
   name: string;
   namespace: string;
   kind: string;
+  graphOnly?: boolean;
 }
 
 interface CommandPackage {
@@ -68,12 +69,14 @@ export function commandCompletions(
       category: "command",
     }));
   } else if (tokens[0] === "type") {
-    entries = context.package.types.map(item => ({
-      value: item.name,
-      hint: item.namespace,
-      category: item.kind,
-      targetTypeId: item.id,
-    }));
+    entries = context.package.types
+      .filter(item => !item.graphOnly)
+      .map(item => ({
+        value: item.name,
+        hint: item.namespace,
+        category: item.kind,
+        targetTypeId: item.id,
+      }));
   } else if (tokens[0] === "show") {
     entries = lenses.map(([value, label]) => ({
       value,

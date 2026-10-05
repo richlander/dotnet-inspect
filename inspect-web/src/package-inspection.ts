@@ -22,7 +22,6 @@ import type {
   PackageMetadata,
 } from "./metadata-viewer.ts";
 import type {
-  AppMemberSurface,
   AppPackage,
   AppTypeSurface,
 } from "./package-acquisition.ts";
@@ -35,24 +34,16 @@ export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
 
-export interface ResolvedPackagePerformanceMember {
-  type: AppTypeSurface;
-  member: AppMemberSurface;
-}
-
-export function resolvePackagePerformanceMember(
+export function resolvePackagePerformanceType(
   packageModel: AppPackage,
   performanceMember: Pick<
     BrowserPerformanceMember,
-    "assembly" | "typeId" | "stableSelector"
+    "assembly" | "typeId"
   >,
-): ResolvedPackagePerformanceMember | null {
-  const type = packageModel.types.find(candidate =>
+): AppTypeSurface | null {
+  return packageModel.types.find(candidate =>
     candidate.assembly === performanceMember.assembly
-    && candidate.definitionId === performanceMember.typeId);
-  const member = type?.api.find(candidate =>
-    candidate.stableSelector === performanceMember.stableSelector);
-  return type && member ? { type, member } : null;
+    && candidate.definitionId === performanceMember.typeId) ?? null;
 }
 
 function dependencyProjectionError(

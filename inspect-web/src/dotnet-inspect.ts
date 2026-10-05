@@ -167,7 +167,7 @@ import {
 } from "./platform-forwarders.ts";
 import {
   createPackageInspectionCoordinator,
-  resolvePackagePerformanceMember,
+  resolvePackagePerformanceType,
   workspaceDependencyKey,
   type PackagePerformance,
 } from "./package-inspection.ts";
@@ -175,6 +175,7 @@ import {
   bindPackageDependencyList,
   bindPackageView,
   renderPackageNav,
+  type PackagePerformanceTarget,
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
@@ -884,6 +885,8 @@ let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
 let inspectMemberGroupDocument:
   EngineClient["metadata"]["queryMemberGroupDocument"];
+let inspectImplementationTypeMemberPopulation:
+  EngineClient["metadata"]["queryImplementationTypeMemberPopulation"];
 let inspectTypeMemberPopulation:
   EngineClient["metadata"]["queryTypeMemberPopulation"];
 let inspectPlatformMemberDeclaration:
@@ -1097,6 +1100,8 @@ async function loadEngineModule() {
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
       queryMemberGroupDocument: inspectMemberGroupDocument,
+      queryImplementationTypeMemberPopulation:
+        inspectImplementationTypeMemberPopulation,
       queryTypeMemberPopulation: inspectTypeMemberPopulation,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
       queryPlatformMemberGroupDocument:
@@ -1403,6 +1408,8 @@ const initialState = {
   typeMemberPopulationLoading: false,
   typeMemberPopulationError: "",
   typeMemberPopulationKey: "",
+  typeMemberPopulationSource: "surface" as "surface" | "implementation",
+  typeMemberPopulationSourceTypeId: "",
   typeHeat: { status: "idle" } as TypeHeatState,
   typeMethodLeverage: { status: "idle" } as TypeMethodLeverageState,
   memberSource: { status: "idle" as const },
@@ -4681,6 +4688,8 @@ function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
     memberTextFilter: loc.memberTextFilter,
     memberKindFilter: loc.memberKindFilter,
     memberAccessibilityFilter: loc.memberAccessibilityFilter,
+    declarationSource: loc.declarationSource,
+    declarationLibraryAsset: loc.declarationLibraryAsset,
     memberTraitFilter: loc.memberTraitFilter,
     graphTarget: loc.graphTarget
   };
@@ -5215,7 +5224,7 @@ function selectedType() {
   return state.package.types.find(item =>
       item.id === state.selectedTypeId && withinLibrary(item))
     || filteredTypes()[0]
-    || state.package.types.find(withinLibrary)
+    || state.package.types.find(item => !item.graphOnly && withinLibrary(item))
     || null;
 }
 
@@ -5223,7 +5232,8 @@ function filteredTypes() {
   if (!state.package) return [];
   const needle = state.typeFilter.toLowerCase();
   return state.package.types.filter(item => {
-    return typeMatchesFilterText(item, needle)
+    return !item.graphOnly
+      && typeMatchesFilterText(item, needle)
       && (selectedNamespaceFilter() === null
         || item.namespace === selectedNamespaceFilter())
       && (!state.kindFilter || item.kindFacetId === state.kindFilter)
@@ -5642,7 +5652,8 @@ async function activatePlatformForwarder(row: BrowserPlatformForwarderRow) {
 function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
   if (!pkg) return "";
   const visible = pkg.types.find(item =>
-    state.accessibilityFilter.has(item.accessibilityId)
+    !item.graphOnly
+    && state.accessibilityFilter.has(item.accessibilityId)
     && (!state.libraryScope || state.libraryScope.has(libraryKey(item))));
   if (visible) return visible.id;
   // No type within the active library scope passes the current accessibility filter -- e.g.
@@ -5652,10 +5663,11 @@ function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
   // select its exact bucket without losing the library scope that was the actual target.
   const libraryScope = state.libraryScope;
   if (libraryScope) {
-    const scoped = pkg.types.find(item => libraryScope.has(libraryKey(item)));
+    const scoped = pkg.types.find(item =>
+      !item.graphOnly && libraryScope.has(libraryKey(item)));
     return scoped?.id || "";
   }
-  return pkg.types[0]?.id || "";
+  return pkg.types.find(item => !item.graphOnly)?.id || "";
 }
 
 // Reconcile state.accessibilityFilter, if necessary, so it admits the given type. Every
@@ -5731,7 +5743,8 @@ function aggregateTypeLibraryLabels() {
 
   const firstLibraryByDefinition = new Map<string, string>();
   const collidingDefinitions = new Set<string>();
-  for (const item of state.package.types) {
+  const ordinaryTypes = state.package.types.filter(item => !item.graphOnly);
+  for (const item of ordinaryTypes) {
     const definition = item.definitionId || item.id;
     const library = libraryKey(item);
     const firstLibrary = firstLibraryByDefinition.get(definition);
@@ -5742,7 +5755,7 @@ function aggregateTypeLibraryLabels() {
   }
 
   const libraryNames = packageLibraryDisplayLabels();
-  for (const item of state.package.types) {
+  for (const item of ordinaryTypes) {
     if (!collidingDefinitions.has(item.definitionId || item.id)) continue;
     const library = libraryNames.get(libraryKey(item));
     if (library) labels.set(item.id, library);
@@ -6512,7 +6525,8 @@ function typeFilterSummary() {
 
 function typeSelectorDefinitions() {
   const definitions = state.package?.types.filter(item =>
-    !state.libraryScope || state.libraryScope.has(libraryKey(item))) ?? [];
+    !item.graphOnly
+    && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))) ?? [];
   const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
   return { definitions, forwarders };
 }
@@ -6686,9 +6700,19 @@ function typeMemberPopulationKey(type: AppTypeSurface) {
     platformDemoContextIdFor(pkg ?? null) ?? "",
     type.assemblyId,
     type.definitionId ?? type.id,
+    typeMemberPopulationSource(type),
     state.memberSpelling,
     state.memberAccessibilityFilter,
   ]);
+}
+
+function typeMemberPopulationSource(
+  type: AppTypeSurface,
+): "surface" | "implementation" {
+  return state.typeMemberPopulationSource === "implementation"
+      && state.typeMemberPopulationSourceTypeId === type.id
+    ? "implementation"
+    : "surface";
 }
 
 function currentTypeMemberPopulation(type: AppTypeSurface) {
@@ -11553,19 +11577,93 @@ function ensureExplorerResizeListener() {
 
 // Stable product identities bridge implementation-body evidence to the
 // reference-preferred surface the navigation pane renders.
-function drillToPerfMember(
-  stableSelector: string,
-  assembly: string,
-  typeId: string,
-) {
-  const pkg = currentPackage();
-  const target = resolvePackagePerformanceMember(pkg, {
-    assembly,
-    typeId,
-    stableSelector,
+async function resolvePackagePerformanceTypeForNavigation(
+  pkg: AppPackage,
+  target: PackagePerformanceTarget,
+  expectedView: string,
+  navigationSeq: number,
+): Promise<AppTypeSurface | null> {
+  const existing = resolvePackagePerformanceType(pkg, target);
+  if (existing) return existing;
+  if (!target.memberName || target.metadataToken <= 0) {
+    throw new Error(
+      `The ranked member '${target.typeId}' has no implementation body identity.`);
+  }
+
+  const inspection = await inspectImplementationTypeMemberPopulation(
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    target.assembly,
+    target.typeId,
+    "csharp",
+    "all");
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || state.package !== pkg
+    || viewSignature() !== expectedView) {
+    return null;
+  }
+
+  const population = inspection.outcome === "Available"
+    ? inspection.population
+    : null;
+  if (!population) {
+    throw new Error(
+      inspection.detail
+        ?? "The implementation Type population is unavailable.");
+  }
+  if (population.declarationSource !== "Implementation") {
+    throw new Error(
+      "The required implementation declaration resolved only to surface evidence.");
+  }
+  if (!population.type) {
+    throw new Error(
+      "The implementation Type could not be projected for navigation.");
+  }
+  const projected = createAppTypeSurface(population.type);
+  const matches = population.groups.flatMap(group =>
+    group.members.filter(member =>
+      member.stableSelector === target.stableSelector
+      && member.bodySelectors.some(selector =>
+        selector.token === target.metadataToken)));
+  if ((projected.definitionId ?? projected.id) !== target.typeId
+    || projected.assembly !== target.assembly
+    || matches.length !== 1) {
+    throw new Error(
+      "The implementation projection did not retain the ranked member identity.");
+  }
+  projected.api.push({
+    ...createAppMemberSurface(matches[0]!),
+    graphOnly: true,
   });
-  if (!target) return;
-  const { type: targetType } = target;
+
+  const concurrent = resolvePackagePerformanceType(pkg, target);
+  if (concurrent) return concurrent;
+  const implementationType = {
+    ...projected,
+    graphOnly: true,
+  };
+  pkg.types.push(implementationType);
+  return implementationType;
+}
+
+async function drillToPerfMember(
+  target: PackagePerformanceTarget,
+) {
+  const navigationSeq = navigationSequence.begin();
+  const pkg = currentPackage();
+  const sourceView = viewSignature();
+  const targetType = await resolvePackagePerformanceTypeForNavigation(
+    pkg,
+    target,
+    sourceView,
+    navigationSeq);
+  if (!targetType
+    || !navigationSequence.isCurrent(navigationSeq)
+    || state.package !== pkg
+    || viewSignature() !== sourceView) {
+    return;
+  }
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -11574,7 +11672,7 @@ function drillToPerfMember(
   state.memberBrowseTypeId = "";
   state.namespaceFilter = "";
   resetMemberFilters();
-  setTypeMemberPopulationIntent("public", "csharp");
+  setTypeMemberPopulationIntent("all", "csharp", "implementation");
   state.lens = "api";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
@@ -11586,10 +11684,11 @@ function drillToPerfMember(
   const expectedPopulationIntent = typeMemberPopulationIntentGeneration;
   observeAsync(
     selectPerformanceMember(
-      stableSelector,
+      target.stableSelector,
       expectedView,
       expectedPopulationKey,
-      expectedPopulationIntent),
+      expectedPopulationIntent,
+      navigationSeq),
     "Loading the ranked Member");
 }
 
@@ -11598,9 +11697,13 @@ async function selectPerformanceMember(
   expectedView: string,
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
+  navigationSeq: number,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation();
-  if (viewSignature() !== expectedView) return;
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || viewSignature() !== expectedView) {
+    return;
+  }
   const type = selectedType();
   if (!type
     || !populationReceipt
@@ -12021,7 +12124,8 @@ function renderLibraryCompositionOverview(
   const kinds = new Map<string, number>();
   const nsCounts = new Map<string, number>();
   for (const type of pkg.types) {
-    if (!isDefaultAccessibility(type)
+    if (type.graphOnly
+      || !isDefaultAccessibility(type)
       || (library && libraryKey(type) !== library.id)) {
       continue;
     }
@@ -12556,7 +12660,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const overload = selectedOverload ?? member.overloads[0];
   if (!overload) return "";
   const pkg = currentPackage();
-  const documentationKey = memberRequestSignature(type, overload);
+  const documentationKey = memberOverviewRequestSignature(type, overload);
   const documentationState = scopedRequestState(
     state.memberDocumentationKey,
     documentationKey,
@@ -12916,10 +13020,9 @@ const packageViewActions: PackageViewBindingActions = {
     loadCurrentSelectionData("Loading the selected Type");
   },
   onPerformanceMemberSelect: target => {
-    drillToPerfMember(
-      target.stableSelector,
-      target.assembly,
-      target.typeId);
+    observeAsync(
+      drillToPerfMember(target),
+      "Opening the ranked implementation member");
   },
 };
 
@@ -13196,7 +13299,7 @@ function bindTypePanelEvents() {
       const member = selectedMember(type);
       const overload = selectedMemberOverload(type, member);
       const signature = type && overload
-        ? memberRequestSignature(type, overload)
+        ? memberOverviewRequestSignature(type, overload)
         : "";
       if (type
         && overload
@@ -14312,6 +14415,7 @@ function spotlightPool() {
   for (const pkg of pkgs) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
+      if (type.graphOnly) continue;
       const key = spotlightCandidateKey(pkg, type.id);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -14499,6 +14603,7 @@ function spotlightMemberCandidates() {
   for (const pkg of [state.package, ...state.packages.filter(item => item !== state.package)]) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
+      if (type.graphOnly) continue;
       for (const group of searchableMemberGroups(groupMembers(type.api))) {
         pool.push({ pkg, type, memberKey: group.key, name: group.name, kind: group.kind });
       }
@@ -15831,7 +15936,7 @@ async function pickSpotlightMember(
   activateSpotlightTypePackage(pkg);
   enterTypeSubject(type, { preserveAggregate });
   resetMemberFilters();
-  setTypeMemberPopulationIntent("public", "csharp");
+  setTypeMemberPopulationIntent("public", "csharp", "surface");
   state.selectedMemberKey = result.memberKey;
   state.selectedOverloadIndex = null;
   enterMemberScope({ preserveAggregate });
@@ -16284,10 +16389,12 @@ async function executeTypeCommand(
     await loadPackageSurface(pkg);
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const ordinaryTypes = pkg.types.filter(item => !item.graphOnly);
   const match = result?.targetTypeId
-    ? pkg.types.find(item => item.id === result.targetTypeId)
-    : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
-      || pkg.types.find(item =>
+    ? ordinaryTypes.find(item => item.id === result.targetTypeId)
+    : ordinaryTypes.find(item =>
+        item.name.toLowerCase() === argument.toLowerCase())
+      || ordinaryTypes.find(item =>
         item.name.toLowerCase().includes(argument.toLowerCase()));
   if (!match) return;
   enterTypeSubject(match);
@@ -16571,34 +16678,34 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         "The selected dependency group differs from the package target framework and cannot be shared.");
     }
   }
-  const type = structuralRootOpen
+  const forwarder = structuralRootOpen ? null : selectedForwarder();
+  const type = structuralRootOpen || forwarder
     ? null
     : selectedType();
   const member = structuralRootOpen
     ? null
     : selectedMember(type);
+  let memberOverload: AppMemberSurface | undefined;
   let memberAnchor: string | null = null;
   let memberSignature: string | null = null;
   if (member) {
-    const overload = selectedMemberOverload(type, member);
-    if (!overload) {
+    memberOverload = selectedMemberOverload(type, member);
+    if (!memberOverload) {
       throw new Error(
         state.selectedOverloadIndex == null
           ? "Select a concrete overload before sharing this member view."
           : "The selected overload is no longer available and cannot be shared.");
     }
-    if (overload.graphOnly) {
-      throw new Error(
-        "Graph-discovered members cannot be shared until workspace packets carry their portable target identity.");
-    }
-    memberAnchor = overload.anchorDigest || null;
-    memberSignature = memberAnchor ? null : overload.canonicalSignature || null;
+    memberAnchor = memberOverload.anchorDigest || null;
+    memberSignature = memberAnchor
+      ? null
+      : memberOverload.canonicalSignature || null;
     if (!memberAnchor && !memberSignature) {
       throw new Error(
         "The selected overload has no portable product identity and cannot be shared.");
     }
     if (state.memberSection !== "overview"
-      && overload.bodySelectors.length > 1) {
+      && memberOverload.bodySelectors.length > 1) {
       throw new Error(
         "This accessor-specific section cannot be shared until workspace packets carry portable body identity.");
     }
@@ -16615,6 +16722,30 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     workspaceSubjectOpen || platformRoot || packageSubjectOpen || !library
       ? []
       : [library];
+  const sharedType =
+    type?.definitionId
+      ?? type?.id
+      ?? forwarder?.name
+      ?? null;
+  const surfaceMember = memberOverload
+    ? type?.api.find(candidate =>
+      !candidate.graphOnly
+      && (memberAnchor
+        ? candidate.anchorDigest === memberAnchor
+        : candidate.canonicalSignature === memberSignature))
+    : null;
+  const declarationSource = sharedType
+    ? (type?.graphOnly || (memberOverload && !surfaceMember)
+      ? "implementation"
+      : "surface")
+    : null;
+  const declarationLibraryAsset = sharedType
+    ? type?.assemblyId
+      ?? (forwarder
+        ? currentPlatformForwarderView()?.surface.defaultAssemblyId
+        : library)
+      ?? null
+    : null;
   return {
     package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
     subject: workspaceSubjectOpen ? "workspace" : null,
@@ -16632,7 +16763,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
             : state.lens,
       type: structuralRootOpen
         ? null
-        : state.selectedTypeId || null,
+        : sharedType,
       memberAnchor,
       memberSignature,
       section: member && state.memberSection !== "overview"
@@ -16644,6 +16775,11 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         && state.memberSourceRequestedView === "decompiler-source"
           ? "decompiler-source"
           : null,
+      memberAccessibility: sharedType
+        ? state.memberAccessibilityFilter
+        : null,
+      declarationSource,
+      declarationLibraryAsset,
     },
   };
 }
@@ -16849,6 +16985,158 @@ function solePortableBodyTarget(
     : null;
 }
 
+function sharedTypeCandidates(
+  pkg: AppPackage,
+  deep: DeepLink,
+  includeImplementation: boolean,
+) {
+  if (!deep.type) return [];
+  return pkg.types.filter(type =>
+    (includeImplementation || !type.graphOnly)
+    && (type.definitionId ?? type.id) === deep.type
+    && (!deep.declarationLibraryAsset
+      || type.assemblyId === deep.declarationLibraryAsset));
+}
+
+function sharedForwarderCandidate(
+  type: string | null | undefined,
+  declarationLibraryAsset: string | null | undefined = null,
+) {
+  const view = currentPlatformForwarderView();
+  if (!view
+    || (declarationLibraryAsset
+      && view.surface.defaultAssemblyId !== declarationLibraryAsset)) {
+    return undefined;
+  }
+  return view.forwarders.find(
+    row => row.id === type || row.name === type);
+}
+
+async function prepareSharedSymbolRequest(
+  pkg: AppPackage,
+  deep: DeepLink,
+): Promise<string | null> {
+  if (!deep.type || !deep.declarationSource) return null;
+  const memberAccessibility = deep.memberAccessibilityFilter;
+  if (!memberAccessibility
+    || !isMemberAccessibility(memberAccessibility)) {
+    return "The shared exact symbol request has unsupported Member accessibility.";
+  }
+  if (!deep.declarationLibraryAsset) {
+    return "The shared exact symbol request has no declaration Library.";
+  }
+  const library = resolvePackageLibrary(
+    packageLibrariesForModel(pkg),
+    deep.declarationLibraryAsset);
+  if (!library) {
+    return `The shared declaration library '${deep.declarationLibraryAsset}' is not uniquely available in ${pkg.id}.`;
+  }
+  if (deep.declarationSource === "surface") {
+    const forwarder = sharedForwarderCandidate(
+      deep.type,
+      deep.declarationLibraryAsset);
+    const requestedTypes = sharedTypeCandidates(pkg, deep, false);
+    if (requestedTypes.length !== 1 && !forwarder) {
+      return `The shared surface type '${deep.type}' is no longer available in '${library.name}'.`;
+    }
+    const requestedType = requestedTypes[0] ?? null;
+    if (requestedType && (deep.memberAnchor || deep.memberSignature)) {
+      const matches = requestedType.api.filter(member =>
+        !member.graphOnly
+        && (deep.memberAnchor
+          ? member.anchorDigest === deep.memberAnchor
+          : member.canonicalSignature === deep.memberSignature));
+      if (matches.length === 0) {
+        return "The shared surface Member is no longer available.";
+      }
+      if (matches.length > 1) {
+        return "The shared surface Member identity is ambiguous.";
+      }
+      const alreadyStaged = requestedType.api.some(member =>
+        member.graphOnly
+        && (deep.memberAnchor
+          ? member.anchorDigest === deep.memberAnchor
+          : member.canonicalSignature === deep.memberSignature));
+      if (!alreadyStaged) {
+        requestedType.api.push({
+          ...matches[0]!,
+          graphOnly: true,
+        });
+      }
+    }
+    setTypeMemberPopulationIntent(
+      memberAccessibility,
+      "csharp",
+      "surface");
+    return null;
+  }
+  if (pkg.isRuntimePack) {
+    return "This Browser cannot yet restore an implementation-required Platform symbol.";
+  }
+
+  const inspection = await inspectImplementationTypeMemberPopulation(
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    library.id,
+    deep.type,
+    "csharp",
+    "all");
+  if (inspection.outcome !== "Available" || !inspection.population) {
+    return inspection.detail
+      ?? `The implementation declaration '${deep.type}' is unavailable.`;
+  }
+  const population = inspection.population;
+  if (population.declarationSource !== "Implementation") {
+    return "The required implementation declaration resolved only to surface evidence.";
+  }
+  let type = sharedTypeCandidates(pkg, deep, true)[0] ?? null;
+  if (!type) {
+    if (!population.type) {
+      return `The implementation Type '${deep.type}' could not be projected for navigation.`;
+    }
+    const projected = createAppTypeSurface(population.type);
+    if ((projected.definitionId ?? projected.id) !== deep.type
+      || projected.assemblyId !== library.id) {
+      return "The implementation Type projection did not retain the requested identity.";
+    }
+    type = { ...projected, graphOnly: true };
+    pkg.types.push(type);
+  }
+
+  if (deep.memberAnchor || deep.memberSignature) {
+    const matches = population.groups.flatMap(group =>
+      group.members.filter(member =>
+        deep.memberAnchor
+          ? member.anchorDigest === deep.memberAnchor
+          : member.canonicalSignature === deep.memberSignature));
+    if (matches.length === 0) {
+      return "The shared implementation Member is no longer available.";
+    }
+    if (matches.length > 1) {
+      return "The shared implementation Member identity is ambiguous.";
+    }
+    const requestedMember = matches[0]!;
+    const existing = type.api.find(member =>
+      deep.memberAnchor
+        ? member.anchorDigest === deep.memberAnchor
+        : member.canonicalSignature === deep.memberSignature);
+    if (!existing?.graphOnly) {
+      type.api.push({
+        ...createAppMemberSurface(requestedMember),
+        graphOnly: true,
+      });
+    }
+  }
+
+  state.selectedTypeId = type.id;
+  setTypeMemberPopulationIntent(
+    memberAccessibility,
+    "csharp",
+    "implementation");
+  return null;
+}
+
 function canonicalViewRestorationFailure(
   pkg: AppPackage,
   deep: DeepLink,
@@ -16875,17 +17163,22 @@ function canonicalViewRestorationFailure(
     return null;
   }
   const lens = requestedLens ?? "api";
-  const forwarder = currentPlatformForwarderView()?.forwarders.find(
-    row => row.id === deep.type);
+  const forwarder = sharedForwarderCandidate(
+    deep.type,
+    deep.declarationLibraryAsset);
   if (!typeLensesFor(pkg, Boolean(forwarder)).some(([id]) => id === lens)) {
     return `The shared '${lens}' lens is not available for ${pkg.id}.`;
   }
   if (lens !== "api" && !deep.type) {
     return `The shared '${lens}' lens requires a selected type.`;
   }
-  const requestedType = deep.type
-    ? pkg.types.find(type => type.id === deep.type)
+  const requestedTypes = sharedTypeCandidates(pkg, deep, true);
+  const requestedType = requestedTypes.length === 1
+    ? requestedTypes[0]!
     : null;
+  if (deep.type && requestedTypes.length > 1) {
+    return `The shared type '${deep.type}' is ambiguous.`;
+  }
   if (deep.type && !requestedType && !forwarder) {
     return `The shared type '${deep.type}' is no longer available.`;
   }
@@ -16974,13 +17267,17 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
-  const forwarder = currentPlatformForwarderView()?.forwarders.find(
-    row => row.id === deep?.type);
+  const forwarder = sharedForwarderCandidate(
+    deep?.type,
+    deep?.declarationLibraryAsset);
+  const requestedTypes = deep
+    ? sharedTypeCandidates(pkg, deep, true)
+    : [];
   const restoreType = deep?.type
-    && (pkg.types.some(item => item.id === deep.type) || forwarder !== undefined);
+    && (requestedTypes.length === 1 || forwarder !== undefined);
   resetMemberFilters();
   state.selectedTypeId = restoreType
-    ? deep?.type ?? ""
+    ? requestedTypes[0]?.id ?? forwarder?.id ?? ""
     : defaultVisibleTypeId(pkg) || currentPlatformForwarderView()?.forwarders[0]?.id || "";
   // The restored/defaulted type may sit outside the current accessibility bucket or the
   // platform's library scope (e.g. an internal type reached via a shared link, or a history
@@ -17009,7 +17306,9 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     appendQueryNotice(
       "The shared graph member's declaring type is no longer available and was not opened.");
   } else if (restoreType && deep) {
-    const type = pkg.types.find(item => item.id === deep.type);
+    const type = requestedTypes.length === 1
+      ? requestedTypes[0]!
+      : null;
     if (!type) return;
     revealTypeInFilters(type);
     const groups = memberGroups(type);
@@ -20718,7 +21017,18 @@ async function loadSelectedMemberDocumentation() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const implementationMember =
+    memberDeclarationUsesImplementation(type, overload);
+  const signature = memberOverviewRequestSignature(type, overload);
+  const requestIsCurrent = () => {
+    const currentType = selectedType();
+    const currentMember = selectedMember(currentType);
+    const currentOverload =
+      selectedMemberOverload(currentType, currentMember);
+    if (!currentType || !currentOverload) return false;
+    return memberOverviewRequestSignature(currentType, currentOverload)
+      === signature;
+  };
   const pkg = currentPackage();
   const platformCoordinates = pkg.isRuntimePack
     ? (() => {
@@ -20741,7 +21051,7 @@ async function loadSelectedMemberDocumentation() {
       platformPack,
       overload,
       isRuntimePack: Boolean(state.package?.isRuntimePack),
-      isCurrent: () => memberRequestIsCurrent(signature),
+      isCurrent: requestIsCurrent,
     }),
     memberDetailInspection.loadDeclaration({
       signature,
@@ -20756,8 +21066,8 @@ async function loadSelectedMemberDocumentation() {
       selectorKey: overload.graphSelectorKey,
       metadataToken:
         overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
-      implementationMember: Boolean(overload.graphOnly),
-      isCurrent: () => memberRequestIsCurrent(signature),
+      implementationMember,
+      isCurrent: requestIsCurrent,
     }),
   ]);
 }
@@ -20801,6 +21111,11 @@ function loadSelectedTypeMemberPopulation():
   if (!type) {
     renderPreservingMemberFocus();
     return Promise.resolve(null);
+  }
+  if (state.typeMemberPopulationSource === "implementation"
+    && state.typeMemberPopulationSourceTypeId !== type.id) {
+    state.typeMemberPopulationSource = "surface";
+    state.typeMemberPopulationSourceTypeId = "";
   }
   const key = typeMemberPopulationKey(type);
   if (!key) {
@@ -20859,22 +21174,42 @@ function loadSelectedTypeMemberPopulation():
               state.memberSpelling,
               state.memberAccessibilityFilter);
           })()
-        : inspectTypeMemberPopulation(
-            pkg.id,
-            pkg.version,
-            pkg.activeFramework,
-            type.assembly,
-            type.definitionId ?? type.id,
-            state.memberSpelling,
-            state.memberAccessibilityFilter);
+        : typeMemberPopulationSource(type) === "implementation"
+          ? inspectImplementationTypeMemberPopulation(
+              pkg.id,
+              pkg.version,
+              pkg.activeFramework,
+              type.assembly,
+              type.definitionId ?? type.id,
+              state.memberSpelling,
+              state.memberAccessibilityFilter)
+          : inspectTypeMemberPopulation(
+              pkg.id,
+              pkg.version,
+              pkg.activeFramework,
+              type.assembly,
+              type.definitionId ?? type.id,
+              state.memberSpelling,
+              state.memberAccessibilityFilter);
       const inspection = await result;
       if (typeMemberPopulationLoad !== load
         || state.typeMemberPopulationKey !== key) {
         return receipt;
       }
-      state.typeMemberPopulation = inspection;
-      state.typeMemberPopulationError =
+      const requiresImplementation =
+        state.rootKind === "library"
+        || pkg.isRuntimePack
+        || typeMemberPopulationSource(type) === "implementation";
+      const sourceMismatch =
         inspection.outcome === "Available"
+        && inspection.population
+        && requiresImplementation
+        && inspection.population.declarationSource
+          !== "Implementation";
+      state.typeMemberPopulation = sourceMismatch ? null : inspection;
+      state.typeMemberPopulationError = sourceMismatch
+        ? "The required implementation declaration resolved to surface evidence."
+        : inspection.outcome === "Available"
           ? ""
           : inspection.detail
             ?? `Type Member population returned ${inspection.outcome}.`;
@@ -20901,8 +21236,16 @@ function loadSelectedTypeMemberPopulation():
 function setTypeMemberPopulationIntent(
   accessibility: MemberAccessibility,
   spelling: "csharp" | "metadata",
+  source?: "surface" | "implementation",
 ) {
   typeMemberPopulationIntentGeneration++;
+  if (source) {
+    state.typeMemberPopulationSource = source;
+    state.typeMemberPopulationSourceTypeId =
+      source === "implementation"
+        ? selectedType()?.id ?? ""
+        : "";
+  }
   state.memberAccessibilityFilter = accessibility;
   state.memberSpelling = spelling;
   typeMemberPopulationLoad = null;
@@ -21154,6 +21497,29 @@ function memberRequestSignature(
       state.selectedBodyTarget?.selectorKey ?? "");
   }
   return memberRequestKey(parts, includeTaste ? state.taste : []);
+}
+
+function memberDeclarationUsesImplementation(
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
+) {
+  return Boolean(overload.graphOnly)
+    || (state.typeMemberPopulationKey === typeMemberPopulationKey(type)
+      && state.typeMemberPopulation?.outcome === "Available"
+      && state.typeMemberPopulation.population?.declarationSource
+        === "Implementation");
+}
+
+function memberOverviewRequestSignature(
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
+) {
+  return memberRequestKey([
+    memberRequestSignature(type, overload),
+    memberDeclarationUsesImplementation(type, overload)
+      ? "implementation"
+      : "surface",
+  ]);
 }
 
 function memberRequestIsCurrent(
@@ -24402,12 +24768,15 @@ function retainPackageHomeDemoShareBasis(
     selectedContextId: topology.selectedContextId,
     view: {
       lens: "api",
-      type: selection.type.id,
+      type: selection.type.definitionId ?? selection.type.id,
       memberAnchor: selection.overload?.anchorDigest ?? null,
       memberSignature: null,
       section: selection.member ? "call-graph" : null,
       libraries: [],
       sourceView: null,
+      memberAccessibility: "public",
+      declarationSource: "surface",
+      declarationLibraryAsset: selection.type.assemblyId,
     },
   };
 }
@@ -24742,6 +25111,11 @@ async function restoreWorkspaceFromLocation(
         return;
       }
       applyLocationView(loc);
+      const symbolFailure = loc.shareState
+        ? await prepareSharedSymbolRequest(opened, deep)
+        : null;
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
+      if (symbolFailure) { failRestore(symbolFailure); return; }
       const failure = canonicalViewRestorationFailure(opened, deep, loc.lens, loc.libraryLens);
       if (failure) { failRestore(failure); return; }
       applyDeepLink(deep);
@@ -24811,6 +25185,10 @@ async function restoreWorkspaceFromLocation(
       }
     }
     applyLocationView(loc);
+    const symbolFailure = loc.shareState
+      ? await prepareSharedSymbolRequest(targetModel, deep)
+      : null;
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     const viewFailure = loc.shareState
       ? canonicalViewRestorationFailure(
           targetModel,
@@ -24821,8 +25199,8 @@ async function restoreWorkspaceFromLocation(
             ? loc.packageLens
             : null)
       : null;
-    if (loc.shareState && viewFailure) {
-      failRestore(viewFailure);
+    if (loc.shareState && (symbolFailure || viewFailure)) {
+      failRestore(symbolFailure ?? viewFailure!);
       return;
     }
     applyDeepLink(deep);
@@ -25585,6 +25963,10 @@ async function navigateWithinCurrentWorkspace(
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   const libraryFailure = applyLoadedPackageLibraryScope(pkg, loc.library);
   applyLocationView(loc);
+  const symbolFailure = loc.shareState
+    ? await prepareSharedSymbolRequest(pkg, loc)
+    : null;
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const viewFailure = loc.shareState
     ? canonicalViewRestorationFailure(
         pkg,
@@ -25595,7 +25977,7 @@ async function navigateWithinCurrentWorkspace(
           ? loc.packageLens
           : null)
     : null;
-  const restorationFailure = libraryFailure ?? viewFailure;
+  const restorationFailure = libraryFailure ?? symbolFailure ?? viewFailure;
   if (loc.shareState && restorationFailure) {
     failCanonicalWorkspaceRestore(
       loc,
@@ -26788,6 +27170,10 @@ window.addEventListener("popstate", () => {
         state.package,
         loc.library);
       applyLocationView(loc);
+      const symbolFailure = loc.shareState
+        ? await prepareSharedSymbolRequest(state.package, loc)
+        : null;
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       const viewFailure = loc.shareState
         ? canonicalViewRestorationFailure(
             state.package,
@@ -26798,7 +27184,8 @@ window.addEventListener("popstate", () => {
               ? loc.packageLens
               : null)
         : null;
-      const restorationFailure = libraryFailure ?? viewFailure;
+      const restorationFailure =
+        libraryFailure ?? symbolFailure ?? viewFailure;
       if (loc.shareState && restorationFailure) {
         failCanonicalWorkspaceRestore(
           loc,
@@ -26857,6 +27244,10 @@ async function restorePlatformScopeThenDeepLink(
     return;
   }
   const pkg = state.package;
+  const symbolFailure = pkg && loc.shareState
+    ? await prepareSharedSymbolRequest(pkg, loc)
+    : null;
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const viewFailure = pkg && loc.shareState
     ? canonicalViewRestorationFailure(
         pkg,
@@ -26867,11 +27258,11 @@ async function restorePlatformScopeThenDeepLink(
           ? loc.packageLens
           : null)
     : null;
-  if (loc.shareState && viewFailure) {
+  if (loc.shareState && (symbolFailure || viewFailure)) {
     failCanonicalWorkspaceRestore(
       loc,
       loc,
-      viewFailure,
+      symbolFailure ?? viewFailure!,
       canonicalSnapshot);
     return;
   }

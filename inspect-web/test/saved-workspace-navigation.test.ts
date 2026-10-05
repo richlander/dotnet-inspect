@@ -147,7 +147,9 @@ const hostNames = new Set([
   "releaseRetainedWorkspaceSnapshot",
   "failWorkspaceCatalogAction", "afterCurrentNavigationFrame",
   "focusInspectionResult", "focusLevelOneHeading",
-  "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
+  "applyLocationView", "sharedTypeCandidates", "sharedForwarderCandidate",
+  "prepareSharedSymbolRequest",
+  "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "friendlyLoadError", "isRecord",
   "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
@@ -349,6 +351,8 @@ function sharedState(): BrowserWorkspaceShareState {
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null,
+      memberAccessibility: null, declarationSource: null,
+      declarationLibraryAsset: null,
     },
   };
 }
@@ -736,9 +740,21 @@ function harness() {
     retainFailedWorkspaceUrl: () => false,
     packageDisplayName: (pkg: Package) => pkg.id,
     selectedType: () => null,
+    selectedForwarder: () => null,
     currentPlatformForwarderView: () => null,
     selectedLibrary: () => null,
     selectedLibraryRequest: () => "asset:retained-library",
+    packageLibrariesForModel: () => [{
+      id: "asset:retained-library",
+      name: "Retained",
+    }],
+    resolvePackageLibrary: (
+      libraries: readonly { id: string }[],
+      id: string,
+    ) => libraries.find(library => library.id === id) ?? null,
+    isMemberAccessibility: (value: string) =>
+      ["all", "public", "protected", "internal", "private"].includes(value),
+    setTypeMemberPopulationIntent: () => {},
     isRuntimePackId: () => false,
     loadPackage: async (
       id: string, version: string, framework: string,
@@ -1398,6 +1414,8 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null,
+      memberAccessibility: null, declarationSource: null,
+      declarationLibraryAsset: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -1448,7 +1466,14 @@ for (const failure of [
     if (failure === "decoder-throw") h.controls.decodeError = new Error("Decoder unavailable");
     if (failure === "acquisition") h.controls.acquisition = async id => id !== "Beta";
     if (failure === "view") h.controls.share = {
-      ...h.controls.share, view: { ...h.controls.share.view, type: "Missing.Type" },
+      ...h.controls.share,
+      view: {
+        ...h.controls.share.view,
+        type: "Missing.Type",
+        memberAccessibility: "public",
+        declarationSource: "surface",
+        declarationLibraryAsset: "asset:retained-library",
+      },
     };
     if (failure === "selection") h.controls.selection = async () => { throw new Error("View unavailable"); };
     if (failure === "projection") h.controls.encodeResult = {
@@ -2407,7 +2432,9 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [], sourceView: null },
+      section: null, libraries: [], sourceView: null,
+      memberAccessibility: null, declarationSource: null,
+      declarationLibraryAsset: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

@@ -309,6 +309,8 @@ export interface WorkspaceDeepLink {
   memberTextFilter?: string;
   memberKindFilter?: string;
   memberAccessibilityFilter?: string;
+  declarationSource?: "surface" | "implementation" | null;
+  declarationLibraryAsset?: string | null;
   memberTraitFilter?: string;
   graphTarget?: GraphMemberShareIdentity | null;
 }
@@ -634,6 +636,9 @@ export interface DecodedShareState {
   section: MemberSection | null;
   memberSourceView: MemberSourceView | null;
   library: string | null;
+  memberAccessibilityFilter: string | null;
+  declarationSource: "surface" | "implementation" | null;
+  declarationLibraryAsset: string | null;
 }
 
 export type ShareStateResult = DecodedShareState | { error: string } | null;
@@ -816,6 +821,44 @@ function decodeWorkspaceShareResult(
       error: "The shared workspace selects multiple libraries, which this browser cannot activate.",
     };
   }
+  const memberAccessibilityFilter =
+    state.view.memberAccessibility ?? null;
+  if (memberAccessibilityFilter !== null
+    && memberAccessibilityFilter !== "all"
+    && memberAccessibilityFilter !== "public"
+    && memberAccessibilityFilter !== "protected"
+    && memberAccessibilityFilter !== "internal"
+    && memberAccessibilityFilter !== "private") {
+    return {
+      error: `The shared Member accessibility '${memberAccessibilityFilter}' is not supported by this browser.`,
+    };
+  }
+  const declarationSource = state.view.declarationSource ?? null;
+  const declarationLibraryAsset =
+    state.view.declarationLibraryAsset ?? null;
+  if (declarationSource !== null
+    && declarationSource !== "surface"
+    && declarationSource !== "implementation") {
+    return {
+      error: `The shared declaration source '${declarationSource}' is not supported by this browser.`,
+    };
+  }
+  const hasExactSymbolState =
+    memberAccessibilityFilter !== null
+    || declarationSource !== null
+    || declarationLibraryAsset !== null;
+  const hasCompleteExactSymbolState =
+    memberAccessibilityFilter !== null
+    && declarationSource !== null
+    && declarationLibraryAsset !== null;
+  if ((!state.view.type && hasExactSymbolState)
+    || (state.view.type !== null
+      && hasExactSymbolState
+      && !hasCompleteExactSymbolState)) {
+    return {
+      error: "The shared exact symbol request has incomplete view or declaration-source state.",
+    };
+  }
 
   return {
     state,
@@ -830,6 +873,9 @@ function decodeWorkspaceShareResult(
     section: memberSection,
     memberSourceView: sourceView,
     library: state.view.libraries[0] ?? null,
+    memberAccessibilityFilter,
+    declarationSource,
+    declarationLibraryAsset,
   };
 }
 
@@ -960,6 +1006,8 @@ function resolveWorkspaceLocation(
   let memberTextFilter = "";
   let memberKindFilter = "all";
   let memberAccessibilityFilter = "public";
+  let declarationSource: "surface" | "implementation" | null = null;
+  let declarationLibraryAsset: string | null = null;
   let memberTraitFilter = "";
   let graphTarget: GraphMemberShareIdentity | null = null;
   let shareState: BrowserWorkspaceShareState | null = null;
@@ -993,7 +1041,10 @@ function resolveWorkspaceLocation(
     memberBrowse = false;
     memberTextFilter = "";
     memberKindFilter = "all";
-    memberAccessibilityFilter = "public";
+    memberAccessibilityFilter =
+      share.memberAccessibilityFilter ?? "public";
+    declarationSource = share.declarationSource;
+    declarationLibraryAsset = share.declarationLibraryAsset;
     memberTraitFilter = "";
     graphTarget = null;
   }
@@ -1040,6 +1091,8 @@ function resolveWorkspaceLocation(
     memberTextFilter,
     memberKindFilter,
     memberAccessibilityFilter,
+    declarationSource,
+    declarationLibraryAsset,
     memberTraitFilter,
     graphTarget,
     shareState,

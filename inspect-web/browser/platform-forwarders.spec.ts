@@ -9,12 +9,34 @@ import {
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value);
+}
+
+function workspaceShareState(packet: string): {
+  state: Record<string, unknown>;
+  view: Record<string, unknown>;
+} {
+  const state: unknown = JSON.parse(
+    Buffer.from(packet, "base64").toString("utf8"));
+  if (!isRecord(state) || !isRecord(state.view)) {
+    throw new Error("The fixture Workspace packet has no view.");
+  }
+  return {
+    state,
+    view: state.view,
+  };
+}
+
 async function openXml(
   page: Parameters<typeof installFacades>[0],
   options: {
     forwarderInternalType?: boolean;
     forwarderFailure?: boolean;
     forwarderPending?: boolean;
+    forwarderAdditionalLibrary?: string;
     libraryPending?: boolean;
     libraryPendingAssembly?: string;
   } = {},
@@ -64,6 +86,40 @@ test("XML forwarders open each immediate Library and restore fresh history actio
   await page.reload();
   await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
+});
+
+test("XML forwarder restoration rejects a different declaration facade", async ({
+  page,
+}) => {
+  await openXml(page, {
+    forwarderAdditionalLibrary: "System.Xml.ReaderWriter",
+  });
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    return packet ? workspaceShareState(packet).view : null;
+  }).toMatchObject({
+    type: "System.Xml.XmlReader",
+    declarationLibraryAsset: "System.Xml",
+  });
+  const mismatchedUrl = new URL(page.url());
+  const { state, view } =
+    workspaceShareState(mismatchedUrl.searchParams.get("w")!);
+  view.declarationLibraryAsset = "System.Xml.ReaderWriter";
+  mismatchedUrl.searchParams.set(
+    "w",
+    Buffer.from(JSON.stringify(state)).toString("base64"),
+  );
+  await page.evaluate(
+    url => history.replaceState(null, "", url),
+    mismatchedUrl.toString(),
+  );
+
+  await page.reload();
+
+  await expect(page.getByText("Workspace restore failed")).toBeVisible();
+  await expect(page.locator("#app")).toContainText(
+    "The shared surface type 'System.Xml.XmlReader' is no longer available",
+  );
 });
 
 // PR-fast: copies through both forwarding hops and the ordinary defining Type.

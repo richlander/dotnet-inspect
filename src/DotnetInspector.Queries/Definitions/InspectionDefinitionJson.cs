@@ -278,6 +278,9 @@ public static class InspectionDefinitionJson
                 EnsureUtf16(view.MemberKey, "memberKey");
                 EnsureUtf16(view.Section, "section");
                 EnsureUtf16(view.SourceView, "sourceView");
+                EnsureUtf16(
+                    view.DeclarationSourceRequirement?.LibraryAsset,
+                    "declarationSourceRequirement.libraryAsset");
                 foreach (string library in view.Libraries)
                     EnsureUtf16(library, "libraries");
                 break;
@@ -647,7 +650,16 @@ public static class InspectionDefinitionJson
                 "schemaVersion", "kind", "id", "lens", "type", "memberAnchor", "memberSignature",
                 "memberKey", "section", "library", "libraries",
             ],
+            (InspectionDefinitionSchema.Version6, "view") =>
+            [
+                "schemaVersion", "kind", "id", "lens", "type", "memberAnchor",
+                "memberSignature", "memberKey", "section", "sourceView",
+                "library", "libraries", "memberAccessibility",
+                "declarationSourceRequirement",
+            ],
             (InspectionDefinitionSchema.Version1, "navigation") =>
+                ["schemaVersion", "kind", "id", "tabs", "focus"],
+            (InspectionDefinitionSchema.Version6, "navigation") =>
                 ["schemaVersion", "kind", "id", "tabs", "focus"],
             (InspectionDefinitionSchema.Version2
                 or InspectionDefinitionSchema.Version3
@@ -739,6 +751,31 @@ public static class InspectionDefinitionJson
             ValidateTabs(tabs);
         if (root.TryGetProperty("states", out var states))
             ValidateCommittedStates(states, schemaVersion);
+        if (root.TryGetProperty(
+                "declarationSourceRequirement",
+                out JsonElement requirement))
+        {
+            if (requirement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InspectionDefinitionException(
+                    "View declarationSourceRequirement must be an object.");
+            }
+            RejectUnknownProperties(
+                requirement,
+                ["source", "libraryAsset"],
+                "view declarationSourceRequirement");
+            if (!TryGetExactString(requirement, "source", out string source)
+                || source is not ("surface" or "implementation")
+                || !TryGetExactString(
+                    requirement,
+                    "libraryAsset",
+                    out string libraryAsset)
+                || string.IsNullOrWhiteSpace(libraryAsset))
+            {
+                throw new InspectionDefinitionException(
+                    "View declarationSourceRequirement requires a supported source and nonblank libraryAsset.");
+            }
+        }
         if ((schemaVersion == InspectionDefinitionSchema.Version2
                 || schemaVersion == InspectionDefinitionSchema.Version3
                 || schemaVersion == InspectionDefinitionSchema.Version4
@@ -1358,9 +1395,11 @@ public static class InspectionDefinitionJson
                     or InspectionDefinitionSchema.Version4
                     or InspectionDefinitionSchema.Version5, "query") =>
                     CreateCommittedQuery(dto),
-                (InspectionDefinitionSchema.Version1, "view") =>
+                (InspectionDefinitionSchema.Version1
+                    or InspectionDefinitionSchema.Version6, "view") =>
                     CreateView(dto),
-                (InspectionDefinitionSchema.Version1, "navigation") =>
+                (InspectionDefinitionSchema.Version1
+                    or InspectionDefinitionSchema.Version6, "navigation") =>
                     CreateNavigation(dto, ref coordinateCount),
                 (InspectionDefinitionSchema.Version2
                     or InspectionDefinitionSchema.Version3
@@ -1558,7 +1597,9 @@ public static class InspectionDefinitionJson
             view: true,
             navigation: true,
             states: true,
-            sourceView: false);
+            sourceView: false,
+            memberAccessibility: false,
+            declarationSourceRequirement: false);
         if (dto.Library is null && dto.Libraries is { Count: < 2 })
         {
             throw new InspectionDefinitionException(
@@ -1576,8 +1617,43 @@ public static class InspectionDefinitionJson
             dto.Section,
             dto.Library,
             dto.Libraries,
-            dto.SourceView);
+            dto.SourceView,
+            ParseMemberAccessibility(dto.MemberAccessibility),
+            ParseDeclarationSourceRequirement(
+                dto.DeclarationSourceRequirement));
     }
+
+    private static WorkspaceShareMemberAccessibility?
+        ParseMemberAccessibility(string? value) =>
+        value switch
+        {
+            null => null,
+            "all" => WorkspaceShareMemberAccessibility.All,
+            "public" => WorkspaceShareMemberAccessibility.Public,
+            "protected" => WorkspaceShareMemberAccessibility.Protected,
+            "internal" => WorkspaceShareMemberAccessibility.Internal,
+            "private" => WorkspaceShareMemberAccessibility.Private,
+            _ => throw new InspectionDefinitionException(
+                "View memberAccessibility is unsupported."),
+        };
+
+    private static WorkspaceShareDeclarationSourceRequirement?
+        ParseDeclarationSourceRequirement(
+            WorkspaceShareDeclarationSourceRequirementDto? value) =>
+        value is null
+            ? null
+            : new WorkspaceShareDeclarationSourceRequirement(
+                value.Source switch
+                {
+                    "surface" => WorkspaceShareDeclarationSource.Surface,
+                    "implementation" =>
+                        WorkspaceShareDeclarationSource.Implementation,
+                    _ => throw new InspectionDefinitionException(
+                        "View declaration source is unsupported."),
+                },
+                value.LibraryAsset
+                    ?? throw new InspectionDefinitionException(
+                        "View declaration source requires libraryAsset."));
 
     private static NavigationDefinition CreateNavigation(InspectionDefinitionDto dto, ref int coordinateCount)
     {
@@ -1746,7 +1822,9 @@ public static class InspectionDefinitionJson
         bool navigation = false,
         bool states = false,
         bool registrations = true,
-        bool packageSources = true)
+        bool packageSources = true,
+        bool memberAccessibility = true,
+        bool declarationSourceRequirement = true)
     {
         void Check(bool reject, string name, object? value)
         {
@@ -1783,6 +1861,14 @@ public static class InspectionDefinitionJson
         Check(states, "states", dto.States);
         Check(registrations, "registrations", dto.Registrations);
         Check(packageSources, "packageSources", dto.PackageSources);
+        Check(
+            memberAccessibility,
+            "memberAccessibility",
+            dto.MemberAccessibility);
+        Check(
+            declarationSourceRequirement,
+            "declarationSourceRequirement",
+            dto.DeclarationSourceRequirement);
     }
 
     internal static InspectionDefinitionDto ToDto(InspectionDefinitionRecord record) =>
@@ -1846,6 +1932,35 @@ public static class InspectionDefinitionJson
                 MemberKey = view.MemberKey,
                 Section = view.Section,
                 SourceView = view.SourceView,
+                MemberAccessibility = view.MemberAccessibility switch
+                {
+                    WorkspaceShareMemberAccessibility.All => "all",
+                    WorkspaceShareMemberAccessibility.Public => "public",
+                    WorkspaceShareMemberAccessibility.Protected => "protected",
+                    WorkspaceShareMemberAccessibility.Internal => "internal",
+                    WorkspaceShareMemberAccessibility.Private => "private",
+                    null => null,
+                    _ => throw new InvalidOperationException(
+                        "Unknown Workspace share Member accessibility."),
+                },
+                DeclarationSourceRequirement =
+                    view.DeclarationSourceRequirement is null
+                        ? null
+                        : new WorkspaceShareDeclarationSourceRequirementDto
+                        {
+                            Source =
+                                view.DeclarationSourceRequirement.Source switch
+                                {
+                                    WorkspaceShareDeclarationSource.Surface =>
+                                        "surface",
+                                    WorkspaceShareDeclarationSource.Implementation =>
+                                        "implementation",
+                                    _ => throw new InvalidOperationException(
+                                        "Unknown Workspace share declaration source."),
+                                },
+                            LibraryAsset =
+                                view.DeclarationSourceRequirement.LibraryAsset,
+                        },
                 Library = view.Libraries.Count == 1 ? view.Libraries[0] : null,
                 Libraries = view.Libraries.Count > 1 ? view.Libraries.ToList() : null,
             },
@@ -2939,6 +3054,11 @@ internal sealed class InspectionDefinitionDto
 
     public string? SourceView { get; set; }
 
+    public string? MemberAccessibility { get; set; }
+
+    public WorkspaceShareDeclarationSourceRequirementDto?
+        DeclarationSourceRequirement { get; set; }
+
     public string? Library { get; set; }
 
     public List<string>? Libraries { get; set; }
@@ -2960,6 +3080,13 @@ internal sealed class InspectionDefinitionDto
     public string? Navigation { get; set; }
 
     public List<CommittedViewStateDto>? States { get; set; }
+}
+
+internal sealed class WorkspaceShareDeclarationSourceRequirementDto
+{
+    public string? Source { get; set; }
+
+    public string? LibraryAsset { get; set; }
 }
 
 internal sealed class WorkspaceRegistrationDto

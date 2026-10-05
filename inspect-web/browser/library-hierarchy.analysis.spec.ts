@@ -21,6 +21,27 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value);
+}
+
+function workspaceShareState(packet: string): {
+  state: Record<string, unknown>;
+  view: Record<string, unknown>;
+} {
+  const state: unknown = JSON.parse(
+    Buffer.from(packet, "base64").toString("utf8"));
+  if (!isRecord(state) || !isRecord(state.view)) {
+    throw new Error("The fixture Workspace packet has no view.");
+  }
+  return {
+    state,
+    view: state.view,
+  };
+}
+
 async function openIntegrations(page: Page, location = root) {
   await page.goto(location);
   await selectLibrary(page, core.id);
@@ -226,10 +247,14 @@ for (const width of [1440, 390]) {
     await installFacades(page);
     await openAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
-    await expect(frame.locator(".perf-row")).toHaveCount(2);
-    await expect(frame.locator("header")).toContainText("2 public members");
+    await expect(frame.locator(".perf-row")).toHaveCount(3);
+    await expect(frame.locator("header")).toContainText("3 ranked members");
     await expect(frame.locator("header")).toContainText("6 opportunities");
-    await expect(frame.locator("header")).toContainText("2 non-public");
+    await expect(frame.locator(".perf-accessibility")).toContainText([
+      "public",
+      "public",
+      "private",
+    ]);
     await expect(frame.locator("footer")).toContainText(core.asset);
     await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
     await expect(page.locator("html")).toHaveAttribute("data-analysis-request", "asset:core");
@@ -294,17 +319,17 @@ for (const width of [1440, 390]) {
       await openAnalysis(page);
       const frame = page.locator(".library-analysis-surface");
       if (scenario === "partial") {
-        await expect(frame.locator(".perf-row")).toHaveCount(2);
+        await expect(frame.locator(".perf-row")).toHaveCount(3);
         await expect(frame.locator("header")).toContainText("partial");
       } else {
         await expect(frame.locator("h2")).toHaveText(scenario === "empty"
-          ? "No public allocation hot spots" : scenario === "partial-empty"
+          ? "No allocation or performance opportunities" : scenario === "partial-empty"
             ? "Analysis incomplete" : "Analysis failed");
         await expect(frame.locator(".perf-row")).toHaveCount(0);
       }
       if (scenario.startsWith("partial")) {
         await expect(frame).toContainText("A method body could not be analyzed.");
-        await expect(frame).not.toContainText("No public allocation hot spots");
+        await expect(frame).not.toContainText("No allocation or performance opportunities");
       }
       await expect(frame.locator("footer")).toBeInViewport();
     });
@@ -317,7 +342,7 @@ for (const width of [1440, 390]) {
     await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
     await selectPerformanceAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
-    await expect(frame.locator(".perf-row")).toHaveCount(2);
+    await expect(frame.locator(".perf-row")).toHaveCount(3);
     const picker = frame.locator(".library-analysis-controls select");
     await expect(picker).toBeVisible();
     await expect(picker).toHaveValue("System.Text.Json");
@@ -351,7 +376,33 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
     "Runs the widget.");
 });
 
-test("ranked Analysis members replace sticky private Type population intent", async ({
+test("shared public surface Member reopens inside an all-access view", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view;
+  }).toMatchObject({
+    type: "Example.Widget",
+    memberAnchor: "widget-run",
+    memberAccessibility: "all",
+    declarationSource: "surface",
+    declarationLibraryAsset: "asset:core",
+  });
+
+  await page.reload();
+
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Run");
+  await expect(page.locator("[data-member-access-filter]")).toHaveValue("all");
+});
+
+test("ranked Analysis members replace sticky private intent with all access", async ({
   page,
 }) => {
   await installFacades(page);
@@ -371,15 +422,349 @@ test("ranked Analysis members replace sticky private Type population intent", as
   await chooseSubject(page, "library", "Library");
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await selectPerformanceAnalysis(page);
-  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "Transform" })
+    .click();
 
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-member-access-filter]"))
-    .toHaveValue("public");
+    .toHaveValue("all");
   await expect(page.locator("#inspector-panel")).toContainText(
-    "Runs the widget.",
+    "Transform",
   );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-implementation-type-member-population-request",
+    /"Example.Widget","csharp","all"\]$/,
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Transform","Transform",100663299,true\]$/,
+  );
+});
+
+test("shared hidden implementation Member reopens inside the requested public view", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "Transform" })
+    .click();
+
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view;
+  }).toMatchObject({
+    type: "Example.Widget",
+    memberAnchor: "transform",
+    memberAccessibility: "all",
+    declarationSource: "implementation",
+    declarationLibraryAsset: "asset:core",
+  });
+  const narrowedUrl = new URL(page.url());
+  {
+    const url = narrowedUrl;
+    const { state, view } = workspaceShareState(url.searchParams.get("w")!);
+    view.memberAccessibility = "public";
+    url.searchParams.set(
+      "w",
+      Buffer.from(JSON.stringify(state)).toString("base64"),
+    );
+  }
+  await page.evaluate(
+    url => history.replaceState(null, "", url),
+    narrowedUrl.toString(),
+  );
+
+  await page.reload();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-implementation-type-member-population-request",
+    /"Example.Core.dll","Example.Widget","csharp","public"\]$/,
+  );
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Transform");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("public");
+});
+
+test("shared implementation-only Type reopens without entering discovery", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "implementation-only",
+  );
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "ImplementationOnly.Hidden" })
+    .click();
+
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view;
+  }).toMatchObject({
+    type: "Example.ImplementationOnly",
+    memberAnchor: "hidden",
+    memberAccessibility: "all",
+    declarationSource: "implementation",
+    declarationLibraryAsset: "asset:core",
+  });
+  const narrowedUrl = new URL(page.url());
+  {
+    const url = narrowedUrl;
+    const { state, view } = workspaceShareState(url.searchParams.get("w")!);
+    view.memberAccessibility = "public";
+    url.searchParams.set(
+      "w",
+      Buffer.from(JSON.stringify(state)).toString("base64"),
+    );
+  }
+  await page.evaluate(
+    url => history.replaceState(null, "", url),
+    narrowedUrl.toString(),
+  );
+
+  await page.reload();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-implementation-type-member-population-request",
+    /"Example.Core.dll","Example.ImplementationOnly","csharp","public"\]$/,
+  );
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Hidden");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("public");
+  await expect(page.locator(
+    '#type-list [data-type="asset:core:Example.ImplementationOnly"]',
+  )).toHaveCount(0);
+  await page.locator("#open-search").dispatchEvent("click");
+  await page.locator("#spotlight-input").fill("ImplementationOnly");
+  await expect(page.locator(
+    '[data-sl-type*="Example.ImplementationOnly"]:not([data-sl-member])',
+  )).toHaveCount(0);
+});
+
+test("shared implementation requirement fails visibly without surface fallback", async ({
+  page,
+  browser,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "Transform" })
+    .click();
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view.memberAnchor;
+  }).toBe("transform");
+  const sharedUrl = page.url();
+
+  const rejectedContext = await browser.newContext();
+  const rejectedPage = await rejectedContext.newPage();
+  await installFacades(
+    rejectedPage,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { rejectImplementationTypeMemberPopulation: true },
+  );
+  await rejectedPage.goto(sharedUrl);
+
+  await expect(rejectedPage.getByText("Workspace restore failed"))
+    .toBeVisible();
+  await expect(rejectedPage.locator("#app")).toContainText(
+    "The required implementation declaration is unavailable.",
+  );
+  await rejectedContext.close();
+
+  const surfaceContext = await browser.newContext();
+  const surfacePage = await surfaceContext.newPage();
+  await installFacades(
+    surfacePage,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { implementationTypeMemberDeclarationSource: "Surface" },
+  );
+  await surfacePage.goto(sharedUrl);
+
+  await expect(surfacePage.getByText("Workspace restore failed"))
+    .toBeVisible();
+  await expect(surfacePage.locator("#app")).toContainText(
+    "The required implementation declaration resolved only to surface evidence.",
+  );
+  await surfaceContext.close();
+});
+
+test("shared implementation request rejects a mismatched declaration Library", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "Transform" })
+    .click();
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view.memberAnchor;
+  }).toBe("transform");
+  const mismatchedUrl = new URL(page.url());
+  {
+    const url = mismatchedUrl;
+    const { state, view } = workspaceShareState(url.searchParams.get("w")!);
+    view.declarationLibraryAsset = "asset:other";
+    url.searchParams.set(
+      "w",
+      Buffer.from(JSON.stringify(state)).toString("base64"),
+    );
+  }
+  await page.evaluate(
+    url => history.replaceState(null, "", url),
+    mismatchedUrl.toString(),
+  );
+
+  await page.reload();
+
+  await expect(page.getByText("Workspace restore failed")).toBeVisible();
+  await expect(page.locator("#app")).toContainText(
+    "The implementation Type projection did not retain the requested identity.",
+  );
+});
+
+test("ranked Analysis projects an implementation-only Type before following its member", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "implementation-only",
+  );
+  await openAnalysis(page);
+
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "ImplementationOnly.Hidden" })
+    .click();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-implementation-type-member-population-request",
+    /"Example.ImplementationOnly","csharp","all"\]$/,
+  );
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Hidden");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("all");
+  await expect(page.locator(
+    '#type-list [data-type="asset:core:Example.ImplementationOnly"]',
+  )).toHaveCount(0);
+
+  await page.locator("#open-search").dispatchEvent("click");
+  await page.locator("#spotlight-input").fill("ImplementationOnly");
+  await expect(page.locator(
+    '[data-sl-type*="Example.ImplementationOnly"]:not([data-sl-member])',
+  )).toHaveCount(0);
+  await page.locator("#spotlight-input").fill("Hidden");
+  await expect(page.locator(
+    '[data-sl-member][data-sl-type*="Example.ImplementationOnly"]',
+  )).toHaveCount(0);
+  await page.locator('[data-sl-scope="commands"]').click();
+  await page.locator("#spotlight-input").fill("type Widget");
+  await expect(page.locator("#spotlight-results"))
+    .toContainText("type Widget");
+  await page.locator("#spotlight-input").fill("type ImplementationOnly");
+  await expect(page.locator("#spotlight-results [role=option]", {
+    hasText: "type ImplementationOnly",
+  })).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Hidden");
+  await page.keyboard.press("Escape");
+
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "overview", "Overview");
+  await expect(page.locator(
+    '[data-kind-jump="api.type-kind.class"] .ns-count',
+  )).toHaveText("1");
+  await expect(page.locator(
+    '[data-namespace-jump="Example"] .ns-count',
+  )).toHaveText("1");
+});
+
+test("newer ranked Analysis navigation supersedes an older pending projection", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "implementation-race",
+    undefined,
+    { deferImplementationTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "FirstOnly.Hidden" })
+    .click();
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "SecondOnly.Hidden" })
+    .click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-implementation-type-member-population-request",
+    /"Example.SecondOnly","csharp","all"\]$/,
+  );
+
+  await releaseFacade(
+    page,
+    "finish-implementation-type-member-population:Example.FirstOnly",
+  );
+  await expect(subjectTab(page, "library"))
+    .toHaveAttribute("aria-selected", "true");
+
+  await releaseFacade(
+    page,
+    "finish-implementation-type-member-population:Example.SecondOnly",
+  );
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole(
+    "button",
+    { name: "Copy type name Example.SecondOnly", exact: true },
+  )).toBeVisible();
 });
 
 test("ranked Analysis activation does not outlive newer metadata spelling", async ({
@@ -401,14 +786,14 @@ test("ranked Analysis activation does not outlive newer metadata spelling", asyn
 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
-    /"csharp","public"\]$/,
+    "data-implementation-type-member-population-request",
+    /"csharp","all"\]$/,
   );
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-spelling]").selectOption("metadata");
   await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
-    /"metadata","public"\]$/,
+    "data-implementation-type-member-population-request",
+    /"metadata","all"\]$/,
   );
 
   await releaseFacade(page, "finish-type-member-population");
@@ -452,8 +837,8 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
-    /"Example.Neighbor","csharp","public"\]$/,
+    "data-implementation-type-member-population-request",
+    /"Example.Neighbor","csharp","all"\]$/,
   );
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
@@ -463,14 +848,14 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
   ).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
-    /"Example.SecondNeighbor","csharp","public"\]$/,
+    /"Example.SecondNeighbor","csharp","all"\]$/,
   );
   await page.locator(
     '#type-list [data-type="asset:other:Example.Neighbor"]',
   ).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
-    /"Example.Neighbor","csharp","public"\]$/,
+    /"Example.Neighbor","csharp","all"\]$/,
   );
 
   await releaseFacade(page, "finish-type-member-population");
@@ -594,7 +979,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator(".library-analysis-surface footer")).toContainText(core.asset);
   await releaseFacade(page, "fixture-analysis-ready:asset:core");
-  await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(2);
+  await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(3);
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");

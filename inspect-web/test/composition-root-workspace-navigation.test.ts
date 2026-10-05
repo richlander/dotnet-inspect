@@ -384,7 +384,7 @@ test("shared member views use portable product identity and omit UI-local filter
     /tabs: state\.tabs,[\s\S]*contexts: state\.contexts,[\s\S]*view: state\.view/);
   assert.match(
     capture,
-    /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
+    /memberAnchor = memberOverload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor\s*\? null\s*: memberOverload\.canonicalSignature \|\| null/);
   assert.match(
     capture,
     /const library = selectedLibraryShareKey\(\);\s*const libraries =\s*workspaceSubjectOpen \|\| platformRoot \|\| packageSubjectOpen \|\| !library\s*\? \[\]\s*: \[library\]/);
@@ -393,10 +393,13 @@ test("shared member views use portable product identity and omit UI-local filter
     /!packageSubjectOpen\s*&& state\.libraryScope\s*&& state\.libraryScope\.size > 1[\s\S]*Select one library/);
   assert.match(
     capture,
-    /overload\.bodySelectors\.length > 1[\s\S]*accessor-specific section/);
+    /memberOverload\.bodySelectors\.length > 1[\s\S]*accessor-specific section/);
   assert.match(
     capture,
-    /overload\.graphOnly[\s\S]*Graph-discovered members cannot be shared/);
+    /const forwarder = structuralRootOpen \? null : selectedForwarder\(\)[\s\S]*const type = structuralRootOpen \|\| forwarder[\s\S]*const sharedType =\s*type\?\.definitionId[\s\S]*\?\? forwarder\?\.name[\s\S]*const surfaceMember = memberOverload[\s\S]*!candidate\.graphOnly[\s\S]*const declarationSource = sharedType[\s\S]*type\?\.graphOnly \|\| \(memberOverload && !surfaceMember\)/);
+  assert.match(
+    capture,
+    /const libraries =[\s\S]*\[library\][\s\S]*const declarationLibraryAsset = sharedType[\s\S]*forwarder[\s\S]*currentPlatformForwarderView\(\)\?\.surface\.defaultAssemblyId[\s\S]*: library/);
   assert.match(capture, /package: state\.rootKind === "platform" \? "" : state\.package\?\.id/);
   assert.doesNotMatch(capture, /memberTextFilter:/);
   assert.doesNotMatch(capture, /memberKindFilter:/);

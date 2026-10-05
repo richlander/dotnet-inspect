@@ -47,6 +47,40 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionEnum";
 
     [Fact]
+    public async Task
+        ImplementationPopulation_ReportsSurfaceDeclarationSourceForReferenceOnlyPackage()
+    {
+        string packageId =
+            $"Browser.Member.ReferenceOnly.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                Version,
+                ReferenceOnlyPackage(image),
+                fromCache: false));
+
+        BrowserTypeMemberPopulationInspection inspection =
+            TypeMemberPopulation(
+                await MetadataExports.QueryImplementationTypeMemberPopulation(
+                    packageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "csharp",
+                    "public"));
+
+        BrowserTypeMemberPopulation population =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                inspection.Population);
+        Assert.Equal(
+            BrowserTypeMemberDeclarationSource.Surface,
+            population.DeclarationSource);
+    }
+
+    [Fact]
     public async Task FailedSurfaceSelectionDoesNotMaterializeImplementation()
     {
         const string packageId = "Browser.Member.Surface.Rejection";
@@ -447,6 +481,9 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<BrowserTypeMemberPopulation>(
                 packagePopulation.Population);
         Assert.Equal(
+            BrowserTypeMemberDeclarationSource.Surface,
+            packageMembers.DeclarationSource);
+        Assert.Equal(
             packageMembers.Composition.Public,
             packageMembers.Groups.Sum(group => group.Members.Length));
         Assert.Equal(
@@ -536,6 +573,9 @@ public sealed class BrowserMemberDeclarationTests
         BrowserTypeMemberPopulation uploadedMembers =
             Assert.IsType<BrowserTypeMemberPopulation>(
                 uploadedPopulation.Population);
+        Assert.Equal(
+            BrowserTypeMemberDeclarationSource.Implementation,
+            uploadedMembers.DeclarationSource);
         BrowserTypeMemberPopulationGroup examine = Assert.Single(
             uploadedMembers.Groups,
             group => group.Name == "Examine");
@@ -1340,6 +1380,25 @@ public sealed class BrowserMemberDeclarationTests
                     .Open();
                 entry.Write(image);
             }
+        }
+
+        return content.ToArray();
+    }
+
+    static byte[] ReferenceOnlyPackage(byte[] image)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(
+            content,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive
+                .CreateEntry(
+                    $"ref/{Framework}/{AssemblyFileName}",
+                    CompressionLevel.NoCompression)
+                .Open();
+            entry.Write(image);
         }
 
         return content.ToArray();
