@@ -144,4 +144,58 @@ public sealed class NameFamilyRoleSectionTests
                 .GetProperty("result_kind")
                 .GetString());
     }
+
+    [Fact]
+    public async Task BothRoleRowScopes_AreRejectedVisibly()
+    {
+        (int exitCode, string _, string error) =
+            await ConsoleCapture.RunAsync(
+                () => LibraryCommand.ExecuteAsync(
+                    new LibraryOptions
+                    {
+                        AssemblyName = FixturePath,
+                        IncludeSections =
+                        [
+                            SectionNames.NameFamilyRoles,
+                            SectionNames.NameFamilyRoleTypes,
+                        ],
+                        Markdown = true,
+                    }));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "cannot be selected together",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "one row scope",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeRows_CanRenderWithAnUnrelatedSection()
+    {
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => LibraryCommand.ExecuteAsync(
+                    new LibraryOptions
+                    {
+                        AssemblyName = FixturePath,
+                        IncludeSections =
+                        [
+                            SectionNames.LibraryInfo,
+                            SectionNames.NameFamilyRoleTypes,
+                        ],
+                        Markdown = true,
+                    }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("## Library Info", output);
+        Assert.Contains("## Name Family Role Types", output);
+        Assert.Contains(
+            "`ILInspector.Research.NameFamilyFixtures.Validator`",
+            output);
+    }
 }

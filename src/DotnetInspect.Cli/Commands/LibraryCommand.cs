@@ -666,10 +666,21 @@ public partial class LibraryCommand
             IncludeSections =
                 familyRoleTypeSelection.Sections,
             NameFamilyRoleTypeRows =
-                IsExactSectionSelection(
-                    familyRoleTypeSelection.Sections,
-                    SectionNames.NameFamilyRoleTypes),
+                familyRoleTypeSelection.Sections?.Contains(
+                    SectionNames.NameFamilyRoleTypes)
+                == true,
         };
+        if (familyRoleTypeSelection.Sections is { } roleSections
+            && roleSections.Contains(SectionNames.NameFamilyRoles)
+            && roleSections.Contains(
+                SectionNames.NameFamilyRoleTypes))
+        {
+            CommandError.Write(
+                "Name Family Roles and Name Family Role Types cannot "
+                    + "be selected together because one family-role "
+                    + "query selects one row scope.");
+            return 1;
+        }
         var dependencyStructureSelection =
             SelectResolver.NormalizeExactOnlySection(
                 options.Select,

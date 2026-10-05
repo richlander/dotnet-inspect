@@ -953,6 +953,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Library_NameFamilyRoleRowScopesCannotCompete()
+    {
+        string fixture =
+            FixtureCatalog.ResearchNameFamilies.AssemblyPath();
+        var result = await RunAppAsync(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.NameFamilyRoles,
+            "-S",
+            SectionNames.NameFamilyRoleTypes);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot be selected together",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "one row scope",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Assembly_PlatformLibrary_ShowsInfo()
     {
         var options = new LibraryOptions { PlatformAssembly = "System.Text.Json" };
