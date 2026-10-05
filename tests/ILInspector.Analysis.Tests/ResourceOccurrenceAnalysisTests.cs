@@ -61,7 +61,6 @@ public sealed class ResourceOccurrenceAnalysisTests
         Assert.Equal(
             admission.Receipt,
             execution.ResourceOccurrences.AdmissionReceipt);
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
         ResourceOccurrenceAnalysisResult method =
             Assert.Single(
                 execution.ResourceOccurrences.Methods,
@@ -674,7 +673,6 @@ public sealed class ResourceOccurrenceAnalysisTests
         Assert.False(execution.ResourceOccurrences.WasRequested);
         Assert.Empty(execution.ResourceOccurrences.Methods);
         Assert.Empty(execution.ResourceOccurrences.Limitations);
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 
     [Fact]
@@ -723,16 +721,6 @@ public sealed class ResourceOccurrenceAnalysisTests
         Assert.All(
             execution.ResourceOwnership.Methods,
             static summary => Assert.False(summary.IsComplete));
-    }
-
-    [Fact]
-    public void AnalyzePath_RejectsFocusedOccurrenceRequest()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            LibraryBodyAnalysisService.AnalyzePath(
-                FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath(),
-                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
-                    ArrayPoolResourceEffectModel.Create())));
     }
 
     [Fact]

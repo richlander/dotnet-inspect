@@ -349,7 +349,6 @@ public sealed class LibraryBodyAnalysisExecution
 {
     private readonly string? _moduleName;
     private readonly LibraryBodyAnalysisResult _analysis;
-    private LibraryBodyIndex? _compatibilityIndex;
 
     internal LibraryBodyAnalysisExecution(
         string sourceName,
@@ -595,26 +594,6 @@ public sealed class LibraryBodyAnalysisExecution
     internal ImplementationMetricWorkBudgetSnapshot?
         ImplementationMetricWork =>
         _analysis.ImplementationMetricWork;
-
-    internal bool HasMaterializedCompatibilityIndex =>
-        _compatibilityIndex is not null;
-
-    /// <summary>
-    /// Creates the transitional <see cref="LibraryBodyIndex"/> adapter used by
-    /// consumers that have not yet migrated to focused results.
-    /// </summary>
-    public LibraryBodyIndex CompatibilityIndex() =>
-        _compatibilityIndex ??= new(
-            Receipt.SourceName,
-            Receipt.ModuleIdentity,
-            _analysis,
-            Receipt.Features,
-            Receipt.HasFullMethodEvidenceScope,
-            Optimization,
-            CallGraph,
-            ImplementationProfiles
-                .WithCompatibilityOverloadRelationships(
-                    CallGraph));
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>
