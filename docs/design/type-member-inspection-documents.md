@@ -90,11 +90,11 @@ host, determine the document:
 ```text
 exact Type
   -> TypeOverviewDocument
-       Type declaration
+       Type declaration, including Type generic parameters
        compact Member-group names, categories, Counts, and selectors
 
   -> TypeDocument
-       complete Type declaration
+       the same Type declaration
        every exact Member declaration and full signature
 
 MemberGroup
@@ -114,7 +114,7 @@ kind does not select another schema or permit a host to assemble one.
 
 ## Production demonstration
 
-The primary mixed-presentation witness is `System.Text.Json.JsonDocument`:
+The default CLI Type view is an overview:
 
 ```console
 $ dotnet-inspect type System.Text.Json.JsonDocument
@@ -124,25 +124,40 @@ sealed class System.Text.Json.JsonDocument
 ├─ Implements
 │  └─ System.IDisposable
 ├─ Properties (1)
-│  └─ System.Text.Json.JsonElement RootElement { get; }
+│  └─ RootElement
 ├─ Methods (6 logical, 10 overloads)
-│  ├─ void Dispose()
+│  ├─ Dispose
 │  ├─ Parse (5 overloads)
-│  ├─ System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)
-│  ├─ System.Text.Json.JsonDocument ParseValue(ref System.Text.Json.Utf8JsonReader reader)
-│  ├─ bool TryParseValue(ref System.Text.Json.Utf8JsonReader reader, out System.Text.Json.JsonDocument? document)
-│  └─ void WriteTo(System.Text.Json.Utf8JsonWriter writer)
+│  ├─ ParseAsync
+│  ├─ ParseValue
+│  ├─ TryParseValue
+│  └─ WriteTo
 └─ Extension Methods (1 logical, 5 overloads)
    └─ Deserialize (5 overloads)
 ```
 
-That CLI view consumes complete `TypeDocument`. The producer decodes every
-admitted exact Member declaration and full signature. Presentation then shows a
-singleton as the Member itself and collapses a multi-declaration group to its
-name and overload Count. It does not force the reader through a one-overload
-family link.
+That bare command is the implicit `-S Overview` query and consumes
+`TypeOverviewDocument`. The producer decodes the Type declaration and logical
+Member names, but not exact Member parameter lists or full Member signatures.
+Presentation shows a singleton as its Member-group name and a
+multi-declaration group as its name and overload Count. It does not force the
+reader through a one-overload family link.
 
-Inspect Web first paint consumes the cheaper overview:
+Type generic parameters are part of the Type declaration, not Member-signature
+work. A generic Type overview therefore retains a declaration such as
+`System.Collections.Generic.Dictionary<TKey, TValue>` even though its Member
+Rows still omit exact parameter lists.
+
+Complete exact declarations are a separate section query:
+
+```console
+dotnet-inspect type System.Text.Json.JsonDocument -S Complete
+```
+
+That query consumes `TypeDocument` and may print every exact Member signature.
+Changing `-v` never changes an Overview request into Complete work.
+
+Inspect Web first paint consumes the same overview:
 
 ```text
 TypeOverviewDocument(JsonDocument)
@@ -307,6 +322,14 @@ navigation. Its child Rows are lightweight Member-group shapes, not embedded
 `TypeDocument`, `MemberOverviewDocument`, or `MemberDocument` values. That
 declaration population contains only members physically owned by the Type.
 
+The overview's detached Type declaration signature retains each Type generic
+parameter's inert name, metadata index, attributes, and the declaring-name
+segment that introduces it. This lets hosts present exact Type shapes such as
+`Outer<T>.Inner<U>` without reopening Metadata or retaining the eager rich API
+surface. This is Type declaration decoding, not exact Member-signature
+decoding. Base/interface constraint type identities remain separate Metadata
+views rather than implicit overview population.
+
 One declared Member-group row binds a canonical name and member category to one
 non-empty exact declaration population. It may carry exact declaration Count,
 receiver forms, traits, and the typed activation identity required by the
@@ -332,19 +355,13 @@ declaration with its full signature and exact identity. It may support several
 host views without reopening Metadata or reconstructing identity from rendered
 text.
 
-The subject's detached declaration signature retains each generic parameter's
-inert name, metadata index, attributes, and the declaring-name segment that
-introduces it. This lets hosts present exact shapes such as
-`Outer<T>.Inner<U>` without reopening Metadata or retaining the eager rich API
-surface. Base/interface constraint type identities remain separate Metadata
-views rather than implicit Type-document population.
-
-The complete document retains the same exact Type subject, Member-group
-identity, ordering, spelling, accessibility, receiver, hidden admission, and
-population generation as `TypeOverviewDocument`. Complete Member declaration
-Rows are API declarations, not embedded `MemberDocument` values: documentation,
-source, metrics, and Analysis remain independently requested exact-subject
-attachments or operations.
+The complete document retains the same detached Type declaration signature,
+exact Type subject, Member-group identity, ordering, spelling, accessibility,
+receiver, hidden admission, and population generation as
+`TypeOverviewDocument`. Its additional work is complete exact Member
+declaration decoding. Those Rows are API declarations, not embedded
+`MemberDocument` values: documentation, source, metrics, and Analysis remain
+independently requested exact-subject attachments or operations.
 
 Receiver-targeted extensions are a separately requested contextual population,
 not declarations of the Type. A host may request declaration and extension
@@ -531,14 +548,15 @@ Conceptually:
 ```text
 TypeOverviewDocumentRequest
   exact Type subject
-  required Type declaration binding
+  required Type declaration binding and signature,
+    including the Type generic parameter list
   zero or more compact Member-group population requests
   typed singleton activation selectors
   aggregate work bounds
 
 TypeDocumentRequest
   exact Type subject
-  required Type declaration binding and signature
+  the same required Type declaration binding and signature
   subject documentation attachment request
   optional subject SourceHouse request
   complete exact Member declaration populations with full signatures
@@ -561,6 +579,23 @@ MemberDocumentRequest
   aggregate work bounds
 ```
 
+### CLI document section queries
+
+The exact-Type CLI exposes two document-level section queries:
+
+- `Overview` requests `TypeOverviewDocument` and is the default when no section
+  query is supplied;
+- `Complete` requests `TypeDocument` and is explicit-only.
+
+`-S Overview` is the explicit spelling of the default. `-S Complete` is the
+gesture that authorizes complete exact Member declaration and signature work.
+Verbosity controls presentation within the selected document; it never selects
+the document, promotes Overview to Complete, or makes Complete implicit.
+
+Focused section queries owned by another exact-Type surface remain independent.
+They request their named section directly rather than silently changing the
+document-level selection.
+
 The population requests are nested structural plans. One document may request:
 
 - Rows for a parent population;
@@ -579,7 +614,9 @@ does not execute work merely because one host commonly displays it. Selecting
 `TypeOverviewDocument` explicitly excludes complete Member-signature decoding;
 selecting `TypeDocument` explicitly requests it. The declaration identity and
 API signature required to establish a document subject are not an implicit
-request for every available Metadata view.
+request for every available Metadata view. Decoding the Type generic parameter
+list required to spell the Type declaration does not request any exact Member
+parameter list.
 
 ## QuerySpace is producer-directed
 
@@ -1356,9 +1393,16 @@ The implementation must preserve at least:
 - `TypeOverviewDocument(JsonDocument)` returns compact names, categories,
   Counts, traits, and activation identities without decoding exact Member
   display signatures;
+- a generic Type overview retains the Type generic parameter list required to
+  spell a declaration such as `Dictionary<TKey, TValue>` without decoding any
+  exact Member parameter list;
 - `TypeDocument(JsonDocument)` returns every exact declaration and full
-  signature; the CLI renders `void Dispose()` directly, renders
-  `Parse (5 overloads)`, and does not insert a one-overload chooser;
+  signature only for the explicit `Complete` section query;
+- the default CLI Type view consumes `TypeOverviewDocument`, renders `Dispose`
+  without a parameter list, renders `Parse (5 overloads)`, and does not insert
+  a one-overload chooser;
+- changing CLI verbosity does not change the selected Overview or Complete
+  document;
 - the singleton `Dispose` overview row opens its exact `MemberDocument`
   directly, while the five-declaration `Parse` row opens
   `MemberOverviewDocument`;
@@ -1433,11 +1477,13 @@ owns the revised counted path:
    the `accessibility` projection, and Composition Count.
 8. Implement `TypeOverviewDocument` over that population without the eager
    rich exact-Type/API-surface path.
-9. Bind Inspect Web first paint and Count/compact host gestures to
+9. Bind Inspect Web first paint, the default and explicit `Overview` CLI Type
+   section queries, and Count/compact host gestures to
    `TypeOverviewDocument`.
 10. Implement complete `TypeDocument` with every admitted exact Member
-    declaration and full signature, then bind the rich CLI Type Tree and any
-    Browser view that requests complete declarations to that route.
+    declaration and full signature, then bind the explicit CLI `Complete`
+    section query and any explicitly complete Browser declaration view to that
+    route.
 11. Compose independently scoped Type-subject DocumentationHouse and
     SourceHouse attachments.
 12. Amend #8445 and its implementation path to the exact-Member, non-population
@@ -1486,26 +1532,25 @@ independently typed without discarding the available Type subject. Its current
 implementation name `TypeDocument` is transitional; its work contract is
 `TypeOverviewDocument`.
 
-Step 9 binds Inspect Web declaration first paint and compact Count gestures to
-the shared overview route. Inspect Web projects the same document envelope
-mechanically into its independently typed subject and declaration outcomes,
-compact group rows, composition Counts, selector Counts, Share, and
-diagnostics. The overview embeds no exact Member signatures. A singleton row
-uses its owner-issued selector to open `MemberDocument` directly; an overloaded
-row opens `MemberOverviewDocument`. TypeScript does not regroup or count exact
-declarations. Attached and workspace-wide contextual extensions remain
-independent and are not awaited by the declared result; #9183 owns their
-replacement population. The superseded Browser Type-member population exports
-are removed.
+Step 9 binds Inspect Web declaration first paint, the default CLI Type view,
+its explicit `Overview` section spelling, and compact Count gestures to the
+shared overview route. Both hosts consume the same detached Type declaration,
+including its Type generic parameter list, and the same compact group rows,
+composition Counts, selector Counts, Share, and diagnostics. The overview
+embeds no exact Member parameter lists or full signatures. A singleton row uses
+its owner-issued selector to open `MemberDocument` directly; an overloaded row
+opens `MemberOverviewDocument`. Hosts do not regroup, count, opportunistically
+enrich, or reconstruct exact declarations. Attached and workspace-wide
+contextual extensions remain independent and are not awaited by the declared
+result; #9183 owns their replacement population. The superseded host-local
+Type-member population paths are removed.
 
-The rich CLI Type Tree belongs to step 10 because its conventional mixed
-presentation displays full signatures for singleton Members and overload
-Counts for families. It consumes complete `TypeDocument`; it does not
-opportunistically enrich overview rows or reconstruct signatures in the host.
-An explicitly compact or Count-only CLI gesture may consume
-`TypeOverviewDocument`. Accepted NativeAOT before/after evidence is required
-for each supported overview or complete terminal before its adoption makes a
-performance-success claim.
+Step 10 serves the explicit CLI `Complete` section query and any other
+explicitly complete declaration view. It is not selected by verbosity and is
+not required by the default CLI Type overview merely because that presentation
+includes the Type's generic parameter list. Accepted NativeAOT before/after
+evidence is required for each supported overview or complete terminal before
+its adoption makes a performance-success claim.
 
 ## Required evidence
 
@@ -1524,12 +1569,18 @@ The implementation sequence must add Release gates proving:
 - `TypeOverviewDocument` constructs no exact Member display signatures, while
   a singleton row retains an owner-issued exact selector and a
   multi-declaration row retains its MemberGroup identity;
+- `TypeOverviewDocument` preserves the Type generic parameter names and
+  declaring-name segments required for exact Type declaration spelling without
+  constructing exact Member parameter lists;
 - `TypeDocument` returns every admitted exact Member declaration with its full
   signature and the same group membership, order, Counts, and population
   identity as `TypeOverviewDocument`;
-- the rich CLI Type Tree consumes `TypeDocument`, renders singleton signatures,
-  and collapses multi-declaration families to names and overload Counts without
-  discarding producer work required by another complete view;
+- the default CLI Type view consumes `TypeOverviewDocument`, renders singleton
+  Member-group names without parameter lists, and collapses
+  multi-declaration families to names and overload Counts;
+- explicit `-S Overview` selects the same document work as the bare CLI Type
+  view, `-S Complete` alone selects complete exact declarations, and every
+  verbosity leaves that document selection unchanged;
 - Inspect Web first paint consumes `TypeOverviewDocument`, opens a singleton
   `MemberDocument` directly, and opens `MemberOverviewDocument` only for a
   multi-declaration family;

@@ -134,8 +134,10 @@ resolves `System.Text.Json` as a Library and requests Type rows. Its semantic
 result is a `LibraryDocument` containing a bounded Type population, even
 though the convenience command is named `type`.
 
-Likewise, a compact request for the logical members of one exact Type returns a
-`TypeOverviewDocument`; a complete declaration request returns `TypeDocument`
+Likewise, a compact request for one exact Type and its logical members returns a
+`TypeOverviewDocument`. Its Type declaration includes the Type generic
+parameter list, while its Member-group Rows omit exact Member parameter lists
+and full signatures. A complete declaration request returns `TypeDocument`
 with every exact Member signature. An overloaded family returns
 `MemberOverviewDocument`, while one exact declaration returns
 `MemberDocument`.

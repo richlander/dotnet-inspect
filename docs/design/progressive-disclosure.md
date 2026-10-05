@@ -143,14 +143,19 @@ omitted from the generic bounded `-v:n` preset, and return at `-v:d`. Exact
 section selection and explicit `@Surface` selection retain the complete
 inventories.
 
-For broad exact-type `@Member` output, the authored `Info` inventories remain
-visible at `-v:m` even when their measured size is `Verbose`: Values,
-Interfaces, Constructors, Fields, Properties, Method Groups, Operators,
-Explicit Interface Implementations, Extension Methods, and Events. Generic
-`-v:n` omits those inventories and the non-`Info` Methods inventory, while
-`-v:d` restores them. Type Parameters remains at `-v:n` as `Informative`.
-Baseclass and Finalizer are `Fixed`; when applicable they participate in the
-broad fixed overview, while Type Info remains exact-selection-only.
+An exact-Type document has two document-level section queries. `Overview`
+requests `TypeOverviewDocument` and is the default for a bare exact-Type
+command; `Complete` requests `TypeDocument` and is explicit-only. `-S Overview`
+is the explicit spelling of the default, while `-S Complete` is the gesture
+that authorizes every exact Member declaration and full signature. Verbosity
+may alter presentation within the selected document, but it never switches
+between Overview and Complete.
+
+The existing focused exact-Type sections remain independently selectable.
+Values, Interfaces, Constructors, Fields, Properties, Method Groups, Methods,
+Operators, Explicit Interface Implementations, Extension Methods, Events, Type
+Parameters, Baseclass, Finalizer, and Type Info request their named surface;
+they do not silently promote the document-level Overview to Complete.
 
 For the named-member overload route, Methods remains the authored `-v:m`
 inventory, is omitted from generic `-v:n`, and returns at `-v:d`. The shared

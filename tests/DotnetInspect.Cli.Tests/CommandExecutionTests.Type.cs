@@ -533,6 +533,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_SingleType_OverviewKeepsTypeGenericParametersWithoutMemberParameters()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "DiffAnalysis",
+            "10.0.0",
+            "System.Text.Json.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.Serialization.JsonConverter<T>",
+            "--library",
+            path,
+            "--tree");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "class System.Text.Json.Serialization.JsonConverter<T>",
+            output);
+        Assert.Contains("Read", output);
+        Assert.DoesNotContain("Read(", output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_NormalVerbosity_StaysShapeAndExpandsOverloads()
     {
         var (exit, output, error) = await RunAppAsync(

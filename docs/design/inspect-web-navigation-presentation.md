@@ -855,11 +855,12 @@ already carries the kind.
 
 - Opening a Type requests its declared Member-group inventory through the
   shared `TypeOverviewDocument` route and paints that result independently of
-  contextual extension discovery. The compact result carries names,
-  categories, receiver forms, exact declaration Counts, and typed activation
-  identities; it does not decode or embed exact Member display signatures.
-  Workspace-wide inherited and extension populations remain the separate
-  #9183 adoption.
+  contextual extension discovery. The compact result carries the Type
+  declaration spelling, including its Type generic parameter list, plus Member
+  names, categories, receiver forms, exact declaration Counts, and typed
+  activation identities. It does not decode or embed exact Member parameter
+  lists or full display signatures. Workspace-wide inherited and extension
+  populations remain the separate #9183 adoption.
 - A Type row shows its display name and its member count.
 - A single-member overview row shows its truthful Member name and direct
   activation affordance. It does not opportunistically borrow a signature from
