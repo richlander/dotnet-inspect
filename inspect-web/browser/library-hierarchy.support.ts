@@ -1844,55 +1844,101 @@ async function installFacades(
           typeDefinitionId: selectedType.definitionId,
           typeDisplay: selectedType.displayName,
           designationEligible: true,
-          signatureIncomingDegree: 3,
-          signatureOutgoingDegree: 0,
+          incomingDegree: 3,
+          outgoingDegree: 0,
           role: "foundation",
           pole: selected.id === "asset:other"
             ? "MountainPeak"
             : "SeaLevel"
         }] : [];
+        const implementationTypes = types.map(item => ({
+          ...item,
+          incomingDegree: 5,
+          outgoingDegree: 1,
+          role: "foundation",
+          pole: "SeaLevel"
+        }));
         return {
-          schemaVersion: 1,
-          outcome: "available",
-          methodologyVersion: "structural-salience.v3",
-          evidenceMode: "signature",
-          namespaceIndex: {
-            disposition: qualified ? "partial" : "complete",
-            coverage: {
-              considered: 1,
-              examined: qualified ? 0 : 1,
-              unavailable: qualified ? 1 : 0,
-              limited: 0
+          schemaVersion: 2,
+          surface: {
+            outcome: "available",
+            methodologyVersion: "structural-salience.v3",
+            evidenceMode: "signature",
+            namespaceIndex: {
+              disposition: qualified ? "partial" : "complete",
+              coverage: {
+                considered: 1,
+                examined: qualified ? 0 : 1,
+                unavailable: qualified ? 1 : 0,
+                limited: 0
+              },
+              namespaces: [{
+                namespace: exactNamespace,
+                typeCount: surface.types.filter(
+                  item => item.assemblyId === selected.id
+                    && item.namespace === exactNamespace).length,
+                externalIncomingSourceTypeCount: 1,
+                topLeverage: true
+              }],
+              diagnostics: qualified ? ["One signature was unavailable."] : []
             },
-            namespaces: [{
+            typeLeverageShards: [{
               namespace: exactNamespace,
-              typeCount: surface.types.filter(
-                item => item.assemblyId === selected.id
-                  && item.namespace === exactNamespace).length,
-              externalIncomingSourceTypeCount: 1,
-              topLeverage: true
+              disposition: qualified ? "partial" : "complete",
+              signatureCoverage: {
+                considered: 1,
+                examined: qualified ? 0 : 1,
+                unavailable: qualified ? 1 : 0,
+                limited: 0
+              },
+              bodyCoverage: null,
+              types,
+              seaLevelOrder: types
+                .filter(item => item.pole === "SeaLevel")
+                .map(item => item.typeDefinitionId),
+              mountainPeakOrder: types
+                .filter(item => item.pole === "MountainPeak")
+                .map(item => item.typeDefinitionId),
+              diagnostics: qualified ? ["One signature was unavailable."] : []
             }],
-            diagnostics: qualified ? ["One signature was unavailable."] : []
+            failure: null,
+            failureKind: null
           },
-          typeLeverageShards: [{
-            namespace: exactNamespace,
-            disposition: qualified ? "partial" : "complete",
-            coverage: {
-              considered: 1,
-              examined: qualified ? 0 : 1,
-              unavailable: qualified ? 1 : 0,
-              limited: 0
-            },
-            types,
-            seaLevelOrder: types
-              .filter(item => item.pole === "SeaLevel")
-              .map(item => item.typeDefinitionId),
-            mountainPeakOrder: types
-              .filter(item => item.pole === "MountainPeak")
-              .map(item => item.typeDefinitionId),
-            diagnostics: qualified ? ["One signature was unavailable."] : []
-          }],
-          failure: null,
+          implementation: {
+            outcome: "available",
+            methodologyVersion: "structural-salience.v3",
+            evidenceMode: "body-use",
+            namespaceIndex: null,
+            typeLeverageShards: [{
+              namespace: exactNamespace,
+              disposition: qualified ? "qualified" : "complete",
+              signatureCoverage: {
+                considered: 1,
+                examined: qualified ? 0 : 1,
+                unavailable: qualified ? 1 : 0,
+                limited: 0
+              },
+              bodyCoverage: {
+                bodiesConsidered: 2,
+                bodiesExamined: qualified ? 1 : 2,
+                bodiesPhysicalOnly: 0,
+                bodiesUnavailable: qualified ? 1 : 0,
+                bodiesLimited: 0,
+                operandsConsidered: 3,
+                operandsExamined: qualified ? 2 : 3,
+                operandsUnavailable: qualified ? 1 : 0,
+                operandsLimited: 0
+              },
+              types: implementationTypes,
+              seaLevelOrder: implementationTypes.map(
+                item => item.typeDefinitionId),
+              mountainPeakOrder: implementationTypes.map(
+                item => item.typeDefinitionId),
+              diagnostics: qualified ? ["One body was unavailable."] : []
+            }],
+            failure: null,
+            failureKind: null
+          },
           compileLibrary: surface.compileLibrary
         };
       }

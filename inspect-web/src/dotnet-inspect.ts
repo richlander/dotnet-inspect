@@ -5255,9 +5255,10 @@ function createTypeLeverageTarget(
     const row = platformLibraryForRequest(pkg, library.id);
     const assemblyFileName = platformAssemblyRequest(row);
     const salienceLibraryKey = JSON.stringify([
-      "library-structural-salience",
+      "library-type-leverage",
+      2,
       "structural-salience.v3",
-      "signature",
+      "signature+body-use",
       generation,
       "platform",
       pkg.activeFramework,
@@ -5280,9 +5281,10 @@ function createTypeLeverageTarget(
   }
 
   const salienceLibraryKey = JSON.stringify([
-    "library-structural-salience",
+    "library-type-leverage",
+    2,
     "structural-salience.v3",
-    "signature",
+    "signature+body-use",
     generation,
     "package",
     pkg.id,
@@ -6458,19 +6460,17 @@ function typeLeverageStatus() {
   const qualified = currentTypeLeveragePresentations().filter(
     ({ presentation }) =>
       presentation.disposition.toLowerCase() !== "complete"
-      || presentation.diagnostics.length > 0,
+      || presentation.diagnostics.length > 0
+      || presentation.warnings.length > 0,
   );
   if (qualified.length === 0) return "";
   const diagnostics = qualified.flatMap(
-    ({ presentation }) => presentation.diagnostics);
-  const examined = qualified.reduce(
-    (sum, { presentation }) => sum + presentation.coverage.examined,
-    0);
-  const considered = qualified.reduce(
-    (sum, { presentation }) => sum + presentation.coverage.considered,
-    0);
+    ({ presentation }) => [
+      ...presentation.warnings,
+      ...presentation.diagnostics,
+    ]);
   return `<div class="metadata-warning" aria-live="polite">
-    <small>Structural salience has qualified evidence · ${examined}/${considered} examined${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
+    <small>Structural salience has qualified evidence${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
     <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
   </div>`;
 }
@@ -10060,13 +10060,12 @@ function renderTypeNavPane(
     itemAchievements: (item: TypeInventoryRow) => {
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
-      const leverage = presentation?.byType.get(
-        item.definitionId ?? item.id,
-      );
       const achievements: ItemAchievement[] = [];
-      if (leverage) {
+      for (const leverage of presentation?.byType.get(
+        item.definitionId ?? item.id,
+      ) ?? []) {
         achievements.push({
-          kind: leverage.pole,
+          kind: `${leverage.evidenceMode}-${leverage.pole}`,
           description: leverage.description,
         });
       }
