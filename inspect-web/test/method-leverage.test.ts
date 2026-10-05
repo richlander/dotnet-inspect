@@ -27,6 +27,8 @@ const request: PackageTypeMethodLeverageRequest = {
 function available(
   anchoredWinners: ReadonlyArray<BrowserTypeMethodLeverageWinner> = [{
       typeDefinitionId: request.typeDefinitionId,
+      memberKind: "method",
+      memberName: "HiddenWinner",
       stableSelector: "HiddenWinner~1234567890",
       methodTokens: [0x06000003],
     }],
@@ -102,6 +104,12 @@ test("method leverage projects exact anchors without visible fallback", () => {
     )?.description ?? "",
     /Top Leverage; 3 direct callers; 4 roots/,
   );
+  assert.match(
+    presentation.byMemberGroup.get(
+      "method:HiddenWinner",
+    )?.description ?? "",
+    /Top Leverage; 3 direct callers; 4 roots/,
+  );
   assert.equal(
     presentation.byStableSelector.has("PublicRunnerUp~0987654321"),
     false,
@@ -112,6 +120,8 @@ test("method leverage counts tied accessors by winning method token", () => {
   const presentation = projectTypeMethodLeverage(
     available([{
       typeDefinitionId: request.typeDefinitionId,
+      memberKind: "property",
+      memberName: "Value",
       stableSelector: "Value~1234567890",
       methodTokens: [0x06000003, 0x06000004],
     }]),
@@ -128,11 +138,15 @@ test("method leverage rejects duplicate winner correspondence", () => {
       available([
         {
           typeDefinitionId: request.typeDefinitionId,
+          memberKind: "method",
+          memberName: "Winner",
           stableSelector: "Winner~1234567890",
           methodTokens: [0x06000001],
         },
         {
           typeDefinitionId: request.typeDefinitionId,
+          memberKind: "method",
+          memberName: "Winner",
           stableSelector: "Winner~1234567890",
           methodTokens: [0x06000002],
         },

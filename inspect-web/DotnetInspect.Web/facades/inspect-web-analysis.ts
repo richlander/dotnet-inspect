@@ -847,6 +847,8 @@ export interface BrowserTypeMethodLeverageRank {
 
 export interface BrowserTypeMethodLeverageWinner {
   readonly typeDefinitionId: string;
+  readonly memberKind: string;
+  readonly memberName: string;
   readonly stableSelector: string;
   readonly methodTokens: ReadonlyArray<number>;
 }
@@ -1334,4 +1336,3 @@ export async function queryPlatformTypeMethodLeverage(targetFramework: string, p
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMethodLeverage;
 }
-

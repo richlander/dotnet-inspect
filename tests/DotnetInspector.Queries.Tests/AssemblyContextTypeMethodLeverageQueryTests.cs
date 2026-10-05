@@ -100,6 +100,8 @@ public sealed class AssemblyContextTypeMethodLeverageQueryTests
         TypeMethodLeverageWinner winner =
             Assert.Single(result.AnchoredWinners);
         Assert.Equal(typeDefinitionId, winner.TypeDefinitionId);
+        Assert.Equal("method", winner.MemberKind);
+        Assert.Equal("VerifyMutable", winner.MemberName);
         Assert.Equal(
             ApiMemberIdentity.GetMemberAnchor(type, verifyMutable)
                 .StableSelector,

@@ -19,6 +19,8 @@ public sealed record TypeMethodLeverageRank(
 /// </summary>
 public sealed record TypeMethodLeverageWinner(
     string TypeDefinitionId,
+    string MemberKind,
+    string MemberName,
     string StableSelector,
     ImmutableArray<int> MethodTokens);
 
@@ -235,6 +237,8 @@ public static class AssemblyContextTypeMethodLeverageQuery
                 .OrderBy(group => group.Key, StringComparer.Ordinal)
                 .Select(group => new TypeMethodLeverageWinner(
                     typeDefinitionId,
+                    group.First().Member.Kind,
+                    group.First().Member.Name,
                     group.Key,
                     [
                         .. group.Select(item => item.Token)
@@ -275,6 +279,8 @@ public static class AssemblyContextTypeMethodLeverageQuery
             if (member.MetadataToken is { } memberToken)
                 typeTokens.Add(memberToken);
             var selectedMember = new SelectedMember(
+                member.Kind == "extension-method" ? "method" : member.Kind,
+                member.Name,
                 ApiMemberIdentity.GetMemberAnchor(type, member)
                     .StableSelector);
             foreach (int bodyToken
@@ -318,5 +324,8 @@ public static class AssemblyContextTypeMethodLeverageQuery
             MembersByBodyToken,
         ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures);
 
-    sealed record SelectedMember(string StableSelector);
+    sealed record SelectedMember(
+        string Kind,
+        string Name,
+        string StableSelector);
 }

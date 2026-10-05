@@ -102,6 +102,8 @@ internal static partial class BrowserImplementationProfileWireProjection
                     static winner =>
                         new BrowserTypeMethodLeverageWinner(
                             winner.TypeDefinitionId,
+                            winner.MemberKind,
+                            winner.MemberName,
                             winner.StableSelector,
                             [.. winner.MethodTokens])),
             ],

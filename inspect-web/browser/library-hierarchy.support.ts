@@ -1374,27 +1374,20 @@ async function installFacades(
           if (value.includes("internal")) return "internal";
           return "private";
         }
-        function populationMember(member) {
-          if (spelling !== "csharp") return member;
-          const memberAccessibility = member.accessibility || "public";
-          if (member.signature.startsWith(memberAccessibility + " ")) {
-            return member;
-          }
-          const receiver = member.isExtension
-            ? "extension "
-            : member.isStatic ? "static " : "";
-          return {
-            ...member,
-            signature: memberAccessibility + " " + receiver + member.signature,
-          };
-        }
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         if (!type) {
           return {
             outcome: "Rejected",
             detail: "The exact Type was not found.",
-            population: null,
+            document: null,
+            share: {
+              kind: "NonProjectable",
+              fullUrl: null,
+              packet: null,
+              path: "type-document/fixture",
+              reason: "Fixture projection.",
+            },
             diagnostics: [],
           };
         }
@@ -1429,6 +1422,8 @@ async function installFacades(
           if (member.isExtension) composition.extension++;
           else if (member.isStatic) composition.static++;
           else composition.this++;
+        }
+        for (const member of selectedMembers) {
           const key = member.kind + ":" + member.name;
           completeCounts.set(key, (completeCounts.get(key) ?? 0) + 1);
         }
@@ -1457,36 +1452,55 @@ async function installFacades(
             key,
             name: member.name,
             kind: member.kind,
+            baselineOrdinal: groups.size + 1,
+            receivers: [],
             completeCount: completeCounts.get(key) ?? 0,
-            members: [],
           };
-          group.members.push({
-            ...populationMember(member),
-            baselineOrdinal: null,
-          });
+          const receiver = member.isExtension
+            ? "extension"
+            : member.isStatic ? "static" : "this";
+          if (!group.receivers.includes(receiver)) {
+            group.receivers.push(receiver);
+          }
           groups.set(key, group);
         }
-        for (const group of groups.values()) {
-          const hasExactSelectors =
-            accessibility === "public"
-            && group.kind === "method"
-            && group.members.every(member =>
-              member.metadataAccessor !== true);
-          if (!hasExactSelectors) continue;
-          group.members.forEach((member, index) => {
-            member.baselineOrdinal = index + 1;
-          });
-        }
+        const category = {
+          class: "Class",
+          interface: "Interface",
+          struct: "Struct",
+          enum: "Enum",
+          delegate: "Delegate",
+        }[type.kind] ?? "Class";
         return {
           outcome: "Available",
           detail: null,
-          population: {
+          document: {
             typeIdentity: type.queryId,
-            spelling,
-            accessibility,
-            composition,
-            selectorCounts,
-            groups: [...groups.values()],
+            typeDefinitionToken:
+              0x02000000 + surface.types.indexOf(type) + 1,
+            category,
+            isByRefLike:
+              type.traitFacetIds?.includes("api.type-trait.by-ref-like")
+                ?? false,
+            genericParameters: [],
+            declarations: {
+              outcome: "Available",
+              detail: null,
+              population: {
+                spelling,
+                accessibility,
+                composition,
+                selectorCounts,
+                groups: [...groups.values()],
+              },
+            },
+          },
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "type-document/fixture",
+            reason: "Fixture projection.",
           },
           diagnostics: [],
         };
@@ -1659,6 +1673,7 @@ async function installFacades(
         const overloads = type?.api.filter(member =>
           member.kind === "method"
           && member.name === memberName
+          && member.accessibility === "public"
           && member.metadataAccessor !== true
           && !member.graphOnly) ?? [];
         if (!type || overloads.length === 0) {
@@ -1679,7 +1694,7 @@ async function installFacades(
             rows: overloads.map((member, index) => ({
               metadataToken: member.metadataToken ?? 0,
               baselineOrdinal: index + 1,
-              displaySignature: member.signature,
+              displaySignature: memberDisplaySignature(member),
               canonicalSignature: member.canonicalSignature,
               fingerprint: member.anchorDigest,
               accessibility: member.accessibility,

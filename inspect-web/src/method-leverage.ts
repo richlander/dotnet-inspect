@@ -45,6 +45,7 @@ export interface MethodLeverageCue {
 
 export interface TypeMethodLeveragePresentation {
   readonly byStableSelector: ReadonlyMap<string, MethodLeverageCue>;
+  readonly byMemberGroup: ReadonlyMap<string, MethodLeverageCue>;
   readonly methodCount: number;
   readonly winnerCount: number;
   readonly anchoredWinnerCount: number;
@@ -96,6 +97,10 @@ function leverageDescription(
     `fanout ${rank.fanout}`,
     plural(rank.loopCallCount, "loop call"),
   ].join("; ");
+}
+
+function memberGroupKey(kind: string, name: string): string {
+  return `${kind}:${name}`;
 }
 
 export function typeMethodLeverageCacheKey(
@@ -155,6 +160,8 @@ function validateAvailable(
   const methodTokens = new Set<number>();
   for (const winner of content.anchoredWinners) {
     if (winner.typeDefinitionId !== request.typeDefinitionId
+      || winner.memberKind.length === 0
+      || winner.memberName.length === 0
       || winner.stableSelector.length === 0
       || winner.methodTokens.length === 0
       || selectors.has(winner.stableSelector)) {
@@ -221,6 +228,12 @@ export function projectTypeMethodLeverage(
         { description },
       ]),
     ),
+    byMemberGroup: new Map(
+      result.content.anchoredWinners.map(winner => [
+        memberGroupKey(winner.memberKind, winner.memberName),
+        { description },
+      ]),
+    ),
     methodCount: result.content.methodCount,
     winnerCount: result.content.winnerCount,
     anchoredWinnerCount: result.content.anchoredWinners.length,
@@ -266,6 +279,17 @@ export function methodLeverageFor(
 ): MethodLeverageCue | null {
   return state.status === "ready" && stableSelector
     ? state.presentation.byStableSelector.get(stableSelector) ?? null
+    : null;
+}
+
+export function methodLeverageForGroup(
+  state: TypeMethodLeverageState,
+  memberKind: string,
+  memberName: string,
+): MethodLeverageCue | null {
+  return state.status === "ready"
+    ? state.presentation.byMemberGroup.get(
+        memberGroupKey(memberKind, memberName)) ?? null
     : null;
 }
 

@@ -160,31 +160,16 @@ test("Type heat paints the member list without an Implementation section", async
   const privateRun = page.locator("[data-nav-member]")
     .filter({ hasText: "Run" });
   await privateRun.click();
-  await expect(privateRun.locator(".family-heat-cue.progress"))
-    .toHaveText("measuring");
+  await expect(privateRun.locator(".family-heat-cue")).toHaveCount(0);
 
   await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
   await expect(privateRun.locator(".family-heat-cue")).toHaveCount(0);
   const rows = page.locator(".overload-nav-row");
-  await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
-  await expect(rows.nth(0)).toHaveAttribute(
-    "aria-description",
-    "70 instructions; 71% of the largest body in this family, which is not a listed overload",
-  );
-  await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
-  await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
-  await expect(
-    rows.nth(1).locator(".item-achievement-glyph.implementation-hub"),
-  ).toHaveCount(1);
-  await expect(rows.nth(1).locator(".item-achievement-rail"))
-    .toHaveAttribute("aria-label", "implementation hub");
-  await expect(
-    rows.nth(0).locator(".item-achievement-glyph.implementation-hub"),
-  ).toHaveCount(0);
-  await expect(rows.locator(".overload-size")).toHaveCount(0);
+  await expect(rows).toHaveCount(0);
+  await expect(page.locator(".member-surface"))
+    .toContainText("Exact overload detail is unavailable");
 
-  // Public and private populations reuse one Type record.
+  // Public declarations reuse the Type heat record and expose exact rows.
   await selectMemberAccessibility(page, "public");
   const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
   await runFamily.click();
@@ -196,6 +181,7 @@ test("Type heat paints the member list without an Implementation section", async
     "98 instructions; 100% of the largest body in this family",
   );
   await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
+  await expect(rows.locator(".overload-size")).toHaveCount(0);
 
   const compute = page.locator("[data-nav-member]")
     .filter({ hasText: "Compute" });
@@ -243,6 +229,5 @@ test("non-public-only families do not inherit Type heat failure", async ({
 
   const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
   await runFamily.click();
-  await expect(runFamily.locator(".family-heat-cue.problem"))
-    .toHaveText("heat unavailable");
+  await expect(runFamily.locator(".family-heat-cue")).toHaveCount(0);
 });

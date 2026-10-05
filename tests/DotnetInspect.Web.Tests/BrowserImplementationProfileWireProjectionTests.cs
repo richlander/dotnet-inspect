@@ -549,11 +549,15 @@ public sealed class BrowserImplementationProfileWireProjectionTests
             expected.AnchoredWinners.Select(
                 winner => (
                     winner.TypeDefinitionId,
+                    winner.MemberKind,
+                    winner.MemberName,
                     winner.StableSelector,
                     Tokens: string.Join(",", winner.MethodTokens))),
             projected.AnchoredWinners.Select(
                 winner => (
                     winner.TypeDefinitionId,
+                    winner.MemberKind,
+                    winner.MemberName,
                     winner.StableSelector,
                     Tokens: string.Join(",", winner.MethodTokens))));
 

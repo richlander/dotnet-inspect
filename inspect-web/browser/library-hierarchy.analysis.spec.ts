@@ -284,9 +284,18 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
     .toContainText("method · 1 of 1");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(0);
-  expect(await page.locator("html").getAttribute(
-    "data-member-group-document-request",
-  )).toBeNull();
+  expect(JSON.parse(
+    await page.locator("html").getAttribute(
+      "data-member-group-document-request",
+    ) ?? "null",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    "Example.Core.dll",
+    "Example.Widget",
+    "Run",
+  ]);
   await expect(page.locator("#inspector-panel")).toContainText(
     "Runs the widget.");
 });
@@ -507,9 +516,18 @@ test("different family navigation leaves exact Facts for the shared document", a
     .toContainText("2 overloads");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(2);
-  expect(await page.locator("html").getAttribute(
-    "data-member-group-document-request",
-  )).toBeNull();
+  expect(JSON.parse(
+    await page.locator("html").getAttribute(
+      "data-member-group-document-request",
+    ) ?? "null",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    "Example.Core.dll",
+    "Example.Widget",
+    "Stop",
+  ]);
 
   await page.locator(".member-surface-list .overload-row").first().click();
   await page.keyboard.press("Backspace");

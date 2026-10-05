@@ -308,7 +308,7 @@ test("compact summary groups filter before exact declarations load", () => {
     completeCount: 3,
     sourceOverloadCount: 3,
     detailsPending: true,
-    receivers: ["Static"],
+    receivers: ["static"],
   };
 
   assert.equal(memberGroupMatches(summary, {

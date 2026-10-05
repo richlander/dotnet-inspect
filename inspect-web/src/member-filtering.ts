@@ -140,12 +140,12 @@ function groupMatchesSummaryTrait(
     case "":
       return true;
     case "static":
-      return receivers.includes("Static")
-        && !receivers.includes("Extension");
+      return receivers.includes("static")
+        && !receivers.includes("extension");
     case "instance":
-      return receivers.includes("This");
+      return receivers.includes("this");
     case "extensions":
-      return receivers.includes("Extension");
+      return receivers.includes("extension");
     case "virtual":
     case "interface":
       return false;

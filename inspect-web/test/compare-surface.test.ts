@@ -149,9 +149,18 @@ test("the app retains Compare mode per Package and reconciles both modes from re
   const activateMember = appSource.match(/function activateCompareMember\([\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(
     activateMember,
-    /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,\s*match\.overloadIndex,\s*null,\s*"compare"\);/);
-  assert.match(activateMember, /overload\.anchorDigest !== memberFingerprint/);
+    /type\.api\.filter\(\s*member => member\.anchorDigest === memberFingerprint\)/);
+  assert.match(
+    activateMember,
+    /selectCompareMember\(\s*matches\[0\]!,\s*expectedView,\s*type\.id,\s*memberFingerprint\)/);
+  const selectMember =
+    appSource.match(/async function selectCompareMember\([\s\S]*?\n\}/)?.[0]
+    ?? "";
+  assert.match(
+    selectMember,
+    /await loadSelectedTypeMemberPopulation\(\);[\s\S]*group\.name === targetMember\.name[\s\S]*await loadSelectedMemberGroupDocument\(\);[\s\S]*overload\.anchorDigest === memberFingerprint[\s\S]*navigateToMember\(\s*currentSubject\.pkg,\s*type,\s*group,\s*overloadIndex,\s*null,\s*"compare"\);/);
   assert.doesNotMatch(activateMember, /textContent|innerText|display/);
+  assert.doesNotMatch(selectMember, /textContent|innerText|display/);
   // Change target returns to Package Overview's Comparison targets work area.
   assert.match(appSource, /const control = currentCompareMode\(\) === "clone"\s*\? "#package-clone-target"\s*: "#package-diff-target";/);
 });

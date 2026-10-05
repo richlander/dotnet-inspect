@@ -1029,7 +1029,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     overview,
-    /const member = selectedMember\(selectedType\(\)\)[\s\S]*!member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*member\.overloads\.length === 0[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /const member = selectedMember\(selectedType\(\)\)[\s\S]*!member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*member\.overloads\.length === 0[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*loadSelectedMemberGroupAndSelectSingleton\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
