@@ -36,9 +36,9 @@ public sealed class NameFamilyRow
 }
 
 [MarkoutSerializable]
-public sealed class NameFamilyRoleRow
+public sealed class ArchitecturalFamilyRow
 {
-    public NameFamilyRoleRow(
+    public ArchitecturalFamilyRow(
         string family,
         string kind,
         int types,
@@ -85,9 +85,9 @@ public sealed class NameFamilyRoleRow
 }
 
 [MarkoutSerializable]
-public sealed class NameFamilyRoleTypeRow
+public sealed class ArchitecturalFamilyTypeRow
 {
-    public NameFamilyRoleTypeRow(
+    public ArchitecturalFamilyTypeRow(
         string type,
         string typeKey,
         string kind,
