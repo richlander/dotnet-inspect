@@ -524,6 +524,7 @@ public static class TypeOptionsParser
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
+            DiscoverDetails = opts.ParseDiscoverDetails(parseResult),
             Tree = tree,
             Select = select,
             SelectDefault = selectDefault,

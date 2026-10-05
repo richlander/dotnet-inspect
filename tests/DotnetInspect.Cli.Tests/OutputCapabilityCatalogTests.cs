@@ -92,4 +92,24 @@ public class OutputCapabilityCatalogTests
             LibraryOutputCapabilities.Catalog.FormatsForSection(
                 SectionNames.NameFamilies));
     }
+
+    [Fact]
+    public void ApiCatalogDerivesFormatsFromShapesAndKeepsCallGraphFormats()
+    {
+        // Type and member formats derive from each section's declared shape;
+        // Call Graph is a Graph rather than a shape, so it alone keeps the
+        // tree and Mermaid lowerings beside the standard formats.
+        OutputCapabilityCatalog catalog = ApiOutputCapabilities.Catalog;
+
+        Assert.Equal(
+            OutputCapabilityCatalog.StandardSectionFormats,
+            catalog.FormatsForSection(SectionNames.Methods));
+        Assert.Equal(
+            OutputCapabilityCatalog.StandardSectionFormats,
+            catalog.FormatsForSection(SectionNames.Source));
+        Assert.Equal(
+            OutputCapabilityCatalog.FormatOrder,
+            catalog.FormatsForSection(SectionNames.CallGraph));
+        Assert.Empty(catalog.FormatsForSection("Not A Section"));
+    }
 }

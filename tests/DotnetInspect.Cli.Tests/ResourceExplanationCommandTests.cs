@@ -70,6 +70,71 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Explain_TypeAndMemberSections_ReportDeclaredShapeAndCardinality()
+    {
+        // The type listing and the three member catalogs are explainable under
+        // the catalog names the member explanation already publishes, each
+        // section with the shape and cardinality its owner declared.
+        var classes = await RunAsync("explain", "type/sections/classes");
+
+        Assert.Equal(0, classes.ExitCode);
+        Assert.Empty(classes.Error);
+        Assert.Contains(
+            "Shape: table | Cardinality: inventory",
+            classes.Output);
+
+        var typeInfo = await RunAsync(
+            "explain",
+            "member/sections/type-info",
+            "--json");
+
+        Assert.Equal(0, typeInfo.ExitCode);
+        Assert.Empty(typeInfo.Error);
+        using JsonDocument typeInfoDocument = JsonDocument.Parse(typeInfo.Output);
+        JsonElement typeInfoRoot = typeInfoDocument.RootElement.GetProperty("resources")[0];
+        Assert.Equal(
+            "member",
+            typeInfoRoot.GetProperty("identity").GetProperty("catalog_name").GetString());
+        Assert.Equal("Table", typeInfoRoot.GetProperty("details").GetProperty("shape").GetString());
+        Assert.Equal("Scalar", typeInfoRoot.GetProperty("details").GetProperty("cardinality").GetString());
+
+        // Source is the one Text with a declared inventory (its Lines).
+        var source = await RunAsync(
+            "explain",
+            "member-detail/sections/source",
+            "--json");
+
+        Assert.Equal(0, source.ExitCode);
+        Assert.Empty(source.Error);
+        JsonElement sourceRoot =
+            JsonDocument.Parse(source.Output).RootElement.GetProperty("resources")[0];
+        Assert.Equal(
+            "member-detail",
+            sourceRoot.GetProperty("identity").GetProperty("catalog_name").GetString());
+        Assert.Equal("Text", sourceRoot.GetProperty("details").GetProperty("shape").GetString());
+        Assert.Equal("Inventory", sourceRoot.GetProperty("details").GetProperty("cardinality").GetString());
+
+        // Call Graph is a Graph: no shape, but the tree and Mermaid formats.
+        var callGraph = await RunAsync(
+            "explain",
+            "member-detail/sections/call-graph");
+
+        Assert.Equal(0, callGraph.ExitCode);
+        Assert.Empty(callGraph.Error);
+        Assert.DoesNotContain("Shape:", callGraph.Output);
+        Assert.Contains("Tree, Mermaid", callGraph.Output);
+
+        var overload = await RunAsync(
+            "explain",
+            "member-overload/sections/methods");
+
+        Assert.Equal(0, overload.ExitCode);
+        Assert.Contains(
+            "Shape: table | Cardinality: inventory",
+            overload.Output);
+    }
+
+    [Fact]
     public async Task ExactSection_RendersResourceAndRelatedPaths()
     {
         var result = await RunAsync(

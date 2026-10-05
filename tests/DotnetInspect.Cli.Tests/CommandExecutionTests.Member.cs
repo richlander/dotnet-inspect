@@ -705,6 +705,73 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DiscoverDetails_ReportsDeclaredShapeAndCardinality()
+    {
+        // Member adopts Section shapes: the exact-member catalog is published
+        // as member-detail and the overload catalog as member-overload, each
+        // section with its declared shape and cardinality. Source is the one
+        // Text with a declared inventory (its Lines); Call Graph is a Graph
+        // with no shape but its own tree and Mermaid formats.
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", "--details");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "| Signature | section | member-detail/sections/signature "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | scalar |  |",
+            output);
+        Assert.Contains(
+            "| Decompiled Source | section | member-detail/sections/decompiled-source "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| text | scalar |  |",
+            output);
+
+        var (sourceExit, source, sourceError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", SectionNames.Source, "--details", "--json");
+
+        Assert.Equal(0, sourceExit);
+        Assert.Empty(sourceError);
+        using JsonDocument sourceDocument = JsonDocument.Parse(source);
+        JsonElement sourceRow = Assert.Single(sourceDocument.RootElement.EnumerateArray());
+        Assert.Equal("text", sourceRow.GetProperty("shape").GetString());
+        Assert.Equal("inventory", sourceRow.GetProperty("cardinality").GetString());
+
+        var (graphExit, graph, graphError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", SectionNames.CallGraph, "--details", "--json");
+
+        Assert.Equal(0, graphExit);
+        Assert.Empty(graphError);
+        using JsonDocument graphDocument = JsonDocument.Parse(graph);
+        JsonElement graphRow = Assert.Single(graphDocument.RootElement.EnumerateArray());
+        Assert.False(graphRow.TryGetProperty("shape", out _));
+        string[] formats =
+            [.. graphRow.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()!)];
+        Assert.Contains("--tree", formats);
+        Assert.Contains("--mermaid", formats);
+
+        var (overloadExit, overload, overloadError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor",
+            "--library", TestAssemblyPath,
+            "-D", "--details");
+
+        Assert.Equal(0, overloadExit);
+        Assert.Empty(overloadError);
+        Assert.Contains(
+            "| Methods | section | member-overload/sections/methods "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
+            overload);
+    }
+
+    [Fact]
     public async Task MemberCommand_PlacesTypedConstructorChainOnDeclaration()
     {
         var (exit, output, error) = await RunAppAsync(

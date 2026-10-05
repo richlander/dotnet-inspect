@@ -695,6 +695,7 @@ public static class MemberOptionsParser
             CallerScopePackages = parseResult.GetValue(args.CallerPackageOption) ?? [],
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
+            DiscoverDetails = opts.ParseDiscoverDetails(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = select,
             SelectDefault = selectDefault,
