@@ -1,10 +1,10 @@
 using System.Text.Json;
 using DotnetInspector.PlatformHouse;
-using DotnetInspector.PlatformHouse.Installed;
+using DotnetInspector.PlatformHouse.Local;
 using DotnetInspector.Platforms;
-using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Local;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections.Installed;
+using DotnetInspector.Sections.Local;
 using ILInspector.Metadata;
 using InertText;
 

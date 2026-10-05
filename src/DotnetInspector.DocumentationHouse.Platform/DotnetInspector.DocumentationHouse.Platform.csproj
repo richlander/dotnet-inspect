@@ -17,7 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
     <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
-    <ProjectReference Include="../DotnetInspector.PlatformHouse.Execution/DotnetInspector.PlatformHouse.Execution.csproj" />
+    <ProjectReference Include="../DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
   </ItemGroup>
 
 </Project>

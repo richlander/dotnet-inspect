@@ -724,21 +724,6 @@ public sealed class GeneratedJsExportAuthenticationTests
             focusedRootResult.EvidenceMethod.MetadataToken);
         Assert.DoesNotContain(
             loaderBodies.DirectCalls,
-            call => call.Callee.Name == "CompatibilityIndex"
-                && call.Callee.DeclaringType.Name
-                    == nameof(LibraryBodyAnalysisExecution));
-        Assert.DoesNotContain(
-            loaderBodies.DirectCalls,
-            call => call.Callee.Name == "OpenFromPrefetchedImage"
-                && call.Callee.DeclaringType.Name
-                    == nameof(LibraryBodyIndex));
-        Assert.DoesNotContain(
-            loaderBodies.DirectCalls,
-            call => call.Callee.Name == "Open"
-                && call.Callee.DeclaringType.Name
-                    == nameof(LibraryBodyIndex));
-        Assert.DoesNotContain(
-            loaderBodies.DirectCalls,
             call => call.Callee.Name == "OpenRead"
                 && call.Callee.DeclaringType.Name == "File");
     }

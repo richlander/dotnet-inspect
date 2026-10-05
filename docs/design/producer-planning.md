@@ -632,9 +632,9 @@ description needs; the owning level decides how to meet it.
 4. Release happens once and deterministically, however many producers
    borrowed.
 
-Today analysis owns its own reader lifetime for each execution, and Research
-shares state by `LibraryBodyIndex` instance identity. #8576 tracks closing that
-gap.
+Today Analysis owns its own reader lifetime for each execution. Research joins
+detached focused results through their shared execution receipt; #8576 tracks
+the remaining subject-lifetime gap.
 
 ### Level 2: work ordering and collapsing
 
@@ -677,8 +677,8 @@ such as the JSON wire contract, form higher tiers.
 Research is therefore not only a consumer. It consumes Analysis results and
 describes its own producers with the same declarations. That replaces the
 parallel machinery it has today: string-keyed producer dependencies,
-requirement unions expressed as Analysis feature bits, and a memoized context
-keyed by one `LibraryBodyIndex` instance. How Research adopts this, and what
+requirement unions expressed as Analysis feature bits, and an assembly context
+over one focused member-projection input. How Research adopts this, and what
 happens to its session and admission contracts, is Research's own focused
 effort.
 
