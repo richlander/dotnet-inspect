@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("complexity cells disclose evidence and activate exact type keys", async ({
   page,
 }) => {
-  await page.goto("/browser/library-metrics.html");
+  await page.goto("/browser/library-metrics.html?view=complexity");
   const first = page.locator('[data-metrics-type-key="Example.A"]');
   const second = page.locator('[data-metrics-type-key="Example.B"]');
   const evidence = page.locator("[data-metrics-treemap-evidence]");
@@ -28,7 +28,7 @@ test("reciprocal relationship evidence remains independently reachable", async (
   page,
 }) => {
   await page.setViewportSize({ width: 1100, height: 700 });
-  await page.goto("/browser/library-metrics.html");
+  await page.goto("/browser/library-metrics.html?view=relationships");
   const edges = page.locator("path.metrics-relationship-edge");
   const visibleEdges = page.locator(
     "path.metrics-relationship-edge:not([hidden])",
@@ -162,7 +162,7 @@ test("reciprocal relationship evidence remains independently reachable", async (
 });
 
 test("dependency edges reveal exact-type explanations", async ({ page }) => {
-  await page.goto("/browser/library-metrics.html");
+  await page.goto("/browser/library-metrics.html?view=relationships");
   await expect(page.locator(".metrics-dependency-structure")).toHaveCount(0);
   await page.getByRole("button", {
     name: "Load dependency structure",
@@ -187,7 +187,7 @@ test("dependency layout preserves issued levels and cycles responsively", async 
   page,
 }) => {
   await page.setViewportSize({ width: 620, height: 700 });
-  await page.goto("/browser/library-metrics.html");
+  await page.goto("/browser/library-metrics.html?view=relationships");
   await page.getByRole("button", {
     name: "Load dependency structure",
   }).click();
@@ -228,7 +228,9 @@ test("level-zero reciprocal cycle routes remain inside the viewport", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 620, height: 700 });
-  await page.goto("/browser/library-metrics.html?dependency=cycle-zero");
+  await page.goto(
+    "/browser/library-metrics.html?view=relationships&dependency=cycle-zero",
+  );
   await page.getByRole("button", {
     name: "Load dependency structure",
   }).click();
@@ -268,7 +270,9 @@ test("deep dependency levels scroll without shrinking labels", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 620, height: 700 });
-  await page.goto("/browser/library-metrics.html?dependency=deep");
+  await page.goto(
+    "/browser/library-metrics.html?view=relationships&dependency=deep",
+  );
   await page.getByRole("button", {
     name: "Load dependency structure",
   }).click();

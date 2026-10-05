@@ -283,6 +283,13 @@ are lightweight Member-group shapes, not embedded `MemberGroupDocument` or
 `MemberDocument` values. That declaration population contains only members
 physically owned by the Type.
 
+The subject's detached declaration signature retains each generic parameter's
+inert name, metadata index, attributes, and the declaring-name segment that
+introduces it. This lets hosts present exact shapes such as
+`Outer<T>.Inner<U>` without reopening Metadata or retaining the eager rich API
+surface. Base/interface constraint type identities remain separate Metadata
+views rather than implicit Type-document population.
+
 One declared Member-group row binds a canonical name and member category to one
 non-empty exact declaration population. The grouping key must retain every
 owner-issued distinction needed for unambiguous drill-down. Receiver
@@ -1372,11 +1379,15 @@ adapter, with portable parent and row bindings, bounded Rows continuation,
 nested exact-member Counts, Composition Count, selector Counts, and typed
 incomplete or failed outcomes.
 
-Step 8's host-neutral `TypeDocumentInspectionOperation` now composes the exact
-Type subject and requested Member-group result without reconstructing
-population semantics. It preserves the shared population envelope's Share,
-diagnostics, and typed non-success. CLI and Browser adoption remains step 9;
-no production host uses this route yet.
+Step 8's initial host-neutral composition landed in
+[#9298](https://github.com/richlander/dotnet-inspect/pull/9298).
+[#9306](https://github.com/richlander/dotnet-inspect/pull/9306) completes the
+declaration-document contract over that route: one Metadata declaration
+session establishes the detached exact-Type subject and optionally executes
+declared Member-group population. Subject-only requests issue no population
+demand, and requested population rejection, incompleteness, or failure remains
+independently typed without discarding the available Type subject. CLI and
+Browser adoption remains step 9; no production host uses this route yet.
 
 ## Required evidence
 

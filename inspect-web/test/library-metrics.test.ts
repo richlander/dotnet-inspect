@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderLibraryMetricsSurface, type LibraryMetricsOptions } from "../src/library-metrics.ts";
+import {
+  renderLibraryMetricsSurface,
+  type LibraryMetricsMode,
+  type LibraryMetricsOptions,
+} from "../src/library-metrics.ts";
 import type {
   BrowserLibraryDependencyStructure,
   BrowserLibraryMetrics,
@@ -144,7 +148,10 @@ const dependencyData: BrowserLibraryDependencyStructure = {
     failure: null,
 };
 
-function render(overrides: Partial<LibraryMetricsOptions> = {}) {
+function render(
+  overrides: Partial<LibraryMetricsOptions> = {},
+  mode: LibraryMetricsMode = "complexity",
+) {
   return renderLibraryMetricsSurface({
     libraryName: "Example.Core",
     assemblyIdentity: "Example.Core, Version=1.0.0.0",
@@ -164,12 +171,18 @@ function render(overrides: Partial<LibraryMetricsOptions> = {}) {
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
     ...overrides,
-  });
+  }, mode);
+}
+
+function renderRelationships(
+  overrides: Partial<LibraryMetricsOptions> = {},
+) {
+  return render(overrides, "relationships");
 }
 
 test("partial physical coverage is visibly qualified and diagnostics are escaped", () => {
   const html = render();
-  assert.match(html, /Metrics are qualified/);
+  assert.match(html, /Analysis is qualified/);
   assert.match(html, /1 of 2 physical bodies were profiled/);
   assert.match(html, /One method body could not be analyzed\./);
   assert.match(html, /1 complete bodies/);
@@ -186,19 +199,27 @@ test("fully profiled complete results do not render a qualification warning", ()
       diagnostics: [],
     },
   });
-  assert.doesNotMatch(html, /Metrics are qualified|metadata-warning/);
+  assert.doesNotMatch(html, /Analysis is qualified|metadata-warning/);
 });
 
-test("renders the complexity and relationship visual evidence", () => {
-  const html = render();
-  assert.match(html, /Complexity Explorer/);
-  assert.match(html, /Example\.Core\.Engine/);
-  assert.match(html, /Relationship Crossing/);
-  assert.match(html, /Example\.Core\.Store/);
+test("renders complexity and relationships as dedicated views", () => {
+  const complexity = render();
+  assert.match(complexity, /data-analysis-mode="complexity"/);
+  assert.match(complexity, /Complexity Explorer/);
+  assert.match(complexity, /Example\.Core\.Engine/);
+  assert.doesNotMatch(complexity, /Relationship Crossing/);
+
+  const relationships = renderRelationships();
+  assert.match(relationships, /data-analysis-mode="relationships"/);
+  assert.match(relationships, /Relationship Crossing/);
+  assert.match(relationships, /Example\.Core\.Store/);
+  assert.doesNotMatch(relationships, /Complexity Explorer/);
+  assert.match(relationships, /Load dependency structure/);
+  assert.doesNotMatch(complexity, /Load dependency structure/);
 });
 
 test("renders analysis-issued dependency levels, cycles, and explanations", () => {
-  const html = render({
+  const html = renderRelationships({
     dependencyFresh: true,
     dependencyData,
   });
@@ -233,7 +254,7 @@ test("renders analysis-issued dependency levels, cycles, and explanations", () =
 });
 
 test("discloses bounded and qualified dependency evidence", () => {
-  const html = render({
+  const html = renderRelationships({
     dependencyFresh: true,
     dependencyData: {
       ...dependencyData,
@@ -254,8 +275,8 @@ test("discloses bounded and qualified dependency evidence", () => {
   assert.match(html, /One call target could not be resolved\./);
 });
 
-test("keeps dependency failure visible without hiding available metrics", () => {
-  const html = render({
+test("keeps dependency failure visible without hiding available relationships", () => {
+  const html = renderRelationships({
     dependencyFresh: true,
     dependencyData: {
       outcome: "failed",
@@ -271,17 +292,17 @@ test("keeps dependency failure visible without hiding available metrics", () => 
     },
   });
 
-  assert.match(html, /Complexity Explorer/);
+  assert.match(html, /Relationship Crossing/);
   assert.match(html, /Dependency structure failed/);
   assert.match(html, /Dependency selection failed\./);
 });
 
 test("requires explicit dependency demand and keeps loading distinct", () => {
-  const initial = render();
+  const initial = renderRelationships();
   assert.match(initial, /Load dependency structure/);
   assert.doesNotMatch(initial, /metrics-dependency-structure/);
 
-  const loading = render({
+  const loading = renderRelationships({
     dependencyFresh: true,
     dependencyLoading: true,
   });
@@ -296,18 +317,18 @@ test("preserves relationship interaction state across dependency renders", () =>
     selectedTargetTypeKey: "Example.Core.Store",
   };
   const variants = [
-    render({ relationshipState }),
-    render({
+    renderRelationships({ relationshipState }),
+    renderRelationships({
       relationshipState,
       dependencyFresh: true,
       dependencyLoading: true,
     }),
-    render({
+    renderRelationships({
       relationshipState,
       dependencyFresh: true,
       dependencyData,
     }),
-    render({
+    renderRelationships({
       relationshipState,
       dependencyFresh: true,
       dependencyError: "Dependency selection failed.",
@@ -329,7 +350,7 @@ test("preserves relationship interaction state across dependency renders", () =>
 });
 
 test("keeps empty and unavailable dependency outcomes distinct", () => {
-  const empty = render({
+  const empty = renderRelationships({
     dependencyFresh: true,
     dependencyData: {
       ...dependencyData,
@@ -341,7 +362,7 @@ test("keeps empty and unavailable dependency outcomes distinct", () => {
   });
   assert.match(empty, /No namespace dependencies found/);
 
-  const unavailable = render({
+  const unavailable = renderRelationships({
     dependencyFresh: true,
     dependencyData: {
       ...dependencyData,
@@ -353,7 +374,7 @@ test("keeps empty and unavailable dependency outcomes distinct", () => {
   assert.match(unavailable, /Call evidence is unavailable/);
 });
 
-test("keeps structural salience out of the Metrics presentation", () => {
+test("keeps structural salience out of the structural analysis presentation", () => {
   const html = render();
   assert.doesNotMatch(
     html,
@@ -361,7 +382,7 @@ test("keeps structural salience out of the Metrics presentation", () => {
   );
 });
 
-test("keeps detailed distributions and redundant summary copy out of Metrics", () => {
+test("keeps detailed distributions and redundant summary copy out of structural analysis", () => {
   const html = render();
 
   assert.doesNotMatch(html, /Detailed distributions|metrics-table/);
@@ -483,7 +504,7 @@ test("relationship topology keeps same-display generic arities distinct", () => 
         targetDegree: 1,
       }],
     },
-  });
+  }, "relationships");
   const edge = html.match(
     /<path class="metrics-relationship-edge" d="M ([\d.]+) \d+ C [^"]+, ([\d.]+) \d+"/,
   );
@@ -494,7 +515,7 @@ test("relationship topology keeps same-display generic arities distinct", () => 
 });
 
 test("relationship arcs expose exact selection evidence and a detail surface", () => {
-  const html = render();
+  const html = render({}, "relationships");
 
   assert.match(
     html,
@@ -529,7 +550,7 @@ test("relationship disclosure defaults to half capped at 24 and expands by quart
       ...data,
       entangledRelationships: relationships,
     },
-  });
+  }, "relationships");
   const edgeTags = [...html.matchAll(
     /<path class="metrics-relationship-edge"[^>]*>/g,
   )].map(match => match[0]);
@@ -566,7 +587,7 @@ test("reciprocal relationships use distinct geometry independent of insertion la
       ...data,
       entangledRelationships: relationships,
     },
-  });
+  }, "relationships");
   const paths = new Map(
     [...html.matchAll(
       /<path class="metrics-relationship-edge" d="([^"]+)"[^>]*><title>([^<]+)<\/title><\/path>/g,
@@ -594,7 +615,7 @@ test("relationship topology renders the complete Research projection", () => {
       ...data,
       entangledRelationships: relationships,
     },
-  });
+  }, "relationships");
 
   assert.equal(
     html.match(/class="metrics-relationship-edge"/g)?.length,
