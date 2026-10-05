@@ -115,11 +115,11 @@ public static class SectionCategoryNames
     public const string Integrations = "@Integrations";
 
     /// <summary>
-    /// Package file listings scoped to a layout root or document kind. This is a package base
-    /// category alongside <see cref="Package"/>. Its members are the
-    /// <c>Package &lt;X&gt; file(s)</c> members. The plain <c>Package files</c> section is the
-    /// whole-package listing rather than a subset, so it is deliberately not a member;
-    /// including it would render most rows twice.
+    /// Package file sections scoped to one document kind: <c>Nuspec</c>, <c>README</c>,
+    /// <c>Licenses</c>, and <c>Skills</c>. This is a package base category alongside
+    /// <see cref="Package"/>. The plain <c>Files</c> section is the whole-package listing
+    /// rather than a subset, so it is deliberately not a member; including it would render
+    /// most rows twice.
     /// </summary>
     public const string Files = "@Files";
 

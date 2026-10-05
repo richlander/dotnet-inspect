@@ -26,7 +26,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         // the catalog so a package section never collides with a library one.
         var human = await RunAsync(
             "explain",
-            "package/sections/package-files");
+            "package/sections/files");
 
         Assert.Equal(0, human.ExitCode);
         Assert.Empty(human.Error);
@@ -36,7 +36,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
 
         var json = await RunAsync(
             "explain",
-            "package/sections/package-readme-file",
+            "package/sections/readme",
             "--json");
 
         Assert.Equal(0, json.ExitCode);
@@ -434,7 +434,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("identity")
                 .GetString());
         Assert.Equal(
-            "package <id> -S \"Package files\"",
+            "package <id> -S \"Files\"",
             first.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());

@@ -231,19 +231,19 @@ A section owned exclusively by a domain generally uses `Domain: Leaf`:
 The prefix is a human-facing family signal. Category membership remains the
 source of truth.
 
-### Noun-phrase families
+### Concise family names
 
-Some established families use a shared noun suffix instead of a prefix. The
+A family may use concise nouns rather than a prefix when the route already
+establishes the coordinate (see the
+[canonical grammar](relationship-section-naming.md#canonical-grammar)). The
 package file family is the primary example:
 
-- `Package files`
-- `Package markdown files`
-- `Package license files`
-- `Package skill files`
-- `Package nuspec file`
-- `Package README file`
+- `Nuspec`
+- `README`
+- `Licenses`
+- `Skills`
 
-The `@Files` category owns the curated subsets. The unfiltered `Package files`
+The `@Files` category owns those curated subsets. The unfiltered `Files`
 superset belongs to `@Package` instead because selecting `@Files` must not
 duplicate every matching path.
 
@@ -347,16 +347,16 @@ producer contract with published-package measurements:
 | Section | Evidence | Classification |
 | --- | --- | --- |
 | Target Frameworks | 13 rows in `System.ValueTuple` 4.5.0; one row per uncapped `lib/<tfm>` directory | `Verbose` |
-| Package nuspec file | 31 matching paths in a boundary package | `Verbose` |
+| Nuspec | 31 matching paths in a boundary package | `Verbose` |
 | Dependencies | 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
 | Ecosystem Dependencies | 139 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
 | Vulnerabilities | 31 matching advisories in a configured-feed boundary | `Verbose` |
 | Manifest | 36 rows in a tool boundary package with 31 RID-package declarations | `Verbose` |
 | Runtime Dependencies | 44 rows in `dotnet-outdated-tool` 4.8.1; 120 in `Microsoft.DotNet.Interactive` | `Verbose` |
-| Package skill files | 172 rows in `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 | `Verbose` |
+| Skills | 172 rows in `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 | `Verbose` |
 
 Target Frameworks grows with distinct package-authored `lib/<tfm>` directories.
-Package nuspec file grows with every package path ending in `.nuspec`.
+Nuspec grows with every package path ending in `.nuspec`.
 Dependencies grow with package dependency declarations. Ecosystem Dependencies
 can project one or more recognized ecosystem associations for each declaration.
 Vulnerabilities adds every matching advisory from the configured feed.
@@ -904,8 +904,8 @@ The package command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Ecosystem Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
-| `@Files` | `Package nuspec file`, `Package README file`, `Package license files`, `Package skill files` |
+| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Ecosystem Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Files` |
+| `@Files` | `Nuspec`, `README`, `Licenses`, `Skills` |
 | `@Dependencies` | `Dependency Hierarchy`, `Dependencies`, `Ecosystem Dependencies`, `Runtime Dependencies` |
 | `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Findings`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
 | `@SourceLink` | All `SourceLink:*` sections |
@@ -960,11 +960,11 @@ The project command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Project` | `Skills`, `Package README file` |
+| `@Project` | `Skills`, `README` |
 
 `@Project` is the base category and composes the package-authored documents
 available from a restored project's direct dependencies. Exact `Skills`
-selection requests the focused high-value section. `Package README file` is
+selection requests the focused high-value section. `README` is
 explicit and unbounded; selecting `@Project` is the gesture that requests both
 document inventories.
 
