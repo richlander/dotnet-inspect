@@ -15,7 +15,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Statement emission: containers, labels, statement cores, statement layout,
 /// spacing, constructor chains, and assignment statements. Spelling of decided
-/// structure; none of the #2095 decision classes lives here.
+/// structure: it defines none of the #2095 decision classes, though it calls
+/// the coercion-routing and unsafe-context ones at its sites.
 /// </summary>
 public sealed partial class CSharpPrinter
 {

@@ -14,8 +14,9 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Unsafe-context inference: which statements need an unsafe block or body
-/// modifier, and how unsafe runs end. A flow decision the thin-writer plan
-/// (#2095) moves to a pre-print pass.
+/// modifier, and how unsafe runs end. Defines the #2095 unsafe-context decision
+/// class, a flow decision the thin-writer plan moves to a pre-print pass;
+/// Statements consumes it at its sites.
 /// </summary>
 public sealed partial class CSharpPrinter
 {

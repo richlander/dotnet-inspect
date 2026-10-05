@@ -14,8 +14,9 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Local declaration collection and shape, scope and name reservation, and
-/// declaration type text. Carries the definite-assignment consumer (design
-/// Instance 3) until it moves to a pass.
+/// declaration type text. Defines two #2095 decision classes: the definite-
+/// assignment consumer (design Instance 3, until it moves to a pass) and var
+/// inference (SpellVar, VarInfersDeclaredType).
 /// </summary>
 public sealed partial class CSharpPrinter
 {

@@ -15,8 +15,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Expression text: store targets, coalesce and conditions, truthiness, unbox
 /// and dereference spelling, initializers, and logical/bitwise chain layout.
-/// Still carries one cast-need decision, NeedsObjectBridgeForGenericUnbox,
-/// which the thin-writer plan (#2095) retires with the cast-need class.
+/// Defines one #2095 cast-need predicate, NeedsObjectBridgeForGenericUnbox; the
+/// rest of that class and the coercion-routing and join-target classes are
+/// defined in Numerics.
 /// </summary>
 public sealed partial class CSharpPrinter
 {

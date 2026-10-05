@@ -117,15 +117,23 @@ explicitly byte-divergent taste choices. Preserve the effective options when
 comparing output. The class is split into partial files by role, not by size:
 `CSharpPrinter.cs` holds entry points, options, most printer state, and body
 preparation; `.Statements`, `.Patterns`, `.Operators`, `.TypesAndConstants`,
-`.Members`, and `.RaisedExpressions` spell decided structure; `.Declarations`
-(definite assignment, names), `.UnsafeContext` (unsafe-context inference),
-`.Numerics` (coercion routing, join target compatibility, cast-need
-predicates), and `.Expressions` (the `NeedsObjectBridgeForGenericUnbox`
-cast-need predicate beside its spelling) still carry the print-time decisions
-the [thin-writer plan](design/value-typed-emission.md) retires one class at a
-time. Each file's summary names the decisions it still holds, so a retirement
-slice can scope itself from the file list; the cast-need class spans
-`.Numerics` and `.Expressions`.
+`.Members`, and `.RaisedExpressions` spell decided structure. The
+[thin-writer plan](design/value-typed-emission.md) (#2095) inventories six
+print-time decision classes still in the printer; this is where each is
+defined, so a retirement slice can scope itself from the file list:
+
+| Decision class (#2095 inventory) | Defined in |
+| --- | --- |
+| Coercion routing (`CoerceText` and the enum routing family) | `.Numerics`; called from `.Statements`, `.Expressions`, `.Members` |
+| Join target compatibility | `.Numerics` |
+| Definite assignment (consumer of `DefiniteAssignment.cs`) | `.Declarations` |
+| Unsafe-context inference | `.UnsafeContext`; `_unsafeDepth` is read and updated from `.Statements` |
+| Cast-need predicates | `.Numerics`, plus `NeedsObjectBridgeForGenericUnbox` in `.Expressions` |
+| `var` inference (`SpellVar`, `VarInfersDeclaredType`) | `.Declarations` |
+
+The table maps definitions; call sites of the routing and unsafe-context
+classes are spread across the spelling files and are counted by their own
+retirement slices. Each file's summary repeats the classes it defines.
 
 [`MemberBodyProducer`](../src/ILInspector.Decompiler/MemberBodyProducer.cs)
 is the reusable body/member/type composition entry. It adapts recovered body
