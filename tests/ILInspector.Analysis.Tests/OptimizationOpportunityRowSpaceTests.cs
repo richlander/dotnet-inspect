@@ -129,6 +129,22 @@ public sealed class OptimizationOpportunityRowSpaceTests
         Assert.Equal(
             ["HigherBox", "LowerBox"],
             result.Values.Select(row => row.Method.Name));
+
+        Assert.Equal(
+            ["LowerBox", "HigherBox"],
+            OptimizationOpportunityRowSpace.SelectPartition(
+                    OptimizationOpportunityRowSpace.Boxing,
+                    [
+                        Opportunity(
+                            "LowerBox",
+                            "box-value-type",
+                            confidence: "low"),
+                        Opportunity(
+                            "HigherBox",
+                            "box-value-type",
+                            confidence: "high"),
+                    ])
+                .Select(row => row.Method.Name));
     }
 
     [Fact]

@@ -240,8 +240,38 @@ public static class OptimizationOpportunityRowSpace
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(rows);
 
+        return Execute(query, rows, query.Intent);
+    }
+
+    public static ImmutableArray<OptimizationOpportunity> SelectPartition(
+        OptimizationOpportunityCuratedQuery query,
+        IEnumerable<OptimizationOpportunity> orderedRows)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(orderedRows);
+        if (query.Kind is null)
+        {
+            throw new ArgumentException(
+                $"Curated optimization-opportunity query "
+                + $"'{query.Identity}' declares no partition.",
+                nameof(query));
+        }
+
+        PortableQueryIntent partition = PortableQueryIntent.Create(
+            query.Intent.Terms,
+            [],
+            [],
+            []);
+        return Execute(query, orderedRows, partition);
+    }
+
+    private static ImmutableArray<OptimizationOpportunity> Execute(
+        OptimizationOpportunityCuratedQuery query,
+        IEnumerable<OptimizationOpportunity> rows,
+        PortableQueryIntent intent)
+    {
         RowQueryResolutionResult<OptimizationOpportunity> resolution =
-            Resolve(query, PortableQueryIntent.Empty);
+            Scope.Resolve(intent);
         ResolvedRowQueryPlan<OptimizationOpportunity> plan =
             resolution.Plan
                 ?? throw new InvalidOperationException(

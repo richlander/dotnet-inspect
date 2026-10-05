@@ -61,7 +61,7 @@ public static class PerformanceKinds
     public static ImmutableArray<OptimizationOpportunity> Select(
         string section,
         IEnumerable<OptimizationOpportunity> opportunities) =>
-        OptimizationOpportunityRowSpace.Select(
+        OptimizationOpportunityRowSpace.SelectPartition(
             QueryForSection(section),
             opportunities);
 
