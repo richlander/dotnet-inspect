@@ -114,6 +114,7 @@ root README remains current without cataloging every focused capability.
 | Evidence and validation | [Evidence and Validation](evidence-and-validation.md) |
 | Test fixture placement and ownership | [Fixture Governance](fixture-governance.md) |
 | Local tools, SDKs, and focused test commands | [Local Development Environment](dev-environment.md) |
+| Coding and review agent models | [Agent Model Mapping](agent-models.md) |
 | Adversarial review rounds | [Round Orchestration](round-orchestration.md) and the [canonical review prompt](adversarial-review-prompt.md) |
 | Session and tmux state | [Agent Session State](agent-session-state.md) |
 | GitHub automation | [GitHub API Operations](github-api-operations.md) and [GitHub Status Queries](github-status-queries.md) |

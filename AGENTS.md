@@ -29,6 +29,8 @@ the launch constitution and router.
   assemblies unloaded. Approved exceptions belong in their owning design.
 - Use repo-local contributor skills from `.github/skills/` or
   `.claude/skills/`; `skills/` contains product guidance shipped to users.
+- Before any coding or review agent dispatch, follow
+  [Agent model mapping](docs/agent-models.md).
 - When you open or drive a PR, invoke the `steward` skill at publication,
   resume, and every CI, review, conflict, base-movement, check-in, merge, or
   close event.

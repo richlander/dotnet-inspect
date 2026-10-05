@@ -247,6 +247,9 @@ Keep these distinctions:
 - GitHub branch protection accepts required-check conclusions `success`,
   `skipped`, and `neutral`. This repository deliberately uses the stricter
   rule that the aggregate `ci-required` check itself must conclude `success`.
+- Require only the aggregate `ci-required` context. Never require a path-gated
+  leaf job directly: its expected absence or skip can block an unrelated PR.
+  Do not broaden CI without measured need.
 - A skipped leaf job is not evidence by itself; this repository's aggregate
   decides whether skipped work was expected.
 - GraphQL `mergeStateStatus` is a documented composite merge state.
