@@ -2,60 +2,6 @@ using System.Collections.Immutable;
 
 namespace DotnetInspector.Packages;
 
-/// <summary>
-/// Metadata-owned namespace evidence for one complete assembly entry.
-/// </summary>
-public abstract class PackageLibraryNamespaceFact
-{
-    private PackageLibraryNamespaceFact()
-    {
-    }
-
-    public sealed class Available : PackageLibraryNamespaceFact
-    {
-        public Available(IEnumerable<string> namespaces)
-        {
-            ArgumentNullException.ThrowIfNull(namespaces);
-            string[] values =
-            [
-                .. namespaces
-                    .Select(value => value
-                        ?? throw new ArgumentException(
-                            "A namespace inventory cannot contain null.",
-                            nameof(namespaces)))
-                    .Distinct(StringComparer.Ordinal),
-            ];
-            Namespaces = Array.AsReadOnly(values);
-        }
-
-        public IReadOnlyList<string> Namespaces { get; }
-    }
-
-    public sealed class Failed : PackageLibraryNamespaceFact
-    {
-        public Failed(string reason)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-            Reason = reason;
-        }
-
-        public string Reason { get; }
-    }
-}
-
-/// <summary>
-/// Host-neutral Metadata capability for exact assembly namespace facts.
-/// </summary>
-/// <remarks>
-/// Facts are precomputed by the Metadata owner. PackageHouse calls this
-/// capability while planning from a directory-only snapshot; implementations
-/// must not open or decode package content.
-/// </remarks>
-public interface IPackageLibraryNamespaceFacts
-{
-    PackageLibraryNamespaceFact Get(PackageContentEntry entry);
-}
-
 public enum PackageHousePortablePdbEvidenceKind
 {
     Listed,
@@ -176,9 +122,7 @@ public sealed class PackageHouseLibraryInventorySelectionReceipt
     internal PackageHouseLibraryInventorySelectionReceipt(
         PackageHouseLibraryInventory inventory,
         PackageHouseLibraryInventoryRow selectedRow,
-        string packageId,
-        string? requestedNamespace,
-        bool namespaceMatched)
+        string packageId)
     {
         if (!inventory.Rows.Contains(selectedRow))
         {
@@ -189,8 +133,6 @@ public sealed class PackageHouseLibraryInventorySelectionReceipt
 
         Inventory = inventory;
         SelectedRow = selectedRow;
-        RequestedNamespace = requestedNamespace;
-        NamespaceMatched = namespaceMatched;
         IsPackageNamesake =
             Path.GetFileNameWithoutExtension(
                     selectedRow.CompileEntry.Path)
@@ -202,10 +144,6 @@ public sealed class PackageHouseLibraryInventorySelectionReceipt
     public PackageHouseLibraryInventory Inventory { get; }
 
     public PackageHouseLibraryInventoryRow SelectedRow { get; }
-
-    public string? RequestedNamespace { get; }
-
-    public bool NamespaceMatched { get; }
 
     public bool IsPackageNamesake { get; }
 }

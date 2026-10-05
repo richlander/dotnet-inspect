@@ -81,6 +81,14 @@ public interface ISectionDescriptor<TModel>
     static virtual SectionCost Cost => SectionCost.NetworkFree;
 
     /// <summary>
+    /// The declared presentation shape (Table, Hierarchy, or Text) under
+    /// <c>docs/design/section-shapes.md</c>, or <see langword="null"/> while the
+    /// owning command has not adopted shapes. The shape decides supported
+    /// formats and the native single-section format.
+    /// </summary>
+    static virtual SectionShape? Shape => null;
+
+    /// <summary>
     /// Returns <c>true</c> if the model contains data this section can render.
     /// Called without allocating a renderer instance.
     /// </summary>

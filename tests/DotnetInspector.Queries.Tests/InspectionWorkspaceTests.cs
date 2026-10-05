@@ -770,6 +770,206 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task ParticipantResourceLease_RetainsSnapshotAccessAfterReleaseRequest()
+    {
+        TestAssembly source = TestAssembly.Create();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var resource =
+            new ParticipantReleaseTrackingResource(group);
+        group.RegisterOwnedResource(resource);
+        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow =
+            group.BorrowOwnedResource(
+                resource,
+                source.Assembly.Registration);
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                source.Assembly,
+                static (_, _) => Task.FromResult(1));
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.Throws<ObjectDisposedException>(
+            () => group.BorrowOwnedResource(
+                resource,
+                source.Assembly.Registration));
+        var borrowedAccess = Assert.IsType<
+            AssemblyImageAccessResult<int>.Available>(
+                borrow.UseSnapshot(
+                    TestContext.Current.CancellationToken,
+                    0,
+                    static (snapshot, _) => snapshot.Content.Length));
+        Assert.True(borrowedAccess.Value > 0);
+        Assert.Equal(0, resource.ParticipantReleaseCount);
+        Assert.True(group.RetainedImageBytes > 0);
+
+        borrow.Dispose();
+
+        Assert.Equal(1, resource.ParticipantReleaseCount);
+        Assert.Equal(0, group.RetainedImageBytes);
+        Assert.Throws<ObjectDisposedException>(
+            () => borrow.UseSnapshot(
+                TestContext.Current.CancellationToken,
+                0,
+                static (snapshot, _) => snapshot.Content.Length));
+    }
+
+    [Fact]
+    public async Task ParticipantResourceHandle_RejectionSettlementCompletesBeforeRetirement()
+    {
+        TestAssembly rejected = TestAssembly.Create();
+        rejected.BeforeOpen = static () =>
+            throw new IOException("Synthetic unreadable participant.");
+        TestAssembly sibling = TestAssembly.Create();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [rejected.Participant, sibling.Participant]);
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(
+            group.UseAssemblyImage(
+                sibling.Assembly,
+                static image => image.Content.Length));
+        var observation =
+            new ParticipantSettlementObservation();
+        AssemblyContextParticipantResource<
+            SettlementTrackingParticipantResourceState> resource =
+                group.GetOrCreateParticipantResource<
+                    SettlementTrackingParticipantResourceState>(
+                    () => new(observation));
+        using var settlementEntered = new ManualResetEventSlim();
+        using var settlementResume = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        Task<int> preparation = StartConcurrent(
+            () => resource.Prepare(
+                rejected.Participant,
+                cancellationToken,
+                (
+                    Entered: settlementEntered,
+                    Resume: settlementResume,
+                    CancellationToken: cancellationToken),
+                static (state, access, input) =>
+                    state.Settle(
+                        access,
+                        input.Entered,
+                        input.Resume,
+                        input.CancellationToken)));
+        Assert.True(
+            settlementEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+
+        try
+        {
+            AssemblyImageAccessResult<int> release =
+                await group.UseAndReleaseAssemblySessionAsync(
+                    rejected.Assembly,
+                    static (_, _) => Task.FromResult(1));
+
+            Assert.IsType<AssemblyImageAccessResult<int>.Rejected>(release);
+            Assert.Equal(0, observation.ParticipantReleaseCount);
+            Assert.True(group.RetainedImageBytes > 0);
+        }
+        finally
+        {
+            settlementResume.Set();
+        }
+
+        Assert.Equal(1, await preparation);
+        Assert.Equal(1, observation.ParticipantReleaseCount);
+        Assert.True(observation.SawPublishedDuringRelease);
+        Assert.False(observation.Published);
+        Assert.False(observation.PublishedAfterRelease);
+        Assert.Throws<ObjectDisposedException>(
+            () => resource.Prepare(
+                rejected.Participant,
+                cancellationToken,
+                0,
+                static (_, _, _) => 0));
+    }
+
+    [Fact]
+    public async Task ParticipantResourceHandle_PreservesSettlementAndRetirementFailures()
+    {
+        TestAssembly rejected = TestAssembly.Create();
+        rejected.BeforeOpen = static () =>
+            throw new IOException("Synthetic unreadable participant.");
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [rejected.Participant]);
+        var retirementFailure =
+            new InvalidOperationException(
+                "Synthetic participant retirement failure.");
+        AssemblyContextParticipantResource<
+            ThrowingParticipantResourceState> resource =
+                group.GetOrCreateParticipantResource<
+                    ThrowingParticipantResourceState>(
+                    () => new(retirementFailure));
+        using var settlementEntered = new ManualResetEventSlim();
+        using var settlementResume = new ManualResetEventSlim();
+        var settlementFailure =
+            new InvalidDataException(
+                "Synthetic participant settlement failure.");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        Task<int> preparation = StartConcurrent(
+            () => resource.Prepare(
+                rejected.Participant,
+                cancellationToken,
+                (
+                    Entered: settlementEntered,
+                    Resume: settlementResume,
+                    Failure: settlementFailure,
+                    CancellationToken: cancellationToken),
+                static (state, access, input) =>
+                    state.Settle(
+                        access,
+                        input.Entered,
+                        input.Resume,
+                        input.Failure,
+                        input.CancellationToken)));
+        Assert.True(
+            settlementEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+
+        try
+        {
+            Assert.IsType<AssemblyImageAccessResult<int>.Rejected>(
+                await group.UseAndReleaseAssemblySessionAsync(
+                    rejected.Assembly,
+                    static (_, _) => Task.FromResult(1)));
+        }
+        finally
+        {
+            settlementResume.Set();
+        }
+
+        AggregateException combined =
+            await Assert.ThrowsAsync<AggregateException>(
+                async () => await preparation);
+        IReadOnlyCollection<Exception> failures =
+            combined.Flatten().InnerExceptions;
+        Assert.Contains(settlementFailure, failures);
+        Assert.Contains(retirementFailure, failures);
+
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync();
+        Exception closeFailure =
+            Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+                Assert.Single(report.Groups))
+                .Failure!;
+        Assert.Contains(
+            retirementFailure,
+            Assert.IsType<AggregateException>(closeFailure)
+                .Flatten()
+                .InnerExceptions);
+    }
+
+    [Fact]
     public async Task ParticipantResourceLease_RequiresExactRegisteredPair()
     {
         TestAssembly source = TestAssembly.Create();
@@ -2271,6 +2471,81 @@ public sealed class InspectionWorkspaceTests
                 group.RetainedImageBytes > 0;
             Interlocked.Increment(
                 ref _participantReleaseCount);
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    sealed class ParticipantSettlementObservation
+    {
+        internal int ParticipantReleaseCount { get; set; }
+        internal bool Published { get; set; }
+        internal bool PublishedAfterRelease { get; set; }
+        internal bool SawPublishedDuringRelease { get; set; }
+    }
+
+    sealed class SettlementTrackingParticipantResourceState(
+        ParticipantSettlementObservation observation)
+        : IAssemblyContextParticipantResourceState
+    {
+        internal int Settle(
+            AssemblyContextParticipantPreparationAccess access,
+            ManualResetEventSlim entered,
+            ManualResetEventSlim resume,
+            CancellationToken cancellationToken)
+        {
+            Assert.IsType<
+                AssemblyContextParticipantPreparationAccess.Rejected>(
+                    access);
+            entered.Set();
+            resume.Wait(cancellationToken);
+            if (observation.ParticipantReleaseCount != 0)
+                observation.PublishedAfterRelease = true;
+            observation.Published = true;
+            return 1;
+        }
+
+        public void ReleaseParticipant(
+            AssemblyAcquisitionRegistration registration)
+        {
+            Assert.NotNull(registration);
+            observation.ParticipantReleaseCount++;
+            observation.SawPublishedDuringRelease =
+                observation.Published;
+            observation.Published = false;
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    sealed class ThrowingParticipantResourceState(
+        Exception retirementFailure)
+        : IAssemblyContextParticipantResourceState
+    {
+        internal int Settle(
+            AssemblyContextParticipantPreparationAccess access,
+            ManualResetEventSlim entered,
+            ManualResetEventSlim resume,
+            Exception settlementFailure,
+            CancellationToken cancellationToken)
+        {
+            Assert.IsType<
+                AssemblyContextParticipantPreparationAccess.Rejected>(
+                    access);
+            entered.Set();
+            resume.Wait(cancellationToken);
+            throw settlementFailure;
+        }
+
+        public void ReleaseParticipant(
+            AssemblyAcquisitionRegistration registration)
+        {
+            Assert.NotNull(registration);
+            throw retirementFailure;
         }
 
         public void Dispose()

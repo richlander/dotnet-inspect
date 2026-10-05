@@ -114,7 +114,6 @@ public static class PortablePdbPackageComposition
         PackageSourceCoordinate coordinate,
         PackageHouseTargetContext target,
         IPortablePdbPackageContentSource source,
-        string? requestedNamespace = null,
         long maxAssemblyBytes = DefaultMaxAssemblyBytes,
         CancellationToken cancellationToken = default)
     {
@@ -126,8 +125,7 @@ public static class PortablePdbPackageComposition
 
         PackageHouseContentQuery inventoryQuery =
             PackageHouseContentQuery.GetLibraryAndInventoryForTarget(
-                target,
-                requestedNamespace);
+                target);
         PackageHouseSettlement inventorySettlement =
             await source.AcquireAsync(
                     coordinate,

@@ -172,13 +172,7 @@ public sealed class PackageHouseContractTests
             targetContext: target,
             contentQuery: query);
 
-        Assert.Null(terminal.Namespace);
         Assert.Same(query, request.ContentQuery);
-        Assert.Equal(
-            "Contoso",
-            new PackageHouseContentTerminal
-                .LibraryAndInventoryForTarget("Contoso")
-                .Namespace);
         Assert.Throws<ArgumentException>(
             () => new PackageHouseContentQuery(
                 new PackageHouseContentNarrowing.PackageWide(),

@@ -28,7 +28,6 @@ public partial class PackageCommand
         "Target",
         "Role",
         "Asset",
-        "Selector",
         "Status",
         "Detail",
     ];
@@ -42,7 +41,6 @@ public partial class PackageCommand
         "target",
         "role",
         "asset",
-        "selector",
         "status",
         "detail",
     ];
@@ -157,24 +155,10 @@ public partial class PackageCommand
                     plan,
                     capabilityPlan)
                 .ConfigureAwait(false);
-        PackageChildSelectorContext? selectors = null;
-        if ((!projection.Inspection.Content.Libraries.IsEmpty
-                || !projection.Inspection.Content
-                    .RuntimeIdentifierPackages.IsEmpty)
-            && !TryCreatePackageChildSelectorContext(
-                projection.Inspection.Content,
-                options,
-                out selectors,
-                out string? selectorError))
-        {
-            CommandError.Write(selectorError!);
-            return 1;
-        }
         if (!WritePackageChildren(
                 projection,
                 result,
-                options,
-                selectors))
+                options))
         {
             return 1;
         }
@@ -208,7 +192,8 @@ public partial class PackageCommand
             requestedToolWrapper?.Version
                 ?? result.Version
                 ?? version,
-            targetFramework: null);
+            targetFramework: null,
+            source: result.Source);
         bool toolSettingsAvailable =
             result.ToolSettingsProjectionStatus
                 == DotnetToolSettingsProjectionStatus.Available
@@ -366,7 +351,8 @@ public partial class PackageCommand
                 ? null
                 : new InertText.InertString(
                     InertText.TextPolicy.Field,
-                    targetFramework));
+                    targetFramework),
+            subject.Source);
 
     private static ValueTask<PackageChildrenProjection>
         InspectPackageChildrenAsync(
@@ -468,14 +454,9 @@ public partial class PackageCommand
         {
             PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
                 new(
-                    new(
-                        subject.PackageId,
-                        subject.PackageVersion,
-                        selection.TargetFramework is null
-                            ? null
-                            : new InertText.InertString(
-                                InertText.TextPolicy.Field,
-                                selection.TargetFramework)),
+                    SubjectWithTargetFramework(
+                        subject,
+                        selection.TargetFramework),
                     PackageChildrenKind.Libraries,
                     PackageChildrenStatus.SelectedEmpty,
                     [],
@@ -543,8 +524,7 @@ public partial class PackageCommand
     private static bool WritePackageChildren(
         PackageChildrenProjection projection,
         InspectionResult package,
-        InspectionOptions options,
-        PackageChildSelectorContext? selectors)
+        InspectionOptions options)
     {
         InspectionEnvelope<PackageChildrenDocument> inspection =
             projection.Inspection;
@@ -552,7 +532,6 @@ public partial class PackageCommand
         PackageChildOutputRow[] allRows =
             PackageChildRows(
                 content,
-                selectors,
                 projection.OrdinalOffset);
 
         var outputDocument = new PackageChildrenOutputDocument(
@@ -715,11 +694,7 @@ public partial class PackageCommand
         IMarkoutFormatter formatter)
     {
         if (formatter is not MermaidFormatter)
-        {
-            output.WriteLine(DescribePackageChildrenSubject(
-                package,
-                document));
-        }
+            output.WriteLine(PackageChildrenTitle(document));
         var writer = new MarkoutWriter(output, formatter);
         bool windowedEmpty =
             totalCount > 0
@@ -738,7 +713,7 @@ public partial class PackageCommand
         {
             writer.WriteTree(
             [
-                new(DescribePackageChildrenSubject(package, document))
+                new(PackageChildrenTitle(document))
                 {
                     Children = [.. nodes],
                 },
@@ -869,7 +844,6 @@ public partial class PackageCommand
                 row.Target ?? "",
                 row.Role ?? "",
                 row.Asset ?? "",
-                row.Selector ?? "",
                 row.Status,
                 row.Detail ?? "",
             }),
@@ -877,7 +851,6 @@ public partial class PackageCommand
 
     private static PackageChildOutputRow[] PackageChildRows(
         PackageChildrenDocument document,
-        PackageChildSelectorContext? selectors,
         int ordinalOffset) =>
         document.Kind switch
         {
@@ -887,7 +860,6 @@ public partial class PackageCommand
                     (library, index) => LibraryRow(
                         document,
                         library,
-                        selectors!.LibraryCommand,
                         ordinalOffset + index + 1)),
             ],
             PackageChildrenKind.RuntimeIdentifierPackages =>
@@ -896,7 +868,6 @@ public partial class PackageCommand
                     (package, index) => RuntimeIdentifierPackageRow(
                         document,
                         package,
-                        selectors!.RuntimeIdentifierSourceArguments,
                         ordinalOffset + index + 1)),
             ],
             PackageChildrenKind.NoManagedLibraries => [],
@@ -907,34 +878,24 @@ public partial class PackageCommand
     private static PackageChildOutputRow LibraryRow(
         PackageChildrenDocument document,
         PackageLibraryChild library,
-        string libraryCommand,
-        int ordinal)
-    {
-        string assetPath = library.AssetPath.ToString();
-        string selector =
-            libraryCommand
-                + $" --library {ShellCommandText.Quote(assetPath)}";
-        return new(
+        int ordinal) =>
+        new(
             ordinal,
             "Library",
             library.AssetId.ToString(),
             library.AssemblyName.ToString(),
             document.Subject.TargetFramework?.ToString(),
             library.Role.ToString(),
-            assetPath,
-            selector,
+            library.AssetPath.ToString(),
             "available",
             null);
-    }
 
     private static PackageChildOutputRow RuntimeIdentifierPackageRow(
         PackageChildrenDocument document,
         PackageRuntimeIdentifierChild package,
-        string sourceArguments,
         int ordinal)
     {
         string packageId = package.PackageId.ToString();
-        string version = document.Subject.PackageVersion.ToString();
         return new(
             ordinal,
             "RID Package",
@@ -943,9 +904,6 @@ public partial class PackageCommand
             package.RuntimeIdentifier.ToString(),
             null,
             null,
-            "package "
-                + ShellCommandText.Quote($"{packageId}@{version}")
-                + sourceArguments,
             "available",
             null);
     }
@@ -961,118 +919,19 @@ public partial class PackageCommand
             document.Subject.TargetFramework?.ToString(),
             null,
             null,
-            null,
             document.Status.ToString(),
             document.Detail?.ToString());
 
-    private static bool TryCreatePackageChildSelectorContext(
-        PackageChildrenDocument document,
-        InspectionOptions options,
-        out PackageChildSelectorContext? selectors,
-        out string? error)
-    {
-        selectors = null;
-        error = null;
-        string requested = options.PackageArgs.Single();
-        bool local =
-            File.Exists(requested)
-            || Directory.Exists(requested);
-        string packageSelector = local
-            ? Path.GetFullPath(requested)
-            : $"{document.Subject.PackageId}"
-                + $"@{document.Subject.PackageVersion}";
-        NuGetSourceOptions? replaySourceOptions =
-            options.SourceOptions;
-        if (local)
-        {
-            string fullPath = Path.GetFullPath(requested);
-            string localSource = File.Exists(fullPath)
-                ? Path.GetDirectoryName(fullPath)!
-                : fullPath;
-            string[] configuredSources =
-                options.SourceOptions?.Sources ?? [];
-            replaySourceOptions = new NuGetSourceOptions
-            {
-                Sources = [localSource, .. configuredSources],
-                AdditionalSources =
-                    options.SourceOptions?.AdditionalSources ?? [],
-                ConfigFile = options.SourceOptions?.ConfigFile,
-                ConfigDirectory =
-                    options.SourceOptions?.ConfigDirectory,
-            };
-        }
-        if (!PackageReplaySourceArguments.TryCreate(
-                replaySourceOptions,
-                "package",
-                out PackageReplaySources? replaySources,
-                out error))
-        {
-            return false;
-        }
-
-        string sourceArguments =
-            PackageReplaySourceArguments.Format(replaySources);
-        if (sourceArguments.Length > 0)
-            sourceArguments = " " + sourceArguments;
-        string libraryCommand =
-            "package "
-                + ShellCommandText.Quote(packageSelector);
-        if (document.Subject.TargetFramework is { } framework)
-        {
-            libraryCommand +=
-                " --tfm "
-                + ShellCommandText.Quote(framework.ToString());
-        }
-        if (!local)
-            libraryCommand += sourceArguments;
-        selectors = new(libraryCommand, sourceArguments);
-        return true;
-    }
-
-    private static string DescribePackageChildrenSubject(
-        InspectionResult package,
-        PackageChildrenDocument document)
-    {
-        var context = new List<string>();
-        if (package.Source is { } source)
-            context.Add(source.ToString());
-        if (!string.IsNullOrWhiteSpace(package.ToolFormat))
-            context.Add(ShortToolFormat(package.ToolFormat));
-        if (document.Subject.TargetFramework is { } framework)
-            context.Add(framework.ToString());
-        if (package.ContentDirectories is { Count: > 0 } directories)
-        {
-            context.Add(string.Join(
-                ", ",
-                directories.Order(StringComparer.Ordinal)));
-        }
-        if (package.ToolCommands is { Count: > 0 } commands)
-        {
-            context.Add(
-                "command: "
-                    + string.Join(
-                        ", ",
-                        commands.Order(StringComparer.Ordinal)));
-        }
-
-        string identity =
-            $"{document.Subject.PackageId} "
-                + $"{document.Subject.PackageVersion}";
-        return context.Count == 0
-            ? identity
-            : $"{identity} ({string.Join("; ", context)})";
-    }
-
-    private static string ShortToolFormat(string format) =>
-        format.Contains(
-            "Version=\"2\"",
-            StringComparison.Ordinal)
-            ? "DotNetCliTool v2"
-            : format.Contains(
-                "Version=\"1\"",
-                StringComparison.Ordinal)
-                ? "DotNetCliTool v1"
-                : format;
+    /// <summary>
+    /// The Package Tree title: the subject identity followed by the
+    /// owner-issued properties, rendered generically by
+    /// <see cref="ResultTitle"/>.
+    /// </summary>
+    private static string PackageChildrenTitle(
+        PackageChildrenDocument document) =>
+        ResultTitle.Compose(
+            $"{document.Subject.PackageId} {document.Subject.PackageVersion}",
+            PackageChildrenProperties.For(document));
 
     private static List<TreeNode> PackageChildrenNodes(
         PackageChildrenDocument document,
@@ -1246,9 +1105,6 @@ public partial class PackageCommand
         int OrdinalOffset,
         IReadOnlySet<string> DuplicateLibraryNames);
 
-    private sealed record PackageChildSelectorContext(
-        string LibraryCommand,
-        string RuntimeIdentifierSourceArguments);
 }
 
 internal sealed record PackageChildOutputRow(
@@ -1259,7 +1115,6 @@ internal sealed record PackageChildOutputRow(
     string? Target,
     string? Role,
     string? Asset,
-    string? Selector,
     string Status,
     string? Detail);
 

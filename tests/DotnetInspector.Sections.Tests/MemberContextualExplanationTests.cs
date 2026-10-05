@@ -31,6 +31,106 @@ public class MemberContextualExplanationTests
     }
 
     [Fact]
+    public void Document_RejectsKindAndSubjectMismatch()
+    {
+        ResourceExplanationDocument resource =
+            ResourceDocument("member-detail");
+        ExactMemberContextualExplanationSubject exact =
+            Assert.IsType<ExactMemberContextualExplanationSubject>(
+                MemberContextualExplanationOperation
+                    .ExplainExactMember(
+                        resource,
+                        ExactBasis([]),
+                        ["Signature"])
+                    .Content
+                    .Subject);
+
+        Assert.Throws<ArgumentException>(() =>
+            new MemberContextualExplanationDocument(
+                MemberContextualExplanationKind.Command,
+                resource,
+                exact,
+                defaultFacet: null,
+                selectedSections: [],
+                relatedOperations: []));
+        Assert.Throws<ArgumentException>(() =>
+            new MemberContextualExplanationDocument(
+                MemberContextualExplanationKind.MemberGroup,
+                resource,
+                subject: null,
+                defaultFacet: null,
+                selectedSections: [],
+                relatedOperations: []));
+    }
+
+    [Fact]
+    public void MemberGroupExplanation_PreservesOwnerIssuedGroup()
+    {
+        ResourceExplanationDocument resource =
+            ResourceDocument("member-overload");
+        var group = new MemberGroupSubject(
+            TypeName(),
+            "Serialize");
+        var basis = new ResolvedMemberGroupExplanationBasis(
+            Source(),
+            group,
+            MemberDefaultFacet(),
+            new(["Overloads"], ["Overloads"]));
+
+        MemberContextualExplanationDocument content =
+            MemberContextualExplanationOperation
+                .ExplainMemberGroup(
+                    resource,
+                    basis,
+                    ["Methods"])
+                .Content;
+
+        Assert.Equal(
+            MemberContextualExplanationKind.MemberGroup,
+            content.Kind);
+        Assert.Same(resource, content.Resource);
+        Assert.Equal(["Overloads"], content.SelectedSections);
+        MemberGroupContextualExplanationSubject subject =
+            Assert.IsType<MemberGroupContextualExplanationSubject>(
+                content.Subject);
+        Assert.Same(group, subject.Group);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            subject.TypeName);
+        Assert.Equal("System.Text.Json", subject.Library);
+        Assert.Equal(
+            "System.Text.Json@10.0.0",
+            subject.Package);
+        Assert.Equal("net10.0", subject.Framework);
+        Assert.Equal(
+            MemberRelatedOperationAffordances.All
+                .Select(static operation => operation.Id),
+            content.RelatedOperations
+                .Select(static operation => operation.Id));
+    }
+
+    [Fact]
+    public void MemberGroupExplanation_UsesRegisteredDefaultsForBareDemand()
+    {
+        var group = new MemberGroupSubject(
+            TypeName(),
+            "Serialize");
+        MemberContextualExplanationDocument content =
+            MemberContextualExplanationOperation
+                .ExplainMemberGroup(
+                    ResourceDocument("member-overload"),
+                    new(
+                        Source(),
+                        group,
+                        MemberDefaultFacet(),
+                        new([], [])),
+                    ["Overloads"])
+                .Content;
+
+        Assert.Equal(["Overloads"], content.SelectedSections);
+    }
+
+    [Fact]
     public void ExactExplanation_PreservesResolvedBasisInMemory()
     {
         ResourceExplanationDocument resource =
@@ -41,7 +141,7 @@ public class MemberContextualExplanationTests
         InspectionEnvelope<MemberContextualExplanationDocument>
             explanation =
                 MemberContextualExplanationOperation
-                    .ExplainExactSubject(
+                    .ExplainExactMember(
                         resource,
                         basis,
                         ["Documentation"]);
@@ -49,12 +149,12 @@ public class MemberContextualExplanationTests
         MemberContextualExplanationDocument content =
             explanation.Content;
         Assert.Equal(
-            MemberContextualExplanationKind.ExactSubject,
+            MemberContextualExplanationKind.ExactMember,
             content.Kind);
         Assert.Same(resource, content.Resource);
         Assert.Equal(["Signature"], content.SelectedSections);
-        MemberContextualExplanationSubject subject =
-            Assert.IsType<MemberContextualExplanationSubject>(
+        ExactMemberContextualExplanationSubject subject =
+            Assert.IsType<ExactMemberContextualExplanationSubject>(
                 content.Subject);
         Assert.Equal(
             basis.Target.Member.CanonicalSignature,
@@ -78,7 +178,7 @@ public class MemberContextualExplanationTests
     {
         MemberContextualExplanationDocument content =
             MemberContextualExplanationOperation
-                .ExplainExactSubject(
+                .ExplainExactMember(
                     ResourceDocument("member-detail"),
                     ExactBasis([]),
                     ["Signature"])
@@ -122,24 +222,12 @@ public class MemberContextualExplanationTests
             "System.Text.Json.JsonSerializer",
             "Serialize");
         return new(
-            new ResolvedInspectionSource(
-                AssemblyResolutionProvenance.Package(
-                    "System.Text.Json",
-                    "10.0.0",
-                    "net10.0",
-                    rid: null),
-                null,
-                "System.Text.Json",
-                "net10.0"),
+            Source(),
             new ResolvedInspectionMemberTarget(
                 "System.Text.Json.JsonSerializer",
                 null,
                 anchor),
-            InspectionViewFacetCatalog.Registry
-                .GetRequiredDescriptor(
-                    StructuralSubjectKind.Member,
-                    ViewFacetRole.MemberOverview)
-                .Id,
+            MemberDefaultFacet(),
             new InspectionCatalogReference(
                 "ApiMemberDetail",
                 version: 1),
@@ -151,4 +239,28 @@ public class MemberContextualExplanationTests
                 sections,
                 InspectionDiscoveryRequest.None));
     }
+
+    private static ResolvedInspectionSource Source() =>
+        new(
+            AssemblyResolutionProvenance.Package(
+                "System.Text.Json",
+                "10.0.0",
+                "net10.0",
+                rid: null),
+            null,
+            "System.Text.Json",
+            "net10.0");
+
+    private static ViewFacetId MemberDefaultFacet() =>
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview)
+            .Id;
+
+    private static MetadataTypeDefinitionName TypeName() =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.ParseSerialized(
+                "System.Text.Json.JsonSerializer"))
+            .Name;
 }

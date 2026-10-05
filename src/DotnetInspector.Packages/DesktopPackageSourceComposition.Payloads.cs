@@ -19,9 +19,7 @@ public sealed partial class DesktopPackageSourceComposition
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
         string? requiredProducerKey = null,
-        long rangedSizeCut = PackageRangedRead.DefaultSizeCut,
-        IPackageLibraryNamespaceFacts?
-            libraryNamespaceFacts = null)
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(query);
@@ -55,8 +53,7 @@ public sealed partial class DesktopPackageSourceComposition
                     limits,
                     transferPolicy,
                     log,
-                    rangedSizeCut,
-                    libraryNamespaceFacts),
+                    rangedSizeCut),
                 log,
                 _versionSettlement);
             Task<PackageHouseSettlement> execution =

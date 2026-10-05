@@ -341,25 +341,27 @@ public static partial class LibraryStructuralReport
             .. profiles.Select(static profile =>
                 profile.EvidenceMethod.MetadataToken),
         ];
-        IReadOnlyDictionary<int, MethodIdentity> methods =
-            callGraph.DeclaredMethods
-                .GroupBy(static method => method.MetadataToken)
-                .ToDictionary(
-                    static group => group.Key,
-                    static group => group.First());
+        // Analysis binds calls through generic instantiations of current-module
+        // types, which raw CalleeDefinitionToken matching would drop.
         var edges = callGraph.DirectCalls
             .Where(call =>
                 completeBodies.Contains(call.EvidenceMethod.MetadataToken)
                 && call.Kind is CallKind.Call
                     or CallKind.CallVirtual
-                    or CallKind.NewObject
-                && call.CalleeDefinitionToken != 0
-                && methods.ContainsKey(call.CalleeDefinitionToken)
-                && !call.Caller.DeclaringType.Equals(methods[
-                    call.CalleeDefinitionToken].DeclaringType))
-            .GroupBy(call => (
-                Source: call.Caller.DeclaringType,
-                Target: methods[call.CalleeDefinitionToken].DeclaringType))
+                    or CallKind.NewObject)
+            .Select(call => (
+                Call: call,
+                Target: callGraph.ResolveTarget(call)
+                    is DirectCallTarget.CurrentModule current
+                    ? current.Method
+                    : null))
+            .Where(static resolved =>
+                resolved.Target is not null
+                && !resolved.Call.Caller.DeclaringType.Equals(
+                    resolved.Target.DeclaringType))
+            .GroupBy(static resolved => (
+                Source: resolved.Call.Caller.DeclaringType,
+                Target: resolved.Target!.DeclaringType))
             .Select(group => (
                 group.Key.Source,
                 group.Key.Target,
