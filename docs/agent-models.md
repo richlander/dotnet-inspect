@@ -1,10 +1,9 @@
 # Agent model mapping
 
 This file maps names in current contributor guidance to dispatch model IDs.
-[AGENTS.md](../AGENTS.md#how-many-reviewers-and-from-which-models) owns review
-requirements; [Reviewer roster](round-orchestration.md#reviewer-roster) owns
-the single review seat and its substitutions. This mapping does not change
-either policy.
+[Reviewer roster](round-orchestration.md#reviewer-roster) owns review
+requirements, the single review seat, and substitutions. This mapping does not
+change that policy.
 
 ## Model names and IDs
 

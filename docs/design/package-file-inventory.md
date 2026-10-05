@@ -3,14 +3,14 @@
 ## Scope
 
 This document owns the host-neutral package-file inventory and the semantic
-selection and projection exposed by the CLI `Package files` section. It does
+selection and projection exposed by the CLI `Files` section. It does
 not own compile-asset selection, PackageHouse selected-slice measurements,
 package content interpretation, or the `package --layout` lens.
 
 `package --layout --tfm <TFM>` retains its existing layout-specific scope:
 `lib/<TFM>` when present, otherwise `tools/<TFM>`. It does not adopt this
 document's cross-root TFM predicate. The layout lens answers a scoped tree
-question; `Package files --tfm <TFM>` answers the cross-root inventory question.
+question; `Files --tfm <TFM>` answers the cross-root inventory question.
 
 The production consumer is the `package` command. Issue #7630 adopted the
 selection contract through ordinary section output and its existing path
@@ -89,7 +89,7 @@ neither full-path selection nor root projection hides it.
 ## Root projection
 
 `--roots` is a package-specific terminal shape projection over the selected
-`Package files` rows. It requires exactly that section and is mutually exclusive
+`Files` rows. It requires exactly that section and is mutually exclusive
 with `--value`, `--urls`, `--paths`, `--print`, and `--count`.
 
 Each selected entry beneath a top-level package folder contributes that folder's

@@ -101,6 +101,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
+        typeCommand.Options.Add(opts.Details);
         opts.AddCountOptionTo(typeCommand);
         opts.AddPrintOptionTo(typeCommand);
         opts.AddShapeProjectionOptionsTo(typeCommand);
@@ -428,6 +429,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(kindOption);
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
+        memberCommand.Options.Add(opts.Details);
         opts.AddCountOptionTo(memberCommand);
         opts.AddPrintOptionTo(memberCommand);
         opts.AddShapeProjectionOptionsTo(memberCommand);

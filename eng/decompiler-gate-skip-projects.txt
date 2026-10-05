@@ -131,8 +131,6 @@ src/DotnetInspector.Ecosystems
 src/DotnetInspector.JsonSchema
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Local
-src/DotnetInspector.Presentation
-src/DotnetInspector.ResearchSections
 src/DotnetInspector.Sections.Local
 src/DotnetInspector.SourceDelegation
 src/DotnetInspector.Vocabulary
@@ -220,10 +218,12 @@ tests/nuget/NuGetFetch.PluginFixture
 tests/nuget/PackageAssetSelection.BuildOracle/Consumer
 tests/nuget/PackageAssetSelection.BuildOracle/Package
 tests/runfaster.Tests
+tools/AddressTerminalScorecard
 tools/AnalysisHarness
 tools/AnalysisLibraryBodyUseAdmissionBenchmark
 tools/AotProbe
 tools/BodyUseScorecard
+tools/BodyUseScorecardKernel
 tools/CSharpDiffHarness
 tools/CSharpPrinter.Benchmarks
 tools/CatalogCallGraphScorecard
@@ -241,6 +241,7 @@ tools/MethodClassificationScorecard
 tools/OwnershipIncidenceScorecard
 tools/PackageHouse.CliBenchmarks
 tools/QuerySpaceScorecard
+tools/ReturnToSenderTargetScorecard
 tools/SectionRegistrySpike
 tools/SourceCorpusCensus
 tools/StructuralSaliencePerformance

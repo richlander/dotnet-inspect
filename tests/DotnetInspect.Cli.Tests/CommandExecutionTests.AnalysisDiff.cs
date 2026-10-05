@@ -571,6 +571,28 @@ public partial class CommandExecutionTests
         Assert.True(count > 1, $"expected post-filter count before --top, got {count}");
     }
 
+    [Fact]
+    public async Task PerformanceTriageCount_HonorsColumnProjection()
+    {
+        var scalar = await RunAppAsync(
+            "library", "--platform", "System.Private.CoreLib",
+            "-S", "Library Metrics,Performance: Boxing",
+            "--columns", "Type",
+            "--count", "--json");
+        var rows = await RunAppAsync(
+            "library", "--platform", "System.Private.CoreLib",
+            "-S", "Library Metrics,Performance: Boxing",
+            "--columns", "Type",
+            "--where", "Shape=*",
+            "--count", "--json");
+
+        Assert.Equal(0, scalar.Exit);
+        Assert.Empty(scalar.Error);
+        Assert.Equal(0, rows.Exit);
+        Assert.Empty(rows.Error);
+        Assert.Equal(rows.Output, scalar.Output);
+    }
+
     // ===== Performance sections (kind-scoped decomposition of the library "Performance Triage" monolith) =====
 
     [Fact]

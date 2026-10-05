@@ -1,22 +1,18 @@
 # Round orchestration
 
-`AGENTS.md` owns the binding rules for adversarial review: what a candidate is,
-when a round may start, what makes a review review-clean, and when to stop. This
-document owns the operational side — how to find out where the round stands, how
-to dispatch and reconcile it, how approved workflow adjustments apply, and what
-to do when the base moves under a clean result.
-
-Read [Adversarial review](../AGENTS.md#adversarial-review) first. This document
-owns operational transitions and reporting, not the rules that decide
-eligibility, recovery, completion, or carry-forward. Where it applies one of
-those rules, it cites the owner rather than restating it.
+This document owns the repository's binding pull-request round contract and its
+operations: candidate formation and locks, eligibility, review-clean state,
+recovery, status discovery, reviewer dispatch, reconciliation, reporting,
+carry-forward, merge preflight, and block boundaries. The repo-local
+[`steward` skill](../.claude/skills/steward/SKILL.md) is the point-of-use
+decision layer that applies this contract to PR events.
 
 ## User-directed workflow adjustments
 
-[AGENTS.md](../AGENTS.md#user-directed-workflow-adjustments) states the binding
-boundary: a user adjustment changes only its named sequencing gate and cannot
-make failed evidence successful or transfer fixed-head evidence. The following
-standing adjustments define their exact scope and effect.
+A user adjustment changes only its named sequencing gate. It cannot make failed
+evidence successful, make an unmergeable PR ready, or transfer fixed-head
+evidence. The following standing adjustments define their exact scope and
+effect.
 
 ### Standing adjustments
 
@@ -53,10 +49,8 @@ standing adjustments define their exact scope and effect.
 
 ## Candidate lifecycle
 
-[Canonical round flow](../AGENTS.md#canonical-round-flow) and
-[Forming a candidate](../AGENTS.md#forming-a-candidate) state the binding
-summary. This section owns the full round cycle, eligibility table,
-review-clean definition, and recovery transitions.
+This section owns the full round cycle, eligibility table, review-clean
+definition, and recovery transitions.
 
 ### The round cycle
 
@@ -120,6 +114,14 @@ not move in response. Only a replacement head can earn `review-clean` after a
 fix-producing round. The report classification `clean` requires every required
 reviewer to return no findings against an unchanged locked head; use
 `converging`, `neutral`, or `diverging` when at least one finding was returned.
+
+The `review-clean` label is live advisory state bound to a head SHA, not a
+mergeability claim. Add it only when every required review at the current head
+is review-clean, and record that SHA in the same comment or update. Remove it
+and expire recorded merge authorization before a new round, author change,
+conflict recovery, restack, base-ref retarget, unresolved finding, or draft
+transition. Base movement alone does not remove it: a no-interaction
+carry-forward keeps the label on the unchanged reviewed head.
 
 Recovery transitions, applied without waiting for CI:
 
@@ -192,9 +194,9 @@ block a first or conflict-recovery attempt.
 
 ## Status discovery
 
-Two questions matter: is the PR mergeable, and is it green. The eligibility
-table in [Canonical round flow](../AGENTS.md#canonical-round-flow) decides
-which attempts must wait for those answers. This section owns when a status
+Two questions matter: is the PR mergeable, and is it green. The
+[eligibility table](#eligibility-table) decides which attempts must wait for
+those answers. This section owns when a status
 snapshot runs and how its result changes round state.
 
 ### Obtain one snapshot
@@ -326,9 +328,8 @@ snapshot satisfies the prerequisite. The duration context comes from
 
 ### Reviewer roster
 
-[How many reviewers, and from which models](../AGENTS.md#how-many-reviewers-and-from-which-models)
-states the binding tier table and roster name. Every non-trivial change gets one
-review seat; there is no second seat and no clean-count-based selection. Use
+Every non-trivial change gets one review seat; there is no second seat and no
+clean-count-based selection. Use
 [Agent model mapping](agent-models.md) to resolve the name to a dispatch ID.
 
 Select GPT-6 Sol by default. Prefer GPT-6 Luna for well-bounded changes with
@@ -481,7 +482,7 @@ unexplained second full pass.
 
 ### The round report
 
-After every [completed round](../AGENTS.md#canonical-round-flow) and before
+After every completed [round cycle](#the-round-cycle) and before
 starting the next one, emit this report as the assistant's visible user-facing
 response in the terminal, filling every field and choosing exactly one feedback
 classification. Do not emit it through a shell command such as `printf`, leave
@@ -568,7 +569,7 @@ a blocker, and it clears only when every listed predicate clears.
 - `split into focused successors` is valid at round 12 and later six-round
   boundaries after the required checkpoint. It requests the user's split
   decision and follows the transition in
-  [Stop after six rounds](../AGENTS.md#stop-after-six-rounds).
+  [Block boundaries and splitting](#block-boundaries-and-splitting).
 - `approve next rounds` is valid only after rounds 6, 12, 18, and so on, after
   the required architectural checkpoint. Never use it for an earlier round in
   the current block.
@@ -583,8 +584,7 @@ decision question and answer labels. Do not repeat the report or its evidence
 inside the prompt.
 
 Before emitting the report or opening its approval prompt, synchronize the PR's
-`review-clean` label with
-[Keep the review-clean label current](../AGENTS.md#keep-the-review-clean-label-current).
+`review-clean` label with [Review-clean and recovery](#review-clean-and-recovery).
 The label describes the state the report records; it must not lag behind it.
 
 The same report may also be posted on the PR; the public reconciliation may
@@ -592,9 +592,7 @@ include more detail when the findings or fixes warrant it.
 
 ## Carry-forward after clean reviews
 
-[Clean reviews are not spent by main
-moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
-this path applies and how each landed-range classification resolves. It applies
+Clean reviews are not spent by base movement alone. This path applies
 both to a review-clean head and to a head with a pending or approved
 trivial-interaction waiver. A carry-forward lineage is one immutable candidate
 head plus the ordered base tips analyzed against it. This is the procedure once
@@ -640,7 +638,7 @@ the path applies.
      read ([Probe the live base locally,
      first](github-status-queries.md#probe-the-live-base-locally-first)).
      Then remove `review-clean` and resolve it as an author change under
-     [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
+     [Review-clean and recovery](#review-clean-and-recovery), and re-dispatch
      the required reviewers at the new head.
 
 For a no-interaction carry-forward, record the unchanged candidate head, the
@@ -688,8 +686,7 @@ other interaction invalidates both. Any head movement also invalidates both.
 
 ## Block boundaries and splitting
 
-[Stop after six rounds](../AGENTS.md#stop-after-six-rounds) states the binding
-rules: each usable fixed-head review result consumes one round; rounds 1-6 run
+Each usable fixed-head review result consumes one round; rounds 1-6 run
 without approval; approval is required before rounds 7, 13, 19, and so on; and
 round 12 (and every six-round boundary after it) carries a presumption to split
 remaining work into focused successors. This section owns the checkpoint

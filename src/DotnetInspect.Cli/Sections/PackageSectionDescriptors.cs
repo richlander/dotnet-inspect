@@ -120,7 +120,7 @@ public static class PackageSectionDescriptors
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies,
                 PackageSections.Files)
-            // The package file family. Plain "Package files" is the whole-package listing,
+            // The package file family. Plain "Files" is the whole-package listing,
             // so it is deliberately not a member: including it would make
             // -S @Files render most rows twice.
             .AddBaseCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)

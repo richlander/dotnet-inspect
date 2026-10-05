@@ -4,7 +4,10 @@ import type {
 } from "../src/facades/inspect-web-analysis.d.ts";
 import {
   bindLibraryMetricsInteractions,
+  renderLibraryDependencyStructureSurface,
   renderLibraryMetricsSurface,
+  type LibraryAnalysisOptions,
+  type LibraryDependencyStructureState,
   type LibraryMetricsRelationshipState,
 } from "../src/library-metrics.ts";
 
@@ -239,27 +242,78 @@ const deepDependencyData: BrowserLibraryDependencyStructure = {
   diagnostics: [],
   failure: null,
 };
+const globalDependencyData: BrowserLibraryDependencyStructure = {
+  ...dependencyData,
+  population: {
+    ...dependencyData.population!,
+    typeCount: dependencyData.population!.typeCount + 1,
+    namespaceCount: dependencyData.population!.namespaceCount + 1,
+  },
+  namespaces: [
+    {
+      namespace: "",
+      isGlobalNamespace: true,
+      typeCount: 1,
+      intraNamespaceRelationshipCount: 0,
+      cycleIndex: null,
+      level: 0,
+    },
+    ...dependencyData.namespaces.map(node => ({
+      ...node,
+      level: node.level + 1,
+    })),
+  ],
+  namespaceEdges: [
+    ...dependencyData.namespaceEdges,
+    {
+      sourceNamespace: "Example.Storage",
+      targetNamespace: "",
+      counts: { invocations: 1, functionReferences: 0, total: 1 },
+      contributingTypeEdgeCount: 1,
+      explainingTypeEdges: [{
+        sourceTypeKey: "Example.E",
+        sourceTypeDisplay: "Example.PersistentWorkspaceRelationshipIndex",
+        targetTypeKey: "<PrivateImplementationDetails>",
+        targetTypeDisplay: "<PrivateImplementationDetails>",
+        counts: { invocations: 1, functionReferences: 0, total: 1 },
+      }],
+      remainingContributorCount: 0,
+    },
+  ],
+  totalNamespaceEdgeCount: dependencyData.totalNamespaceEdgeCount + 1,
+};
 const dependencyFixture =
   new URLSearchParams(window.location.search).get("dependency");
 const selectedDependencyData = dependencyFixture === "deep"
   ? deepDependencyData
   : dependencyFixture === "cycle-zero"
     ? levelZeroCycleData
-    : dependencyData;
+    : dependencyFixture === "global"
+      ? globalDependencyData
+      : dependencyData;
 const appElement = document.querySelector("#app");
 if (!(appElement instanceof HTMLElement))
   throw new Error("Library metrics harness root is missing.");
 const app = appElement;
 let relationshipState: LibraryMetricsRelationshipState | null = null;
-const mode = new URLSearchParams(location.search).get("view") === "relationships"
-  ? "relationships"
+let dependencyState: LibraryDependencyStructureState = {
+  includeGlobalNamespace: false,
+  selectedSourceNamespace: null,
+  selectedTargetNamespace: null,
+};
+let activeDependency: BrowserLibraryDependencyStructure | null = null;
+const requestedMode = new URLSearchParams(location.search).get("view");
+const mode = requestedMode === "relationships"
+  || requestedMode === "dependencies"
+  ? requestedMode
   : "complexity";
 
 function render(
   dependency: BrowserLibraryDependencyStructure | null,
   dependencyLoading = false,
 ): void {
-  app.innerHTML = renderLibraryMetricsSurface({
+  activeDependency = dependency;
+  const options: LibraryAnalysisOptions = {
     libraryName: "Example",
     assemblyIdentity: "Example, Version=1.0.0.0",
     assetPath: "Example.dll",
@@ -275,10 +329,14 @@ function render(
     dependencyError: "",
     dependencyData: dependency,
     relationshipState,
+    dependencyState,
     escapeHtml: value => String(value).replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
-  }, mode);
+  };
+  app.innerHTML = mode === "dependencies"
+    ? renderLibraryDependencyStructureSurface(options)
+    : renderLibraryMetricsSurface(options, mode);
 
   const activation = document.createElement("output");
   activation.id = "metrics-activated-type";
@@ -293,6 +351,13 @@ function render(
     },
     updateRelationshipState: state => {
       relationshipState = state;
+    },
+    updateDependencyState: state => {
+      const presentationChanged =
+        dependencyState.includeGlobalNamespace
+          !== state.includeGlobalNamespace;
+      dependencyState = state;
+      if (presentationChanged) render(activeDependency);
     },
   });
 }

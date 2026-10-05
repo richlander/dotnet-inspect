@@ -226,7 +226,7 @@ public record InspectionOptions : IProjectionOptions
 
     /// <summary>
     /// Project top-level package roots represented by selected
-    /// <c>Package files</c> rows.
+    /// <c>Files</c> rows.
     /// </summary>
     public bool Roots { get; init; }
 

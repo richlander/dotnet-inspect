@@ -237,7 +237,12 @@ either:
 - a coalesce has a proven assignment type accepted by
   `ReferenceAssignmentTargets`; or
 - an ordinary expression has a proven reference assignment type and the
-  storage target is nominal core-library `System.Object`.
+  storage target is nominal core-library `System.Object`; or
+- a coalesce of two proven references with no assignment type of its own is
+  stored to a slot whose every load testifies nominal `System.Object`: the
+  slot-target binding pass issues the one reference-conversion witness C#
+  needs on the left operand (`(object)left ?? right`), after which the
+  coalesce carries the `object` assignment type the first bullet accepts.
 
 This combines the already bounded coalesce assignment decision with the
 ordinary C# reference-to-`object` conversion. It does not infer a class or
@@ -290,10 +295,13 @@ A supplemental full 42,120-method product-render hash comparison reports only
 both changes move an existing `object` declaration to its materialized-local
 position without changing statements.
 
-### Primitive-join target testimony
+### Join target testimony
 
-Primitive integer-family join compatibility is decided before printing
-(#2095). One bounded relation serves `Conditional`, `SwitchExpression`, and
+Join target compatibility is decided before printing (#2095). Its
+integer-family part is the primitive relation below; its enum and `char`
+parts are two arm facts issued with it (the last subsection).
+
+Primitive integer-family join compatibility is decided before printing. One bounded relation serves `Conditional`, `SwitchExpression`, and
 `Coalesce`. It records whole-join compatibility and, for each target whose
 rendered arms are accepted, the effective source type that licenses
 target-aware arm rendering. Rendered-arm testimony is issued only for an actual
@@ -349,6 +357,55 @@ same-width signedness, constant behavior, boolean arms, differing-width and
 missing-type declines, enum/`char` non-preemption, clone/refresh, raised/lowered
 output, and the pinned witness. Fixed-input censuses and Render A/B measure
 population effects separately.
+
+#### Enum and `char` arm facts
+
+The same binding issues two arm facts over each join's rendered arms (both arms
+of a conditional, every switch-expression arm value, a coalesce's right
+operand): the join has at least one rendered arm and every rendered arm is
+integer-typed, and the join has at least one rendered arm and every rendered
+arm is a `char` constant. They are issued even when the join's own type is not an
+integer (an enum-typed conditional of integer arms is the enum route's case).
+One relation, `CanRenderValueJoinAt`, decides whether a join renders as a value
+join at a target, and both the printer's targeted join spellings and the
+residual storage policy query it:
+
+- a conditional of `char` constants at `char` keeps the literal route;
+- a join of integer arms at an enum-like target takes the enum route, a
+  coalesce only when its left operand is that enum's `Nullable<T>`;
+- otherwise the issued integer-family testimony decides.
+
+A conditional's full relation, `CanRenderConditionalAt`, adds the issued
+reference assignment testimony. Enum-likeness of the target
+(`CoercionRendering.IsEnumLikeInteger`: a named definition with no primitive
+family that the shape map does not class as a reference or struct, or a
+generic instance the map classes as an enum) is a property of the target, not
+of the arms, and is shared by every caller. A coalesce that is not a value join
+at an enum target still takes the whole-operand enum spelling; that cast is a
+spelling decision and stays with the writer.
+
+The arm facts are issued at construction and by the final binding, retained
+by cloning, and re-taken where their readers look. Two rewrites follow the
+final binding: coercion insertion wraps an enum-merged join's integer arms in
+`Coerce` nodes, and residual storage binding retypes slot-load arms and then
+discharges coercions again. Each reader previously walked the arms live, so
+residual storage binding re-takes the arm facts (and only them) at its entry,
+before its policy reads them and before its early return when no slot
+remains, and again after its discharge, where the printer reads them. The
+integer-family testimony keeps its own binding point and is not refreshed, so
+neither reader sees a fact the deleted walks would not have computed. On the
+pinned 14-assembly corpus no join's arm facts or integer-family testimony
+differ between the final binding and print time (6,581 joins); the
+coercion-wrapped enum-merge shape is gated synthetically, including the
+residual policy's storage decision for it. The printer's `CanRenderValueConditionalForTarget` and
+`CanRenderSwitchExpressionForTarget` and the residual policy's verbatim copy of
+the former are deleted; the printer asks the relation and only spells the
+join. `JoinTargetTestimonyTests` gates the three join kinds, the enum-typed
+join with integer arms, the `Nullable<T>` coalesce condition, the `char`
+route's conditional-only scope, the missing-type and reference declines, and
+clone and refresh, the arms coercion insertion wraps (with and without a
+residual slot), the arms residual discharge wraps, and the residual policy's
+split decision for a slot that stores a coercion-wrapped enum merge.
 
 ## Instance 1 — coercion: the missing member of the type system
 
@@ -738,11 +795,14 @@ now declares those types separately instead of asking the printer to create
 Synthetic cases gate the positive reset, a self-reading entry store, a retained
 label, read-before-write, and nested structured-EH ownership. On the fixed
 14-assembly corpus the proof performs three range rewrites with zero collection
-failures, reduces residual printer split slots from 131 to 129, removes exactly
+failures, reduces residual split slots from 131 to 129 as the printer's
+unifier counted them at that base (after [Residual storage
+binding](#residual-storage-binding) the same effect reads as two fewer
+residual-bound split webs in `--residual-binding-census`), removes exactly
 the `BuildAnalysisDiff` `S_6` and `S_8` identities, and introduces none. The
 third rewrite is a compatible `string`/`object` carrier in
 `ApiOutputFormatter.BuildMemberDrillMap`; it is disclosed separately because it
-was not a residual printer split.
+was not a residual split.
 
 ### Residual storage binding
 
@@ -865,8 +925,37 @@ primitive targets as the binding passes have just bound them; for the Boolean
 sink rule, each load's parent shape and the consuming sink target
 `CoercionSinks.SemanticLoadSinkTargetType` derives (field type, setter
 parameter, `Box` type, `StoreLocal` type, argument store type, indirect store
-type, element target, or the body's return type); and the function's type
-shapes and enum backing. That inventory is closed. For a raised lambda body
+type, element target, the body's return type, a call or object-creation
+argument's declared parameter type after MethodSpec substitution when that
+type is closed, or the other operand of a comparison when that operand is not
+a constant and its type is width-exact for the comparison); and the function's type
+shapes and enum backing. That inventory is closed. The argument and comparison
+sinks are the same "consuming sink's target type" the one slot-evidence rule
+(`TestifiedSlotTypes`) has always stated for an untyped load; they joined its
+derivation for the #9248 remainder, where a reference `??` join or an
+enum/constant join spilled to a slot and consumed only by such a sink had no
+testimony and failed visibly at residual storage binding. An open generic
+parameter never testifies, and a constant comparison operand never does: it
+carries only its stack width, and `c ? CfgFlags.Top : e` compared against
+`0` keeps the enum naming route (`EnumCastPrinterTests`). A comparison operand
+testifies only when its static type is exactly the operand type the IL
+comparison itself fixes — by stack family, by width, and, for an ordering
+comparison, by signedness (ECMA-335 III.1.5; `clt` versus `clt.un`). Width: an
+I4-family operand is compared at int32 width, so `int` and `uint` testify while
+`byte`, `short`, `char`, `bool`, and enums (whose backing width the derivation
+does not see) decline; `long`, floats, native ints, and proven references are
+width-exact. Signedness: on an ordering comparison an integer sibling testifies
+only when it is unsigned exactly when the comparison is, because the printer
+spells signedness from the operand types; equality ignores signedness. Taking
+a narrow sibling would declare the slot narrower than the comparison and
+truncate its other stores (`b == (c ? (int)e : x)` as
+`byte S = c ? (byte)e : (byte)x`); taking a `uint` sibling on a signed `clt`
+would turn `(int)u < (c ? (int)be : x)` into the unsigned
+`uint S = c ? (uint)be : (uint)x; return S_0 < S;`. Both compile and change
+the result; `ArgumentSinkTestimonyTests` gates both declines. A declined narrow or enum sibling leaves the load underivable, so the
+web fails visibly as before, and widening the rule to enum siblings once the
+derivation carries enum backing widths is a named follow-up on the #9371
+docket. For a raised lambda body
 the return type is the body's own signature, the closure method's; the deleted
 printer read it from the delegate's shape and fell back to `void`, so a
 delegate it could not read (`Predicate<T>`, for example) is a named, expected
@@ -1491,6 +1580,33 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    unspellable or out-of-scope constructions remain deferred. Admission
    consumes existing metadata facts; it does not acquire dependencies or
    infer assignability, boxing, covariance, or generic constraints.
+   **Generated-name reference storage.** A compiler-generated metadata type
+   name — a closure display class, a lambda holder, a state machine, an
+   anonymous type, a collection-expression type, or any other `<`-prefixed
+   generated name, at any depth of the complete type — is not a defect for
+   named reference storage, for the reason the managed-reference rule below
+   states: the residual path and the typed local render the same `TypeText`,
+   and the existing fidelity diagnostic reports the name either way, so the
+   name cannot make one path more valid than the other. Every other spelling
+   check still applies (shape and arity, contextual names, shadowing and
+   collisions, unsupported constituents, generated generic-parameter and
+   function-pointer constituent names), the definition must still be a proven
+   reference type, and producers must still be exact. Value storage keeps the
+   full gate: a struct's `this` spilled to a slot is a managed pointer the
+   importer types as the value, so admitting a generated struct state machine
+   as value storage would turn the spill into a copy that loses writes
+   ([#9395](https://github.com/richlander/dotnet-inspect/issues/9395)), the
+   defect that already ships for speakable struct names. The motivating
+   witnesses are Newtonsoft.Json 13.0.4
+   `ReflectionUtils.GetChildPrivateProperties` (a display class) and
+   `ArraySliceFilter.<ExecuteFilter>d__12.MoveNext` (a reference iterator), and
+   dotnet-inspect 0.14.0 `PackageCommand.AppendAggregatedSection` (a
+   `<>z__ReadOnlyArray<string>` and a `List<>` of an anonymous type);
+   `GeneratedNameReferenceStorageTests` gates them, the generated struct
+   decline, the real struct-state-machine `this` that stays residual, and the
+   defects a generated name does not excuse. Output stays invalid where the
+   generated name is printed — the methods were and remain `Partial` — so this
+   rule retires residual bindings without claiming validity.
    Named value storage follows the same exact-type rule when the imported
    definition is a known value type, the complete type is spellable, and the
    type is not byref-like. This includes ordinary structs and their
