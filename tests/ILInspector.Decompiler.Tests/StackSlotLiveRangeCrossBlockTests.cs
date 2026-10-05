@@ -474,6 +474,72 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void StructuredLoopEntryResetRange_Splits()
+    {
+        var firstLoad = Load(Int32);
+        var secondLoad = Load(Int32);
+        var thirdLoad = Load(String);
+        var loopBody = BlockOf(
+            10,
+            Store(1),
+            firstLoad,
+            Store(2),
+            secondLoad,
+            Store("loop"),
+            thirdLoad);
+        var entry = BlockOf(
+            0,
+            new WhileLoop(new LoadArgument(0, "again", Boolean), loopBody),
+            new Return(null));
+
+        var function = Run(entry);
+
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(firstLoad.Expression).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(secondLoad.Expression).Slot);
+        var rewrittenStore = Assert.Single(
+            function.Descendants.OfType<StoreStackSlot>(),
+            store => store.Slot != Slot);
+        var rewrittenLoad = Assert.IsType<LoadStackSlot>(thirdLoad.Expression);
+        Assert.Equal(rewrittenStore.Slot, rewrittenLoad.Slot);
+    }
+
+    [Fact]
+    public void StructuredLoopEntrySelfRead_StaysUnsplit()
+    {
+        var loopBody = BlockOf(
+            10,
+            new StoreStackSlot(Slot, new Coerce(Int32, new LoadStackSlot(Slot, Object))),
+            Load(Int32),
+            Store("loop"),
+            Load(String));
+        var entry = BlockOf(
+            0,
+            Store(1),
+            new WhileLoop(new LoadArgument(0, "again", Boolean), loopBody),
+            new Return(null));
+
+        Assert.False(Split(Run(entry)));
+    }
+
+    [Fact]
+    public void StructuredLoopEntryResetWithLabel_StaysUnsplit()
+    {
+        var loopBody = BlockOf(
+            10,
+            Store(1),
+            Load(Int32),
+            new LabelAnchor(),
+            Store("loop"),
+            Load(String));
+        var entry = BlockOf(
+            0,
+            new WhileLoop(new LoadArgument(0, "again", Boolean), loopBody),
+            new Return(null));
+
+        Assert.False(Split(Run(entry)));
+    }
+
+    [Fact]
     public void LoopCarriedCandidateRhsLoad_StaysUnsplit()
     {
         var loopInput = new LoadStackSlot(Slot, Object);
@@ -1056,6 +1122,60 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void PublishedLoopEntryResetRangesResolveBeforePrinting()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "SwitchSection",
+            "dotnet-inspect.dll");
+        Assert.Equal(
+            "BA25A787B75C15DB094A703F1AB3A00399FCA60B1E77F1FC2E9AE7D934EAE717",
+            System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = ReferenceSlotMaterializationTestHelpers.RaiseToMaterialization(
+            source,
+            "DotnetInspector.Commands.DiffCommand",
+            "BuildAnalysisDiff");
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.DoesNotContain(
+            decisions,
+            decision => decision.Vetoes.HasFlag(
+                SlotMaterializationVeto.ConflictingTypeTestimony));
+        var methodSignalSlots = function.Descendants.OfType<StoreStackSlot>()
+            .Where(store => store.Value.ResultType?.ToDisplayString() == "MethodSignals")
+            .Select(store => store.Slot)
+            .ToHashSet();
+        var opportunitySlots = function.Descendants.OfType<StoreStackSlot>()
+            .Where(store => store.Value.ResultType?.ToDisplayString()
+                == "List<OptimizationOpportunity>")
+            .Select(store => store.Slot)
+            .ToHashSet();
+        Assert.NotEmpty(methodSignalSlots);
+        Assert.NotEmpty(opportunitySlots);
+        Assert.Empty(methodSignalSlots.Intersect(opportunitySlots));
+
+        var productFunction = IrImporter.Import(
+            source,
+            "DotnetInspector.Commands.DiffCommand",
+            "BuildAnalysisDiff");
+        Assert.NotNull(productFunction);
+        string output = CSharpPrinter.PrintRaised(
+            productFunction,
+            reference => IrImporter.Import(source, reference),
+            typesProvablyDisjoint: source.AreProvablyDisjoint).Output!;
+        Assert.DoesNotContain("S_6_1", output);
+        Assert.DoesNotContain("S_8_1", output);
+        Assert.Contains("MethodSignals S_8;", output);
+        Assert.Contains("List<OptimizationOpportunity>", output);
+        productFunction.CheckInvariant(includeSemantics: true);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
     public void LocalFunctionRoot_DoesNotExposeNestedLoadsToCrossBlockRewrite()
     {
         var localLoad = Load(Object);
@@ -1180,9 +1300,9 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
-    public void NestedLoopRange_StaysUnsplit()
+    public void NestedLoopEntryResetRange_Splits()
     {
-        Assert.False(Split(BuildStructuredEh(nestedLoop: true, handlerLoad: false)));
+        Assert.True(Split(BuildStructuredEh(nestedLoop: true, handlerLoad: false)));
     }
 
     [Fact]
@@ -1206,11 +1326,16 @@ public class StackSlotLiveRangeCrossBlockTests
     [Theory]
     [InlineData(NestedTryOwner.Catch)]
     [InlineData(NestedTryOwner.Finally)]
-    [InlineData(NestedTryOwner.Loop)]
     [InlineData(NestedTryOwner.Try)]
     public void NestedTryBodyRange_StaysUnsplit(NestedTryOwner owner)
     {
         Assert.False(Split(BuildNestedTryCandidate(owner)));
+    }
+
+    [Fact]
+    public void NestedTryInsideLoopEntryResetRange_Splits()
+    {
+        Assert.True(Split(BuildNestedTryCandidate(NestedTryOwner.Loop)));
     }
 
     [Fact]

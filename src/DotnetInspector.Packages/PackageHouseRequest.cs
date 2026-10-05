@@ -434,6 +434,29 @@ public sealed class PackageHouseRequest
                     nameof(contentQuery));
             }
         }
+        if (contentQuery?.RetainedLibraryInventory
+                is { } retainedLibraryInventory)
+        {
+            PackageSourceCoordinate? requestedCoordinate = demand switch
+            {
+                PackageHouseDemand.Exact exact => exact.Coordinate,
+                PackageHouseDemand.Candidate candidate =>
+                    candidate.Value.Coordinate,
+                _ => null,
+            };
+            if (requestedCoordinate is null
+                || requestedCoordinate
+                    != retainedLibraryInventory
+                        .Narrowing
+                        .Acquisition
+                        .Candidate
+                        .Coordinate)
+            {
+                throw new ArgumentException(
+                    "Retained Library inventory evidence requires its exact package coordinate.",
+                    nameof(contentQuery));
+            }
+        }
 
         if (evidenceDemand != PackageHouseEvidenceDemand.None
             && (!realizes

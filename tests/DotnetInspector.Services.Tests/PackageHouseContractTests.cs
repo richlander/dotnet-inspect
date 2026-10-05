@@ -154,6 +154,44 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void LibraryInventoryQueryRequiresTfmWideTarget()
+    {
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery
+                .GetLibraryAndInventoryForTarget(target);
+        var terminal = Assert.IsType<
+            PackageHouseContentTerminal
+                .LibraryAndInventoryForTarget>(
+                    Assert.Single(query.Terminals));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            targetContext: target,
+            contentQuery: query);
+
+        Assert.Same(query, request.ContentQuery);
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                [
+                    new PackageHouseContentTerminal
+                        .LibraryAndInventoryForTarget(),
+                ]));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.TfmWide(target),
+                [
+                    new PackageHouseContentTerminal
+                        .LibraryAndInventoryForTarget(),
+                    new PackageHouseContentTerminal.Files(
+                        ["ref/net10.0/Contoso.Json.dll"]),
+                ]));
+    }
+
+    [Fact]
     public void FrameworkReferenceDemandRequiresCompileRealization()
     {
         var demand = new PackageHouseDemand.Exact(Coordinate);
