@@ -6,6 +6,8 @@ export type AnalysisMode =
   | "integrations"
   | "opportunities";
 
+export const defaultAnalysisMode: AnalysisMode = "relationships";
+
 export function isAnalysisMode(
   value: string | undefined,
 ): value is AnalysisMode {
@@ -26,8 +28,8 @@ export interface AnalysisInspectorContext {
 }
 
 const modes = [
+  [defaultAnalysisMode, "Relationships"],
   ["complexity", "Complexity"],
-  ["relationships", "Relationships"],
   ["performance", "Performance"],
   ["unsafe", "Unsafe"],
   ["integrations", "Integrations"],

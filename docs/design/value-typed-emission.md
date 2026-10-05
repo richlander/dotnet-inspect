@@ -708,6 +708,42 @@ residual identity. The seven removed identities are the package
 `GetEffectiveParametersInNormalForm`, `ShouldMethodDisplayReadOnly`,
 `MakeParameters`, and `VisitLock`.
 
+### Loop-contained entry-reset ranges
+
+A block contained in a structured loop supplies another bounded proof when
+every reference to one reused slot remains in that block and the first
+reference on every block entry is a direct store. If that store does not read
+the same slot, each execution resets the carrier before any load. A later
+store-to-load range therefore cannot feed an earlier load on the next loop
+iteration and may receive a distinct identity under the ordinary block-local
+proof.
+
+The proof admits the block inside structured exception handling because no
+handler or sibling block references the carrier. It declines when a reference
+escapes the block, the first reference is a load or nested store, the entry
+store reads the prior carrier, or the block retains a label or unraised
+transfer. It does not construct a loop CFG, infer exception flow, or treat a
+PDB lexical block as execution evidence.
+
+The motivating dotnet-inspect.any 0.14.0 method is
+`DiffCommand.BuildAnalysisDiff`. Its raised `foreach` body directly stores and
+consumes two `MethodSignals` ranges before directly storing and consuming one
+`List<OptimizationOpportunity>` range in the same reused carriers. The first
+`MethodSignals` stores reset those carriers on every iteration, so the
+opportunity ranges cannot reach the earlier signal loads. The product output
+now declares those types separately instead of asking the printer to create
+`S_6_1` and `S_8_1`.
+
+`PublishedLoopEntryResetRangesResolveBeforePrinting` pins that package witness.
+Synthetic cases gate the positive reset, a self-reading entry store, a retained
+label, read-before-write, and nested structured-EH ownership. On the fixed
+14-assembly corpus the proof performs three range rewrites with zero collection
+failures, reduces residual printer split slots from 131 to 129, removes exactly
+the `BuildAnalysisDiff` `S_6` and `S_8` identities, and introduces none. The
+third rewrite is a compatible `string`/`object` carrier in
+`ApiOutputFormatter.BuildMemberDrillMap`; it is disclosed separately because it
+was not a residual printer split.
+
 ### Residual storage binding
 
 The focused claim:
