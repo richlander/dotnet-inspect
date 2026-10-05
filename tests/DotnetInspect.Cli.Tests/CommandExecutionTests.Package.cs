@@ -1013,6 +1013,24 @@ public partial class CommandExecutionTests
         Assert.Equal(1, dependencies.Exit);
         Assert.Contains("direct evidence", dependencies.Error);
         Assert.Contains("'Dependency Hierarchy'", dependencies.Error);
+
+        // Several sections with --tree name every selected shape; two Tables
+        // without a shared row schema are described as such, not as
+        // different shapes.
+        var multiTree = await RunAppAsync(
+            "package", "Missing.Package.ForShapes", "-S", "Target Frameworks,Package Info", "--tree");
+        var sameShape = await RunAppAsync(
+            "package", "Missing.Package.ForShapes", "-S", "Dependencies,Target Frameworks", "--tsv");
+
+        Assert.Equal(1, multiTree.Exit);
+        Assert.Contains("'Target Frameworks' (Table)", multiTree.Error);
+        Assert.Contains("'Package Info' (Table)", multiTree.Error);
+        Assert.Contains("--markdown/--json", multiTree.Error);
+
+        Assert.Equal(1, sameShape.Exit);
+        Assert.Contains("without a shared row schema", sameShape.Error);
+        Assert.DoesNotContain("different shapes", sameShape.Error);
+        Assert.Contains("'Dependencies' (Table)", sameShape.Error);
     }
 
     [Theory]

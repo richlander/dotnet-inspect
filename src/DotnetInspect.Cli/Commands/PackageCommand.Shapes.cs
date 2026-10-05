@@ -164,9 +164,11 @@ public partial class PackageCommand
                 + $"'{PackageSections.Files}', '{PackageSections.DependencyHierarchy}'.";
         }
 
-        return "--tree renders exactly one Hierarchy section; select "
-            + $"'{PackageSections.Files}' or '{PackageSections.DependencyHierarchy}' alone, "
-            + "or omit the section for the Package children tree.";
+        return "--tree renders exactly one Hierarchy section; the selection is "
+            + string.Join(", ", sections.Select(DescribeSectionShape)) + ". "
+            + $"Select '{PackageSections.Files}' or '{PackageSections.DependencyHierarchy}' alone, "
+            + "omit the section for the Package children tree, or use --markdown/--json "
+            + "for the composition.";
     }
 
     /// <summary>
@@ -184,8 +186,10 @@ public partial class PackageCommand
         if (PackageOutputCapabilities.Catalog.Supports(DiscoveryOutputMode.Table, sections))
             return true;
 
+        // Table sections share a shape but not a row schema, so the obstacle
+        // is the missing homogeneous family, not a shape mismatch.
         CommandError.Write(
-            $"Selection matches {sections.Count} sections of different shapes: "
+            $"Selection matches {sections.Count} sections without a shared row schema: "
                 + string.Join(", ", sections.Select(DescribeSectionShape)) + ".");
         CommandError.WriteBlankLine();
         CommandError.WriteLine(
