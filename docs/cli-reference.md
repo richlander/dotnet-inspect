@@ -76,8 +76,9 @@ Build from source:
 dotnet build dotnet-inspect.slnx -c Release
 ```
 
-See [AGENTS.md](../AGENTS.md) for contributor workflow, targeted test commands,
-and repository-specific guidance.
+See [AGENTS.md](../AGENTS.md) for launch guidance,
+[Repository workflow](repository-workflow.md) for contributor rules, and
+[Local development](dev-environment.md) for targeted test commands.
 
 ## What it inspects
 
@@ -2333,8 +2334,9 @@ The embedded skill (`dotnet-inspect skill`) is also distributed through the
 
 ## Contributor and agent docs
 
-Start with [AGENTS.md](../AGENTS.md) for repository-wide engineering and workflow
-rules. Use [overview.md](overview.md) when a change crosses subsystem
+Start with [AGENTS.md](../AGENTS.md), then use
+[Repository workflow](repository-workflow.md) for contributor rules. Use
+[overview.md](overview.md) when a change crosses subsystem
 ownership boundaries, and [taste/skill-guidance.md](../taste/skill-guidance.md)
 when maintaining the embedded skill.
 
