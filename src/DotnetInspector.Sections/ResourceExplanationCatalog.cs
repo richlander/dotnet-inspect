@@ -81,9 +81,9 @@ public sealed class ResourceExplanationCatalog
         var catalogResources =
             ImmutableArray.CreateBuilder<CatalogResource>(
                 snapshotArray.Length);
+        ExplanationConformance.ValidateSnapshots(schemaArray, snapshotArray);
         foreach (ExplanationResourceSnapshot snapshot in snapshotArray)
         {
-            ExplanationConformance.ValidateSnapshot(schemaArray, snapshot);
             ResourcePath path = Path(snapshot);
             var resource = new CatalogResource(path, snapshot);
             if (!resourcesByKey.TryAdd(snapshot.Key, resource))
@@ -1470,8 +1470,7 @@ public sealed class ResourceExplanationCatalog
         ExplanationResourceKey key,
         IEnumerable<ExplanationFactObservation> facts,
         IEnumerable<ExplanationRelationshipObservation> relationships) =>
-        ExplanationConformance.CreateSnapshot(
-            ResourceExplanationVocabulary.Schemas,
+        new(
             key,
             ResourceExplanationVocabulary.Version,
             ExplanationSnapshotScope.Installed,
