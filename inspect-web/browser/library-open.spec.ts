@@ -526,13 +526,29 @@ test("uploaded Library private property opens from a nonresident exact row", asy
       "IsDisposable",
       "property",
       1,
-      "",
+      "widget-is-disposable",
       "private",
       "all",
       false,
       "csharp",
     ]),
   );
+
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator(".member-identity")).toHaveCount(0);
+  await page.locator("html").evaluate(element => {
+    element.removeAttribute(
+      "data-uploaded-library-member-group-document-request");
+    element.removeAttribute(
+      "data-uploaded-library-member-document-request");
+  });
+  await page.locator("#nav-back").click();
+
+  await expect(page.locator(".member-identity"))
+    .toContainText("owner-issued exact declaration");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-uploaded-library-member-document-request",
+    /"IsDisposable","property",1,"widget-is-disposable"/);
 });
 
 test("uploaded resident members wait for Type document authority", async ({

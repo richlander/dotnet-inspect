@@ -121,6 +121,7 @@ import {
   workspaceShareCaptureTopology,
   workspaceViewSignature,
   type NavigationHistorySnapshot,
+  type MemberDocumentHistorySelector,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
   type WorkspaceUrlPreservation,
@@ -1411,6 +1412,8 @@ const initialState = {
   selectedMemberKey: "",
   memberBrowseTypeId: "",
   selectedOverloadIndex: null,
+  selectedMemberDocumentSelector:
+    null as MemberDocumentHistorySelector | null,
   memberSection: "overview" as const,
   memberKindFilter: "all",
   memberAccessibilityFilter: "public",
@@ -1529,7 +1532,6 @@ const initialState = {
   memberDocumentLoading: false,
   memberDocumentError: "",
   memberDocumentKey: "",
-  selectedMemberDocumentOrdinal: null as number | null,
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
@@ -3950,8 +3952,7 @@ function captureView(): WorkspaceView | null {
     memberTraitFilter: state.memberTraitFilter,
     memberTextFilter: state.memberTextFilter,
     selectedOverloadIndex: state.selectedOverloadIndex,
-    selectedMemberDocumentOrdinal:
-      state.selectedMemberDocumentOrdinal,
+    memberDocumentSelector: state.selectedMemberDocumentSelector,
     bodyTarget: state.selectedBodyTarget,
     memberSection: state.memberSection,
     memberSourceView: state.memberSourceRequestedView,
@@ -4044,6 +4045,7 @@ function applyView(view: WorkspaceView) {
     const target = state.platformIndex?.target(view.platform.tfm, view.platform.version);
     if (!target) return false;
     invalidateMemberDestinationWork(state);
+    state.selectedMemberDocumentSelector = null;
     state.rootKind = "platform";
     state.platformSelection = { ...view.platform };
     state.package = retainPlatformPackageForTarget(target);
@@ -4093,6 +4095,9 @@ function applyView(view: WorkspaceView) {
     retainPackageModel(pkg);
   invalidateMemberDestinationWork(state);
   activatePackage(pkg);
+  clearMemberDocumentCache();
+  state.selectedMemberDocumentSelector =
+    view.memberDocumentSelector ?? null;
   state.memberSourceRequestedView = view.memberSourceView ?? "source";
   state.memberSourceView = state.memberSourceRequestedView;
   state.rootKind = view.rootKind ?? (pkg.source.kind === "platform" ? "platform" : "package");
@@ -4109,17 +4114,6 @@ function applyView(view: WorkspaceView) {
   state.memberAccessibilityFilter = isMemberAccessibility(requestedAccessibility)
     ? requestedAccessibility
     : "public";
-  const requestedMemberDocumentOrdinal =
-    Number.isInteger(view.selectedMemberDocumentOrdinal)
-      && (view.selectedMemberDocumentOrdinal ?? 0) > 0
-      ? view.selectedMemberDocumentOrdinal!
-      : null;
-  if (state.selectedMemberDocumentOrdinal
-      !== requestedMemberDocumentOrdinal) {
-    clearMemberDocumentCache();
-  }
-  state.selectedMemberDocumentOrdinal =
-    requestedMemberDocumentOrdinal;
   const historyGraphTarget =
     graphMemberTargetFromShare(graphMemberShareTarget(view.bodyTarget));
   const member = type
@@ -4138,10 +4132,10 @@ function applyView(view: WorkspaceView) {
       && view.selectedMemberKey
       && view.memberBrowseTypeId === type.id
       && !historyGraphTarget
-      && (requestedMemberDocumentOrdinal !== null
-        || !member
+      && (!member
         || (member.overloads.length === 0
-          && Number.isInteger(view.selectedOverloadIndex))));
+          && Number.isInteger(view.selectedOverloadIndex))
+        || Boolean(view.memberDocumentSelector)));
   const pendingMemberSection: MemberSection = isMemberSection(view.memberSection)
     ? view.memberSection
     : "overview";
@@ -4177,8 +4171,6 @@ function applyView(view: WorkspaceView) {
   state.memberTraitFilter = memberHistory.memberTraitFilter;
   state.memberTextFilter = memberHistory.memberTextFilter;
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
-  state.selectedMemberDocumentOrdinal =
-    requestedMemberDocumentOrdinal;
   state.memberSection = memberHistory.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.atLibraryRoot = !state.atPackageRoot
@@ -4203,6 +4195,8 @@ function applyView(view: WorkspaceView) {
   state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
+  state.selectedMemberDocumentSelector =
+    view.memberDocumentSelector ?? null;
   if (!state.atPackageRoot && !state.atLibraryRoot) revealTypeInFilters(type);
   const requestedOverloadIndex = view.selectedOverloadIndex;
   if (!state.atPackageRoot
@@ -4294,15 +4288,10 @@ async function restoreOrdinaryMemberHistory(
   }
   let member = memberGroups(type)
     .find(group => group.key === view.selectedMemberKey);
-  const memberDocumentOrdinal =
-    Number.isInteger(view.selectedMemberDocumentOrdinal)
-      && (view.selectedMemberDocumentOrdinal ?? 0) > 0
-      ? view.selectedMemberDocumentOrdinal!
-      : null;
   if (member
-    && (memberDocumentOrdinal !== null
-      || (member.overloads.length === 0
-        && view.selectedOverloadIndex !== null))) {
+    && (view.memberDocumentSelector
+      || member.overloads.length === 0
+        && view.selectedOverloadIndex !== null)) {
     await loadSelectedMemberGroupDocument();
     if (!navigationSequence.isCurrent(navigationSeq)
       || state.package !== pkg
@@ -4331,13 +4320,16 @@ async function restoreOrdinaryMemberHistory(
   state.memberTraitFilter = restored.memberTraitFilter;
   state.memberTextFilter = restored.memberTextFilter;
   state.selectedOverloadIndex = restored.selectedOverloadIndex;
-  state.selectedMemberDocumentOrdinal = memberDocumentOrdinal;
   state.memberSection = restored.memberSection;
   state.selectedBodyTarget = restored.selectedBodyTarget;
+  state.selectedMemberDocumentSelector =
+    view.memberDocumentSelector ?? null;
   navigationHistory.normalizeCurrent();
   if (state.selectedMemberKey && member) {
-    if (memberDocumentOrdinal !== null) {
-      await loadSelectedMemberDocument(memberDocumentOrdinal);
+    if (view.memberDocumentSelector) {
+      await loadSelectedMemberDocument(
+        view.memberDocumentSelector.baselineOrdinal,
+        view.memberDocumentSelector.fingerprintPrefix);
     } else {
       loadMemberSectionContent(state.memberSection);
     }
@@ -8359,7 +8351,7 @@ function clearMemberDocumentCache() {
   state.memberDocumentLoading = false;
   state.memberDocumentError = "";
   state.memberDocumentKey = "";
-  state.selectedMemberDocumentOrdinal = null;
+  state.selectedMemberDocumentSelector = null;
 }
 
 function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
@@ -8462,7 +8454,8 @@ async function loadSelectedMemberGroupAndSelectSingleton() {
   if (document?.rows.length !== 1)
     return false;
   await loadSelectedMemberDocument(
-    document.rows[0]!.baselineOrdinal);
+    document.rows[0]!.baselineOrdinal,
+    document.rows[0]!.fingerprint);
   return false;
 }
 
@@ -12980,7 +12973,7 @@ function renderDeferredMemberGroup(
                 ? null
                 : memberNavOverloadSourceIndex(member, visibleIndex);
               return `<button class="api-row overload-row"${sourceIndex === null
-                ? ` data-member-document-ordinal="${row.baselineOrdinal}"`
+                ? ` data-member-document-ordinal="${row.baselineOrdinal}" data-member-document-fingerprint="${escapeHtml(row.fingerprint)}"`
                 : ` data-overload="${sourceIndex}"`}>
                 <span class="member-icon">${row.baselineOrdinal}</span>
                 <code>${highlight(signature)}</code>
@@ -13905,8 +13898,10 @@ function bindTypePanelEvents() {
       renderMemberFilterAndRestoreFocus();
     },
     onMethodLeverageRetry: () => retryTypeMethodLeverage(),
-    onMemberDocumentOpen: baselineOrdinal => {
-      void loadSelectedMemberDocument(baselineOrdinal);
+    onMemberDocumentOpen: (baselineOrdinal, fingerprintPrefix) => {
+      void loadSelectedMemberDocument(
+        baselineOrdinal,
+        fingerprintPrefix);
     },
     onMemberDocumentBack: () => {
       clearMemberDocumentCache();
@@ -21328,8 +21323,9 @@ function memberDocumentRequestKey(
   type: AppTypeSurface,
   member: AppMemberGroup,
   baselineOrdinal: number,
+  fingerprintPrefix: string,
 ) {
-  return `${memberGroupDocumentRequestKey(type, member)}\0${baselineOrdinal}`;
+  return `${memberGroupDocumentRequestKey(type, member)}\0${baselineOrdinal}\0${fingerprintPrefix}`;
 }
 
 function memberGroupReceiverIntent():
@@ -21582,7 +21578,10 @@ async function loadSelectedMemberGroupDocument() {
   }
 }
 
-async function loadSelectedMemberDocument(baselineOrdinal: number) {
+async function loadSelectedMemberDocument(
+  baselineOrdinal: number,
+  fingerprintPrefix = "",
+) {
   const type = selectedType();
   const member = selectedMember(type);
   if (!type
@@ -21591,12 +21590,19 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
     || baselineOrdinal <= 0) {
     return;
   }
-  const key = memberDocumentRequestKey(type, member, baselineOrdinal);
+  const key = memberDocumentRequestKey(
+    type,
+    member,
+    baselineOrdinal,
+    fingerprintPrefix);
+  state.selectedMemberDocumentSelector = {
+    baselineOrdinal,
+    fingerprintPrefix,
+  };
   state.memberDocument = null;
   state.memberDocumentLoading = true;
   state.memberDocumentError = "";
   state.memberDocumentKey = key;
-  state.selectedMemberDocumentOrdinal = baselineOrdinal;
   state.memberSection = "overview";
   renderPreservingMemberFocus();
   const pkg = currentPackage();
@@ -21608,7 +21614,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
           member.name,
           member.kind,
           baselineOrdinal,
-          "",
+          fingerprintPrefix,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
           false,
@@ -21625,7 +21631,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
             member.name,
             member.kind,
             baselineOrdinal,
-            "",
+            fingerprintPrefix,
             state.memberAccessibilityFilter,
             memberGroupReceiverIntent(),
             false,
@@ -21640,7 +21646,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
           member.name,
           member.kind,
           baselineOrdinal,
-          "",
+          fingerprintPrefix,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
           false,
@@ -21648,6 +21654,14 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
     const inspection = await result;
     if (state.memberDocumentKey !== key) return;
     state.memberDocument = inspection;
+    if (inspection.outcome === "Available"
+      && inspection.document) {
+      state.selectedMemberDocumentSelector = {
+        baselineOrdinal: inspection.document.baselineOrdinal,
+        fingerprintPrefix: inspection.document.fingerprint,
+      };
+      normalizeCurrentNavEntry();
+    }
     state.memberDocumentError =
       inspection.outcome === "Available"
         ? ""

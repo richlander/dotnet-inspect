@@ -47,6 +47,15 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionEnum";
 
     [Fact]
+    public void ExactMemberCategoryUsesProducerSpelling()
+    {
+        Assert.Equal(
+            MemberGroupCategory.ExplicitInterfaceImplementation,
+            BrowserExactMemberPolicy.ParseMemberCategory(
+                "explicit-interface-implementation"));
+    }
+
+    [Fact]
     public async Task FailedSurfaceSelectionDoesNotMaterializeImplementation()
     {
         const string packageId = "Browser.Member.Surface.Rejection";

@@ -56,7 +56,7 @@ internal static class BrowserExactMemberPolicy
             "constructor" => MemberGroupCategory.Constructor,
             "operator" => MemberGroupCategory.Operator,
             "finalizer" => MemberGroupCategory.Finalizer,
-            "explicit-interface" =>
+            "explicit-interface-implementation" =>
                 MemberGroupCategory.ExplicitInterfaceImplementation,
             "property" => MemberGroupCategory.Property,
             "field" => MemberGroupCategory.Field,

@@ -836,7 +836,7 @@ test("owner-issued metadata accessors open an exact Member document without resi
     "get_Value",
     "method",
     1,
-    "",
+    "widget-get-value",
     "public",
     "all",
     false,
@@ -902,7 +902,7 @@ test("owner-issued private rows open exact Member documents without public-surfa
     "Run",
     "method",
     1,
-    "",
+    "widget-run-private",
     "private",
     "all",
     false,
@@ -954,6 +954,85 @@ test("owner-issued virtual rows remain selectable without resident enrichment", 
   await exactRow.click();
   await expect(page.locator(".member-surface"))
     .toContainText("owner-issued exact declaration");
+});
+
+test("owner-issued explicit-interface rows activate without resident enrichment", async ({
+  page,
+}) => {
+  const dispose = {
+    ...run,
+    name: "IDisposable.Dispose",
+    kind: "explicit-interface-implementation",
+    signature: "private void IDisposable.Dispose()",
+    accessibility: "private",
+    isVirtual: true,
+    isExplicitInterfaceImplementation: true,
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "IDisposable.Dispose",
+    anchorDigest: "widget-idisposable-dispose",
+    canonicalSignature: "void Example.Widget.IDisposable.Dispose()",
+    graphSelectorKey: "IDisposable.Dispose",
+  };
+  const widget = {
+    ...type("Example.Widget", core),
+    api: [],
+    documentMembers: [dispose],
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [widget],
+    totalMembers: 1,
+  });
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]').click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("[data-member-access-filter]").selectOption("private");
+  await page.locator("[data-member-trait-filter]").selectOption("interface");
+  await chooseSubject(page, "member", "Member");
+
+  const exactRow = page.locator("[data-member-document-ordinal]");
+  await expect(exactRow).toHaveCount(1);
+  await exactRow.click();
+  await expect(page.locator(".member-surface"))
+    .toContainText("owner-issued exact declaration");
+  expect(JSON.parse(
+    await page.locator("html").getAttribute(
+      "data-member-group-document-request") ?? "[]",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    `${core.name}.dll`,
+    "Example.Widget",
+    "IDisposable.Dispose",
+    "explicit-interface-implementation",
+    "csharp",
+    "private",
+    "all",
+    false,
+  ]);
+  expect(JSON.parse(
+    await page.locator("html").getAttribute(
+      "data-member-document-request") ?? "[]",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    `${core.name}.dll`,
+    "Example.Widget",
+    "IDisposable.Dispose",
+    "explicit-interface-implementation",
+    1,
+    "widget-idisposable-dispose",
+    "private",
+    "all",
+    false,
+    "csharp",
+  ]);
 });
 
 test("producer-issued explicit-interface rows filter and activate exactly", async ({

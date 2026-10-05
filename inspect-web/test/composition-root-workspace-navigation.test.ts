@@ -1878,7 +1878,10 @@ test("history restores population intent before validating saved Member identity
     /state\.selectedTypeId = type\?\.id \?\? forwarder\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\(requestedAccessibility\)[\s\S]*const member = type\s*\? memberGroups\(type\)\.find/);
   assert.match(
     applyView,
-    /const deferOrdinaryMemberRestore = Boolean\([\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*!historyGraphTarget[\s\S]*requestedMemberDocumentOrdinal !== null[\s\S]*!member[\s\S]*member\.overloads\.length === 0[\s\S]*Number\.isInteger\(view\.selectedOverloadIndex\)\)/);
+    /activatePackage\(pkg\);[\s\S]*clearMemberDocumentCache\(\);[\s\S]*state\.selectedMemberDocumentSelector =[\s\S]*view\.memberDocumentSelector \?\? null/);
+  assert.match(
+    applyView,
+    /const deferOrdinaryMemberRestore = Boolean\([\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*!historyGraphTarget[\s\S]*\(!member[\s\S]*member\.overloads\.length === 0[\s\S]*Number\.isInteger\(view\.selectedOverloadIndex\)\)/);
   assert.match(
     applyView,
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
@@ -1893,7 +1896,7 @@ test("history restores population intent before validating saved Member identity
     /if \(deferOrdinaryMemberRestore && type\) \{[\s\S]*render\(\);[\s\S]*restoreOrdinaryMemberHistory\([\s\S]*navigationSequence\.current\(\),[\s\S]*typeMemberPopulationKey\(type\),[\s\S]*viewSignature\(\)/);
   assert.match(
     applyView,
-    /async function restoreOrdinaryMemberHistory\([\s\S]*sourceView: string[\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*viewSignature\(\) !== sourceView[\s\S]*let member = memberGroups\(type\)[\s\S]*memberDocumentOrdinal !== null[\s\S]*member\.overloads\.length === 0[\s\S]*await loadSelectedMemberGroupDocument\(\)[\s\S]*member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*state\.selectedMemberDocumentOrdinal = memberDocumentOrdinal[\s\S]*loadSelectedMemberDocument\(memberDocumentOrdinal\)[\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
+    /async function restoreOrdinaryMemberHistory\([\s\S]*sourceView: string[\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*viewSignature\(\) !== sourceView[\s\S]*let member = memberGroups\(type\)[\s\S]*view\.memberDocumentSelector[\s\S]*member\.overloads\.length === 0[\s\S]*await loadSelectedMemberGroupDocument\(\)[\s\S]*member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*state\.selectedMemberDocumentSelector =[\s\S]*view\.memberDocumentSelector \?\? null[\s\S]*if \(view\.memberDocumentSelector\) \{[\s\S]*loadSelectedMemberDocument\([\s\S]*view\.memberDocumentSelector\.baselineOrdinal,[\s\S]*view\.memberDocumentSelector\.fingerprintPrefix\)[\s\S]*else \{[\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
   assert.match(
     applyView,
     /state\.selectedMemberKey && member\) \{\s*loadCurrentSelectionData\("Restoring a Member from navigation history"\)/);
@@ -1902,10 +1905,10 @@ test("history restores population intent before validating saved Member identity
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
   assert.match(
     workspaceNavigationSource,
-    /function workspaceViewSignature\([\s\S]*o: view\.selectedOverloadIndex,[\s\S]*d: view\.selectedMemberDocumentOrdinal \?\? null,[\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
+    /function workspaceViewSignature\([\s\S]*o: view\.selectedOverloadIndex,[\s\S]*md: view\.memberDocumentSelector \?\? null,[\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
   assert.match(
     appSource,
-    /function captureView\(\): WorkspaceView \| null \{[\s\S]*selectedOverloadIndex: state\.selectedOverloadIndex,[\s\S]*selectedMemberDocumentOrdinal:[\s\S]*state\.selectedMemberDocumentOrdinal,[\s\S]*bodyTarget: state\.selectedBodyTarget/);
+    /function captureView\(\): WorkspaceView \| null \{[\s\S]*selectedOverloadIndex: state\.selectedOverloadIndex,[\s\S]*memberDocumentSelector: state\.selectedMemberDocumentSelector,[\s\S]*bodyTarget: state\.selectedBodyTarget/);
   assert.match(
     appSource,
     /else if \(current && state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);

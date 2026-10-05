@@ -127,6 +127,7 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
 
     const overloads = group.overloads.filter(
       overload => memberMatchesTrait(overload, filters.trait ?? ""));
+    const traitCount = groupTraitCount(group, filters.trait ?? "");
     if (overloads.length === 0) {
       if (!groupMatchesSummaryTrait(group, filters.trait ?? "")
         || query && !group.name.toLowerCase().includes(query)) {
@@ -135,6 +136,7 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
       return [{
         ...group,
         overloads,
+        detailsPending: true,
         sourceOverloadCount: filteredSourceOverloadCount(
           group,
           overloads,
@@ -153,6 +155,9 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
     return [{
       ...group,
       overloads,
+      detailsPending:
+        group.detailsPending
+        || traitCount !== null && overloads.length < traitCount,
       sourceOverloadCount: filteredSourceOverloadCount(
         group,
         overloads,
