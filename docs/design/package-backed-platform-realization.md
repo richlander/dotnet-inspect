@@ -17,9 +17,9 @@ The implementation is staged without changing the ten-step count:
    manifest-defined framework closure, and implementation realization through
    the same adapter.
 
-Step 5a is implemented by `PackagePlatformSource` in
-`DotnetInspector.Platforms.Packages` and `PackagePlatformHouseAdapter` in
-`DotnetInspector.PlatformHouse.Packages`. Step 5b is implemented by the same
+Step 5a is implemented by `PackagePlatformSource` (namespace
+`DotnetInspector.Platforms.Packages`) and `PackagePlatformHouseAdapter`, both
+in `DotnetInspector.PlatformHouse.Packages`. Step 5b is implemented by the same
 source and adapter; the adapter advertises independently authorized discovery,
 reference, and implementation capabilities.
 
@@ -126,26 +126,22 @@ of runtime manifests beside implementation assemblies.
 
 ## Boundary and dependency direction
 
-The source implementation lives in
-`DotnetInspector.Platforms.Packages`.
+The source implementation lives in the `Platforms` folder of
+`DotnetInspector.PlatformHouse.Packages`, under the
+`DotnetInspector.Platforms.Packages` namespace, beside the package-backed House
+adapter and its execution.
 
 ```text
-DotnetInspector.Platforms
+DotnetInspector.Platforms (currency and Formats)
 DotnetInspector.Packages
 ILInspector.Metadata
-DotnetInspector.Platforms.Formats
-        |
-        v
-DotnetInspector.Platforms.Packages
-        |
-        v
-DotnetInspector.PlatformHouse.Packages
-        |
-        v
 DotnetInspector.PlatformHouse
+        |
+        v
+DotnetInspector.PlatformHouse.Packages (source, adapter, execution)
 ```
 
-`DotnetInspector.Platforms.Packages` consumes package-owner-issued
+The package-backed source consumes package-owner-issued
 authorization, complete version discovery, exact candidates, admitted payloads,
 stores, producer identity, and retained-content generation. It does not
 construct source clients, read ambient NuGet configuration, issue HTTP
@@ -487,8 +483,8 @@ Each framework's same-named `runtimeconfig.json` and `deps.json` is read from:
 runtimes/<rid>/lib/<tfm>/
 ```
 
-The source supplies their bounded immutable bytes to
-`DotnetInspector.Platforms.Formats`. It does not parse JSON or recreate
+The source supplies their bounded immutable bytes to the
+`DotnetInspector.Platforms.Formats` readers. It does not parse JSON or recreate
 framework-reference, roll-forward, runtime-target, or logical-asset rules.
 
 The final framework graph is resolved deterministically under explicit
