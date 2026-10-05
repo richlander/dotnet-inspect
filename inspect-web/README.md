@@ -79,13 +79,20 @@ Metadata-owned identity and API-surface values. It therefore keeps the broad
 semantic analyzer input until focused #8779 successors retire those low-level
 edges; the positive rules prevent either graph from expanding meanwhile.
 
+The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-ratchet`
+rules preserve the Catalog facade's evaluated-project and compiled-assembly
+boundaries. Home-demo call graphs use Web Core's shared lowering of the
+host-neutral call-graph projection, so neither graph admits
+`ILInspector.Analysis`.
+
 Web Core and the capability facades other than CallGraph still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
-boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both evaluated
-analyzer inputs and resolves every complete banned documentation ID, including
-generic arity and parameter types, so a renamed or malformed entry cannot
-silently become vacuous. The broad list continues to ban opening or minting a
-retained descriptor and invoking low-level inspection APIs in those projects.
+boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both
+evaluated analyzer inputs and resolves every complete banned documentation ID,
+including generic arity and parameter types, so a renamed or malformed entry
+cannot silently become vacuous. The broad list continues to ban opening or
+minting a retained descriptor and invoking low-level inspection APIs in those
+projects.
 Descriptors may carry typed identity into a product operation, but package
 selection, identity decoding, descriptor creation, and image content remain
 product-owned. A selected malformed entry receives an artifact-neutral,
