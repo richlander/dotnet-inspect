@@ -2271,12 +2271,15 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
 
   // The scoped exceptions are the generated TypeScript handoffs, compiler-emitted
   // declaration module markers, and the production facade's compiler-derived publish
-  // artifact. The TypeScript sources are compiled separately against the SDK-owned
-  // runtime declaration; the JavaScript import resolves only after Wasm publish.
-  // Authored source keeps the complete rule set held by the gates above.
+  // artifact. Generated schema literals preserve exact CLR integer bounds even when
+  // JavaScript cannot represent them exactly. The TypeScript sources are compiled
+  // separately against the SDK-owned runtime declaration; the JavaScript import
+  // resolves only after Wasm publish. Authored source keeps the complete rule set held
+  // by the gates above.
   assert.deepEqual(scopedRelaxations, [
     ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
     [publishedFacadeScope, [
+      "no-loss-of-precision",
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",
       "typescript/no-unsafe-call",
@@ -2285,6 +2288,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       "typescript/use-unknown-in-catch-callback-variable",
     ]],
     [generatedTypeScriptFacadeScope, [
+      "no-loss-of-precision",
       "typescript/no-redundant-type-constituents",
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",

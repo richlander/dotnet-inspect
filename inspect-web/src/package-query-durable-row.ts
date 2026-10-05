@@ -28,7 +28,7 @@ export interface PackageQueryDurableRowPresentationLayout {
     readonly PackageQueryDurableRowPresentationField[];
 }
 
-export interface PackageQueryDurableRowField
+interface PackageQueryDurableRowField
   extends PackageQueryDurableRowPresentationField {
   readonly schemaLocation: Binding["schemaLocation"];
 }
@@ -89,7 +89,7 @@ export function resolvePackageQueryDurableRowLayout(
   const vocabulary = vocabularies[0]!;
   const prefixItems = descriptor.schema.prefixItems;
   if (descriptor.schema.type !== "array"
-    || descriptor.schema.items !== false
+    || !Object.is(descriptor.schema.items, false)
     || descriptor.schema.minItems !== prefixItems.length
     || descriptor.schema.maxItems !== prefixItems.length
     || descriptor.bindings.length !== prefixItems.length) {
@@ -119,9 +119,9 @@ export function resolvePackageQueryDurableRowLayout(
       throw new Error(
         `Package Query binding term '${binding.term}' occurs more than once.`);
     }
-    const matches = vocabulary.terms.filter(term =>
+    const termMatches = vocabulary.terms.filter(term =>
       term.identity.value === binding.term);
-    if (matches.length !== 1) {
+    if (termMatches.length !== 1) {
       throw new Error(
         `Package Query Vocabulary must contain exactly one '${binding.term}' term.`);
     }
@@ -129,7 +129,7 @@ export function resolvePackageQueryDurableRowLayout(
       ordinal,
       schemaLocation: binding.schemaLocation,
       schema: prefixItems[ordinal],
-      term: matches[0]!,
+      term: termMatches[0]!,
     };
   }).sort((left, right) => left.ordinal - right.ordinal);
   if (fields.some((field, index) => field.ordinal !== index)) {

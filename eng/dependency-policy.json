@@ -80,6 +80,7 @@
       "allowOnly": [
         "$platform",
         "DotnetInspect.Web.Core",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections"
       ]
@@ -162,6 +163,7 @@
         "DotnetInspector.DocumentationHouse.Contracts",
         "DotnetInspector.DocumentationHouse.Direct",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
         "DotnetInspector.MetadataRendering",
@@ -747,6 +749,7 @@
       ],
       "allowOnly": [
         "$platform",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
         "ILInspector.Decompiler",

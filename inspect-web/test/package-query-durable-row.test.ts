@@ -21,6 +21,7 @@ function descriptors(): PackageQueryDurableRowDescriptors {
   const json = line.slice(
     line.indexOf("=") + 1,
     line.lastIndexOf(" as const;")).trim();
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return JSON.parse(json) as PackageQueryDurableRowDescriptors;
 }
 
@@ -35,7 +36,7 @@ function vocabulary(
       catalog: { value: descriptor.vocabularyCatalog },
       identity: { value: descriptor.vocabularySnapshotIdentity },
       vocabularies: [{
-        identity: { value: descriptor.bindings[0]!.vocabulary },
+        identity: { value: descriptor.bindings[0].vocabulary },
         displayLabel: "Package Query durable row",
         summary: "Durable Package Query fields.",
         maps: [],

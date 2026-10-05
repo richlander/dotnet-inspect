@@ -263,7 +263,7 @@ public sealed partial class BrowserEngineBoundaryTests
     [Fact]
     public async Task PlatformCallGraph_UsesExactRangedRuntimeAssemblies()
     {
-        const string version = "11.0.0-rc.1.26425.128";
+        const string version = "11.0.7397";
         const string packageId =
             "microsoft.netcore.app.runtime.linux-x64";
         const string assemblyFileName = "System.Text.Json.dll";

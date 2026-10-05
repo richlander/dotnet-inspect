@@ -815,6 +815,7 @@ public sealed class PolicyEvaluatorTests
         Assert.Equal(
             [
                 "$platform",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
                 "ILInspector.Decompiler",
@@ -1064,6 +1065,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.DocumentationHouse.Contracts",
                 "DotnetInspector.DocumentationHouse.Direct",
                 "DotnetInspector.Ecosystems",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
                 "DotnetInspector.MetadataRendering",
@@ -1195,6 +1197,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "$platform",
                 "DotnetInspect.Web.Core",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
             ],

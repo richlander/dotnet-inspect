@@ -560,6 +560,43 @@ async function installFacades(
     },
     noBody: false,
   };
+  const durableRowTerms = [
+    "package-id",
+    "version",
+    "tier",
+    "answers",
+    "evidence",
+    "total-downloads",
+    "verified",
+    "producer",
+    "description",
+    "root-request",
+    "owners",
+    "manifest",
+  ];
+  const durableRowSnapshotIdentity = `sha256:${"0".repeat(64)}`;
+  const durableRowDescriptor = {
+    bindings: durableRowTerms.map((term, ordinal) => ({
+      schemaLocation: `/prefixItems/${ordinal}`,
+      term,
+      vocabulary: "package-query.durable-row",
+    })),
+    contract: "package-query.durable-row",
+    descriptorIdentity: `sha256:${"1".repeat(64)}`,
+    dialect: "https://json-schema.org/draft/2020-12/schema",
+    direction: "serialize",
+    formatVersion: 1,
+    schema: {
+      items: false,
+      maxItems: durableRowTerms.length,
+      minItems: durableRowTerms.length,
+      prefixItems: durableRowTerms.map(() => ({})),
+      type: "array",
+    },
+    schemaIdentity: `sha256:${"2".repeat(64)}`,
+    vocabularyCatalog: "dotnet-inspect.product",
+    vocabularySnapshotIdentity: durableRowSnapshotIdentity,
+  };
   const modules: Record<string, string> = {
     host: `
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -598,6 +635,8 @@ async function installFacades(
       }`,
     package: `
       ${surfaceLookup}
+      export const jsonSchemaVocabularyDescriptors =
+        ${JSON.stringify([durableRowDescriptor])};
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -3026,8 +3065,19 @@ async function installFacades(
           content: {
             formatVersion: 1,
             catalog: { value: "dotnet-inspect.product" },
-            identity: { value: "sha256:${"0".repeat(64)}" },
-            vocabularies: [],
+            identity: { value: "${durableRowSnapshotIdentity}" },
+            vocabularies: [{
+              identity: { value: "package-query.durable-row" },
+              displayLabel: "Package Query durable row",
+              summary: "Durable Package Query fields.",
+              maps: [],
+              terms: ${JSON.stringify(durableRowTerms.map(term => ({
+                identity: { value: term },
+                displayLabel: `Label ${term}`,
+                summary: `Summary ${term}.`,
+                mapEntries: [],
+              })))},
+            }],
           },
           share: {
             kind: "nonProjectable",
