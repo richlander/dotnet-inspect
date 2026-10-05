@@ -2647,7 +2647,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "'Target Frameworks' is not a package reference",
+            "'Target Frameworks' is not a valid package ID",
             error);
         Assert.Contains("-S \"Target Frameworks\"", error);
         Assert.DoesNotContain("Configured-authority", error);
