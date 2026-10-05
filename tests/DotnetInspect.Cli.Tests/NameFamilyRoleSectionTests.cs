@@ -110,6 +110,32 @@ public sealed class NameFamilyRoleSectionTests
             int.Parse(typeCount.Output.Trim()));
     }
 
+    [Theory]
+    [InlineData(SectionNames.NameFamilyRoles, 20)]
+    [InlineData(SectionNames.NameFamilyRoleTypes, 22)]
+    public async Task MultiSectionCount_UsesQuerySpaceCount(
+        string roleSection,
+        int expectedCount)
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName = FixturePath,
+                IncludeSections =
+                [
+                    roleSection,
+                    SectionNames.References,
+                ],
+                Count = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"| {roleSection} | {expectedCount} |",
+            result.Output);
+    }
+
     [Fact]
     public async Task ContentJson_EqualsEnvelopeContent()
     {

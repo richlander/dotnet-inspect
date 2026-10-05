@@ -450,7 +450,7 @@ public static partial class LibraryFamilyRoleQuery
             static row =>
                 RowQueryValue<LibraryNameFamilyKind>.Present(
                     row.Identity.Kind),
-            BindEnum<LibraryNameFamilyKind>,
+            BindFamilyKind,
             direction => RowQueryValueOrder.Create(
                 Comparer<LibraryNameFamilyKind>.Default,
                 direction,
@@ -555,6 +555,24 @@ public static partial class LibraryFamilyRoleQuery
                 LibraryNameFamilyKind.TwoWordSuffix,
             _ => null,
         };
+
+    private static Predicate<LibraryNameFamilyKind>? BindFamilyKind(
+        RowQueryOperator operation,
+        RowQueryValueToken token)
+    {
+        LibraryNameFamilyKind? expected = ParseFamilyKind(token);
+        if (expected is null)
+            return null;
+
+        return operation switch
+        {
+            RowQueryOperator.Equals =>
+                value => value == expected,
+            RowQueryOperator.NotEquals =>
+                value => value != expected,
+            _ => null,
+        };
+    }
 
     private static RowQueryKey<TRow> NumericKey<TRow>(
         string key,

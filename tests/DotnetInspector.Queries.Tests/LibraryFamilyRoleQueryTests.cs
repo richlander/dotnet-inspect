@@ -329,6 +329,48 @@ public sealed class LibraryFamilyRoleQueryTests
                 prevalenceResolution.Plan!).Values);
     }
 
+    [Theory]
+    [InlineData(
+        "one-word",
+        LibraryNameFamilyKind.OneWordSuffix)]
+    [InlineData(
+        "two-word",
+        LibraryNameFamilyKind.TwoWordSuffix)]
+    public void FamilyKindPredicate_BindsDeclaredTokens(
+        string token,
+        LibraryNameFamilyKind expected)
+    {
+        LibraryFamilyRoleRow oneWord =
+            FamilyRow("One", typeCount: 2, namespaces: 1);
+        LibraryFamilyRoleRow twoWord =
+            FamilyRow(
+                "Two",
+                typeCount: 2,
+                namespaces: 1,
+                kind: LibraryNameFamilyKind.TwoWordSuffix);
+        RowQueryResolutionResult<LibraryFamilyRoleRow> resolution =
+            LibraryFamilyRoleQuery.FamilyRowsScope.Resolve(
+                PortableQueryIntent.Create(
+                    [
+                        new(
+                            LibraryFamilyRoleQuery.FamilyKindKey,
+                            PortableQueryOperator.Equal,
+                            token),
+                    ],
+                    [],
+                    [],
+                    []));
+
+        Assert.True(resolution.IsSuccess);
+        Assert.Equal(
+            [expected == LibraryNameFamilyKind.OneWordSuffix
+                ? oneWord
+                : twoWord],
+            RowQueryExecutor.Apply(
+                [oneWord, twoWord],
+                resolution.Plan!).Values);
+    }
+
     [Fact]
     public void PerformanceScorecard_AgreesAcrossAllSupportedClosings()
     {
@@ -445,7 +487,9 @@ public sealed class LibraryFamilyRoleQueryTests
         string word,
         int typeCount,
         int namespaces,
-        int foundationCount = 0)
+        int foundationCount = 0,
+        LibraryNameFamilyKind kind =
+            LibraryNameFamilyKind.OneWordSuffix)
     {
         var methodology = new LibraryNameFamilyMethodology(
             "test",
@@ -458,9 +502,14 @@ public sealed class LibraryFamilyRoleQueryTests
                 EntryCount: 1));
         var identity = new LibraryNameFamilyIdentity(
             methodology,
-            LibraryNameFamilyKind.OneWordSuffix,
-            [word],
-            separator: null);
+            kind,
+            kind == LibraryNameFamilyKind.OneWordSuffix
+                ? [word]
+                : [word, "Family"],
+            separator:
+                kind == LibraryNameFamilyKind.OneWordSuffix
+                    ? null
+                    : "");
         return new(
             identity,
             typeCount,

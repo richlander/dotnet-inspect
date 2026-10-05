@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspect.Cli.Views;
 using System.Globalization;
 using System.Text.Json;
@@ -1438,6 +1439,10 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
+        ApplyNameFamilyRoleCounts(
+            projection,
+            inspection,
+            writerOptions.IncludeSections);
         ApplyPerformanceCounts(
             projection,
             inspection,
@@ -1448,6 +1453,34 @@ public static class OutputFormatter
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
+    }
+
+    internal static void ApplyNameFamilyRoleCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections)
+    {
+        if (includedSections is null
+            || inspection.FamilyRoleQueryResult
+                is not LibraryFamilyRoleQueryResult.Available
+                { Count: int count })
+        {
+            return;
+        }
+
+        if (includedSections.Contains(SectionNames.NameFamilyRoles))
+        {
+            projection.SetRows(
+                SectionNames.NameFamilyRoles,
+                count);
+        }
+        else if (includedSections.Contains(
+                     SectionNames.NameFamilyRoleTypes))
+        {
+            projection.SetRows(
+                SectionNames.NameFamilyRoleTypes,
+                count);
+        }
     }
 
     /// <summary>
