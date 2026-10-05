@@ -1393,6 +1393,7 @@ async function installFacades(
             canonicalSignature: "M:" + typeIdentity + "." + memberName,
             anchorTypeFullName: typeIdentity,
             graphSelectorKey: memberName,
+            isHidden: true,
             bodySelectors: [{
               token,
               memberName,
@@ -1431,7 +1432,8 @@ async function installFacades(
           };
       }
       function typeMemberPopulation(
-        surface, typeIdentity, spelling, accessibility, declarationSource) {
+        surface, typeIdentity, spelling, accessibility, declarationSource,
+        includeHidden) {
         function accessibilityBucket(member) {
           const value = member.accessibility || "public";
           if (value === "public") return "public";
@@ -1463,7 +1465,8 @@ async function installFacades(
             diagnostics: [],
           };
         }
-        const members = type.api.filter(member => !member.graphOnly);
+        const members = type.api.filter(member =>
+          !member.graphOnly && (includeHidden || !member.isHidden));
         const composition = {
           public: 0,
           protected: 0,
@@ -1583,7 +1586,8 @@ async function installFacades(
           typeIdentity,
           spelling,
           accessibility,
-          "Surface");
+          "Surface",
+          false);
       }
       export async function queryImplementationTypeMemberPopulation(
         id, version, framework, assembly, typeIdentity, spelling, accessibility) {
@@ -1600,7 +1604,8 @@ async function installFacades(
           typeIdentity,
           spelling,
           accessibility,
-          "Implementation");
+          "Implementation",
+          true);
       }
       export async function queryGraphMemberSurface(
         id, version, framework, assembly, typeIdentity, memberName, selector, token) {
@@ -1644,7 +1649,8 @@ async function installFacades(
           typeIdentity,
           spelling,
           accessibility,
-          "Implementation");
+          "Implementation",
+          false);
       }
       export async function queryUploadedLibraryTypeMemberPopulation(
         declaredName, content, typeIdentity, spelling, accessibility) {
@@ -1659,7 +1665,8 @@ async function installFacades(
           typeIdentity,
           spelling,
           accessibility,
-          "Implementation");
+          "Implementation",
+          false);
       }
       function memberDisplaySignature(member) {
         let signature = member.signature;

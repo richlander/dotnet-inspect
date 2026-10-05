@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.ComponentModel;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -61,6 +62,9 @@ public sealed partial class BrowserEngineBoundaryTests
     public static object PerformanceBoxingProbe(int value) => value;
 
     static object PerformancePrivateBoxingProbe(int value) => value;
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static object PerformanceHiddenPrivateBoxingProbe(int value) => value;
 
     public static int PerformanceNoAllocationProbe(int value) => value;
 

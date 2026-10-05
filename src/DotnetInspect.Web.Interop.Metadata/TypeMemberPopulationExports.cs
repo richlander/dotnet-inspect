@@ -131,7 +131,8 @@ public static partial class MetadataExports
                 accessibility,
                 role == AssemblyContextLibraryRole.Implementation
                     ? BrowserTypeMemberDeclarationSource.Implementation
-                    : BrowserTypeMemberDeclarationSource.Surface)
+                    : BrowserTypeMemberDeclarationSource.Surface,
+                includeHidden: implementation)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -169,7 +170,8 @@ public static partial class MetadataExports
                     typeIdentity,
                     spelling,
                     accessibility,
-                    BrowserTypeMemberDeclarationSource.Implementation)
+                    BrowserTypeMemberDeclarationSource.Implementation,
+                    includeHidden: false)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -195,7 +197,8 @@ public static partial class MetadataExports
                     typeIdentity,
                     spelling,
                     accessibility,
-                    BrowserTypeMemberDeclarationSource.Implementation)
+                    BrowserTypeMemberDeclarationSource.Implementation,
+                    includeHidden: false)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -206,14 +209,15 @@ public static partial class MetadataExports
             string typeIdentity,
             string spelling,
             string accessibility,
-            BrowserTypeMemberDeclarationSource declarationSource)
+            BrowserTypeMemberDeclarationSource declarationSource,
+            bool includeHidden)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         MetadataTypeMemberPopulationRequest request = new(
             BrowserExactMemberPolicy.ParseTypeIdentity(
                 typeIdentity),
             ParseSpelling(spelling),
-            includeHidden: false,
+            includeHidden,
             ParseAccessibility(accessibility));
         AssemblyContextLibraryInspectionRun<
             LibraryTypeMemberPopulationInspectionOutcome> run =
