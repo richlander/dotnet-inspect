@@ -316,7 +316,8 @@ The projection owns everything a host must not re-invent in JavaScript:
   actually measured each fact.
 
   Merging is only sound when both sides measure the same quantity, so the units
-  are pinned in `LibraryBodyIndex` rather than reconciled here:
+  are pinned in Analysis's focused call-graph and method-signal contracts
+  rather than reconciled here:
 
   - **Fan-in counts distinct callers, never call sites.** It is a leverage cue —
     "how many members depend on this one" — and the reverse graph draws one edge
@@ -635,15 +636,15 @@ The Inspect Web member Finding census adopts the same body-local relationship
 dimension through
 `ResearchFactRegistry.MemberCensusWithCallRelationships`. The source operation
 requires an exact MethodDef token, obtains physical calls from its retained
-`LibraryBodyIndex`, and builds one depth-one callee projection that also
-supplies invocation destinations. The resulting `call.edge` Findings share the
-ordinary census receipt and source targets while remaining outside the default
-annotation set; **All** reveals them without changing first paint. The Browser
-contract also transports one typed sidecar row per Finding with the caller
-MVID and MethodDef token, IL offset, operand token, call kind, loop state,
-stable edge row, and occurrence-specific graph target. Browser validation
-requires exact coverage between those rows and the document's `call.edge`
-Findings; it never recovers identity from labels or source text.
+focused member Analysis input, and builds one depth-one callee projection that
+also supplies invocation destinations. The resulting `call.edge` Findings
+share the ordinary census receipt and source targets while remaining outside
+the default annotation set; **All** reveals them without changing first paint.
+The Browser contract also transports one typed sidecar row per Finding with
+the caller MVID and MethodDef token, IL offset, operand token, call kind, loop
+state, stable edge row, and occurrence-specific graph target. Browser
+validation requires exact coverage between those rows and the document's
+`call.edge` Findings; it never recovers identity from labels or source text.
 
 The Annotated Source modal consumes that sidecar as a **Relationships**
 projection with **Table** and **Diagram** presentations. **Table** is the
@@ -773,8 +774,8 @@ MethodDef as the only
 destinations whose `MethodLocalThrowEvidence` contains at least one known
 site, and requests deterministic shortest witnesses with fixed depth, node,
 edge, and retained-path limits. The operation reuses the member projection's
-one `LibraryBodyIndex`; it performs no second body acquisition, source open, or
-graph build.
+one `LibraryCallGraphAnalysisResult`; it performs no second body acquisition,
+source open, or graph build.
 
 Each projected witness retains every physical `call.edge` fact for the
 Analysis-admitted `call`, `callvirt`, and `newobj` occurrences on its first

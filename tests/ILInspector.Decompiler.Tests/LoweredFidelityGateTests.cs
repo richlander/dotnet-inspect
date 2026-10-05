@@ -51,6 +51,11 @@ public class LoweredFidelityGateTests
         // witness valid, while the lowered nested-if form recompiles through
         // direct returns instead of the original result-temp convergence.
         "GuardedTypeAfterSibling",
+        // #9248: the facade-forwarded cascade witness (XmlTextReader/XmlReader
+        // through System.Xml.ReaderWriter) stays an if-cascade with a shared
+        // `return -1`, and the lowered form recompiles through direct returns
+        // and inverted guard polarity instead of the original convergence.
+        "GuardedXmlReaderCascade",
         // #3840: the valid retained-tail form materializes the non-null
         // coalesce result in a local before returning it.
         "ConditionalWithCoalescedFallback",
@@ -106,6 +111,11 @@ public class LoweredFidelityGateTests
         "ManualDuplicateNameFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
+        // The cross-assembly analog of MergedReferenceSlot: the Encoding/UTF8Encoding
+        // ternary now types at import, and the lowered rail spells the merged
+        // slot as a declared local stored under if/else, which recompiles with
+        // the opposite branch polarity and operand order (same diff as its sibling).
+        "MergedCrossAssemblyBaseSlot",
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
         "set_SlotMergedDateTimeFormat",

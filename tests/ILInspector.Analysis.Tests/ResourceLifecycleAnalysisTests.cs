@@ -51,7 +51,6 @@ public sealed class ResourceLifecycleAnalysisTests
             execution.ResourceLifecycle.AdmissionReceipt);
         Assert.Empty(root.Outcomes);
         Assert.True(root.IsComplete);
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 
     [Fact]

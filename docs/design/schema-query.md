@@ -279,12 +279,15 @@ adoptions before they expose detailed discovery.
 The capability and complete-selection rules are owned by
 [output-shapes.md](output-shapes.md#structural-format-capabilities).
 
-`--details` is a temporary Library-only bridge proven by #7834. It will not
-accumulate additional implicit columns. The
+`--details` is a temporary bridge proven by #7834 for Library and adopted by
+Package as the first [Section shapes](section-shapes.md) adopter. Its columns
+are the owner-issued section properties the `DiscoveryDocument` already
+carries — `Formats`, `Shape` (Table, Hierarchy, or Text), `Cardinality`
+(scalar or inventory), and `Terminals` — each hidden when no listed section
+declares it; it accumulates no other implicit columns. The
 [Resource Explanation](resource-explanation.md) adoption tracked by
-[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) will present
-Formats and later owner-issued properties from the same `DiscoveryDocument`,
-then remove `--details`.
+[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) presents the
+same properties from the same `DiscoveryDocument` and will remove `--details`.
 
 Section patterns and category doors are resolved against the complete
 owner-issued section vocabulary. Categories, costs, and visibility remain

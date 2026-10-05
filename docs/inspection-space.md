@@ -455,7 +455,8 @@ details rather than producer-facing composition points.
 
 The underlying lease contract's first production adoption migrates the
 prepared declared-Method source from
-[#9143](https://github.com/richlander/dotnet-inspect/pull/9143). Its live
+[#9143](https://github.com/richlander/dotnet-inspect/pull/9143) through
+[#9321](https://github.com/richlander/dotnet-inspect/issues/9321). Its live
 execution, stale-ready rejection, retained-image accounting, cleanup order,
 and sibling-independence outcomes remain unchanged while producer-local lease
 coordination is retired.
@@ -467,7 +468,8 @@ each reusable execution retains the group-issued borrow, and the resource
 retires its session and indexes before the participant snapshot. Metadata
 continues to own hierarchy facts, diagnostics, budgets, and terminal
 materialization. QuerySpace provision selection remains separate. Tracks
-[#9300](https://github.com/richlander/dotnet-inspect/issues/9300).
+[#9300](https://github.com/richlander/dotnet-inspect/issues/9300) and
+[#9322](https://github.com/richlander/dotnet-inspect/issues/9322).
 
 The
 [participant-resource lifecycle model](models/assembly-context-participant-resource-lifecycle/README.md)
