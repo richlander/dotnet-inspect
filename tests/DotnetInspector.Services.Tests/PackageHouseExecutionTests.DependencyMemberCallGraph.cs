@@ -1093,7 +1093,40 @@ public sealed partial class PackageHouseExecutionTests
                     [],
                     TestContext.Current.CancellationToken);
 
-        Assert.NotNull(generation.Outcome);
+        PackageRoleCleanupReport cleanup =
+            await generation.CloseAsync();
+        PackageDependencyMemberCallGraphOutcome.Completed completed =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphOutcome.Completed>(
+                    PackageDependencyMemberCallGraphOperation
+                        .CompletePreparedGeneration(
+                            request,
+                            preparation,
+                            generation,
+                            cleanup));
+
+        Assert.Same(
+            successorScope.Revision.Identity,
+            completed.ScopeRevision);
+        Assert.Same(
+            completed.ScopeRevision,
+            completed.FocalScope.ScopeRevision);
+        Assert.Contains(
+            completed.NodePackages,
+            nodePackage =>
+                nodePackage.Descriptor.PackageId.Equals(
+                    CallGraphTargetPackage,
+                    StringComparison.OrdinalIgnoreCase)
+                && nodePackage.Descriptor.PackageVersion
+                    == lowerVersion);
+        Assert.DoesNotContain(
+            completed.NodePackages,
+            nodePackage =>
+                nodePackage.Descriptor.PackageId.Equals(
+                    CallGraphTargetPackage,
+                    StringComparison.OrdinalIgnoreCase)
+                && nodePackage.Descriptor.PackageVersion
+                    == higherVersion);
         await environment.AssertRootSettledAsync();
     }
 

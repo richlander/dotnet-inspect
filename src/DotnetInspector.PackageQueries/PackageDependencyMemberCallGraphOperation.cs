@@ -794,10 +794,10 @@ public static class PackageDependencyMemberCallGraphOperation
         return new PackageDependencyMemberCallGraphOutcome.Completed(
             request.Traversal.TraversalTargetPolicy,
             request.Traversal.Summary,
-            completedRoutes.Scope.Revision.Identity,
+            generation.Scope.Revision.Identity,
             generation.FocalScope,
             BindIntrinsicCoreLibraryContextNonParticipation(
-                completedRoutes.Scope.Revision.Identity,
+                generation.Scope.Revision.Identity,
                 availableGraph.IntrinsicCoreLibraryOccurrences),
             DetachRoutes(completedRoutes),
             PackageSupplyChainBaselinePolicy.Create(
@@ -806,8 +806,8 @@ public static class PackageDependencyMemberCallGraphOperation
                 generation.Registrations).Evidence,
             DetachNodePackages(
                 availableGraph.NodePackages,
-                completedRoutes.Scope,
-                preparation.GraphBindings),
+                generation.Scope,
+                generation.GraphBindings),
             availableGraph.Document);
     }
 
