@@ -35,13 +35,17 @@ public sealed record PackageChildrenSubject
     public PackageChildrenSubject(
         string packageId,
         string packageVersion,
-        string? targetFramework = null)
+        string? targetFramework = null,
+        string? source = null)
         : this(
             new InertString(TextPolicy.Field, packageId),
             new InertString(TextPolicy.Field, packageVersion),
             targetFramework is null
                 ? null
-                : new InertString(TextPolicy.Field, targetFramework))
+                : new InertString(TextPolicy.Field, targetFramework),
+            source is null
+                ? null
+                : new InertString(TextPolicy.Field, source))
     {
     }
 
@@ -49,7 +53,8 @@ public sealed record PackageChildrenSubject
     public PackageChildrenSubject(
         InertString packageId,
         InertString packageVersion,
-        InertString? targetFramework)
+        InertString? targetFramework,
+        InertString? source = null)
     {
         if (packageId.IsEmpty)
             throw new ArgumentException(
@@ -63,6 +68,7 @@ public sealed record PackageChildrenSubject
         PackageId = packageId;
         PackageVersion = packageVersion;
         TargetFramework = targetFramework;
+        Source = source;
     }
 
     [JsonConverter(typeof(InertStringJsonConverter))]
@@ -73,6 +79,54 @@ public sealed record PackageChildrenSubject
 
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? TargetFramework { get; }
+
+    /// <summary>
+    /// The acquisition source the children were selected from, such as a
+    /// NuGet feed or a local file, when the composition knows it.
+    /// </summary>
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString? Source { get; }
+}
+
+/// <summary>
+/// The owner-issued <see cref="ResultProperty"/> set of a Package children
+/// result, per <c>docs/design/section-shapes.md#properties</c>: the source,
+/// the selected target, and the asset root(s) of the displayed children, in
+/// that order, each present only when the document carries it. Renderers print
+/// these values and nothing else beside the subject identity.
+/// </summary>
+public static class PackageChildrenProperties
+{
+    public const string SourceName = "source";
+    public const string TargetName = "target";
+    public const string RootName = "root";
+
+    public static ImmutableArray<ResultProperty> For(
+        PackageChildrenDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        var properties = ImmutableArray.CreateBuilder<ResultProperty>(3);
+        if (document.Subject.Source is { IsEmpty: false } source)
+            properties.Add(new ResultProperty(SourceName, source));
+        if (document.Subject.TargetFramework is { IsEmpty: false } target)
+            properties.Add(new ResultProperty(TargetName, target));
+        string roots = string.Join(
+            ", ",
+            document.Libraries
+                .Select(static library => AssetRoot(library.AssetPath.ToString()))
+                .Where(static root => root.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal));
+        if (roots.Length > 0)
+            properties.Add(new ResultProperty(RootName, roots));
+        return properties.ToImmutable();
+    }
+
+    private static string AssetRoot(string assetPath)
+    {
+        int separator = assetPath.IndexOfAny(['/', '\\']);
+        return separator > 0 ? assetPath[..separator] : "";
+    }
 }
 
 public sealed record PackageLibraryChild(

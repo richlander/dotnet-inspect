@@ -175,8 +175,8 @@ Library contains or exposes. Those remain separate memory-safety facts.
 ## Source execution and cost
 
 Enablements read assembly custom attributes, module custom attributes, and
-MethodDef implementation flags. They do not read method bodies, construct a
-`LibraryBodyIndex`, resolve references, open companion PDB or documentation
+MethodDef implementation flags. They do not read method bodies, execute
+library-body Analysis, resolve references, open companion PDB or documentation
 content, or use the network. The work is bounded by the image's existing
 Metadata admission.
 

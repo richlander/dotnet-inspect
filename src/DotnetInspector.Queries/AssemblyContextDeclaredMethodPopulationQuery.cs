@@ -18,11 +18,13 @@ public abstract class
     public sealed class Ready
         : AssemblyContextDeclaredMethodPopulationPreparation
     {
-        private readonly PreparedDeclaredMethodPopulationStore _owner;
+        private readonly AssemblyContextParticipantResource<
+            PreparedDeclaredMethodPopulationStore> _owner;
 
         internal Ready(
             AssemblyContextSubject subject,
-            PreparedDeclaredMethodPopulationStore owner,
+            AssemblyContextParticipantResource<
+                PreparedDeclaredMethodPopulationStore> owner,
             AssemblyAcquisitionRegistration registration,
             AssemblyInspectionSession session,
             MetadataDeclaredMethodPopulationSource source,
@@ -48,15 +50,49 @@ public abstract class
         /// Borrows the prepared source for repeated terminal execution.
         /// </summary>
         public AssemblyContextDeclaredMethodPopulationExecution
-            OpenExecution() =>
-            _owner.OpenExecution(this);
+            OpenExecution()
+        {
+            AssemblyContextParticipantResourceBorrow<
+                PreparedDeclaredMethodPopulationStore> borrow =
+                    _owner.Borrow(Registration);
+            try
+            {
+                borrow.State.ValidateReady(this);
+                return new(
+                    Source,
+                    borrow);
+            }
+            catch (Exception operationFailure)
+            {
+                try
+                {
+                    borrow.Dispose();
+                }
+                catch (Exception releaseFailure)
+                {
+                    throw new AggregateException(
+                        operationFailure,
+                        releaseFailure);
+                }
+                throw;
+            }
+        }
 
-        public MetadataDeclaredMethodPopulationResult Count() =>
-            _owner.Count(this);
+        public MetadataDeclaredMethodPopulationResult Count()
+        {
+            using AssemblyContextDeclaredMethodPopulationExecution execution =
+                OpenExecution();
+            return execution.Count();
+        }
 
         public MetadataDeclaredMethodPopulationResult Rows(
-            int maximumRows = int.MaxValue) =>
-            _owner.Rows(this, maximumRows);
+            int maximumRows = int.MaxValue)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(maximumRows);
+            using AssemblyContextDeclaredMethodPopulationExecution execution =
+                OpenExecution();
+            return execution.Rows(maximumRows);
+        }
     }
 
     public sealed class ParticipantRejected
@@ -111,12 +147,13 @@ public sealed class AssemblyContextDeclaredMethodPopulationExecution
     : IDisposable
 {
     private readonly MetadataDeclaredMethodPopulationSource _source;
-    private AssemblyContextGroup.AssemblyContextGroupResourceBorrow?
-        _borrow;
+    private AssemblyContextParticipantResourceBorrow<
+        PreparedDeclaredMethodPopulationStore>? _borrow;
 
     internal AssemblyContextDeclaredMethodPopulationExecution(
         MetadataDeclaredMethodPopulationSource source,
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow)
+        AssemblyContextParticipantResourceBorrow<
+            PreparedDeclaredMethodPopulationStore> borrow)
     {
         _source = source;
         _borrow = borrow;
@@ -138,8 +175,9 @@ public sealed class AssemblyContextDeclaredMethodPopulationExecution
 
     public void Dispose()
     {
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow? borrow =
-            Interlocked.Exchange(ref _borrow, null);
+        AssemblyContextParticipantResourceBorrow<
+            PreparedDeclaredMethodPopulationStore>? borrow =
+                Interlocked.Exchange(ref _borrow, null);
         borrow?.Dispose();
     }
 }
@@ -150,11 +188,9 @@ public sealed class AssemblyContextDeclaredMethodPopulationExecution
 /// </summary>
 public static class AssemblyContextDeclaredMethodPopulationQuery
 {
-    private static readonly Func<
-        AssemblyContextGroup,
-        PreparedDeclaredMethodPopulationStore> s_createStore =
-            static owner =>
-                new PreparedDeclaredMethodPopulationStore(owner);
+    private static readonly Func<PreparedDeclaredMethodPopulationStore>
+        s_createStore =
+            static () => new PreparedDeclaredMethodPopulationStore();
 
     public static AssemblyContextDeclaredMethodPopulationPreparation
         PrepareParticipant(
@@ -168,16 +204,24 @@ public static class AssemblyContextDeclaredMethodPopulationQuery
         ArgumentNullException.ThrowIfNull(type);
         cancellationToken.ThrowIfCancellationRequested();
 
-        PreparedDeclaredMethodPopulationStore store =
-            group.GetOrCreateOwnedResource<
-                PreparedDeclaredMethodPopulationStore,
-                AssemblyContextGroup>(
-                group,
-                s_createStore);
-        return store.Prepare(
+        AssemblyContextParticipantResource<
+            PreparedDeclaredMethodPopulationStore> resource =
+                group.GetOrCreateParticipantResource(s_createStore);
+        return resource.Prepare(
             participant,
-            type,
-            cancellationToken);
+            cancellationToken,
+            (
+                Resource: resource,
+                Registration: participant.Assembly.Registration,
+                Subject: new AssemblyContextSubject(participant.Assembly),
+                Type: type),
+            static (store, access, state) =>
+                store.Prepare(
+                    state.Resource,
+                    state.Registration,
+                    state.Subject,
+                    state.Type,
+                    access));
     }
 
     public static AssemblyContextEntry<
@@ -210,10 +254,9 @@ public static class AssemblyContextDeclaredMethodPopulationQuery
 
 internal sealed class PreparedDeclaredMethodPopulationStore
     : IDisposable,
-        IAssemblyContextParticipantOwnedResource
+        IAssemblyContextParticipantResourceState
 {
     private readonly object _gate = new();
-    private readonly AssemblyContextGroup _group;
     private readonly Dictionary<
         PreparedDeclaredMethodPopulationKey,
         AssemblyContextDeclaredMethodPopulationPreparation> _preparations =
@@ -231,36 +274,20 @@ internal sealed class PreparedDeclaredMethodPopulationStore
             new(ReferenceEqualityComparer.Instance);
     private bool _disposed;
 
-    internal PreparedDeclaredMethodPopulationStore(
-        AssemblyContextGroup group)
-    {
-        _group = group;
-    }
-
     internal AssemblyContextDeclaredMethodPopulationPreparation Prepare(
-        AssemblyContextParticipant participant,
+        AssemblyContextParticipantResource<
+            PreparedDeclaredMethodPopulationStore> resource,
+        AssemblyAcquisitionRegistration registration,
+        AssemblyContextSubject subject,
         MetadataTypeDefinitionBinding type,
-        CancellationToken cancellationToken)
+        AssemblyContextParticipantPreparationAccess access)
     {
         var key =
             new PreparedDeclaredMethodPopulationKey(
-                participant.Assembly.Registration,
+                registration,
                 type.ModuleVersionId,
                 type.Definition.Value);
         object preparationGate;
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_preparations.TryGetValue(
-                    key,
-                    out AssemblyContextDeclaredMethodPopulationPreparation?
-                        existing))
-            {
-                return existing;
-            }
-        }
-
-        _group.ValidateParticipant(participant);
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -295,51 +322,13 @@ internal sealed class PreparedDeclaredMethodPopulationStore
                         return existing;
                     }
                 }
-                cancellationToken.ThrowIfCancellationRequested();
-                var subject =
-                    new AssemblyContextSubject(participant.Assembly);
-                AssemblyImageAccessResult<
-                    AssemblyContextDeclaredMethodPopulationPreparation>
-                    access =
-                        _group.UseSnapshot(
-                            participant,
-                            cancellationToken,
-                            (
-                                Owner: this,
-                                Key: key,
-                                Subject: subject,
-                                Type: type),
-                            static (snapshot, state) =>
-                                state.Owner.PrepareAndPublish(
-                                    state.Key,
-                                    state.Subject,
-                                    snapshot,
-                                    state.Type));
-                AssemblyContextDeclaredMethodPopulationPreparation prepared =
-                    access switch
-                    {
-                        AssemblyImageAccessResult<
-                            AssemblyContextDeclaredMethodPopulationPreparation>
-                            .Available available =>
-                                available.Value,
-                        AssemblyImageAccessResult<
-                            AssemblyContextDeclaredMethodPopulationPreparation>
-                            .Rejected rejected =>
-                                new AssemblyContextDeclaredMethodPopulationPreparation
-                                    .ParticipantRejected(
-                                        subject,
-                                        rejected.Failure),
-                        _ => throw new InvalidOperationException(
-                            "Unknown assembly image access result."),
-                    };
-                if (access
-                    is AssemblyImageAccessResult<
-                        AssemblyContextDeclaredMethodPopulationPreparation>
-                        .Rejected)
-                {
-                    PublishIfAlive(key, prepared);
-                }
-                return prepared;
+
+                return PrepareAndPublish(
+                    resource,
+                    key,
+                    subject,
+                    access,
+                    type);
             }
         }
         finally
@@ -348,61 +337,62 @@ internal sealed class PreparedDeclaredMethodPopulationStore
         }
     }
 
-    internal MetadataDeclaredMethodPopulationResult Count(
+    internal void ValidateReady(
         AssemblyContextDeclaredMethodPopulationPreparation.Ready ready)
     {
-        using AssemblyContextDeclaredMethodPopulationExecution execution =
-            OpenExecution(ready);
-        return execution.Count();
-    }
-
-    internal MetadataDeclaredMethodPopulationResult Rows(
-        AssemblyContextDeclaredMethodPopulationPreparation.Ready ready,
-        int maximumRows)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(maximumRows);
-        using AssemblyContextDeclaredMethodPopulationExecution execution =
-            OpenExecution(ready);
-        return execution.Rows(maximumRows);
-    }
-
-    internal AssemblyContextDeclaredMethodPopulationExecution OpenExecution(
-        AssemblyContextDeclaredMethodPopulationPreparation.Ready ready)
-    {
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow =
-            _group.BorrowOwnedResource(
-                this,
-                ready.Registration);
-        try
+        lock (_gate)
         {
-            lock (_gate)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_sessionByRegistration.TryGetValue(
+                    ready.Registration,
+                    out PreparedParticipantSession? participant)
+                || !ReferenceEquals(
+                    participant.Session,
+                    ready.Session))
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                if (!_sessionByRegistration.TryGetValue(
-                        ready.Registration,
-                        out PreparedParticipantSession? participant)
-                    || !ReferenceEquals(
-                        participant.Session,
-                        ready.Session))
-                {
-                    throw new ObjectDisposedException(
-                        nameof(AssemblyContextParticipant));
-                }
+                throw new ObjectDisposedException(
+                    nameof(AssemblyContextParticipant));
             }
-
-            return new(
-                ready.Source,
-                borrow);
-        }
-        catch
-        {
-            borrow.Dispose();
-            throw;
         }
     }
 
     private AssemblyContextDeclaredMethodPopulationPreparation
         PrepareAndPublish(
+            AssemblyContextParticipantResource<
+                PreparedDeclaredMethodPopulationStore> resource,
+            PreparedDeclaredMethodPopulationKey key,
+            AssemblyContextSubject subject,
+            AssemblyContextParticipantPreparationAccess access,
+            MetadataTypeDefinitionBinding type)
+    {
+        AssemblyContextDeclaredMethodPopulationPreparation prepared =
+            access switch
+            {
+                AssemblyContextParticipantPreparationAccess.Available
+                    available =>
+                        PrepareAvailable(
+                            resource,
+                            key,
+                            subject,
+                            available.Snapshot,
+                            type),
+                AssemblyContextParticipantPreparationAccess.Rejected
+                    rejected =>
+                        new AssemblyContextDeclaredMethodPopulationPreparation
+                            .ParticipantRejected(
+                                subject,
+                                rejected.Failure),
+                _ => throw new InvalidOperationException(
+                    "Unknown participant preparation access."),
+            };
+        Publish(key, prepared);
+        return prepared;
+    }
+
+    private AssemblyContextDeclaredMethodPopulationPreparation
+        PrepareAvailable(
+            AssemblyContextParticipantResource<
+                PreparedDeclaredMethodPopulationStore> resource,
             PreparedDeclaredMethodPopulationKey key,
             AssemblyContextSubject subject,
             AssemblyImageSnapshot snapshot,
@@ -412,19 +402,17 @@ internal sealed class PreparedDeclaredMethodPopulationStore
             GetOrCreateParticipantSession(
                 key.Registration,
                 snapshot);
-        AssemblyContextDeclaredMethodPopulationPreparation prepared =
-            participantSession.Session is { } session
-                ? Prepare(
-                    key.Registration,
+        return participantSession.Session is { } session
+            ? Prepare(
+                resource,
+                key.Registration,
+                subject,
+                session,
+                type)
+            : new AssemblyContextDeclaredMethodPopulationPreparation
+                .Failed(
                     subject,
-                    session,
-                    type)
-                : new AssemblyContextDeclaredMethodPopulationPreparation
-                    .Failed(
-                        subject,
-                        participantSession.Failure!);
-        Publish(key, prepared);
-        return prepared;
+                    participantSession.Failure!);
     }
 
     private PreparedParticipantSession GetOrCreateParticipantSession(
@@ -494,6 +482,8 @@ internal sealed class PreparedDeclaredMethodPopulationStore
     }
 
     private AssemblyContextDeclaredMethodPopulationPreparation Prepare(
+        AssemblyContextParticipantResource<
+            PreparedDeclaredMethodPopulationStore> resource,
         AssemblyAcquisitionRegistration registration,
         AssemblyContextSubject subject,
         AssemblyInspectionSession session,
@@ -511,7 +501,7 @@ internal sealed class PreparedDeclaredMethodPopulationStore
                         new AssemblyContextDeclaredMethodPopulationPreparation
                             .Ready(
                                 subject,
-                                this,
+                                resource,
                                 registration,
                                 session,
                                 ready.Source,
@@ -557,17 +547,6 @@ internal sealed class PreparedDeclaredMethodPopulationStore
         }
     }
 
-    private void PublishIfAlive(
-        PreparedDeclaredMethodPopulationKey key,
-        AssemblyContextDeclaredMethodPopulationPreparation prepared)
-    {
-        lock (_gate)
-        {
-            if (!_disposed)
-                _preparations.Add(key, prepared);
-        }
-    }
-
     private void RemoveSettledPreparationGate(
         PreparedDeclaredMethodPopulationKey key,
         object preparationGate)
@@ -585,7 +564,7 @@ internal sealed class PreparedDeclaredMethodPopulationStore
         }
     }
 
-    void IAssemblyContextParticipantOwnedResource
+    void IAssemblyContextParticipantResourceState
         .ReleaseParticipant(
             AssemblyAcquisitionRegistration registration)
     {

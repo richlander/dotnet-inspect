@@ -198,32 +198,6 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void
-        OverloadRelationships_DefaultCompatibilityAcquisitionPreservesLegacyResult()
-    {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
-
-        Assert.False(
-            index.Features.HasFlag(
-                LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles));
-        OverloadCallRelationship relationship =
-            Assert.Single(
-                index.OverloadRelationships(),
-                relationship =>
-                    relationship.Caller.DeclaringType.Name
-                        == "ImplementationProfileSample"
-                    && relationship.Caller.Name
-                        == "Analyze");
-
-        Assert.Single(relationship.Caller.ParameterTypes);
-        Assert.Equal(
-            2,
-            relationship.Callee.ParameterTypes.Length);
-    }
-
-    [Fact]
     public void OverloadRelationships_PreserveExactCallerTargetAndOffset()
     {
         var index = BodyAnalysisTestExecution.Open(
