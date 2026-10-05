@@ -2179,6 +2179,13 @@ framework. Inspect Web loads that coordinate through its ordinary package path
 only when the user selects the graph node, then opens the exact member;
 ambiguous ownership publishes no package coordinate.
 
+For an unresolved ordinary `AssemblyRef` from a Package participant, the CLI
+evaluates reachable Package suppliers first and eligible exact Platform targets
+second. A selected supplier is admitted into a fresh immutable Workspace
+generation, and the call graph is rebuilt against that successor. Continuation
+uses finite command-owned work limits and the Workspace deadline; exhausted or
+incomplete work remains visible instead of becoming a final missing binding.
+
 The default `--baseline self+registered-ecosystems` excludes the exact root,
 explicit `--first-party-prefix` values, and the product platform registrations
 (.NET Runtime, ASP.NET Core, and Microsoft.Extensions) from highlighting.
