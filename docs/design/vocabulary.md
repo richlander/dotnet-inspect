@@ -85,9 +85,14 @@ removes the former `categories` member from structured vocabulary sections.
 ## Ownership
 
 Each vocabulary is declared by the owner of its terms as one immutable
-`VocabularyDefinition` beside that owner's catalog. A host composes the
-declarations it ships into one exactly identified snapshot, under the tier-1
-composition rule the
+`VocabularyDefinition` beside that owner's catalog. Because a vocabulary
+identity carries its catalog identity and the product catalog name is a
+product concept, an owner declares through a deterministic factory over the
+host's `VocabularyCatalogIdentity` (`StyleOptionVocabularies`,
+`BodyShapeVocabulary`, `ApiAccessibilityVocabulary`); the vocabulary's stable
+identity, display label, maps, terms, and order are the owner's, and equal
+inputs yield equal declarations. A host composes the declarations it ships into
+one exactly identified snapshot, under the tier-1 composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
 states. No component owns the complete list of product vocabularies.
 
@@ -122,13 +127,17 @@ test that [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
 step 5 adds is the gate that observes it. Until then both hosts run one
 composition and the CLI suite's pinned digest is the only identity gate.
 
-Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) lands,
-`DotnetInspector.Vocabulary` composes the owner catalogs itself and therefore
-references `ILInspector.Decompiler`; the `vocabulary-dependencies` policy rule
-records that interim edge, and the project retires with the migration. The
-declaration types already live in `QuerySpace.Primitives` and the document
-and wire types in `DotnetInspector.Sections`; the interim project holds only
-the composition and the compatibility projection.
+Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
+step 5 moves composition to the hosts, `DotnetInspector.Vocabulary` composes
+the owners' declarations under the product catalog identity and adds the
+`vocabulary.sections` index, whose `accepted_by` values name product query
+inputs and therefore stay with the composition rather than with a term owner.
+It references `ILInspector.Decompiler` and `DotnetInspector.Queries` only to
+reach their declarations; the `vocabulary-dependencies` policy rule records
+that interim edge, and the project retires with the migration. The declaration
+types live in `QuerySpace.Primitives` and the document and wire types in
+`DotnetInspector.Sections`; the interim project holds only the composition and
+the compatibility projection.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected

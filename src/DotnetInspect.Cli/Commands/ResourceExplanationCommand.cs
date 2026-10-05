@@ -32,14 +32,35 @@ public static class ResourceExplanationCommand
         if (canonicalPath is not null)
         {
             string root = RootSegment(canonicalPath);
+            foreach ((
+                         StructuralViewIdentity view,
+                         InspectionCatalogIdentity identity)
+                     in ExplainableStructuralRoutes)
+            {
+                if (StructuralViewRegistry.CatalogPathName(identity) != root)
+                    continue;
+
+                ResourceExplanationCatalog? structuralCatalog =
+                    CreateStructuralCatalog(view, identity);
+                if (structuralCatalog is null)
+                {
+                    CommandError.Write(
+                        $"The {root} structural resource catalog could not "
+                        + "be built.");
+                    return 1;
+                }
+                return ExplainFromCatalog(
+                    structuralCatalog,
+                    canonicalPath,
+                    depth,
+                    maximumResults,
+                    format,
+                    envelopeOutput,
+                    outputPath);
+            }
+
             ResourceExplanationCatalog? exactCatalog = root switch
             {
-                "library" => CreateStructuralCatalog(
-                    StructuralViewIdentity.DirectLibrary,
-                    InspectionCatalogIdentity.Library),
-                "package" => CreateStructuralCatalog(
-                    StructuralViewIdentity.Package,
-                    InspectionCatalogIdentity.Package),
                 "package-query" => CreatePackageQueryExplanation(),
                 "package-files" => CreatePackageFilesExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
@@ -61,7 +82,10 @@ public static class ResourceExplanationCommand
             if (canonicalPath.Value.Contains('/'))
             {
                 ResourceExplanationCatalog completeCatalog =
-                    CreateCompleteCatalog();
+                    CreateCompleteCatalog()
+                    ?? throw new InvalidOperationException(
+                        "The complete structural resource catalog could not "
+                        + "be built.");
                 return WriteResolutionFailure(
                     completeCatalog.Resolve(normalizedOperand));
             }
@@ -106,7 +130,7 @@ public static class ResourceExplanationCommand
         return 0;
     }
 
-    private static ResourceExplanationCatalog CreateStructuralCatalog(
+    private static ResourceExplanationCatalog? CreateStructuralCatalog(
         StructuralViewIdentity view,
         InspectionCatalogIdentity catalogIdentity)
     {
@@ -115,7 +139,7 @@ public static class ResourceExplanationCommand
                 StructuralViewRegistry.Route(view, catalogIdentity));
         string catalog =
             StructuralViewRegistry.CatalogPathName(catalogIdentity);
-        DiscoveryDocumentFactory.Projection structural =
+        DiscoveryDocumentFactory.Projection? structural =
             DiscoveryDocumentFactory.CreateProjection(
                 catalog,
                 discover: null,
@@ -127,20 +151,15 @@ public static class ResourceExplanationCommand
                 projection.ExactOnlySections,
                 projection.OutputCapabilities
                 ?? throw new InvalidOperationException(
-                    $"{DisplayName(catalog)} output capabilities are "
-                    + "required."),
+                    $"{catalog} output capabilities are required."),
                 sectionCardinalities:
                     projection.SectionCardinalities,
-                sectionShapes: catalogIdentity
-                    == InspectionCatalogIdentity.Package
-                        ? projection.SectionShapes
-                        : null)
-            ?? throw new InvalidOperationException(
-                $"The {DisplayName(catalog)} structural resource catalog "
-                + "could not be built.");
-        return ResourceExplanationCatalog.CreateStructural(
-            structural.Document,
-            structural.ResourcePaths);
+                sectionShapes: projection.SectionShapes);
+        return structural is null
+            ? null
+            : ResourceExplanationCatalog.CreateStructural(
+                structural.Document,
+                structural.ResourcePaths);
     }
 
     private static ResourceExplanationCatalog CreatePackageQueryExplanation()
@@ -206,16 +225,20 @@ public static class ResourceExplanationCommand
                 PackageFileInventoryCommandCapability.Module,
             ]);
 
-    private static ResourceExplanationCatalog CreateCompleteCatalog()
+    private static ResourceExplanationCatalog? CreateCompleteCatalog()
     {
-        ResourceExplanationCatalog structural =
-            CreateStructuralCatalog(
-                StructuralViewIdentity.DirectLibrary,
-                InspectionCatalogIdentity.Library);
-        ResourceExplanationCatalog packageStructural =
-            CreateStructuralCatalog(
-                StructuralViewIdentity.Package,
-                InspectionCatalogIdentity.Package);
+        var structuralCatalogs = new List<ResourceExplanationCatalog>();
+        foreach ((
+                     StructuralViewIdentity view,
+                     InspectionCatalogIdentity identity)
+                 in ExplainableStructuralRoutes)
+        {
+            ResourceExplanationCatalog? catalog =
+                CreateStructuralCatalog(view, identity);
+            if (catalog is null)
+                return null;
+            structuralCatalogs.Add(catalog);
+        }
         (
             _,
             ResourceExplanationCatalog capabilities) =
@@ -224,10 +247,11 @@ public static class ResourceExplanationCommand
             ResourceExplanationCatalog.CreateAnalyses(
                 DiffAnalysisCommandCapability.Catalog);
         return ResourceExplanationCatalog.Combine(
-            structural,
-            packageStructural,
-            capabilities,
-            analyses);
+            [
+                .. structuralCatalogs,
+                capabilities,
+                analyses,
+            ]);
     }
 
     private static ResourceExplanationCatalog CreateAnalysisExplanation()
@@ -283,9 +307,6 @@ public static class ResourceExplanationCommand
             ? path.Value
             : path.Value[..separator];
     }
-
-    private static string DisplayName(string value) =>
-        char.ToUpperInvariant(value[0]) + value[1..];
 
     private static int ExplainExact(
         ResourceExplanationCatalog catalog,
@@ -432,4 +453,21 @@ public static class ResourceExplanationCommand
                     CapabilityCatalogSearchViewContext.Default);
             });
     }
+
+    /// <summary>
+    /// The structural routes whose section catalogs <c>explain</c> publishes:
+    /// library, package, the type listing, and the three member catalogs under
+    /// the names <see cref="StructuralViewRegistry.CatalogPathName"/> issues.
+    /// </summary>
+    private static readonly
+        (StructuralViewIdentity View, InspectionCatalogIdentity Catalog)[]
+        ExplainableStructuralRoutes =
+    [
+        (StructuralViewIdentity.DirectLibrary, InspectionCatalogIdentity.Library),
+        (StructuralViewIdentity.Package, InspectionCatalogIdentity.Package),
+        (StructuralViewIdentity.Type, InspectionCatalogIdentity.ApiType),
+        (StructuralViewIdentity.MemberType, InspectionCatalogIdentity.ApiMember),
+        (StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberOverload),
+        (StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberDetail),
+    ];
 }
