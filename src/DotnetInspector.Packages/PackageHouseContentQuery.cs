@@ -146,22 +146,6 @@ public abstract class PackageHouseContentTerminal
     public sealed class LibraryAndInventoryForTarget
         : PackageHouseContentTerminal
     {
-        public LibraryAndInventoryForTarget(string? @namespace = null)
-        {
-            if (@namespace is not null
-                && string.IsNullOrWhiteSpace(@namespace))
-            {
-                throw new ArgumentException(
-                    "A Library-selection namespace cannot be empty or whitespace.",
-                    nameof(@namespace));
-            }
-            Namespace = @namespace;
-        }
-
-        /// <summary>
-        /// The exact namespace preferred before alphabetical fallback.
-        /// </summary>
-        public string? Namespace { get; }
     }
 }
 
@@ -383,12 +367,11 @@ public sealed class PackageHouseContentQuery
     /// </summary>
     public static PackageHouseContentQuery
         GetLibraryAndInventoryForTarget(
-            PackageHouseTargetContext target,
-            string? @namespace = null) =>
+            PackageHouseTargetContext target) =>
         new(
             new PackageHouseContentNarrowing.TfmWide(target),
             [
                 new PackageHouseContentTerminal
-                    .LibraryAndInventoryForTarget(@namespace),
+                    .LibraryAndInventoryForTarget(),
             ]);
 }

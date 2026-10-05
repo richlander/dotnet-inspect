@@ -333,7 +333,6 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Same(
             result.Inventory.Rows[0],
             result.Selection.SelectedRow);
-        Assert.False(result.Selection.NamespaceMatched);
         Assert.False(result.Selection.IsPackageNamesake);
         PackageHouseLibraryMaterializationOutcome.Completed materialized =
             Assert.IsType<
@@ -398,111 +397,6 @@ public sealed partial class PackageRangedRealizationTests
 
     [Fact]
     public async Task
-        LibraryInventory_NamespaceSelectionUsesMetadataFactsThenStops()
-    {
-        byte[] archive = CreateLibraryInventoryArchive();
-        var server = new RangeFeed(
-            AddressPackageId,
-            AddressPackageVersion,
-            archive);
-        await using RangedEnvironment environment =
-            RangedEnvironment.Create(server);
-        var facts = new TestNamespaceFacts(
-            new Dictionary<string, PackageLibraryNamespaceFact>(
-                StringComparer.Ordinal)
-            {
-                ["ref/net10.0/Alpha.dll"] =
-                    new PackageLibraryNamespaceFact.Available(
-                        ["Alpha"]),
-                ["ref/net10.0/Beta.dll"] =
-                    new PackageLibraryNamespaceFact.Available(
-                        ["Target.Namespace"]),
-                ["ref/net10.0/Gamma.dll"] =
-                    new PackageLibraryNamespaceFact.Available(
-                        ["Gamma"]),
-            });
-        PackageHouseTargetContext target =
-            PackageHouseTargetContext.Exact("net10.0");
-        PackageHouseContentQuery query =
-            PackageHouseContentQuery
-                .GetLibraryAndInventoryForTarget(
-                    target,
-                    "Target.Namespace");
-
-        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
-            await environment.AcquireContentAsync(
-                new InMemoryPackageStore(),
-                query,
-                packageId: AddressPackageId,
-                version: AddressPackageVersion,
-                targetContext: target,
-                libraryNamespaceFacts: facts));
-
-        PackageHouseLibraryAndInventory result =
-            Assert.IsType<PackageHouseLibraryAndInventory>(
-                acquired.Result.Evidence.LibraryAndInventory);
-        Assert.Equal(
-            "ref/net10.0/Beta.dll",
-            result.Selection.SelectedRow.CompileEntry.Path);
-        Assert.True(result.Selection.NamespaceMatched);
-        Assert.Equal(
-            [
-                "ref/net10.0/Alpha.dll",
-                "ref/net10.0/Beta.dll",
-            ],
-            facts.InspectedEntries);
-        Assert.Equal(
-            ["ref/net10.0/Beta.dll"],
-            acquired.Payload.Content.EnumerateEntries());
-    }
-
-    [Fact]
-    public async Task
-        LibraryInventory_MetadataFailureRejectsAlphabeticalFallback()
-    {
-        byte[] archive = CreateLibraryInventoryArchive();
-        var server = new RangeFeed(
-            AddressPackageId,
-            AddressPackageVersion,
-            archive);
-        await using RangedEnvironment environment =
-            RangedEnvironment.Create(server);
-        var facts = new TestNamespaceFacts(
-            new Dictionary<string, PackageLibraryNamespaceFact>(
-                StringComparer.Ordinal)
-            {
-                ["ref/net10.0/Alpha.dll"] =
-                    new PackageLibraryNamespaceFact.Failed(
-                        "invalid metadata"),
-            });
-        PackageHouseTargetContext target =
-            PackageHouseTargetContext.Exact("net10.0");
-
-        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
-            await environment.AcquireContentAsync(
-                new InMemoryPackageStore(),
-                PackageHouseContentQuery
-                    .GetLibraryAndInventoryForTarget(
-                        target,
-                        "Target.Namespace"),
-                packageId: AddressPackageId,
-                version: AddressPackageVersion,
-                targetContext: target,
-                libraryNamespaceFacts: facts));
-
-        PackageHouseResult.Rejected rejected =
-            Assert.IsType<PackageHouseResult.Rejected>(
-                acquired.Result);
-        Assert.Contains(
-            "Metadata namespace inspection failed",
-            rejected.Reason.ToString(),
-            StringComparison.Ordinal);
-        Assert.Null(rejected.Evidence.LibraryAndInventory);
-        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
-    }
-
-    [Fact]
-    public async Task
         LibraryInventory_UnmatchedTargetIsTypedNoMatch()
     {
         byte[] archive = CreateLibraryInventoryArchive();
@@ -514,6 +408,36 @@ public sealed partial class PackageRangedRealizationTests
             RangedEnvironment.Create(server);
         PackageHouseTargetContext target =
             PackageHouseTargetContext.Exact("net40");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery
+                    .GetLibraryAndInventoryForTarget(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        Assert.Null(acquired.Result.Evidence.LibraryAndInventory);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public async Task
+        LibraryInventory_ExplicitEmptyCompileGroupIsTypedNoMatch()
+    {
+        byte[] archive = CreateFrameworkArchive(
+            ("ref/net10.0/_._", []),
+            ("lib/net10.0/Unread.dll", [1, 2, 3]));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(
+                new RangeFeed(
+                    AddressPackageId,
+                    AddressPackageVersion,
+                    archive));
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
 
         var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
             await environment.AcquireContentAsync(
@@ -592,40 +516,6 @@ public sealed partial class PackageRangedRealizationTests
             materialized.Receipt.Library.ImplementationAssembly);
         await materialized.Owner.DisposeAsync();
         await materialized.Artifacts.DisposeAsync();
-    }
-
-    [Fact]
-    public async Task
-        LibraryInventory_NamespaceRequiresExecutionFacts()
-    {
-        byte[] archive = CreateLibraryInventoryArchive();
-        var server = new RangeFeed(
-            AddressPackageId,
-            AddressPackageVersion,
-            archive);
-        await using RangedEnvironment environment =
-            RangedEnvironment.Create(server);
-        PackageHouseTargetContext target =
-            PackageHouseTargetContext.Exact("net10.0");
-
-        InvalidOperationException failure =
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => environment.AcquireContentAsync(
-                    new InMemoryPackageStore(),
-                    PackageHouseContentQuery
-                        .GetLibraryAndInventoryForTarget(
-                            target,
-                            "Target.Namespace"),
-                    packageId: AddressPackageId,
-                    version: AddressPackageVersion,
-                    targetContext: target));
-
-        Assert.Contains(
-            "namespace facts",
-            failure.Message,
-            StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(0, server.FullRequests);
-        Assert.Equal(0, server.RangedRequests);
     }
 
     [Fact]
@@ -1551,25 +1441,6 @@ public sealed partial class PackageRangedRealizationTests
             ("lib/net10.0/Alpha.pdb", "alpha-pdb"u8.ToArray()),
             ("lib/net10.0/Beta.dll", assembly),
             ("README.md", "outside target"u8.ToArray()));
-    }
-
-    private sealed class TestNamespaceFacts(
-        IReadOnlyDictionary<
-            string,
-            PackageLibraryNamespaceFact> facts)
-        : IPackageLibraryNamespaceFacts
-    {
-        private readonly List<string> _inspectedEntries = [];
-
-        public IReadOnlyList<string> InspectedEntries =>
-            _inspectedEntries;
-
-        public PackageLibraryNamespaceFact Get(
-            PackageContentEntry entry)
-        {
-            _inspectedEntries.Add(entry.Path);
-            return facts[entry.Path];
-        }
     }
 
     private static byte[] CreateFrameworkArchive(

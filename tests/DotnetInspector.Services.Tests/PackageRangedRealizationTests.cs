@@ -809,18 +809,14 @@ public sealed partial class PackageRangedRealizationTests
             long sizeCut = 0,
             string packageId = PclStorage,
             string version = PclStorageVersion,
-            PackageHouseTargetContext? targetContext = null,
-            IPackageLibraryNamespaceFacts?
-                libraryNamespaceFacts = null)
+            PackageHouseTargetContext? targetContext = null)
         {
             var house = new PackageHouse(
                 Authorization,
                 PackagePayloadAcquisitionPlan.ForContentQueries(
                     (_, _) => store,
                     log: Log.Enqueue,
-                    rangedSizeCut: sizeCut,
-                    libraryNamespaceFacts:
-                        libraryNamespaceFacts));
+                    rangedSizeCut: sizeCut));
             var request = new PackageHouseRequest(
                 new PackageHouseDemand.Exact(
                     PackageSourceCoordinate.Create(packageId, version)),

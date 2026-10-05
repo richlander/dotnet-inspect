@@ -16,7 +16,6 @@ public sealed partial class PackageHouse
         IReadOnlyList<PackageHouseLibraryInventoryRowResolution> Rows,
         IReadOnlyList<string> MaterializedEntryPaths,
         int SelectedRowIndex,
-        bool NamespaceMatched,
         InertString? SelectionFailure,
         PackageHouseContentNarrowingCompletion Completion,
         InertString? Reason);
@@ -24,21 +23,16 @@ public sealed partial class PackageHouse
     private static PackageHouseLibraryInventoryResolution
         ResolveLibraryInventory(
             PackageHouseContentNarrowingResolution narrowing,
-            IReadOnlyList<PackageContentEntry> entries,
-            PackageHouseContentTerminal.LibraryAndInventoryForTarget terminal,
-            IPackageLibraryNamespaceFacts? namespaceFacts)
+            IReadOnlyList<PackageContentEntry> entries)
     {
         ArgumentNullException.ThrowIfNull(narrowing);
         ArgumentNullException.ThrowIfNull(entries);
-        ArgumentNullException.ThrowIfNull(terminal);
-        if (narrowing.TargetSelection is not { } targetSelection
-            || !targetSelection.Selection.IsSelected)
+        if (narrowing.TargetSelection is not { } targetSelection)
         {
             return new(
                 [],
                 [],
                 0,
-                NamespaceMatched: false,
                 SelectionFailure: null,
                 narrowing.Completion,
                 narrowing.Reason);
@@ -46,6 +40,26 @@ public sealed partial class PackageHouse
 
         PackageCompileAssetSelection selection =
             targetSelection.Selection;
+        if (!selection.IsSelected)
+        {
+            bool emptyCompileGroup =
+                selection.Status
+                    == PackageCompileAssetSelectionStatus
+                        .EmptyCompileGroup;
+            return new(
+                [],
+                [],
+                0,
+                SelectionFailure: null,
+                emptyCompileGroup
+                    ? PackageHouseContentNarrowingCompletion.NoMatch
+                    : narrowing.Completion,
+                emptyCompileGroup
+                    ? Reason(
+                        "The selected package target contains an explicit empty compile group and no compatible Libraries.")
+                    : narrowing.Reason);
+        }
+
         var rows =
             new List<PackageHouseLibraryInventoryRowResolution>(
                 selection.Assets.Count);
@@ -61,7 +75,6 @@ public sealed partial class PackageHouse
                     [],
                     [],
                     0,
-                    NamespaceMatched: false,
                     SelectionFailure: null,
                     PackageHouseContentNarrowingCompletion.Rejected,
                     entryFailure);
@@ -89,7 +102,6 @@ public sealed partial class PackageHouse
                         [],
                         [],
                         0,
-                        NamespaceMatched: false,
                         SelectionFailure: null,
                         PackageHouseContentNarrowingCompletion.Rejected,
                         entryFailure);
@@ -117,7 +129,6 @@ public sealed partial class PackageHouse
                             [],
                             [],
                             0,
-                            NamespaceMatched: false,
                             SelectionFailure: null,
                             PackageHouseContentNarrowingCompletion.Rejected,
                             Reason(
@@ -161,58 +172,23 @@ public sealed partial class PackageHouse
                     static row => row.CompileEntry.Path,
                     StringComparer.Ordinal),
         ];
-        int selectedRowIndex = 0;
-        bool namespaceMatched = false;
-        InertString? selectionFailure = null;
-        if (terminal.Namespace is not null)
+        if (ordered.Length == 0)
         {
-            IPackageLibraryNamespaceFacts facts =
-                namespaceFacts
-                ?? throw new InvalidOperationException(
-                    "Namespace Library selection requires Metadata-owned namespace facts in the PackageHouse execution plan.");
-            bool selectionComplete = false;
-            for (int index = 0;
-                index < ordered.Length && !selectionComplete;
-                index++)
-            {
-                PackageLibraryNamespaceFact fact =
-                    facts.Get(ordered[index].CompileEntry)
-                    ?? throw new InvalidOperationException(
-                        "The Metadata namespace-facts capability returned null.");
-                switch (fact)
-                {
-                    case PackageLibraryNamespaceFact.Available available
-                        when available.Namespaces.Contains(
-                            terminal.Namespace,
-                            StringComparer.Ordinal):
-                        selectedRowIndex = index;
-                        namespaceMatched = true;
-                        selectionComplete = true;
-                        break;
-                    case PackageLibraryNamespaceFact.Available:
-                        break;
-                    case PackageLibraryNamespaceFact.Failed failed:
-                        selectionFailure = Reason(
-                            $"Metadata namespace inspection failed for '{ordered[index].CompileEntry.Path}': {failed.Reason}");
-                        selectionComplete = true;
-                        break;
-                    default:
-                        throw new InvalidOperationException(
-                            "The Metadata namespace-facts capability returned an unknown outcome.");
-                }
-            }
+            return new(
+                [],
+                [],
+                0,
+                SelectionFailure: null,
+                PackageHouseContentNarrowingCompletion.NoMatch,
+                Reason(
+                    "The selected package target contains no compatible Libraries."));
         }
 
-        IReadOnlyList<string> materialized =
-            selectionFailure is null
-                ? [ordered[selectedRowIndex].CompileEntry.Path]
-                : [];
         return new(
             ordered,
-            materialized,
-            selectedRowIndex,
-            namespaceMatched,
-            selectionFailure,
+            [ordered[0].CompileEntry.Path],
+            SelectedRowIndex: 0,
+            SelectionFailure: null,
             PackageHouseContentNarrowingCompletion.Settled,
             Reason: null);
     }
@@ -262,8 +238,7 @@ public sealed partial class PackageHouse
             PackageHouseAcquisitionReceipt acquisition,
             PackageHouseContentNarrowingReceipt narrowing,
             PackageHouseLibraryInventoryResolution resolution,
-            string packageId,
-            string? requestedNamespace)
+            string packageId)
     {
         PackageCompileAssetSelectionReceipt targetSelection =
             narrowing.TargetSelection
@@ -296,9 +271,7 @@ public sealed partial class PackageHouse
             new PackageHouseLibraryInventorySelectionReceipt(
                 inventory,
                 selectedRow,
-                packageId,
-                requestedNamespace,
-                resolution.NamespaceMatched);
+                packageId);
         return new(inventory, handoff, receipt);
     }
 }

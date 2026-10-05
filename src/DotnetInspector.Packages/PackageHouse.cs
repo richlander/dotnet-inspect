@@ -671,8 +671,6 @@ public sealed partial class PackageHouse
                                         request,
                                         rangedPackageId,
                                         directory,
-                                        payloadAcquisition
-                                            .LibraryNamespaceFacts,
                                         out PackageHouseContentNarrowingResolution?
                                             contentNarrowing,
                                         out PackageHouseLibraryInventoryResolution?
@@ -772,7 +770,7 @@ public sealed partial class PackageHouse
                             contentNarrowingResolution.EntryPaths);
                         if (request.ContentQuery
                                 .LibraryAndInventoryTerminal
-                                is { } inventoryTerminal)
+                                is not null)
                         {
                             libraryInventoryResolution =
                                 plannedLibraryInventory is null
@@ -783,10 +781,7 @@ public sealed partial class PackageHouse
                                     payload.Content.GenerationIdentity)
                                     ? ResolveLibraryInventory(
                                         contentNarrowingResolution,
-                                        semanticEntries,
-                                        inventoryTerminal,
-                                        payloadAcquisition
-                                            .LibraryNamespaceFacts)
+                                        semanticEntries)
                                     : plannedLibraryInventory;
                         }
                     }
@@ -875,8 +870,7 @@ public sealed partial class PackageHouse
                             acquisition,
                             contentNarrowing,
                             selectedInventoryResolution,
-                            rangedPackageId,
-                            selectedLibraryTerminal.Namespace)
+                            rangedPackageId)
                         : null;
                 if (semanticManifestUnavailable)
                 {
@@ -1832,7 +1826,6 @@ public sealed partial class PackageHouse
         PackageHouseRequest request,
         string packageId,
         IPackageContent directory,
-        IPackageLibraryNamespaceFacts? namespaceFacts,
         out PackageHouseContentNarrowingResolution? contentNarrowing,
         out PackageHouseLibraryInventoryResolution? libraryInventory)
     {
@@ -1850,9 +1843,7 @@ public sealed partial class PackageHouse
             {
                 libraryInventory = ResolveLibraryInventory(
                     contentNarrowing,
-                    SnapshotEntries(directory),
-                    libraryTerminal,
-                    namespaceFacts);
+                    SnapshotEntries(directory));
                 return new PackageRangedSelection(
                     libraryInventory.MaterializedEntryPaths);
             }
@@ -1926,13 +1917,6 @@ public sealed partial class PackageHouse
                 semantic
                     ? "A semantic content query requires a House-planned payload acquisition capability."
                     : "A House-planned payload acquisition capability requires a semantic content query.");
-        }
-        if (request.ContentQuery?.LibraryAndInventoryTerminal
-                is { Namespace: not null }
-            && payloadAcquisition.LibraryNamespaceFacts is null)
-        {
-            throw new InvalidOperationException(
-                "Namespace Library selection requires Metadata-owned namespace facts in the PackageHouse execution plan.");
         }
     }
 
