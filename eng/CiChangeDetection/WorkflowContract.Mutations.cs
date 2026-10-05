@@ -9,6 +9,18 @@ internal static partial class WorkflowContract
         string repository,
         string workflowText)
     {
+        AssertRejected(
+            repository,
+            workflowText,
+            root =>
+            {
+                YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
+                AddNode(jobs, "extra-pr-job-a", new YamlMappingNode(), "jobs");
+                AddNode(jobs, "extra-pr-job-b", new YamlMappingNode(), "jobs");
+            },
+            "16-runner-job budget",
+            "additional PR job exceeds runner budget");
+
         AssertAccepted(
             repository,
             workflowText,
@@ -32,54 +44,37 @@ internal static partial class WorkflowContract
         AssertAccepted(
             repository,
             workflowText,
-            root => AddSkillGateRunDefault(root, "."),
+            root => AddTestRunDefault(root, "."),
             "static inherited job repository-root default");
         AssertRejected(
             repository,
             workflowText,
-            root => AddSkillGateRunDefault(root, "inspect-web"),
-            "skill-gate/Run embedded skill tests",
+            root => AddTestRunDefault(root, "inspect-web"),
+            "test/Build",
             "inherited non-root job default");
         AssertRejected(
             repository,
             workflowText,
-            root => AddSkillGateRunDefault(
+            root => AddTestRunDefault(
                 root,
                 "${{ github.workspace }}"),
-            "skill-gate/Run embedded skill tests",
+            "test/Build",
             "inherited job default expression");
 
         AssertAccepted(
             repository,
             workflowText,
-            root => AddSkillGateStepWorkingDirectory(
+            root => AddTestStepWorkingDirectory(
                 root,
                 "${{ github.workspace }}"),
             "step workspace override");
         AssertRejected(
             repository,
             workflowText,
-            root => AddSkillGateStepWorkingDirectory(root, "tests"),
-            "skill-gate/Run embedded skill tests",
+            root => AddTestStepWorkingDirectory(root, "tests"),
+            "test/Run NetworkAccess tests",
             "non-root step override");
 
-        AssertAccepted(
-            repository,
-            workflowText,
-            root =>
-            {
-                AddSkillGateRunDefault(root, "inspect-web");
-                AddSkillGateStepWorkingDirectory(root, ".");
-            },
-            "fully shadowed non-root job default");
-        AssertAccepted(
-            repository,
-            workflowText,
-            root => AddJobRunDefault(
-                root,
-                "markdownlint",
-                "inspect-web"),
-            "action-only job default");
     }
 
     private static void AssertAccepted(
@@ -170,12 +165,12 @@ internal static partial class WorkflowContract
             RunDefaults(workingDirectory),
             "workflow");
 
-    private static void AddSkillGateRunDefault(
+    private static void AddTestRunDefault(
         YamlMappingNode root,
         string workingDirectory) =>
         AddJobRunDefault(
             root,
-            "skill-gate",
+            "test",
             workingDirectory);
 
     private static void AddJobRunDefault(
@@ -198,7 +193,7 @@ internal static partial class WorkflowContract
             $"jobs.{jobName}");
     }
 
-    private static void AddSkillGateStepWorkingDirectory(
+    private static void AddTestStepWorkingDirectory(
         YamlMappingNode root,
         string workingDirectory)
     {
@@ -206,26 +201,26 @@ internal static partial class WorkflowContract
             root,
             "jobs",
             "workflow");
-        YamlMappingNode skillGate = GetRequiredMapping(
+        YamlMappingNode test = GetRequiredMapping(
             jobs,
-            "skill-gate",
+            "test",
             "jobs");
         YamlSequenceNode steps = GetRequiredSequence(
-            skillGate,
+            test,
             "steps",
-            "jobs.skill-gate");
+            "jobs.test");
         YamlMappingNode step = steps.Children
             .Select(node => RequireMapping(
                 node,
-                "jobs.skill-gate step"))
+                "jobs.test step"))
             .Single(candidate =>
                 GetOptionalScalar(candidate, "name")
-                == "Run embedded skill tests");
+                == "Run NetworkAccess tests");
         AddNode(
             step,
             "working-directory",
             new YamlScalarNode(workingDirectory),
-            "jobs.skill-gate Run embedded skill tests");
+            "jobs.test Run NetworkAccess tests");
     }
 
     private static YamlMappingNode RunDefaults(

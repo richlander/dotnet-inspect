@@ -21,15 +21,10 @@ internal static partial class WorkflowContract
 
     internal static readonly string[] TestShards =
     [
-        "cli-a-c",
-        "cli-d-i",
-        "cli-ma",
-        "cli-mem",
-        "cli-q-z",
-        "cli-rest",
+        "cli-a",
+        "cli-b",
         "contracts",
-        "analysis",
-        "host-policy",
+        "host-analysis",
     ];
 
     internal static WorkflowContractResult Load(
@@ -78,8 +73,9 @@ internal static partial class WorkflowContract
         ValidateWorkflowRunDefaults(root);
         ValidateWorkflowTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
-        ValidateAggregateStructuralCheck(jobs);
         ValidateTestShardMatrix(jobs);
+        ValidateRunnerBudget(jobs);
+        ValidateAggregateStructuralCheck(jobs);
         ValidateConsumerStepContracts(jobs);
         YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
         RequireAbsent(changes, "if", "jobs.changes");
@@ -99,11 +95,11 @@ internal static partial class WorkflowContract
             changes,
             "steps",
             "jobs.changes");
-        if (steps.Children.Count != 6)
+        if (steps.Children.Count != 9)
         {
             throw new InvalidOperationException(
                 "jobs.changes must contain checkout, setup, self-test, " +
-                "provenance, planning, and TLA+ scope upload steps.");
+                "provenance, planning, TLA+ upload, Markdown, and skill steps.");
         }
 
         ValidateCheckoutStep(steps);
@@ -127,6 +123,7 @@ internal static partial class WorkflowContract
             ValidateProvenanceStep(steps, validateProvenancePin);
         ValidateSelfTestStep(selfTestSteps);
         ValidatePlanningStep(steps);
+        ValidateChangesChecks(steps);
 
         return new WorkflowContractResult(
             provenanceRunSha256,
@@ -231,6 +228,75 @@ internal static partial class WorkflowContract
             throw new InvalidOperationException(
                 "jobs.test shard names do not match the approved partition.");
         }
+    }
+
+    private static void ValidateRunnerBudget(YamlMappingNode jobs)
+    {
+        // The only matrix is the approved test shard matrix. A new matrix
+        // needs explicit counting here before it can enter the workflow.
+        foreach (KeyValuePair<YamlNode, YamlNode> entry in jobs.Children)
+        {
+            string name = RequireScalar(entry.Key, "job name");
+            YamlMappingNode job = RequireMapping(entry.Value, $"jobs.{name}");
+            if (name != "test")
+            {
+                RequireAbsent(job, "strategy", $"jobs.{name}");
+            }
+        }
+
+        // dependency-policy is push-only. Count every other job, including
+        // changes, the web aggregate, and ci-required, even if path-gated.
+        int pullRequestJobs = jobs.Children.Count - 1 + TestShards.Length - 1;
+        if (pullRequestJobs > 16)
+        {
+            throw new InvalidOperationException(
+                $"PR CI exceeds the 16-runner-job budget: {pullRequestJobs}.");
+        }
+    }
+
+    private static void ValidateChangesChecks(YamlSequenceNode steps)
+    {
+        YamlMappingNode markdown = RequireMapping(
+            steps.Children[6], "jobs.changes markdown step");
+        RequireExactKeys(markdown, ["name", "if", "uses", "with"],
+            "jobs.changes markdown step");
+        RequireScalarValue(markdown, "name", "Run markdownlint", "jobs.changes markdown step");
+        RequireScalarValue(markdown, "if",
+            "fromJSON(steps.plan.outputs.plan).validations.markdownlint",
+            "jobs.changes markdown step");
+        RequireScalarValue(markdown, "uses",
+            "DavidAnson/markdownlint-cli2-action@v24",
+            "jobs.changes markdown step");
+        RequireScalarValue(
+            GetRequiredMapping(markdown, "with", "jobs.changes markdown step"),
+            "globs", "**/*.md", "jobs.changes markdown step.with");
+
+        YamlMappingNode cache = RequireMapping(
+            steps.Children[7], "jobs.changes skill cache step");
+        RequireExactKeys(cache, ["name", "if", "uses", "with"],
+            "jobs.changes skill cache step");
+        RequireScalarValue(cache, "name", "Cache NuGet packages for skill tests",
+            "jobs.changes skill cache step");
+        RequireScalarValue(cache, "if",
+            "fromJSON(steps.plan.outputs.plan).validations.skillGate",
+            "jobs.changes skill cache step");
+        RequireScalarValue(cache, "uses", "actions/cache@v6",
+            "jobs.changes skill cache step");
+
+        YamlMappingNode skill = RequireMapping(
+            steps.Children[8], "jobs.changes skill step");
+        RequireExactKeys(skill, ["name", "if", "shell", "run"],
+            "jobs.changes skill step");
+        RequireScalarValue(skill, "name", "Run embedded skill tests",
+            "jobs.changes skill step");
+        RequireScalarValue(skill, "if",
+            "fromJSON(steps.plan.outputs.plan).validations.skillGate",
+            "jobs.changes skill step");
+        RequireScalarValue(skill, "shell", "bash", "jobs.changes skill step");
+        RequireScalarValue(skill, "run",
+            "dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- " +
+            "--filter-class \"DotnetInspect.Cli.Tests.SkillCommandTests\"",
+            "jobs.changes skill step");
     }
 
     private static void ValidateInspectWebTopology(YamlMappingNode jobs)
@@ -549,7 +615,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             verifierBuildStep,
             "if",
-            "matrix.shard == 'host-policy'",
+            "matrix.shard == 'host-analysis'",
             "jobs.test package-manifest corpus verifier build step");
         RequireScalarValue(
             verifierBuildStep,

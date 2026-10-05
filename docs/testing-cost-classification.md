@@ -73,11 +73,18 @@ public void SomeExpensiveTheory(string assemblyName)
 
 ## Existing consumers (no workflow changes needed to add a tag)
 
+The PR workflow has a ceiling of **16 runner jobs** when every PR-eligible
+validation is selected. Count matrix entries separately and include the
+always-run `changes` and `ci-required` jobs. The workflow contract checks this
+ceiling so a new shard or standalone job cannot silently increase the maximum.
+The current fully selected PR expands to 15 jobs. The push-only
+dependency-policy job is outside the PR count.
+
 - `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
-  Analysis suites. The CLI selection is split across six parallel matrix
-  entries: five select non-overlapping class-name prefix ranges, and the
-  sixth selects their complement. The complement makes the partition
-  exhaustive even when a future test class uses an unexpected identifier.
+  Analysis suites. Six CLI selections run across two matrix jobs: five
+  select non-overlapping class-name prefix ranges, and the sixth selects
+  their complement. The complement makes the partition exhaustive even when
+  a future test class uses an unexpected identifier.
   `deep-inspect.yml` runs both suites fully unfiltered once on Linux, so a newly
   tagged test automatically keeps running daily. Its Windows/macOS lane uses
   the same fast CLI population as PR CI.
