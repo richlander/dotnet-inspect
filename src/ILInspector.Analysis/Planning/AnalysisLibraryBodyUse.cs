@@ -103,13 +103,13 @@ internal sealed class AnalysisLibraryBodyUseProducer
     internal override bool Settles(VisitFact fact) =>
         IsSettling(fact, _limits.MaximumOccurrences);
 
-    internal sealed record VisitFact(
+    internal readonly record struct VisitFact(
         BodyTypeUseMethodFact? Body,
         ProducerTerminal Terminal);
 
     internal sealed class Accumulator(int maximumOccurrences)
     {
-        List<BodyTypeUseOccurrence>? _occurrences;
+        List<IReadOnlyList<BodyTypeUseOccurrence>>? _occurrenceBatches;
         List<BodyTypeUsePhysicalFact>? _bodies;
         readonly List<AnalysisLibraryBodyUseDiagnostic> _diagnostics = [];
         int _occurrenceCount;
@@ -124,7 +124,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
         int _operandsLimited;
         bool _occurrenceLimitReported;
 
-        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+        internal IReadOnlyList<BodyTypeUseOccurrence> Add(
             VisitFact visit) =>
             Add(
                 visit,
@@ -133,7 +133,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 retainBodies:
                     visit.Terminal == ProducerTerminal.Rows);
 
-        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+        internal IReadOnlyList<BodyTypeUseOccurrence> Add(
             VisitFact visit,
             bool retainOccurrences,
             bool retainBodies)
@@ -142,7 +142,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 return [];
 
             if (retainOccurrences)
-                _occurrences ??= [];
+                _occurrenceBatches ??= [];
             if (retainBodies)
                 _bodies ??= [];
             _bodiesConsidered++;
@@ -183,7 +183,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
 
             long attempted = checked(
                 (long)_occurrenceCount
-                    + body.Occurrences.Length);
+                    + body.Occurrences.Count);
             if (attempted > maximumOccurrences)
             {
                 _bodiesLimited++;
@@ -210,9 +210,9 @@ internal sealed class AnalysisLibraryBodyUseProducer
             else
             {
                 _bodiesExamined++;
-                _occurrenceCount += body.Occurrences.Length;
+                _occurrenceCount += body.Occurrences.Count;
                 if (retainOccurrences)
-                    _occurrences!.AddRange(body.Occurrences);
+                    _occurrenceBatches!.Add(body.Occurrences);
                 return body.Occurrences;
             }
 
@@ -223,11 +223,28 @@ internal sealed class AnalysisLibraryBodyUseProducer
             Create(
                 _occurrenceCount,
                 retainRows
-                    ? [.. _occurrences ?? []]
+                    ? CompleteOccurrences()
                     : default,
                 retainRows
                     ? [.. _bodies ?? []]
                     : default);
+
+        ImmutableArray<BodyTypeUseOccurrence> CompleteOccurrences()
+        {
+            var occurrences =
+                ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>(
+                    _occurrenceCount);
+            if (_occurrenceBatches is not null)
+            {
+                foreach (IReadOnlyList<BodyTypeUseOccurrence> batch
+                    in _occurrenceBatches)
+                {
+                    foreach (BodyTypeUseOccurrence occurrence in batch)
+                        occurrences.Add(occurrence);
+                }
+            }
+            return occurrences.MoveToImmutable();
+        }
 
         internal Result CompleteCount(int occurrenceCount)
         {
@@ -286,8 +303,8 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 diagnostic.Kind
                     == AnalysisLibraryBodyUseDiagnosticKind
                         .MalformedBody)
-        && body.Occurrences.Length > 0
-        && body.Occurrences.Length <= maximumOccurrences;
+        && body.Occurrences.Count > 0
+        && body.Occurrences.Count <= maximumOccurrences;
 
     internal sealed record Result(
         int OccurrenceCount,

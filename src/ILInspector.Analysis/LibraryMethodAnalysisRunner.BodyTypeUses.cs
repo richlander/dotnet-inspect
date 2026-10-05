@@ -65,9 +65,8 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     ? owner.Source
                     : null;
 
-            var rows = ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>();
-            var diagnostics =
-                ImmutableArray.CreateBuilder<AnalysisLibraryBodyUseDiagnostic>();
+            List<BodyTypeUseOccurrence>? rows = null;
+            List<AnalysisLibraryBodyUseDiagnostic>? diagnostics = null;
             IMethodCallResolver resolver =
                 _infrastructure.CreateCallResolver(
                     scope,
@@ -83,7 +82,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     continue;
 
                 operandsConsidered++;
-                int committed = rows.Count;
+                int committed = rows?.Count ?? 0;
                 try
                 {
                     if (!TryClassify(
@@ -105,7 +104,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     if (binding.Failure is { } failure)
                     {
                         operandsUnavailable++;
-                        diagnostics.Add(
+                        (diagnostics ??= []).Add(
                             new(
                                 AnalysisLibraryBodyUseDiagnosticKind
                                     .UnresolvedOperand,
@@ -117,7 +116,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     if (binding.Unavailable is { } unavailable)
                     {
                         operandsUnavailable++;
-                        diagnostics.Add(
+                        (diagnostics ??= []).Add(
                             new(
                                 AnalysisLibraryBodyUseDiagnosticKind
                                     .UnresolvedOperand,
@@ -135,7 +134,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         foreach (BodyTypeUseOperandTarget target
                             in binding.Targets)
                         {
-                            rows.Add(
+                            (rows ??= []).Add(
                                 new(
                                     logicalSource,
                                     target.Target,
@@ -146,7 +145,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                                     target.Ordinal));
                         }
                     }
-                    long attempted = rows.Count;
+                    long attempted = rows?.Count ?? 0;
                     if (attempted > maximumOccurrences)
                     {
                         return BodyTypeUseMethodFact.CreateLimited(
@@ -163,9 +162,14 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 catch (Exception exception)
                     when (IsRecoverableMethodFailure(exception))
                 {
-                    rows.Count = committed;
+                    if (rows is { } rejected)
+                    {
+                        rejected.RemoveRange(
+                            committed,
+                            rejected.Count - committed);
+                    }
                     operandsUnavailable++;
-                    diagnostics.Add(
+                    (diagnostics ??= []).Add(
                         new(
                             AnalysisLibraryBodyUseDiagnosticKind
                                 .UnresolvedOperand,
@@ -177,7 +181,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
 
             if (owner.Status != BodyUseOwnerStatus.Logical)
             {
-                diagnostics.Add(
+                (diagnostics ??= []).Add(
                     new(
                         AnalysisLibraryBodyUseDiagnosticKind
                             .UnavailableLogicalOwner,
@@ -196,8 +200,12 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 owner.Status == BodyUseOwnerStatus.Logical
                     ? AnalysisLibraryBodyUseFidelity.LogicalOwner
                     : AnalysisLibraryBodyUseFidelity.PhysicalOnly,
-                rows.ToImmutable(),
-                diagnostics.ToImmutable(),
+                rows is null
+                    ? Array.Empty<BodyTypeUseOccurrence>()
+                    : rows,
+                diagnostics is null
+                    ? Array.Empty<AnalysisLibraryBodyUseDiagnostic>()
+                    : diagnostics,
                 operandsConsidered,
                 operandsExamined,
                 operandsUnavailable,
@@ -594,12 +602,12 @@ internal readonly record struct BodyTypeUseOccurrence(
     int IlOffset,
     int OccurrenceOrdinal);
 
-internal sealed record BodyTypeUseMethodFact(
+internal readonly record struct BodyTypeUseMethodFact(
     TypeDefinitionHandle PhysicalType,
     int PhysicalMethodToken,
     AnalysisLibraryBodyUseFidelity Fidelity,
-    ImmutableArray<BodyTypeUseOccurrence> Occurrences,
-    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics,
+    IReadOnlyList<BodyTypeUseOccurrence> Occurrences,
+    IReadOnlyList<AnalysisLibraryBodyUseDiagnostic> Diagnostics,
     int OperandsConsidered,
     int OperandsExamined,
     int OperandsUnavailable,
