@@ -204,7 +204,7 @@ Assembly association
   | AssemblyNameFamily
 
 AssemblyDef evidence
-  - exact immutable Package coordinate with a normalized literal version
+  - exact immutable Package coordinate with a literal version
   - normalized relative Package asset path
   - exact AssemblyDef metadata identity
 ```
@@ -941,9 +941,8 @@ Library query orchestration, section registration, or Browser interaction.
 The implementation must name Release gates for:
 
 - profile validation and snapshot immutability;
-- AssemblyDef evidence requiring a normalized literal exact Package version,
-  normalized asset path, exact AssemblyDef identity, and a matching assembly
-  association;
+- AssemblyDef evidence requiring a literal exact Package version, normalized
+  asset path, exact AssemblyDef identity, and a matching assembly association;
 - checked-in AssemblyDef evidence corresponding to its exact immutable
   nuget.org Package asset;
 - equal profile and observation inputs producing equal classification parts

@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
-using NuGet.Versioning;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -189,14 +188,6 @@ public sealed record EcosystemAssemblyDefinitionEvidence
         {
             throw new ArgumentException(invalid.Message, nameof(package));
         }
-        if (!NuGetVersion.TryParse(
-                package.Version,
-                out NuGetVersion? exactVersion))
-        {
-            throw new ArgumentException(
-                "Assembly evidence requires a literal exact Package version.",
-                nameof(package));
-        }
         if (package.Framework is not null || package.RuntimeIdentifier is not null)
         {
             throw new ArgumentException(
@@ -235,10 +226,7 @@ public sealed record EcosystemAssemblyDefinitionEvidence
                 nameof(assetPath));
         }
 
-        Package = package with
-        {
-            Version = exactVersion.ToNormalizedString(),
-        };
+        Package = package;
         AssetPath = assetPath;
     }
 
