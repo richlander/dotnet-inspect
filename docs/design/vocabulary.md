@@ -47,9 +47,8 @@ Markdown, plain text, table, TSV, JSONL, and projected JSON lower one typed
 `VocabularyView` through `MarkoutSerializer` and
 `VocabularyViewContext`. Runtime-named sections and runtime-column tables keep
 the composed snapshot authoritative for names, field labels, stable field IDs,
-and row order; today that snapshot is `VocabularyCatalog`, and after
-[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) it is the
-host-composed snapshot described under [Ownership](#ownership). Each runtime section carries its summary as an ordinary
+and row order; that snapshot is the host-composed snapshot described under
+[Ownership](#ownership). Each runtime section carries its summary as an ordinary
 Markout paragraph because unwrapped child sections lower their content rather
 than their `DescriptionProperty` metadata. `VocabularyCommandTests` gates these
 formats in Release, including
@@ -144,14 +143,13 @@ changed path: a change under `tests/DotnetInspect.Web.Tests` runs both the
 Inspect Web and CLI lanes, while a CLI-only change does not run the Inspect
 Web lane.
 
-Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
-step 6 retires it, `DotnetInspector.Vocabulary` holds only the CLI-compatible
-document projection, the section-name constants, and the inspection wrapper.
-It references `ILInspector.Decompiler` and `DotnetInspector.Queries` only for
-the owners' identity and label constants; the `vocabulary-dependencies` policy
-rule records that interim edge, and the project retires with the migration.
-The declaration types live in `QuerySpace.Primitives`, and the composition,
-document, and wire types in `DotnetInspector.Sections`.
+The declaration types live in `QuerySpace.Primitives`. The composition
+(`ProductVocabularyComposition`), the document projection
+(`ProductVocabularyProjection`), the inspection wrapper, and the document and
+wire types live in `DotnetInspector.Sections`. Each host holds only its
+contribution list. No product assembly owns the complete list of product
+vocabularies, and no assembly between the owners and the hosts restates their
+values.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected
