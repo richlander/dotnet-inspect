@@ -35,6 +35,31 @@ async function openIntegrations(page: Page, location = root) {
     .toHaveAttribute("aria-selected", "true");
 }
 
+test("Analysis opens on Relationships as its first tab", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+
+  const tabs = page.getByRole("tablist", { name: "Analysis views" })
+    .getByRole("tab");
+  await expect(tabs).toHaveText([
+    "Relationships",
+    "Complexity",
+    "Performance",
+    "Integrations",
+    "Opportunities",
+  ]);
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-analysis-mode="relationships"]'))
+    .toHaveAttribute("aria-selected", "true");
+});
+
 async function openOpportunities(page: Page, location = root) {
   await openIntegrations(page, location);
   await page.locator('[data-analysis-mode="opportunities"]').click();
@@ -48,8 +73,8 @@ async function expectCompactAnalysisHeader(page: Page) {
   const tabs = header.getByRole("tablist", { name: "Analysis views" });
   await expect(tabs).toBeVisible();
   for (const name of [
-    "Complexity",
     "Relationships",
+    "Complexity",
     "Performance",
     "Integrations",
     "Opportunities",
