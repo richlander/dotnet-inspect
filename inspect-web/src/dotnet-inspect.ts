@@ -344,7 +344,10 @@ import {
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
+  renderLibraryDependencyStructureSurface,
   renderLibraryMetricsSurface,
+  type LibraryAnalysisOptions,
+  type LibraryDependencyStructureState,
   type LibraryMetricsMode,
   type LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
@@ -1457,6 +1460,12 @@ const initialState = {
   packageLibraryMetricsKey: "",
   packageLibraryMetricsRelationshipState:
     null as LibraryMetricsRelationshipState | null,
+  packageLibraryDependencyStructureState: {
+    includeGlobalNamespace: false,
+    selectedSourceNamespace: null,
+    selectedTargetNamespace: null,
+  } as LibraryDependencyStructureState,
+  packageLibraryDependencyStructureStateKey: "",
   packageLibraryDependencyStructure: null,
   packageLibraryDependencyStructureLoading: false,
   packageLibraryDependencyStructureError: "",
@@ -10355,6 +10364,8 @@ function libraryLensBody() {
           return renderPackageLibraryMetrics("complexity");
         case "relationships":
           return renderPackageLibraryMetrics("relationships");
+        case "dependencies":
+          return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
         case "integrations": return renderPackageIntegrations();
         case "opportunities": return renderPackageOpportunities();
@@ -11029,7 +11040,7 @@ function renderPackagePerformance() {
     requireLibrary: pkg.isRuntimePack && !scopedLib,
     pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({
-          dataAttr: "data-platform-analysis-library",
+            dataAttr: "data-platform-analysis-library",
           selected: scopedLib || "",
         })
       : "",
@@ -11041,12 +11052,12 @@ function renderPackagePerformance() {
   });
 }
 
-function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
+function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
   const current = packageScopeSignature();
-  return renderLibraryMetricsSurface({
+  return {
     libraryName: library?.name ?? "",
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -11072,8 +11083,22 @@ function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
       state.packageLibraryDependencyStructure,
     relationshipState:
       state.packageLibraryMetricsRelationshipState,
+    dependencyState:
+      state.packageLibraryDependencyStructureStateKey === current
+        ? state.packageLibraryDependencyStructureState
+        : null,
     escapeHtml,
-  }, mode);
+  };
+}
+
+function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
+  return renderLibraryMetricsSurface(packageLibraryAnalysisOptions(), mode);
+}
+
+function renderPackageLibraryDependencyStructure() {
+  return renderLibraryDependencyStructureSurface(
+    packageLibraryAnalysisOptions(),
+  );
 }
 
 function activateLibraryMetricsType(typeKey: string) {
@@ -13130,6 +13155,10 @@ async function openPlatformLensLibrary(
     else if (state.analysisMode === "complexity"
       || state.analysisMode === "relationships")
       await loadPackageLibraryMetrics();
+    else if (state.analysisMode === "dependencies") {
+      render();
+      return;
+    }
     else assertNever(state.analysisMode, "analysis mode");
   } else await loadPackageMetadata();
 }
@@ -14212,6 +14241,18 @@ function bindEvents() {
         "Loading library dependency structure"),
     updateRelationshipState: relationshipState => {
       state.packageLibraryMetricsRelationshipState = relationshipState;
+    },
+    updateDependencyState: dependencyState => {
+      const current = packageScopeSignature();
+      const presentationChanged =
+        (state.packageLibraryDependencyStructureStateKey === current
+          ? state.packageLibraryDependencyStructureState
+            .includeGlobalNamespace
+          : false)
+          !== dependencyState.includeGlobalNamespace;
+      state.packageLibraryDependencyStructureState = dependencyState;
+      state.packageLibraryDependencyStructureStateKey = current;
+      if (presentationChanged) render();
     },
   });
   workbenchShellBinding =
