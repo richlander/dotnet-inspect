@@ -14,20 +14,20 @@ var shape = new ScorecardShape(
     WindowFirst: 100,
     WindowLast: 110);
 IReadOnlyList<
-    ScorecardAsset<LibraryFamilyRoleScorecardAsset>> assets =
-        LibraryFamilyRolePopulationScorecard.LoadAssets(
+    ScorecardAsset<LibraryArchitecturalFamilyScorecardAsset>> assets =
+        LibraryArchitecturalFamilyPopulationScorecard.LoadAssets(
             options!.Assets);
 ScorecardColumn<
-    LibraryFamilyRoleScorecardAsset,
-    ILInspector.Research.LibraryFamilyRoleRow> oracle =
-        LibraryFamilyRolePopulationScorecard.NLinqColumn(shape);
+    LibraryArchitecturalFamilyScorecardAsset,
+    ILInspector.Research.LibraryArchitecturalFamilyRow> oracle =
+        LibraryArchitecturalFamilyPopulationScorecard.NLinqColumn(shape);
 ScorecardColumn<
-    LibraryFamilyRoleScorecardAsset,
-    ILInspector.Research.LibraryFamilyRoleRow>[] columns =
+    LibraryArchitecturalFamilyScorecardAsset,
+    ILInspector.Research.LibraryArchitecturalFamilyRow>[] columns =
 [
-    LibraryFamilyRolePopulationScorecard.LinqColumn(shape),
+    LibraryArchitecturalFamilyPopulationScorecard.LinqColumn(shape),
     oracle,
-    LibraryFamilyRolePopulationScorecard.QuerySpaceColumn(shape),
+    LibraryArchitecturalFamilyPopulationScorecard.QuerySpaceColumn(shape),
 ];
 ScorecardClosing[] closings =
 [
@@ -42,7 +42,7 @@ ScorecardCheck check = Scorecard.Check(
     assets,
     oracle,
     columns,
-    LibraryFamilyRolePopulationScorecard.RowText,
+    LibraryArchitecturalFamilyPopulationScorecard.RowText,
     closings: closings);
 if (!check.Agrees)
 {

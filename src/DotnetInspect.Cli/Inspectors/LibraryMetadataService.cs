@@ -75,7 +75,7 @@ internal static class LibraryMetadataService
             if ((requiredQueries?.Contains(
                     LibraryNameFamilyQuery.Definition) == true
                 || requiredQueries?.Contains(
-                    LibraryFamilyRoleQuery.Definition) == true)
+                    LibraryArchitecturalFamilyQuery.Definition) == true)
                 && assemblyReference is
                 {
                     Registration.ArtifactRegistration: null,
@@ -211,8 +211,8 @@ internal static class LibraryMetadataService
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
                             options.NameFamilyRowSelection,
-                        NameFamilyRoleTypeRows =
-                            options.NameFamilyRoleTypeRows,
+                        ArchitecturalFamilyTypeRows =
+                            options.ArchitecturalFamilyTypeRows,
                         DependencyStructureRowSelection =
                             options.DependencyStructureRowSelection,
                     };
@@ -367,8 +367,8 @@ internal static class LibraryMetadataService
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
                         options.NameFamilyRowSelection,
-                    NameFamilyRoleTypeRows =
-                        options.NameFamilyRoleTypeRows,
+                    ArchitecturalFamilyTypeRows =
+                        options.ArchitecturalFamilyTypeRows,
                     DependencyStructureRowSelection =
                         options.DependencyStructureRowSelection,
                 };
@@ -2369,14 +2369,14 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
-                LibraryFamilyRoleQuery.Definition,
-                out LibraryFamilyRoleQueryResult? familyRoles))
+                LibraryArchitecturalFamilyQuery.Definition,
+                out LibraryArchitecturalFamilyQueryResult? architecturalFamilies))
         {
-            ApplyLibraryFamilyRoleResult(
+            ApplyLibraryArchitecturalFamilyResult(
                 path,
                 inspection,
                 logger,
-                familyRoles);
+                architecturalFamilies);
         }
 
         if (results.TryGet(
@@ -2727,34 +2727,34 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyLibraryFamilyRoleResult(
+    internal static void ApplyLibraryArchitecturalFamilyResult(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        LibraryFamilyRoleQueryResult result)
+        LibraryArchitecturalFamilyQueryResult result)
     {
-        inspection.FamilyRoleQueryResult = result;
+        inspection.ArchitecturalFamilyQueryResult = result;
 
         switch (result)
         {
-            case LibraryFamilyRoleQueryResult.Available:
-            case LibraryFamilyRoleQueryResult.NameFamiliesUnavailable:
-            case LibraryFamilyRoleQueryResult.NameFamiliesRejected:
-            case LibraryFamilyRoleQueryResult.StructuralRejected:
-            case LibraryFamilyRoleQueryResult.CompositionRejected:
-            case LibraryFamilyRoleQueryResult.PopulationUnavailable:
-            case LibraryFamilyRoleQueryResult.SelectionFailed:
+            case LibraryArchitecturalFamilyQueryResult.Available:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesUnavailable:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesRejected:
+            case LibraryArchitecturalFamilyQueryResult.StructuralRejected:
+            case LibraryArchitecturalFamilyQueryResult.CompositionRejected:
+            case LibraryArchitecturalFamilyQueryResult.PopulationUnavailable:
+            case LibraryArchitecturalFamilyQueryResult.SelectionFailed:
                 break;
 
-            case LibraryFamilyRoleQueryResult.Failed failed:
+            case LibraryArchitecturalFamilyQueryResult.Failed failed:
                 logger.LogWarning(
-                    $"Error collecting Library name-family roles in {path}: "
+                    $"Error collecting Library architectural families in {path}: "
                     + failed.Error.Message);
                 break;
 
             default:
                 throw new InvalidOperationException(
-                    "Unknown Library family-role result "
+                    "Unknown Architectural Families result "
                     + $"'{result.GetType().Name}'.");
         }
     }

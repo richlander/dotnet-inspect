@@ -1046,6 +1046,9 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   border-right: 1px solid var(--line);
   background: var(--panel);
 }
+.type-browser.has-parent-subject.has-status {
+  grid-template-rows: 40px auto auto auto minmax(0, 1fr) 27px;
+}
 .type-browser.library-subject-nav {
   grid-template-rows: 40px auto minmax(0, 1fr) 27px;
 }
@@ -3276,6 +3279,9 @@ kbd {
   .workspace:not(.content-frame):not(.platform-workspace) { grid-template-columns: 44% 56%; }
   .type-library-context .namespace-chips, .pane-footer { display: none; }
   .type-browser { grid-template-rows: 40px auto auto minmax(0, 1fr); }
+  .type-browser.has-parent-subject.has-status {
+    grid-template-rows: 40px auto auto auto minmax(0, 1fr);
+  }
   .type-browser.library-subject-nav { grid-template-rows: 40px auto minmax(0, 1fr); }
   .type-browser.package-framework-nav { grid-template-rows: 40px minmax(0, 1fr); }
   .type-browser.package-framework-nav.has-version-control {

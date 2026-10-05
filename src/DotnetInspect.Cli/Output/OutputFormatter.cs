@@ -1439,7 +1439,7 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
-        ApplyNameFamilyRoleCounts(
+        ApplyArchitecturalFamilyCounts(
             projection,
             inspection,
             writerOptions.IncludeSections,
@@ -1456,31 +1456,31 @@ public static class OutputFormatter
         return projection;
     }
 
-    internal static void ApplyNameFamilyRoleCounts(
+    internal static void ApplyArchitecturalFamilyCounts(
         CountProjection projection,
         LibraryInspection inspection,
         IReadOnlyCollection<string>? includedSections,
         RowWindow? rows)
     {
         if (includedSections is null
-            || inspection.FamilyRoleQueryResult
-                is not LibraryFamilyRoleQueryResult.Available
+            || inspection.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available
                 { Count: int count })
         {
             return;
         }
 
-        if (includedSections.Contains(SectionNames.NameFamilyRoles))
+        if (includedSections.Contains(SectionNames.ArchitecturalFamilies))
         {
             projection.SetRows(
-                SectionNames.NameFamilyRoles,
+                SectionNames.ArchitecturalFamilies,
                 WindowedCount(count, rows));
         }
         else if (includedSections.Contains(
-                     SectionNames.NameFamilyRoleTypes))
+                     SectionNames.ArchitecturalFamilyTypes))
         {
             projection.SetRows(
-                SectionNames.NameFamilyRoleTypes,
+                SectionNames.ArchitecturalFamilyTypes,
                 WindowedCount(count, rows));
         }
     }

@@ -630,54 +630,56 @@ public partial class LibraryCommand
             IncludeSections =
                 nameFamilySelection.Sections,
         };
-        var familyRoleSelection =
+        var architecturalFamilySelection =
             SelectResolver.NormalizeExactOnlySection(
                 options.Select,
                 options.IncludeSections,
                 options.ExactIncludeSections,
                 sections.SelectableSectionNames,
-                SectionNames.NameFamilyRoles);
-        if (familyRoleSelection.Error is not null)
+                SectionNames.ArchitecturalFamilies);
+        if (architecturalFamilySelection.Error is not null)
         {
             CommandError.Write(
-                familyRoleSelection.Error);
+                architecturalFamilySelection.Error);
             return 1;
         }
         options = options with
         {
             IncludeSections =
-                familyRoleSelection.Sections,
+                architecturalFamilySelection.Sections,
         };
-        var familyRoleTypeSelection =
+        var architecturalFamilyTypeSelection =
             SelectResolver.NormalizeExactOnlySection(
                 options.Select,
                 options.IncludeSections,
                 options.ExactIncludeSections,
                 sections.SelectableSectionNames,
-                SectionNames.NameFamilyRoleTypes);
-        if (familyRoleTypeSelection.Error is not null)
+                SectionNames.ArchitecturalFamilyTypes);
+        if (architecturalFamilyTypeSelection.Error is not null)
         {
             CommandError.Write(
-                familyRoleTypeSelection.Error);
+                architecturalFamilyTypeSelection.Error);
             return 1;
         }
         options = options with
         {
             IncludeSections =
-                familyRoleTypeSelection.Sections,
-            NameFamilyRoleTypeRows =
-                familyRoleTypeSelection.Sections?.Contains(
-                    SectionNames.NameFamilyRoleTypes)
+                architecturalFamilyTypeSelection.Sections,
+            ArchitecturalFamilyTypeRows =
+                architecturalFamilyTypeSelection.Sections?.Contains(
+                    SectionNames.ArchitecturalFamilyTypes)
                 == true,
         };
-        if (familyRoleTypeSelection.Sections is { } roleSections
-            && roleSections.Contains(SectionNames.NameFamilyRoles)
-            && roleSections.Contains(
-                SectionNames.NameFamilyRoleTypes))
+        if (architecturalFamilyTypeSelection.Sections
+                is { } architecturalSections
+            && architecturalSections.Contains(
+                SectionNames.ArchitecturalFamilies)
+            && architecturalSections.Contains(
+                SectionNames.ArchitecturalFamilyTypes))
         {
             CommandError.Write(
-                "Name Family Roles and Name Family Role Types cannot "
-                    + "be selected together because one family-role "
+                "Architectural Families and Architectural Family Types cannot "
+                    + "be selected together because one architectural-family "
                     + "query selects one row scope.");
             return 1;
         }
@@ -842,7 +844,7 @@ public partial class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !RequestsLibraryMetricsTransport(options)
             && !RequestsNameFamilyTransport(options)
-            && !RequestsNameFamilyRoleTransport(options)
+            && !RequestsArchitecturalFamilyTransport(options)
             && !RequestsDependencyStructureTransport(options)
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Json,
@@ -871,14 +873,15 @@ public partial class LibraryCommand
                     + "complete Content JSON.");
             }
             else if (options.IncludeSections.Contains(
-                    SectionNames.NameFamilyRoles)
+                    SectionNames.ArchitecturalFamilies)
                 || options.IncludeSections.Contains(
-                    SectionNames.NameFamilyRoleTypes))
+                    SectionNames.ArchitecturalFamilyTypes))
             {
                 CommandError.Write(
-                    "Document --json cannot represent projected name-family "
-                        + "role rows. Select exactly Name Family Roles or "
-                        + "Name Family Role Types for complete Content JSON.");
+                    "Document --json cannot represent projected Architectural "
+                        + "Families rows. Select exactly Architectural Families "
+                        + "or Architectural Family Types for complete Content "
+                        + "JSON.");
             }
             else
             {
@@ -1418,13 +1421,13 @@ public partial class LibraryCommand
                     return WriteLibraryMetricsTransport(inspection, options);
                 if (RequestsNameFamilyTransport(options))
                     return WriteNameFamilyTransport(inspection, options);
-                if (RequestsNameFamilyRoleTransport(options))
-                    return WriteNameFamilyRoleTransport(
+                if (RequestsArchitecturalFamilyTransport(options))
+                    return WriteArchitecturalFamilyTransport(
                         inspection,
                         options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
-                if (RejectUnavailableNameFamilyRoles(
+                if (RejectUnavailableArchitecturalFamilies(
                         inspection,
                         options))
                 {
@@ -1788,15 +1791,15 @@ public partial class LibraryCommand
                         inspections[0],
                         options);
                 }
-                if (RequestsNameFamilyRoleTransport(options))
+                if (RequestsArchitecturalFamilyTransport(options))
                 {
                     if (inspections.Count != 1)
                     {
                         CommandError.Write(
-                            "Name Family Roles requires one exact Library.");
+                            "Architectural Families requires one exact Library.");
                         return 1;
                     }
-                    return WriteNameFamilyRoleTransport(
+                    return WriteArchitecturalFamilyTransport(
                         inspections[0],
                         options);
                 }
@@ -1821,7 +1824,7 @@ public partial class LibraryCommand
                     return 1;
                 }
                 if (inspections.Count == 1
-                    && RejectUnavailableNameFamilyRoles(
+                    && RejectUnavailableArchitecturalFamilies(
                         inspections[0],
                         options))
                 {
@@ -2086,13 +2089,13 @@ public partial class LibraryCommand
                     return WriteLibraryMetricsTransport(inspection, options);
                 if (RequestsNameFamilyTransport(options))
                     return WriteNameFamilyTransport(inspection, options);
-                if (RequestsNameFamilyRoleTransport(options))
-                    return WriteNameFamilyRoleTransport(
+                if (RequestsArchitecturalFamilyTransport(options))
+                    return WriteArchitecturalFamilyTransport(
                         inspection,
                         options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
-                if (RejectUnavailableNameFamilyRoles(
+                if (RejectUnavailableArchitecturalFamilies(
                         inspection,
                         options))
                 {
