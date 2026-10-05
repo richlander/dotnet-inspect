@@ -1096,13 +1096,7 @@ public static class FindSemanticReducer
         MemberFindPattern pattern,
         MemberFindSemanticPopulation population) =>
         population.Gaps.IsEmpty
-        && (
-            population.OwnerReportsComplete
-            || population.Sources.Any(
-                static source =>
-                    source.Coverage.Kind
-                    is MemberFindSourceCoverageKind
-                        .MatchLimitReached))
+        && population.OwnerReportsComplete
         && population.Sources.All(
             source =>
                 source is MemberFindSourceEvaluation.Available

@@ -517,7 +517,7 @@ public static class MemberFindSourceEvaluator
             question,
             sources,
             gaps,
-            ownerReportsComplete: !limitReached);
+            ownerReportsComplete: true);
     }
 
     private static int EvaluatePatterns(

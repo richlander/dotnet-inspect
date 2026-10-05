@@ -194,6 +194,46 @@ public sealed class MemberFindSemanticEvaluationTests
     }
 
     [Fact]
+    public async Task Evaluation_LimitDoesNotOverrideOwnerIncompleteness()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            CreateGroup(workspace, path);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(
+                [
+                    "NoSuchMemberXyzzy",
+                    "WorkspaceQueryMember",
+                ],
+                FindVisibility.Public,
+                maximumMatches: 1);
+        MemberFindSemanticPopulation limited =
+            EvaluateLocal(question, group);
+
+        MemberFindBlock block =
+            FindSemanticReducer.ReduceMember(
+                question,
+                MemberFindSemanticPopulation.Create(
+                    question,
+                    limited.Sources,
+                    limited.Gaps,
+                    ownerReportsComplete: false));
+
+        Assert.Equal(
+            FindPatternSettlementKind.Inconclusive,
+            block.Settlements[0].Kind);
+        Assert.Equal(
+            FindPatternSettlementKind.Matched,
+            block.Settlements[1].Kind);
+        Assert.Equal(
+            FindMatchCompletion.MatchLimitReached,
+            block.MatchCompletion);
+        Assert.False(block.IsSourceCoverageComplete);
+    }
+
+    [Fact]
     public async Task Evaluation_CompleteMissIsConclusive()
     {
         string path =

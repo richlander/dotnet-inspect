@@ -1774,6 +1774,54 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public async Task SelectedAssetPath_RemainsExactPackageProvenance()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealizationTests)
+                    .Assembly.Location);
+        PackageRootRealization first = Selection(
+            "Selected.Asset",
+            ("lib/net11.0/First.dll", image));
+        PackageRootRealization second = Selection(
+            "Selected.Asset",
+            ("lib/net11.0/Second.dll", image));
+        await using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization firstRealization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [first],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        using PackageAssemblyContextRealization secondRealization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [second],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        PackageAssemblyRoleParticipant firstParticipant =
+            Assert.Single(firstRealization.SurfaceParticipants);
+        PackageAssemblyRoleParticipant secondParticipant =
+            Assert.Single(secondRealization.SurfaceParticipants);
+        var firstProvenance =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                firstParticipant.Participant.Assembly.Provenance);
+        var secondProvenance =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                secondParticipant.Participant.Assembly.Provenance);
+
+        Assert.Equal(
+            firstParticipant.Participant.Assembly.Identity,
+            secondParticipant.Participant.Assembly.Identity);
+        Assert.Equal(
+            "lib/net11.0/First.dll",
+            firstProvenance.AssetPath);
+        Assert.Equal(
+            "lib/net11.0/Second.dll",
+            secondProvenance.AssetPath);
+        Assert.NotEqual(firstProvenance, secondProvenance);
+    }
+
+    [Fact]
     public async Task PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback()
     {
         byte[] surface = IntegrationAssembly(
