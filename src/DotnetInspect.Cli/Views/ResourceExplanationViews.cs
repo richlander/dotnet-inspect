@@ -253,10 +253,13 @@ public sealed class ResourceExplanationView
             SelectedContent = context?.SelectedContent ?? [],
             RelatedOperations = context?.RelatedOperations ?? [],
             ExpandedResources =
-            [
-                .. document.Resources.Skip(1).Select(
-                    ResourceExplanationResourceRow.Create),
-            ],
+                context is not null
+                    ? []
+                    :
+                    [
+                        .. document.Resources.Skip(1).Select(
+                            ResourceExplanationResourceRow.Create),
+                    ],
             Relationships =
                 context is not null
                     ? []
