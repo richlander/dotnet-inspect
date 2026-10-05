@@ -554,6 +554,20 @@ public class LibraryInspection
         }
     }
 
+    private LibraryFamilyRoleQueryResult? _familyRoleQueryResult;
+
+    /// <summary>Typed name-family structural-role result.</summary>
+    [JsonIgnore]
+    public LibraryFamilyRoleQueryResult? FamilyRoleQueryResult
+    {
+        get => _familyRoleQueryResult;
+        set
+        {
+            _familyRoleQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     private LibraryDependencyStructureQueryResult?
         _dependencyStructureQueryResult;
 
@@ -1147,6 +1161,14 @@ public class LibraryInspection
                         SectionNames.NameFamilies,
                         LibraryNameFamilyQuery.Definition.Name,
                         nameFamilyFailure.Error.Message));
+                }
+                if (FamilyRoleQueryResult
+                    is LibraryFamilyRoleQueryResult.Failed familyRoleFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.NameFamilyRoles,
+                        LibraryFamilyRoleQuery.Definition.Name,
+                        familyRoleFailure.Error.Message));
                 }
                 if (DependencyStructureQueryResult
                     is LibraryDependencyStructureQueryResult.Failed

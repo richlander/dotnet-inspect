@@ -630,6 +630,46 @@ public partial class LibraryCommand
             IncludeSections =
                 nameFamilySelection.Sections,
         };
+        var familyRoleSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.NameFamilyRoles);
+        if (familyRoleSelection.Error is not null)
+        {
+            CommandError.Write(
+                familyRoleSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                familyRoleSelection.Sections,
+        };
+        var familyRoleTypeSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.NameFamilyRoleTypes);
+        if (familyRoleTypeSelection.Error is not null)
+        {
+            CommandError.Write(
+                familyRoleTypeSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                familyRoleTypeSelection.Sections,
+            NameFamilyRoleTypeRows =
+                IsExactSectionSelection(
+                    familyRoleTypeSelection.Sections,
+                    SectionNames.NameFamilyRoleTypes),
+        };
         var dependencyStructureSelection =
             SelectResolver.NormalizeExactOnlySection(
                 options.Select,
@@ -791,6 +831,7 @@ public partial class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !RequestsLibraryMetricsTransport(options)
             && !RequestsNameFamilyTransport(options)
+            && !RequestsNameFamilyRoleTransport(options)
             && !RequestsDependencyStructureTransport(options)
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Json,
@@ -817,6 +858,16 @@ public partial class LibraryCommand
                     "Document --json cannot represent projected Name "
                     + "Families rows. Select exactly Name Families for "
                     + "complete Content JSON.");
+            }
+            else if (options.IncludeSections.Contains(
+                    SectionNames.NameFamilyRoles)
+                || options.IncludeSections.Contains(
+                    SectionNames.NameFamilyRoleTypes))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent projected name-family "
+                        + "role rows. Select exactly Name Family Roles or "
+                        + "Name Family Role Types for complete Content JSON.");
             }
             else
             {
@@ -1356,8 +1407,18 @@ public partial class LibraryCommand
                     return WriteLibraryMetricsTransport(inspection, options);
                 if (RequestsNameFamilyTransport(options))
                     return WriteNameFamilyTransport(inspection, options);
+                if (RequestsNameFamilyRoleTransport(options))
+                    return WriteNameFamilyRoleTransport(
+                        inspection,
+                        options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
+                if (RejectUnavailableNameFamilyRoles(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
                 if (RequestsDependencyStructureTransport(options))
                     return WriteDependencyStructureTransport(
                         inspection,
@@ -1716,6 +1777,18 @@ public partial class LibraryCommand
                         inspections[0],
                         options);
                 }
+                if (RequestsNameFamilyRoleTransport(options))
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Name Family Roles requires one exact Library.");
+                        return 1;
+                    }
+                    return WriteNameFamilyRoleTransport(
+                        inspections[0],
+                        options);
+                }
                 if (RequestsDependencyStructureTransport(options))
                 {
                     if (inspections.Count != 1)
@@ -1731,6 +1804,13 @@ public partial class LibraryCommand
                 }
                 if (inspections.Count == 1
                     && RejectUnavailableNameFamilies(
+                        inspections[0],
+                        options))
+                {
+                    return 1;
+                }
+                if (inspections.Count == 1
+                    && RejectUnavailableNameFamilyRoles(
                         inspections[0],
                         options))
                 {
@@ -1995,8 +2075,18 @@ public partial class LibraryCommand
                     return WriteLibraryMetricsTransport(inspection, options);
                 if (RequestsNameFamilyTransport(options))
                     return WriteNameFamilyTransport(inspection, options);
+                if (RequestsNameFamilyRoleTransport(options))
+                    return WriteNameFamilyRoleTransport(
+                        inspection,
+                        options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
+                if (RejectUnavailableNameFamilyRoles(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
                 if (RequestsDependencyStructureTransport(options))
                     return WriteDependencyStructureTransport(
                         inspection,

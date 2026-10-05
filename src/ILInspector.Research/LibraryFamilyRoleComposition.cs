@@ -66,6 +66,36 @@ public sealed record LibraryFamilyRoleRow(
     ImmutableArray<MetadataTypeDefinitionAddress> MountainPeaks,
     ImmutableArray<MetadataTypeDefinitionAddress> NoIssuedStructuralRoles);
 
+public static class LibraryFamilyRoleOrder
+{
+    public static IComparer<LibraryFamilyRoleRow> Prevalence { get; } =
+        Comparer<LibraryFamilyRoleRow>.Create(ComparePrevalence);
+
+    private static int ComparePrevalence(
+        LibraryFamilyRoleRow? left,
+        LibraryFamilyRoleRow? right)
+    {
+        if (ReferenceEquals(left, right))
+            return 0;
+        if (left is null)
+            return -1;
+        if (right is null)
+            return 1;
+
+        int comparison = right.TypeCount.CompareTo(left.TypeCount);
+        if (comparison != 0)
+            return comparison;
+
+        comparison = right.DistinctNamespaceCount.CompareTo(
+            left.DistinctNamespaceCount);
+        return comparison != 0
+            ? comparison
+            : LibraryNameFamilyOrder.CompareIdentity(
+                left.Identity,
+                right.Identity);
+    }
+}
+
 public sealed record LibraryFamilyRolePopulation(
     LibraryNameFamilyPopulationKind Kind,
     int TypeCount,

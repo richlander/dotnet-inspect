@@ -151,6 +151,10 @@ public static class LibrarySections
                 HasMethodBodies)
             .Add<NameFamilies>(
                 LibraryNameFamilyQuery.Definition)
+            .Add<NameFamilyRoles>(
+                LibraryFamilyRoleQuery.Definition)
+            .Add<NameFamilyRoleTypes>(
+                LibraryFamilyRoleQuery.Definition)
             .Add<DependencyStructure>(
                 LibraryDependencyStructureQuery.Definition,
                 HasMethodBodies)
@@ -411,6 +415,9 @@ public static class LibrarySections
                 LibraryNameFamilyQuery.Definition,
                 ExecuteLibraryNameFamilyQuery)
             .Add(
+                LibraryFamilyRoleQuery.Definition,
+                ExecuteLibraryFamilyRoleQuery)
+            .Add(
                 LibraryDependencyStructureQuery.Definition,
                 ExecuteLibraryDependencyStructureQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
@@ -649,6 +656,61 @@ public static class LibrarySections
         catch (Exception error)
         {
             return new LibraryNameFamilyQueryResult.Failed(error);
+        }
+    }
+
+    internal static LibraryFamilyRoleQueryResult
+        ExecuteLibraryFamilyRoleQuery(
+            InspectionQueryContext context)
+    {
+        if (context.AssemblyReference is not { } assembly)
+        {
+            return new LibraryFamilyRoleQueryResult.Failed(
+                new InvalidOperationException(
+                    "Library name-family roles require an artifact-backed "
+                        + "assembly descriptor."));
+        }
+
+        try
+        {
+            LibraryFamilyRoleQueryPlan operation =
+                LibraryFamilyRoleQuery.CreatePlan(
+                    context.NameFamilyPopulation);
+            RowSelectionIntent<string> rows =
+                context.NameFamilyRowSelection
+                ?? RowSelectionIntent<string>.Create([]);
+            QuerySpaceRequest request =
+                context.NameFamilyRoleTypeRows
+                    ? LibraryFamilyRoleQuery.CreateTypeRequest(
+                        operation,
+                        rows,
+                        context.CountOnly
+                            ? QuerySpaceTerminalRequirement.Count
+                            : QuerySpaceTerminalRequirement.Rows)
+                    : LibraryFamilyRoleQuery.CreateFamilyRequest(
+                        operation,
+                        rows,
+                        context.CountOnly
+                            ? QuerySpaceTerminalRequirement.Count
+                            : QuerySpaceTerminalRequirement.Rows);
+            return context.Query(
+                session => LibraryFamilyRoleInspection.Execute(
+                    assembly,
+                    session,
+                    context.MetadataContext?
+                        .InspectSourceProvenance(),
+                    operation,
+                    request),
+                static error =>
+                    new LibraryFamilyRoleQueryResult.Failed(error));
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            return new LibraryFamilyRoleQueryResult.Failed(error);
         }
     }
 
@@ -1234,6 +1296,36 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.NameFamilies;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    public sealed class NameFamilyRoles
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.NameFamilyRoles;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    public sealed class NameFamilyRoleTypes
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.NameFamilyRoleTypes;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;

@@ -863,8 +863,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, section.Exit);
         Assert.Empty(section.Output);
         Assert.Contains(
-            "accepts only the exact \"Library Metrics\" or \"Name Families\" "
-                + "section selection",
+            "accepts only the exact \"Library Metrics\", \"Name Families\"",
             section.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -916,6 +915,41 @@ public partial class CommandExecutionTests
                 result.Error,
                 StringComparison.Ordinal);
         }
+
+    }
+
+    [Fact]
+    public async Task Library_NameFamilyRoleTypeSelectionCountsExactTypes()
+    {
+        string fixture =
+            FixtureCatalog.ResearchNameFamilies.AssemblyPath();
+        var content = await RunAppAsync(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.NameFamilyRoles,
+            "--json");
+        var count = await RunAppAsync(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.NameFamilyRoleTypes,
+            "--count");
+
+        Assert.Equal(0, content.Exit);
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(content.Error);
+        Assert.Empty(count.Error);
+        using JsonDocument document =
+            JsonDocument.Parse(content.Output);
+        Assert.Equal(
+            document.RootElement
+                .GetProperty("receipt")
+                .GetProperty("typeCount")
+                .GetInt32(),
+            int.Parse(
+                count.Output.Trim(),
+                CultureInfo.InvariantCulture));
     }
 
     [Fact]
