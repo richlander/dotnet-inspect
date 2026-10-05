@@ -5,9 +5,10 @@ cannot be validated by either one alone. This document describes the loop that
 makes such a change developable: point dotnet-inspect at Markout **source**
 until the Markout side is good, then ship a package and go back.
 
-Repository, worktree, and review rules live in [AGENTS.md](../AGENTS.md). This
-document only covers what is different when a change crosses the repository
-boundary.
+Repository and worktree rules live in
+[Repository workflow](repository-workflow.md); review rules live in
+[Round orchestration](round-orchestration.md). This document only covers what
+is different when a change crosses the repository boundary.
 
 ## When to use this
 
@@ -33,7 +34,7 @@ about the local loop changes that.
 5. **Raise the dotnet-inspect PR.**
 
 Stacked branches remain available on either side and are orthogonal to this
-loop — see AGENTS.md.
+loop; see [Stacked PRs](stacked-prs.md).
 
 ### There is no dotnet-inspect PR before step 5
 

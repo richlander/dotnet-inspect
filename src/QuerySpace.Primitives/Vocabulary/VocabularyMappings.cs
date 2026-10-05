@@ -412,7 +412,7 @@ public sealed record VocabularyDefinition
 /// <summary>One complete immutable vocabulary catalog snapshot.</summary>
 public sealed class VocabularySnapshot
 {
-    private readonly Lazy<VocabularySnapshotIdentity> _identity;
+    private readonly VocabularySnapshotIdentity _identity;
     private readonly IReadOnlyDictionary<
         VocabularyIdentity,
         VocabularyDefinition> _vocabularies;
@@ -431,8 +431,8 @@ public sealed class VocabularySnapshot
     {
         FormatVersion = formatVersion;
         Catalog = catalog;
-        _identity = new(() => suppliedIdentity
-            ?? ComputeIdentity(formatVersion, catalog, vocabularies));
+        _identity = suppliedIdentity
+            ?? ComputeIdentity(formatVersion, catalog, vocabularies);
         Vocabularies = vocabularies;
         _vocabularies = vocabularies.ToDictionary(
             vocabulary => vocabulary.Identity);
@@ -448,7 +448,7 @@ public sealed class VocabularySnapshot
 
     public VocabularyCatalogIdentity Catalog { get; }
 
-    public VocabularySnapshotIdentity Identity => _identity.Value;
+    public VocabularySnapshotIdentity Identity => _identity;
 
     public ImmutableArray<VocabularyDefinition> Vocabularies { get; }
 

@@ -18,12 +18,12 @@ public abstract class
     public sealed class Ready
         : AssemblyContextDeclaredMethodPopulationPreparation
     {
-        private readonly AssemblyContextParticipantResource<
+        private readonly AssemblyContextGroup.ParticipantResource<
             PreparedDeclaredMethodPopulationStore> _owner;
 
         internal Ready(
             AssemblyContextSubject subject,
-            AssemblyContextParticipantResource<
+            AssemblyContextGroup.ParticipantResource<
                 PreparedDeclaredMethodPopulationStore> owner,
             AssemblyAcquisitionRegistration registration,
             AssemblyInspectionSession session,
@@ -52,7 +52,7 @@ public abstract class
         public AssemblyContextDeclaredMethodPopulationExecution
             OpenExecution()
         {
-            AssemblyContextParticipantResourceBorrow<
+            AssemblyContextGroup.ParticipantResourceBorrow<
                 PreparedDeclaredMethodPopulationStore> borrow =
                     _owner.Borrow(Registration);
             try
@@ -147,12 +147,12 @@ public sealed class AssemblyContextDeclaredMethodPopulationExecution
     : IDisposable
 {
     private readonly MetadataDeclaredMethodPopulationSource _source;
-    private AssemblyContextParticipantResourceBorrow<
+    private AssemblyContextGroup.ParticipantResourceBorrow<
         PreparedDeclaredMethodPopulationStore>? _borrow;
 
     internal AssemblyContextDeclaredMethodPopulationExecution(
         MetadataDeclaredMethodPopulationSource source,
-        AssemblyContextParticipantResourceBorrow<
+        AssemblyContextGroup.ParticipantResourceBorrow<
             PreparedDeclaredMethodPopulationStore> borrow)
     {
         _source = source;
@@ -175,7 +175,7 @@ public sealed class AssemblyContextDeclaredMethodPopulationExecution
 
     public void Dispose()
     {
-        AssemblyContextParticipantResourceBorrow<
+        AssemblyContextGroup.ParticipantResourceBorrow<
             PreparedDeclaredMethodPopulationStore>? borrow =
                 Interlocked.Exchange(ref _borrow, null);
         borrow?.Dispose();
@@ -204,7 +204,7 @@ public static class AssemblyContextDeclaredMethodPopulationQuery
         ArgumentNullException.ThrowIfNull(type);
         cancellationToken.ThrowIfCancellationRequested();
 
-        AssemblyContextParticipantResource<
+        AssemblyContextGroup.ParticipantResource<
             PreparedDeclaredMethodPopulationStore> resource =
                 group.GetOrCreateParticipantResource(s_createStore);
         return resource.Prepare(
@@ -275,7 +275,7 @@ internal sealed class PreparedDeclaredMethodPopulationStore
     private bool _disposed;
 
     internal AssemblyContextDeclaredMethodPopulationPreparation Prepare(
-        AssemblyContextParticipantResource<
+        AssemblyContextGroup.ParticipantResource<
             PreparedDeclaredMethodPopulationStore> resource,
         AssemblyAcquisitionRegistration registration,
         AssemblyContextSubject subject,
@@ -358,7 +358,7 @@ internal sealed class PreparedDeclaredMethodPopulationStore
 
     private AssemblyContextDeclaredMethodPopulationPreparation
         PrepareAndPublish(
-            AssemblyContextParticipantResource<
+            AssemblyContextGroup.ParticipantResource<
                 PreparedDeclaredMethodPopulationStore> resource,
             PreparedDeclaredMethodPopulationKey key,
             AssemblyContextSubject subject,
@@ -391,7 +391,7 @@ internal sealed class PreparedDeclaredMethodPopulationStore
 
     private AssemblyContextDeclaredMethodPopulationPreparation
         PrepareAvailable(
-            AssemblyContextParticipantResource<
+            AssemblyContextGroup.ParticipantResource<
                 PreparedDeclaredMethodPopulationStore> resource,
             PreparedDeclaredMethodPopulationKey key,
             AssemblyContextSubject subject,
@@ -482,7 +482,7 @@ internal sealed class PreparedDeclaredMethodPopulationStore
     }
 
     private AssemblyContextDeclaredMethodPopulationPreparation Prepare(
-        AssemblyContextParticipantResource<
+        AssemblyContextGroup.ParticipantResource<
             PreparedDeclaredMethodPopulationStore> resource,
         AssemblyAcquisitionRegistration registration,
         AssemblyContextSubject subject,

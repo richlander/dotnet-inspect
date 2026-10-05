@@ -121,16 +121,6 @@ test("reciprocal relationship evidence remains independently reachable", async (
   await expect(detail.locator("[data-metrics-relationship-rank]"))
     .toHaveText("30/30 most connected");
 
-  await page.getByRole("button", {
-    name: "Load dependency structure",
-  }).click();
-  await expect(page.locator(".metrics-dependency-structure")).toBeVisible();
-  await expect(visibleEdges).toHaveCount(30);
-  await expect(limitOutput).toHaveText("30 / 30");
-  await expect(lastEdge).toHaveAttribute("aria-pressed", "true");
-  await expect(detail.locator("[data-metrics-relationship-rank]"))
-    .toHaveText("30/30 most connected");
-
   await limit.focus();
   await limit.press("Home");
   await expect(visibleEdges).toHaveCount(8);
@@ -162,7 +152,7 @@ test("reciprocal relationship evidence remains independently reachable", async (
 });
 
 test("dependency edges reveal exact-type explanations", async ({ page }) => {
-  await page.goto("/browser/library-metrics.html?view=relationships");
+  await page.goto("/browser/library-metrics.html?view=dependencies");
   await expect(page.locator(".metrics-dependency-structure")).toHaveCount(0);
   await page.getByRole("button", {
     name: "Load dependency structure",
@@ -173,7 +163,10 @@ test("dependency edges reveal exact-type explanations", async ({ page }) => {
 
   await edge.focus();
   await edge.press("Enter");
-  await expect(detail).toHaveAttribute("open", "");
+  await expect(edge).toHaveAttribute("aria-pressed", "true");
+  await expect(detail).toBeVisible();
+  await expect(page.locator("[data-dependency-edge-detail]:visible"))
+    .toHaveCount(1);
   await expect(detail).toContainText("Example.A");
   await expect(detail).toContainText("Example.B");
 
@@ -183,11 +176,41 @@ test("dependency edges reveal exact-type explanations", async ({ page }) => {
   await expect(activation).toHaveText("Example.B");
 });
 
+test("global namespace evidence is hidden by default and explicitly recoverable", async ({
+  page,
+}) => {
+  await page.goto(
+    "/browser/library-metrics.html?view=dependencies&dependency=global",
+  );
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  const includeGlobal = page.getByRole("checkbox", {
+    name: "Include global namespace",
+  });
+  await expect(includeGlobal).not.toBeChecked();
+  await expect(page.locator(".metrics-dependency-level")
+    .filter({ hasText: "Level 0" })).toHaveCount(0);
+  await expect(page.locator(".metrics-dependency-node-label")
+    .filter({ hasText: "(global)" })).toHaveCount(0);
+  await expect(page.locator(".metrics-dependency-global-note"))
+    .toContainText("1 retained relationship");
+  await expect(page.locator("path.metrics-dependency-edge")).toHaveCount(4);
+
+  await includeGlobal.check();
+  await expect(page.locator(".metrics-dependency-level")
+    .filter({ hasText: "Level 0" })).toHaveCount(1);
+  await expect(page.locator(".metrics-dependency-node-label")
+    .filter({ hasText: "(global)" })).toHaveCount(1);
+  await expect(page.locator("path.metrics-dependency-edge")).toHaveCount(5);
+});
+
 test("dependency layout preserves issued levels and cycles responsively", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 620, height: 700 });
-  await page.goto("/browser/library-metrics.html?view=relationships");
+  await page.goto("/browser/library-metrics.html?view=dependencies");
   await page.getByRole("button", {
     name: "Load dependency structure",
   }).click();
@@ -229,7 +252,7 @@ test("level-zero reciprocal cycle routes remain inside the viewport", async ({
 }) => {
   await page.setViewportSize({ width: 620, height: 700 });
   await page.goto(
-    "/browser/library-metrics.html?view=relationships&dependency=cycle-zero",
+    "/browser/library-metrics.html?view=dependencies&dependency=cycle-zero",
   );
   await page.getByRole("button", {
     name: "Load dependency structure",
@@ -271,7 +294,7 @@ test("deep dependency levels scroll without shrinking labels", async ({
 }) => {
   await page.setViewportSize({ width: 620, height: 700 });
   await page.goto(
-    "/browser/library-metrics.html?view=relationships&dependency=deep",
+    "/browser/library-metrics.html?view=dependencies&dependency=deep",
   );
   await page.getByRole("button", {
     name: "Load dependency structure",

@@ -880,7 +880,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /data-type-filter-disclosure open/);
 });
 
-test("the type nav renders exclusive accessible pole cues", () => {
+test("the type nav renders dual accessible pole cues", () => {
     const html = renderTypeNav({
       current: jsonSerializer,
       visible: [jsonSerializer, jsonDocument],
@@ -909,17 +909,28 @@ test("the type nav renders exclusive accessible pole cues", () => {
           : null,
       itemAchievements: item => {
         if (item.id === jsonSerializer.id) {
-          return [{
-            kind: "sea-level",
-            description:
-              "8 incoming Type peers; 6 outgoing Type peers; sea-level Type",
-          }];
+          return [
+            {
+              kind: "surface-sea-level",
+              description:
+                "8 incoming Type peers; 6 outgoing Type peers; surface sea-level Type",
+            },
+            {
+              kind: "implementation-sea-level",
+              description:
+                "12 incoming Type peers; 2 outgoing Type peers; implementation sea-level Type",
+            },
+            {
+              kind: "api-diff",
+              description: "API differences",
+            },
+          ];
         }
         if (item.id === jsonDocument.id) {
           return [{
-            kind: "mountain-peak",
+            kind: "implementation-mountain-peak",
             description:
-              "4 incoming Type peers; 9 outgoing Type peers; mountain-peak Type",
+              "4 incoming Type peers; 9 outgoing Type peers; implementation mountain-peak Type",
           }];
         }
         return [];
@@ -927,9 +938,23 @@ test("the type nav renders exclusive accessible pole cues", () => {
     });
 
     assert.doesNotMatch(html, /data-type-leverage-filter/);
-    assert.match(html, /type-row selected sea-level/);
-    assert.match(html, /class="item-achievement-glyph sea-level"/);
-    assert.match(html, /class="item-achievement-glyph mountain-peak"/);
+    assert.match(
+      html,
+      /type-row selected surface-sea-level implementation-sea-level api-diff/,
+    );
+    assert.match(
+      html,
+      /class="item-achievement-glyph surface-sea-level"/,
+    );
+    assert.match(
+      html,
+      /class="item-achievement-glyph implementation-mountain-peak"/,
+    );
+    assert.match(
+      html,
+      /class="item-achievement-glyph implementation-sea-level"/,
+    );
+    assert.match(html, /class="item-achievement-glyph api-diff"/);
     assert.match(html, /class="item-achievement-rail"/);
     assert.doesNotMatch(html, /[▁▲]/);
     assert.match(
@@ -943,13 +968,16 @@ test("the type nav renders exclusive accessible pole cues", () => {
       /aria-label="8 external source Types; top-leverage namespace"/,
     );
     const seaRow = html.match(
-      /class="type-row selected sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
+      /class="type-row selected surface-sea-level implementation-sea-level api-diff"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
     const peakRow = html.match(
-      /class="type-row  mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
+      /class="type-row  implementation-mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
-    assert.doesNotMatch(seaRow, /mountain-peak/);
-    assert.doesNotMatch(peakRow, /sea-level/);
+    assert.match(seaRow, /surface-sea-level/);
+    assert.match(seaRow, /implementation-sea-level/);
+    assert.match(seaRow, /api-diff/);
+    assert.doesNotMatch(seaRow, /implementation-mountain-peak/);
+    assert.doesNotMatch(peakRow, /surface-sea-level/);
 });
 
 test("the type nav omits a parent action when the Library has no visible parent", () => {
