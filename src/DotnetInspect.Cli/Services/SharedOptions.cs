@@ -78,6 +78,10 @@ public class SharedOptions
     {
         Description = "With -D: show syntax-selected static schema or labeled alternatives without resolving/loading source (offline)"
     };
+    public Option<bool> Details { get; } = new("--details")
+    {
+        Description = "With -D: add structurally supported output formats, shape, and cardinality (offline)"
+    };
     public Option<bool> Tree { get; } = new("--tree") { Description = "Show hierarchical output when supported" };
     public Option<bool> Effective { get; } = new("--effective")
     {
@@ -1053,6 +1057,14 @@ public class SharedOptions
     /// </summary>
     public bool ParseSchema(ParseResult parseResult)
         => parseResult.GetValue(Schema);
+
+    /// <summary>
+    /// <c>-D --details</c>: structural discovery with formats, shape, and cardinality. False when the
+    /// command does not offer the option.
+    /// </summary>
+    public bool ParseDiscoverDetails(ParseResult parseResult)
+        => parseResult.GetResult(Details) is { Implicit: false }
+            && parseResult.GetValue(Details);
 
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {

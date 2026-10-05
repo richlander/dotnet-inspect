@@ -61,12 +61,10 @@ internal static class MemberExplanationBindings
     {
         StructuralSchemaProjection projection =
             StructuralViewRegistry.Project(route);
-        var capabilities = new OutputCapabilityCatalog(
-            projection.SelectableSectionNames.ToDictionary(
-                section => section,
-                _ => SectionOutputCapabilities.Create(
-                    OutputCapabilityCatalog.StandardSectionFormats),
-                StringComparer.OrdinalIgnoreCase));
+        OutputCapabilityCatalog capabilities =
+            projection.OutputCapabilities
+            ?? throw new InvalidOperationException(
+                $"Member explanation catalog '{catalogName}' has no output capabilities.");
         DiscoveryDocumentFactory.Projection structural =
             DiscoveryDocumentFactory.CreateProjection(
                 catalogName,
@@ -79,7 +77,8 @@ internal static class MemberExplanationBindings
                 projection.ExactOnlySections,
                 capabilities,
                 sectionCardinalities:
-                    projection.SectionCardinalities)
+                    projection.SectionCardinalities,
+                sectionShapes: projection.SectionShapes)
             ?? throw new InvalidOperationException(
                 $"Member explanation catalog '{catalogName}' was not created.");
         ResourceExplanationCatalog catalog =
