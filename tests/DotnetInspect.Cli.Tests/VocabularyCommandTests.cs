@@ -37,12 +37,17 @@ public sealed class VocabularyCommandTests
     {
         VocabularySection index =
             VocabularyCatalog.GetById("vocabulary.sections");
+        string[] expectedSections =
+        [
+            .. VocabularyCatalog.Document.Sections
+                .Skip(1)
+                .Select(section => section.Id),
+            PackageQueryDurableRowContract.Vocabulary,
+        ];
         Assert.Equal(
-            VocabularyCatalog.Document.Sections.Skip(1).Select(section => section.Id),
+            expectedSections,
             index.Values.Select(ValueId));
-        Assert.Equal(
-            VocabularyCatalog.Document.Sections.Length - 1,
-            index.Values.Length);
+        Assert.Equal(expectedSections.Length, index.Values.Length);
         Assert.DoesNotContain(index.Fields, field => field.Id == "categories");
 
         VocabularySection accessibility =
