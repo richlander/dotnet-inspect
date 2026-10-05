@@ -981,6 +981,17 @@ public sealed class MetadataRelationInspectionTests
         var forwardPlan =
             new MetadataHierarchyRelationForwardPlan(
                 maximumCandidates: 6);
+        var prefix =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        forwardPlan:
+                            new(
+                                maximumCandidates: 2)),
+                    TestContext.Current.CancellationToken));
         var forward =
             Assert.IsType<
                 MetadataHierarchyRelationAnalysisOutcome.Available>(
@@ -989,6 +1000,18 @@ public sealed class MetadataRelationInspectionTests
                         target,
                         MetadataOperationPolicy.Unbounded,
                         forwardPlan: forwardPlan),
+                    TestContext.Current.CancellationToken));
+        var continued =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        forwardPlan:
+                            new(
+                                startOrdinal: 2,
+                                maximumCandidates: 4)),
                     TestContext.Current.CancellationToken));
         var noFinding =
             Assert.IsType<
@@ -1022,12 +1045,89 @@ public sealed class MetadataRelationInspectionTests
         Assert.True(
             forward.Result.Receipt.Counters.DeclarationCandidates
             < complete.Result.Receipt.Counters.DeclarationCandidates);
+        Assert.True(continued.Result.WasStopped);
+        Assert.Equal(6, continued.Result.CandidateCount);
+        Assert.Equal(
+            complete.Result.Relations.Evidence
+                .Skip(2)
+                .Take(4)
+                .Select(static row => row.Source),
+            continued.Result.Relations.Evidence
+                .Select(static row => row.Source));
+        Assert.Equal(
+            forward.Result.Receipt.Counters.StructuredNodes,
+            prefix.Result.Receipt.Counters.StructuredNodes
+                + continued.Result.Receipt.Counters.StructuredNodes);
+        Assert.Equal(
+            forward.Result.Receipt.Counters.RetainedText,
+            prefix.Result.Receipt.Counters.RetainedText
+                + continued.Result.Receipt.Counters.RetainedText);
 
         Assert.False(noFinding.Result.WasStopped);
         Assert.Equal(0, noFinding.Result.CandidateCount);
         Assert.Equal(
             MetadataRelationFamilyDisposition.Complete,
             noFinding.Result.Relations.Disposition);
+    }
+
+    [Fact]
+    public void
+        HierarchyAnalysisConsumesRejectedMaterializationOrdinal()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    HierarchyRelationSafetyFixtures
+                        .BuildRejectedSourceNameBetweenHierarchyMatches(),
+                    writable: false));
+        var target = new MetadataHierarchyTargetSelection(
+            TypeName("Sample", "ITarget"),
+            MetadataHierarchyRelationKind.Interface);
+        MetadataHierarchyRelationAnalysisResult first =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                    session.AnalyzeHierarchyRelations(
+                        new(
+                            target,
+                            MetadataOperationPolicy.Unbounded,
+                            includeNonPublic: true,
+                            includeHidden: true,
+                            forwardPlan:
+                                new(maximumCandidates: 2)),
+                        TestContext.Current.CancellationToken)).Result;
+        MetadataHierarchyRelationAnalysisResult continued =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                    session.AnalyzeHierarchyRelations(
+                        new(
+                            target,
+                            MetadataOperationPolicy.Unbounded,
+                            includeNonPublic: true,
+                            includeHidden: true,
+                            forwardPlan:
+                                new(
+                                    startOrdinal: 1,
+                                    maximumCandidates: 2)),
+                        TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(2, first.CandidateCount);
+        Assert.Equal(3, continued.CandidateCount);
+        Assert.Equal(
+            ["First"],
+            first.Relations.Evidence
+                .Select(static row => row.SourceType.Segments[^1]));
+        Assert.Equal(
+            ["Second"],
+            continued.Relations.Evidence
+                .Select(static row => row.SourceType.Segments[^1]));
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            first.Relations.Disposition);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            continued.Relations.Disposition);
+        Assert.Single(first.Relations.Diagnostics);
+        Assert.Single(continued.Relations.Diagnostics);
     }
 
     [Fact]

@@ -415,11 +415,11 @@ public static class PackageSectionDescriptors
             model.EcosystemDependencyRecognitionInspection?.Content
                 is EcosystemDependencyRecognitionOutcome.Complete
                     {
-                        Document.Classification.Recognized.Length: > 0,
+                        Document.Classification.Matches.Length: > 0,
                     }
                 or EcosystemDependencyRecognitionOutcome.Incomplete
                     {
-                        Document.Classification.Recognized.Length: > 0,
+                        Document.Classification.Matches.Length: > 0,
                     };
     }
 

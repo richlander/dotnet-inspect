@@ -494,6 +494,10 @@ public static class IrPasses
         // missing-name fallbacks only after every raise has exposed the final
         // lexical binder tree, so exact nested names reserve before synthesis.
         new ParameterNameAllocationPass(),
+        // Decide which up-front locals keep `= default` on the final tree,
+        // with residual provenance as an input (value-typed-emission.md,
+        // Instance 3). Last: every statement-rewriting pass has run.
+        new DefiniteAssignmentPass(),
     ], IrPassPipelineProfile.Complete);
 
     /// <summary>
@@ -542,7 +546,7 @@ public static class IrPasses
     internal static ImmutableArray<IIrPass> ForIntermediateBody { get; } =
         IrPassComposition.Validate(
             "intermediate body",
-            [.. Default.Where(p => p is not ResidualSlotBindingPass)],
+            [.. Default.Where(p => p is not (ResidualSlotBindingPass or DefiniteAssignmentPass))],
             IrPassPipelineProfile.IntermediateBody);
 
     /// <summary>
@@ -560,7 +564,7 @@ public static class IrPasses
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
         IrPassComposition.Validate(
             $"reconstruction for {typeof(TPass).Name}",
-            [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or ResidualSlotBindingPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))],
+            [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or ResidualSlotBindingPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass or DefiniteAssignmentPass))],
             IrPassPipelineProfile.Reconstruction,
             typeof(TPass));
 

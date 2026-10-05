@@ -82,14 +82,16 @@ implicit:
   it can group the picker.
 
 The first production outcome keeps the existing Settings experience while
-removing those reconstructions. The product publishes one typed snapshot; the
-CLI projects its established vocabulary document from that snapshot, and
-Inspect Web groups choices through the declared `tier` term map.
+removing those reconstructions. Each host composes one typed snapshot from the
+owners' declarations; the CLI projects its established vocabulary document from
+its snapshot, and Inspect Web groups choices through the declared `tier` term
+map.
 
-Conceptually, the C# producer supplies:
+Conceptually, the C# host supplies:
 
 ```csharp
-VocabularySnapshot snapshot = VocabularyCatalog.Snapshot;
+VocabularySnapshot snapshot =
+    ProductVocabularyComposition.Compose(contributions);
 VocabularyMap tierMap = snapshot.GetMap(
     "csharp.style-choices",
     "tier");
@@ -546,10 +548,10 @@ projection of the declarations, written with `Utf8JsonWriter`. The projection
 moves to `QuerySpace.Primitives` unchanged; `System.Text.Json` is a platform
 assembly the floor may reference, as the `Inspector.Findings` floor already
 does, so no rewrite is needed and every existing digest is preserved by
-construction. The product snapshot's pinned digest is the gate: it stays
-beside the product composition (`ProductVocabularySnapshotTests` in the CLI
-suite until #9250 step 5 moves composition to the hosts) and must pass
-unchanged across every move. The pattern's own construction, validation, and
+construction. The product snapshot's pinned digest is the gate. It is one
+value, `ProductVocabularyPin`, that both host suites assert against their own
+composed snapshot (see [Product Vocabulary ownership](vocabulary.md#ownership)),
+and it must pass unchanged across every move. The pattern's own construction, validation, and
 identity gates (`VocabularyMappingsTests`) run in the `Primitives` suite,
 `tests/DotnetInspector.PortableQueries.Tests`, over test-owned catalogs. The
 declaration types use the `QuerySpace.Vocabulary` namespace under the

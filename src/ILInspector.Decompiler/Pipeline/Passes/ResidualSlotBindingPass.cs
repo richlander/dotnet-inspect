@@ -52,6 +52,10 @@ public sealed class ResidualSlotBindingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        // Coercion insertion ran after the final join binding and may have
+        // wrapped join arms; the policy below and, when no slot remains, the
+        // printer read the arm facts as the arms are now.
+        PrimitiveJoinTargetBinding.RefreshArmFacts(function);
         var nodes = CoercionSinks.ScopeNodes(function.Body).ToList();
         if (!nodes.Any(static node => node is StoreStackSlot or LoadStackSlot))
             return;
@@ -74,6 +78,10 @@ public sealed class ResidualSlotBindingPass : IIrPass
         invariant?.Check();
 
         Discharge(function, context);
+
+        // Binding retyped slot-load arms and the discharge may have wrapped
+        // them again: the printer reads the arm facts as the arms end here.
+        PrimitiveJoinTargetBinding.RefreshArmFacts(function);
     }
 
     static void RejectManagedReferenceWebs(IrFunction function, IReadOnlyList<IrNode> nodes)
@@ -239,7 +247,7 @@ sealed class ResidualSlotPolicy
                 continue;
             if (!storesBySlot.TryGetValue(load.Slot, out var stores)
                 || stores.Count == 0
-                || !stores.All(store => store is Conditional conditional && CanRenderConditionalForTarget(conditional, elementType)))
+                || !stores.All(store => store is Conditional conditional && conditional.CanRenderConditionalAt(elementType, _shapes)))
             {
                 continue;
             }
@@ -365,7 +373,7 @@ sealed class ResidualSlotPolicy
     bool CanAssignTo(IrExpression value, TypeRef target)
     {
         if (value is Conditional conditional)
-            return CanRenderValueConditionalForTarget(conditional, target)
+            return conditional.CanRenderValueJoinAt(target, _shapes)
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
         if (value is Coalesce)
             return false;
@@ -385,35 +393,9 @@ sealed class ResidualSlotPolicy
         return false;
     }
 
-    bool CanRenderConditionalForTarget(Conditional conditional, TypeRef target)
-        => CanRenderValueConditionalForTarget(conditional, target)
-            || conditional.CanAssignReferenceArmsTo(target, _shapes);
-
-    bool CanRenderValueConditionalForTarget(Conditional conditional, TypeRef target)
-        => (IsCoreChar(target)
-                && CoercionRendering.TryCharConstantValue(conditional.WhenTrue, out _)
-                && CoercionRendering.TryCharConstantValue(conditional.WhenFalse, out _))
-            || (IsEnumLikeInteger(target)
-                && IsIntegerArm(conditional.WhenTrue)
-                && IsIntegerArm(conditional.WhenFalse))
-            || conditional.CanRenderPrimitiveJoinAt(target);
-
-    static bool IsIntegerArm(IrExpression arm)
-        => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
-
-    bool IsEnumLikeInteger(TypeRef? type)
-        => type is { Kind: TypeRefKind.Definition }
-                && TypeFamilies.Of(type) is null
-                && _shapes.GetValueOrDefault(type) is not (TypeShape.Reference or TypeShape.ValueType)
-            || type is { Kind: TypeRefKind.GenericInstance }
-                && CoercionRendering.IsEnum(type, _shapes);
-
     bool IsReferenceLike(TypeRef type)
         => CoercionRendering.IsReferenceLike(type, _shapes);
 
     static bool IsCoreObject(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
-
-    static bool IsCoreChar(TypeRef type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
 }

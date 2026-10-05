@@ -21,6 +21,8 @@ the storage tail records three examples:
 - the final slots-only inliner must run before slot materialization;
 - materialized locals must exist before coercion insertion; and
 - residual storage binding must immediately follow coercion insertion.
+- definite-assignment issuance must remain the final pass after residual
+  binding and every statement rewrite.
 
 The comments in
 [`IrPass.cs`](../../src/ILInspector.Decompiler/Pipeline/Passes/IrPass.cs)
@@ -93,6 +95,9 @@ The first admitted relationships are:
 7. Reconstruction imports exclude their requesting pass and the emission-stage
    passes whose results would replace structural evidence needed by the
    reconstruction owner.
+8. Complete presentation pipelines end with definite-assignment issuance;
+   capturing-lambda preparation, intermediate-body, and reconstruction
+   pipelines exclude it because those bodies are not yet ready to print.
 
 A partial caller-supplied pipeline that contains none of the governed passes is
 valid. The contract does not turn the default pipeline into the only legal

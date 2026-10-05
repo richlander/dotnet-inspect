@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspect.Cli.Models;
 using System.Reflection;
 using System.Text.Json;
@@ -24,6 +25,41 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class OutputFormatterTests
 {
+    [Fact]
+    public void PerformanceCountProjection_UsesAnalysisOwnedKindCounts()
+    {
+        var inspection = new LibraryInspection
+        {
+            PerformanceTriageCounts = new(
+                7,
+                new Dictionary<OptimizationOpportunityKind, int>
+                {
+                    [OptimizationOpportunityKind.Boxing] = 3,
+                    [OptimizationOpportunityKind.Arrays] = 4,
+                }.ToImmutableDictionary()),
+        };
+        var projection = new CountProjection();
+
+        OutputFormatter.ApplyPerformanceCounts(
+            projection,
+            inspection,
+            [
+                SectionNames.PerformanceBoxing,
+                SectionNames.PerformanceArrays,
+            ],
+            rows: null);
+
+        Assert.Equal(7, projection.Total);
+        Assert.Equal(
+            3,
+            projection.SectionCounts[
+                SectionNames.PerformanceBoxing]);
+        Assert.Equal(
+            4,
+            projection.SectionCounts[
+                SectionNames.PerformanceArrays]);
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public void PopulateOptimizationOpportunities_RendersRowsForMatchingType()

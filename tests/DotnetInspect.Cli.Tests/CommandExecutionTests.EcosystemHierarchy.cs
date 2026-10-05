@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspector.Ecosystems;
 
 namespace DotnetInspect.Cli.Tests;
@@ -5,7 +6,8 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     // One exact nuget.org package per authored DependsOn edge. Each child
-    // package must report its parent ecosystem in Ecosystem Dependencies.
+    // package must report its parent ecosystem as recognized or candidate
+    // evidence in Ecosystem Dependencies.
     private static readonly Dictionary<string, string> s_dependsOnEvidencePackages = new()
     {
         ["ecosystem.microsoft-extensions"] = "Microsoft.Extensions.Logging@9.0.0",
@@ -36,19 +38,20 @@ public partial class CommandExecutionTests
                 "package",
                 package,
                 "-S",
-                "Package Info",
-                "--markdown");
+                "Ecosystem Dependencies",
+                "--json");
 
             Assert.True(exit == 0, $"{package}: exit {exit}.{Environment.NewLine}{error}");
-            string line = Assert.Single(
-                output.Split('\n'),
-                line => line.StartsWith("| Ecosystem Dependencies |", StringComparison.Ordinal));
-            string[] reported =
-            [
-                .. line["| Ecosystem Dependencies |".Length..]
-                    .TrimEnd(' ', '|', '\r')
-                    .Split(',', StringSplitOptions.TrimEntries),
-            ];
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement recognition =
+                document.RootElement.GetProperty("ecosystem_dependencies");
+            string[] reported = recognition.GetProperty("ecosystems")
+                .EnumerateArray()
+                .Concat(
+                    recognition.GetProperty("candidate_ecosystems")
+                        .EnumerateArray())
+                .Select(static ecosystem => ecosystem.GetString()!)
+                .ToArray();
             Assert.Contains(titles[child.DependsOn!.Value], reported);
         }
     }

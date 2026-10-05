@@ -322,6 +322,16 @@ Exact end-to-end measurements separately retain acquisition and admission
 cost. Subject Relations does not redefine reader construction, format
 classification, lifetime, or admission failure semantics.
 
+For one already-resolved exact Type focus and one candidate assembly, the
+host-neutral hierarchy operation carries independent Count and producer-ordered
+Rows requests into the direct targeted Metadata producer. The source endpoint
+retains the candidate assembly registration; the target endpoint and focus
+correspondence retain the exact focus assembly registration. Continued Rows
+reuse producer authority bound to both registrations, the hierarchy target and
+kind, visibility and hidden-declaration policy, population, selection,
+ordering, projection, and next producer ordinal. This singleton path does not
+prepare the reverse index; repeated-target planning remains separately owned.
+
 Public population facets select producer work and become part of population
 identity. They are not duplicated as a second set of public `request-*` keys.
 A compatible row-query binding may apply residual shaping to a returned
@@ -356,7 +366,9 @@ independent terminals. Count succeeds only from exact completion or another
 owner-accepted exact witness. Rows may retain a useful bounded segment while
 remaining visibly incomplete. Count success does not conceal Rows failure, and
 Rows success does not turn a partial observed cardinality, including zero, into
-exact Count.
+exact Count. The hierarchy operation treats its independently completed
+non-materializing Count pass as that exact witness when Rows projection remains
+partial and preserves the Rows diagnostics in producer evidence.
 
 Rows continuation is an opaque producer-issued receipt bound to the exact
 focus, candidate-population generation, canonical facets, ordering, row

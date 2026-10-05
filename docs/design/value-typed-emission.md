@@ -33,7 +33,7 @@ was written for, wrong in the next one.
 | --- | --- | --- | --- |
 | **1. Coercion** (flagship) | whether/how to cast a value to a target type, and when to wrap `unchecked` | a `Coerce` node + one renderer | the six-round enum-cast history below |
 | **2. Stack-slot materialization** | which locals exist, their types, and when to split one slot into two | typed local IR nodes from type propagation | #2075 — the `S_0`/`S_256` collapse |
-| **3. Definite assignment** (later) | which locals need `= default` | a pre-print flow pass handing over a decided tree | #631 (partial) |
+| **3. Definite assignment** (decided pre-print, #2095) | which locals need `= default` | a pre-print flow pass handing over a decided tree | #631 (partial) |
 
 Precedence, escaping, layout, node-spelling are deliberately *not* on this list —
 they are the writer's real job.
@@ -295,10 +295,13 @@ A supplemental full 42,120-method product-render hash comparison reports only
 both changes move an existing `object` declaration to its materialized-local
 position without changing statements.
 
-### Primitive-join target testimony
+### Join target testimony
 
-Primitive integer-family join compatibility is decided before printing
-(#2095). One bounded relation serves `Conditional`, `SwitchExpression`, and
+Join target compatibility is decided before printing (#2095). Its
+integer-family part is the primitive relation below; its enum and `char`
+parts are two arm facts issued with it (the last subsection).
+
+Primitive integer-family join compatibility is decided before printing. One bounded relation serves `Conditional`, `SwitchExpression`, and
 `Coalesce`. It records whole-join compatibility and, for each target whose
 rendered arms are accepted, the effective source type that licenses
 target-aware arm rendering. Rendered-arm testimony is issued only for an actual
@@ -354,6 +357,55 @@ same-width signedness, constant behavior, boolean arms, differing-width and
 missing-type declines, enum/`char` non-preemption, clone/refresh, raised/lowered
 output, and the pinned witness. Fixed-input censuses and Render A/B measure
 population effects separately.
+
+#### Enum and `char` arm facts
+
+The same binding issues two arm facts over each join's rendered arms (both arms
+of a conditional, every switch-expression arm value, a coalesce's right
+operand): the join has at least one rendered arm and every rendered arm is
+integer-typed, and the join has at least one rendered arm and every rendered
+arm is a `char` constant. They are issued even when the join's own type is not an
+integer (an enum-typed conditional of integer arms is the enum route's case).
+One relation, `CanRenderValueJoinAt`, decides whether a join renders as a value
+join at a target, and both the printer's targeted join spellings and the
+residual storage policy query it:
+
+- a conditional of `char` constants at `char` keeps the literal route;
+- a join of integer arms at an enum-like target takes the enum route, a
+  coalesce only when its left operand is that enum's `Nullable<T>`;
+- otherwise the issued integer-family testimony decides.
+
+A conditional's full relation, `CanRenderConditionalAt`, adds the issued
+reference assignment testimony. Enum-likeness of the target
+(`CoercionRendering.IsEnumLikeInteger`: a named definition with no primitive
+family that the shape map does not class as a reference or struct, or a
+generic instance the map classes as an enum) is a property of the target, not
+of the arms, and is shared by every caller. A coalesce that is not a value join
+at an enum target still takes the whole-operand enum spelling; that cast is a
+spelling decision and stays with the writer.
+
+The arm facts are issued at construction and by the final binding, retained
+by cloning, and re-taken where their readers look. Two rewrites follow the
+final binding: coercion insertion wraps an enum-merged join's integer arms in
+`Coerce` nodes, and residual storage binding retypes slot-load arms and then
+discharges coercions again. Each reader previously walked the arms live, so
+residual storage binding re-takes the arm facts (and only them) at its entry,
+before its policy reads them and before its early return when no slot
+remains, and again after its discharge, where the printer reads them. The
+integer-family testimony keeps its own binding point and is not refreshed, so
+neither reader sees a fact the deleted walks would not have computed. On the
+pinned 14-assembly corpus no join's arm facts or integer-family testimony
+differ between the final binding and print time (6,581 joins); the
+coercion-wrapped enum-merge shape is gated synthetically, including the
+residual policy's storage decision for it. The printer's `CanRenderValueConditionalForTarget` and
+`CanRenderSwitchExpressionForTarget` and the residual policy's verbatim copy of
+the former are deleted; the printer asks the relation and only spells the
+join. `JoinTargetTestimonyTests` gates the three join kinds, the enum-typed
+join with integer arms, the `Nullable<T>` coalesce condition, the `char`
+route's conditional-only scope, the missing-type and reference declines, and
+clone and refresh, the arms coercion insertion wraps (with and without a
+residual slot), the arms residual discharge wraps, and the residual policy's
+split decision for a slot that stores a coercion-wrapped enum merge.
 
 ## Instance 1 — coercion: the missing member of the type system
 
@@ -942,9 +994,10 @@ implementation slice.
 proves no live range and no reaching store, so a split piece can be read on a
 path no store of that piece reaches. Such a read is a binding gap, not a
 definitely unassigned local, and `= default` would turn it into compiling C#
-that silently drops the term. The printer therefore declares every
-residual-bound local bare, outside its definite-assignment initializer rule,
-and the gap stays visible as CS0165 exactly as it did before the move. Gate:
+that silently drops the term. Every residual-bound local is therefore declared
+bare: `DefiniteAssignmentPass` (Instance 3) takes the residual provenance as an
+input and leaves those locals out of the issued zero-initialized set, and the
+gap stays visible as CS0165 exactly as it did before the move. Gate:
 `ResidualSlotBindingPassTests` on a synthetic split piece and on
 `Microsoft.CodeAnalysis.Operations.ForEachLoopOperation.get_ChildOperationsCount`
 (Microsoft.CodeAnalysis 5.0.0).
@@ -1075,15 +1128,53 @@ owners; no new control-flow, liveness, or reaching-definitions analysis; no
 readable-name or declaration-placement redesign; no definite-assignment
 change (instance 3); no claim that the frozen policy is a correctness proof.
 
-## Instance 3 — definite assignment (noted, deferred)
+## Instance 3 — definite assignment (decided before printing)
 
-The writer also decides which locals need `= default` to satisfy C# definite
-assignment (the `#631` flow walk over the printer's `_facts`). This is a third
-flow analysis — the sibling of control-flow structuring and type flow — and it is
-*thin-writer-adjacent*: defensible where it is, but strictly it could run as a
-pre-print pass that hands the writer a decided tree. It is the lowest-priority
-instance and is called out here only so the umbrella is complete; it is not
-sequenced below.
+Which up-front locals keep `= default` is decided before printing, not by the
+writer (#2095). The analysis is the conservative structured definite-assignment
+walk in `DefiniteAssignment` (the `#631` flow walk), unchanged: it yields the
+locals that may be read before they are definitely assigned and gives up —
+marking every local — on control flow it does not model, so it can only keep a
+redundant initializer, never drop a required one.
+
+`DefiniteAssignmentPass` runs last in the emission tail, after residual storage
+binding and every statement-rewriting pass, and issues
+`IrFunction.ZeroInitializedLocals`: the analysis result minus the residual-bound
+locals (see "A bound local is never zero-initialised" above), so residual
+provenance is an input to the decision, not a writer special case. A raised
+lambda or local function owns its own local table and prints through its own
+scope, so the pass issues the same decision on the `Lambda` or
+`LocalFunctionStatement` node over that body, at the host's tail: host passes
+still rewrite nested bodies after they are raised (Microsoft.CodeAnalysis.CSharp
+`BinderFactory.MakeCrefBinder`, whose local function `getBinder` changes its set
+after `IsPatternPass`), so a decision taken at raise time would be stale. The
+opt-in style lenses rewrite statements after the pipeline, so the decision is
+re-taken when a lens applies. Intermediate and reconstruction bodies are never
+printed and do not run the pass.
+
+The writer only spells the issued set. A non-ref local declared up front from a
+body with no decision fails visibly rather than defaulting either way; a
+`ref` local keeps its type-only `Unsafe.NullRef<T>()` initializer. Under
+`IrInvariants` (on by default in tests and the harness) the writer checks that
+the issued set equals a fresh decision over the body it prints, so a rewrite
+after the pass that does not re-issue the decision fails instead of printing a
+stale initializer. Declaration placement is unchanged: the declaration plan
+still decides which locals are declared up front, and the analysis does not
+depend on it. Two pre-existing analysis limits are unchanged: a lambda that
+shares its enclosing scope has no separate decision, and a local bound by an
+`is` pattern counts as read before assignment.
+
+On the pinned 14-assembly, 89,065-method corpus the decision reaches 10,077
+methods (42,822 up-front declarations): 7,392 declarations in 1,781 methods
+keep `= default`, 35,309 declare bare, and the residual exclusion changes 121
+declarations in 73 methods; the analysis gives up in 474 methods. Computed at
+the host's tail, all 594 analysed nested bodies match what the writer computed
+at print time. `DefiniteAssignmentPassTests` gates the host set, the residual
+exclusion (synthetic and Newtonsoft.Json 13.0.4
+`JsonSerializer.PopulateInternal`), nested bodies, the visible failure of an
+undecided body, the freshness invariant, and the final-tree decision for
+`MakeCrefBinder`'s local functions; tests that print hand-built IR run the pass
+first (`DecidedPrint`), as residual-binding tests run residual storage binding.
 
 ## The output half — structure, not strings
 
@@ -1961,7 +2052,7 @@ insistence on a falsifiable trigger rather than a standing intention:
   [Residual storage binding](#residual-storage-binding) — so the writer is a
   total function of a decided, fully-typed IR. The residual-binding population
   is then a measured pipeline burn-down with a named floor, not a printer
-  concern. Instance 3 remains an optional later slice.
+  concern. Instance 3 is decided before printing (see its section).
 - **Explicitly out of scope** and tracked separately: member-naming of
   `Convert`-wrapped constants (a naming nicety, not a validity gap) and any
   cross-assembly enum backing that would require loading the defining assembly.

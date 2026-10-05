@@ -88,6 +88,16 @@ public sealed class IrPassCompositionTests
     }
 
     [Fact]
+    public void DefiniteAssignmentMustBeTheFinalPass()
+    {
+        var error = AssertInvalid(
+            [new DefiniteAssignmentPass(), new RecordingPass()],
+            IrPassPipelineProfile.Partial);
+
+        Assert.Contains("must be the final pass", error.Message);
+    }
+
+    [Fact]
     public void CapturingLambdaPreparationExcludesTheStorageTail()
     {
         var error = AssertInvalid(
@@ -183,6 +193,7 @@ public sealed class IrPassCompositionTests
         yield return new PdbLocalScopePass();
         yield return new CheckedIntegerOperandPass();
         yield return new ScalarSelfUpdatePass();
+        yield return new DefiniteAssignmentPass();
     }
 
     static InvalidOperationException AssertInvalid(
@@ -202,6 +213,7 @@ public sealed class IrPassCompositionTests
         new SlotMaterializationPass(),
         new CoercionInsertionPass(),
         new ResidualSlotBindingPass(),
+        new DefiniteAssignmentPass(),
     ];
 
     static IrFunction EmptyFunction()

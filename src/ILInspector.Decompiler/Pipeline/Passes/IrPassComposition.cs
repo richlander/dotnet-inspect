@@ -30,6 +30,7 @@ internal static class IrPassComposition
         int materialization = SingleIndex<SlotMaterializationPass>(pipelineName, passes);
         int coercion = SingleIndex<CoercionInsertionPass>(pipelineName, passes);
         int residualBinding = SingleIndex<ResidualSlotBindingPass>(pipelineName, passes);
+        int definiteAssignment = SingleIndex<DefiniteAssignmentPass>(pipelineName, passes);
 
         if (materialization >= 0)
         {
@@ -67,6 +68,21 @@ internal static class IrPassComposition
                 $"{nameof(ResidualSlotBindingPass)} must immediately follow {nameof(CoercionInsertionPass)}");
         }
 
+        if (definiteAssignment >= 0)
+        {
+            Require(
+                pipelineName,
+                definiteAssignment == passes.Length - 1,
+                $"{nameof(DefiniteAssignmentPass)} must be the final pass");
+            if (residualBinding >= 0)
+            {
+                Require(
+                    pipelineName,
+                    residualBinding < definiteAssignment,
+                    $"{nameof(ResidualSlotBindingPass)} must precede {nameof(DefiniteAssignmentPass)}");
+            }
+        }
+
         switch (profile)
         {
             case IrPassPipelineProfile.Partial:
@@ -77,7 +93,8 @@ internal static class IrPassComposition
                     slotsOnlyInlining,
                     materialization,
                     coercion,
-                    residualBinding);
+                    residualBinding,
+                    definiteAssignment);
                 break;
             case IrPassPipelineProfile.CapturingLambdaPreparation:
                 Exclude<ExpressionInliningPass>(
@@ -88,6 +105,7 @@ internal static class IrPassComposition
                 Exclude<SlotMaterializationPass>(pipelineName, passes);
                 Exclude<CoercionInsertionPass>(pipelineName, passes);
                 Exclude<ResidualSlotBindingPass>(pipelineName, passes);
+                Exclude<DefiniteAssignmentPass>(pipelineName, passes);
                 break;
             case IrPassPipelineProfile.IntermediateBody:
                 Require(
@@ -95,6 +113,7 @@ internal static class IrPassComposition
                     slotsOnlyInlining >= 0 && materialization >= 0 && coercion >= 0,
                     "the intermediate-body pipeline requires slots-only inlining, materialization, and coercion insertion");
                 Exclude<ResidualSlotBindingPass>(pipelineName, passes);
+                Exclude<DefiniteAssignmentPass>(pipelineName, passes);
                 break;
             case IrPassPipelineProfile.Reconstruction:
                 ExcludeReconstructionPasses(pipelineName, passes, requestingPass);
@@ -111,7 +130,8 @@ internal static class IrPassComposition
         int slotsOnlyInlining,
         int materialization,
         int coercion,
-        int residualBinding)
+        int residualBinding,
+        int definiteAssignment)
     {
         Require(
             pipelineName,
@@ -129,6 +149,10 @@ internal static class IrPassComposition
             pipelineName,
             residualBinding >= 0,
             $"the complete pipeline requires {nameof(ResidualSlotBindingPass)}");
+        Require(
+            pipelineName,
+            definiteAssignment >= 0,
+            $"the complete pipeline requires {nameof(DefiniteAssignmentPass)}");
     }
 
     static void ExcludeReconstructionPasses(
@@ -154,7 +178,8 @@ internal static class IrPassComposition
                 or PdbScopeEntryLocalPass
                 or PdbLocalScopePass
                 or CheckedIntegerOperandPass
-                or ScalarSelfUpdatePass)
+                or ScalarSelfUpdatePass
+                or DefiniteAssignmentPass)
             {
                 Fail(pipelineName, $"{passType.Name} is prohibited in reconstruction pipelines");
             }

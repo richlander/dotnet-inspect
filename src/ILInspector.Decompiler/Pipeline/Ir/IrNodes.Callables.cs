@@ -203,6 +203,13 @@ public sealed class Lambda : IrExpression
         ResidualSlotBindings { get; init; } =
             ImmutableDictionary<int, ResidualSlotBinding>.Empty;
     /// <summary>
+    /// The decided zero-initialized locals of this raised body
+    /// (<see cref="IrFunction.ZeroInitializedLocals"/>), issued by
+    /// <see cref="DefiniteAssignmentPass"/> at the host's tail and restored when
+    /// the body is printed through its own local scope.
+    /// </summary>
+    internal ImmutableHashSet<int>? ZeroInitializedLocals { get; set; }
+    /// <summary>
     /// Enclosing binders that the final raised body references after
     /// capture substitution. Explicit non-parameter capture evidence is combined
     /// with parameter-owned argument references from the transplanted body.
@@ -362,6 +369,13 @@ public sealed class LocalFunctionStatement : IrNode
     public ImmutableDictionary<int, ResidualSlotBinding>
         ResidualSlotBindings { get; init; } =
             ImmutableDictionary<int, ResidualSlotBinding>.Empty;
+    /// <summary>
+    /// The decided zero-initialized locals of this raised body
+    /// (<see cref="IrFunction.ZeroInitializedLocals"/>), issued by
+    /// <see cref="DefiniteAssignmentPass"/> at the host's tail and restored when
+    /// the body is printed through its own local scope.
+    /// </summary>
+    internal ImmutableHashSet<int>? ZeroInitializedLocals { get; set; }
     /// <summary>
     /// Enclosing binders that the final raised body references after
     /// capture substitution. Explicit non-parameter capture evidence is combined
