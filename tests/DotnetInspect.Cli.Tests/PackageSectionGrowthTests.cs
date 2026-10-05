@@ -110,10 +110,18 @@ public sealed class PackageSectionGrowthTests
 
         try
         {
-            await AssertCountAsync(
+            // The nuspec section is scalar, so its single row is observed
+            // through the row stream rather than Count.
+            var nuspec = await Run(
+                "package",
                 packagePath,
+                "-S",
                 "Package nuspec file",
-                1);
+                "--tsv");
+            Assert.True(nuspec.ExitCode == 0, nuspec.Error);
+            Assert.Equal(
+                2,
+                nuspec.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
             await AssertCountAsync(
                 packagePath,
                 "Package files",

@@ -892,7 +892,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     appSource,
-    /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*state\.analysisMode === "opportunities"[\s\S]*state\.analysisMode === "complexity"[\s\S]*state\.analysisMode === "relationships"[\s\S]*loadPackageLibraryMetrics\(\)/);
+    /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*state\.analysisMode === "complexity"[\s\S]*state\.analysisMode === "relationships"[\s\S]*loadPackageLibraryMetrics\(\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /\[data-(?:library-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
@@ -1114,7 +1114,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     appSource.match(/async function renderAnnotatedRelationshipDiagram\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Projects the neutral type-relationship)/)?.[0]
     ?? "";
   const dependencyGraph =
-    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
+    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nasync function renderLibraryReferenceGraph)/)?.[0]
+    ?? "";
+  const libraryReferenceGraph =
+    appSource.match(/async function renderLibraryReferenceGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
     ?? "";
   const callGraph =
     appSource.match(/function renderMermaidCallGraph\(\): Promise<CallGraphRenderResult> \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
@@ -1174,6 +1177,9 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     dependencyGraph,
     /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
   assert.match(
+    libraryReferenceGraph,
+    /buildAssemblyReferenceGraphMermaid\([\s\S]*graphControlsHtml\(\)[\s\S]*bindGraphPanZoom\(container, viewport, \{ keybindings \}\)/);
+  assert.match(
     callGraph,
     /const mounted = currentCallGraph\(\);[\s\S]*mounted\?\.mermaid !== definition[\s\S]*bindGraphPanZoom\(targetContainer, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(mounted, nodeId\)/);
   assert.match(
@@ -1206,10 +1212,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
-  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 4);
+  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 5);
   assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
-    `${annotatedRelationshipGraph}\n${typeGraph}\n${dependencyGraph}\n${callGraph}`,
+    `${annotatedRelationshipGraph}\n${typeGraph}\n${dependencyGraph}\n${libraryReferenceGraph}\n${callGraph}`,
     /\.addEventListener\(|querySelectorAll<SVGGElement>\("g\.node"\)/);
   assert.doesNotMatch(
     appSource,

@@ -254,10 +254,13 @@ diagnostics add no persistent UI.
 
 ## Library presentation
 
-The Library surface uses one quiet Compare frame. A compact content picker in
-the right side of the frame header chooses Public API or String literals. The
-literal choice exposes only its operator and bounded value; content remains
-nearly full-width below the header.
+The Library surface uses one quiet Compare frame. This owner supplies Public
+API and String Literal to the compact content picker in the right side of the
+frame header. The separately owned
+[Member Body Diff](inspect-web-member-body-diff.md) extends that same picker
+without changing either operation defined here. The literal choice exposes
+only its operator and bounded value; content remains nearly full-width below
+the header.
 
 ```text
 Compare Example.Library                              Diff
