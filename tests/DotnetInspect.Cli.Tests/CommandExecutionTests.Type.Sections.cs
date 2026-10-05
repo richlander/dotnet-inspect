@@ -741,5 +741,26 @@ public partial class CommandExecutionTests
         Assert.Equal("text", row.GetProperty("shape").GetString());
         Assert.Equal("scalar", row.GetProperty("cardinality").GetString());
         Assert.Equal("member/sections/decompiled-source", row.GetProperty("path").GetString());
+
+        // Target-free: --details is structural, so it needs no type or source
+        // and reports the type listing catalog with the same declared facts
+        // (round-2 finding: this path used to fall back to the Name/Kind view).
+        var (freeExit, free, freeError) = await RunAppAsync(
+            "type", "-D", "--details", "--json");
+
+        Assert.Equal(0, freeExit);
+        Assert.Empty(freeError);
+        using JsonDocument freeDocument = JsonDocument.Parse(free);
+        JsonElement classes = freeDocument.RootElement.EnumerateArray()
+            .Single(static r => r.GetProperty("name").GetString() == "Classes");
+        Assert.Equal("type/sections/classes", classes.GetProperty("path").GetString());
+        Assert.Equal("table", classes.GetProperty("shape").GetString());
+        Assert.Equal("inventory", classes.GetProperty("cardinality").GetString());
+
+        var (bareExit, bare, bareError) = await RunAppAsync("type", "-D", "--json");
+
+        Assert.Equal(0, bareExit);
+        Assert.Empty(bareError);
+        Assert.DoesNotContain("\"shape\"", bare);
     }
 }

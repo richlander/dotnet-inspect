@@ -83,8 +83,11 @@ public static class MemberOptionsParser
         plan = null;
         error = null;
         targetFree = false;
+        // --schema and --details are both structural, offline views of the
+        // catalog; neither needs a resolved target.
         if (!options.IsDiscoveryMode(parseResult)
-            || !options.ParseSchema(parseResult))
+            || !(options.ParseSchema(parseResult)
+                || options.ParseDiscoverDetails(parseResult)))
         {
             return false;
         }

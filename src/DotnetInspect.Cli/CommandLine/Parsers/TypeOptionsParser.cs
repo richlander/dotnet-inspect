@@ -33,8 +33,11 @@ public static class TypeOptionsParser
         targetFree = false;
         if (parseResult.GetValue(args.WorkspaceOption) is not null)
             return false;
+        // --schema and --details are both structural, offline views of the
+        // catalog; neither needs a resolved target.
         if (!options.IsDiscoveryMode(parseResult)
-            || !options.ParseSchema(parseResult))
+            || !(options.ParseSchema(parseResult)
+                || options.ParseDiscoverDetails(parseResult)))
         {
             return false;
         }

@@ -771,6 +771,20 @@ public partial class CommandExecutionTests
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
             + "| table | inventory | rows, count |",
             overload);
+
+        // Target-free: --details is structural and reports the single-type
+        // member catalog without a target (round-2 finding).
+        var (freeExit, free, freeError) = await RunAppAsync(
+            "member", "-D", "--details", "--json");
+
+        Assert.Equal(0, freeExit);
+        Assert.Empty(freeError);
+        using JsonDocument freeDocument = JsonDocument.Parse(free);
+        JsonElement methods = freeDocument.RootElement.EnumerateArray()
+            .Single(static r => r.GetProperty("name").GetString() == SectionNames.Methods);
+        Assert.Equal("member/sections/methods", methods.GetProperty("path").GetString());
+        Assert.Equal("table", methods.GetProperty("shape").GetString());
+        Assert.Equal("inventory", methods.GetProperty("cardinality").GetString());
     }
 
     [Fact]
