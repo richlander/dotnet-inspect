@@ -13,7 +13,17 @@ namespace DotnetInspect.Cli.CommandLine;
 
 public static class InspectionGraphCommandDefinitions
 {
-    public static Command CreateGraphCommand(SharedOptions opts)
+    public static Command CreateGraphCommand(SharedOptions opts) =>
+        CreateGraphCommandCore(opts, packagePairLoadOptions: null);
+
+    internal static Command CreateGraphCommand(
+        SharedOptions opts,
+        WorkspaceContextLoadOptions packagePairLoadOptions) =>
+        CreateGraphCommandCore(opts, packagePairLoadOptions);
+
+    static Command CreateGraphCommandCore(
+        SharedOptions opts,
+        WorkspaceContextLoadOptions? packagePairLoadOptions)
     {
         var command = new Command(
             InspectionGraphCommand.Name,
@@ -21,7 +31,9 @@ public static class InspectionGraphCommandDefinitions
         var integrations = CreateIntegrationsCommand(opts);
         var libraries = CreateLibrariesCommand(opts);
         var packages = CreatePackagesCommand(opts);
-        var cluster = CreateClusterCommand(opts);
+        var cluster = CreateClusterCommand(
+            opts,
+            packagePairLoadOptions);
         var calls = CreateCallsCommand(opts);
         command.Subcommands.Add(integrations);
         command.Subcommands.Add(libraries);
@@ -420,7 +432,9 @@ public static class InspectionGraphCommandDefinitions
         return command;
     }
 
-    static Command CreateClusterCommand(SharedOptions opts)
+    static Command CreateClusterCommand(
+        SharedOptions opts,
+        WorkspaceContextLoadOptions? packagePairLoadOptions)
     {
         var clusterArgument = new Argument<int?>("cluster")
         {
@@ -433,7 +447,8 @@ public static class InspectionGraphCommandDefinitions
             LibraryCallUseCommand.ClusterName,
             "Inspect one Direct-Use Cluster between two local libraries or exact packages",
             LibraryCallUseRouteKind.Cluster,
-            clusterArgument);
+            clusterArgument,
+            packagePairLoadOptions);
     }
 
     static Command CreateLibraryCallUseCommand(
@@ -441,7 +456,8 @@ public static class InspectionGraphCommandDefinitions
         string name,
         string description,
         LibraryCallUseRouteKind routeKind,
-        Argument<int?>? clusterArgument)
+        Argument<int?>? clusterArgument,
+        WorkspaceContextLoadOptions? packagePairLoadOptions = null)
     {
         var command = new Command(
             name,
@@ -540,8 +556,8 @@ public static class InspectionGraphCommandDefinitions
                         "--tfm is required with --package.");
                     return 1;
                 }
-                return await PackagePairCallUseCommand.ExecuteAsync(
-                    new()
+                var packagePairOptions =
+                    new PackagePairCallUseOptions
                     {
                         Packages = packages,
                         TargetFramework = tfm,
@@ -556,12 +572,21 @@ public static class InspectionGraphCommandDefinitions
                             parseResult.GetValue(opts.NoHeaders),
                         Verbose =
                             parseResult.GetValue(opts.Verbose),
+                        Columns = opts.ParseColumns(parseResult),
+                        Fields = opts.ParseFields(parseResult),
                         Sections =
                             opts.ParseSelect(parseResult) ?? [],
                         SourceOptions =
                             opts.ParseNuGetSourceOptions(parseResult),
-                    },
-                    cancellationToken);
+                    };
+                return packagePairLoadOptions is null
+                    ? await PackagePairCallUseCommand.ExecuteAsync(
+                        packagePairOptions,
+                        cancellationToken)
+                    : await PackagePairCallUseCommand.ExecuteAsync(
+                        packagePairOptions,
+                        packagePairLoadOptions,
+                        cancellationToken);
             }
 
             return await LibraryCallUseCommand.ExecuteAsync(
