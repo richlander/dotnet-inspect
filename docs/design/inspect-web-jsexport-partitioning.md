@@ -325,6 +325,9 @@ The catalog facade adapts product-owned static vocabulary and demo definitions
 plus product-owned workspace-share transport. `RunHomeDemo` may call shared
 package or Platform workspace services through `DotnetInspect.Web.Core`; it
 does not call sibling facades or reuse their wire DTOs.
+Home-demo call graphs likewise ask Web Core to lower the owner-issued neutral
+call-graph projection. The catalog facade does not open Analysis sessions or
+reference the Analysis component directly.
 
 ## Managed assembly contract
 

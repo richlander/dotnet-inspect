@@ -53,7 +53,7 @@ public static class LibraryNameFamilyInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteAssembly(
+    internal static void WriteAssembly(
         Utf8JsonWriter writer,
         AssemblyReferenceIdentity assembly)
     {
@@ -68,7 +68,7 @@ public static class LibraryNameFamilyInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteMethodology(
+    internal static void WriteMethodology(
         Utf8JsonWriter writer,
         LibraryNameFamilyMethodology methodology)
     {
@@ -79,7 +79,7 @@ public static class LibraryNameFamilyInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteReceipt(
+    internal static void WriteReceipt(
         Utf8JsonWriter writer,
         LibraryNameFamilyReceipt receipt)
     {
@@ -137,7 +137,7 @@ public static class LibraryNameFamilyInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteProvenance(
+    internal static void WriteProvenance(
         Utf8JsonWriter writer,
         LibraryNameFamilyProvenanceQualification provenance)
     {
@@ -423,7 +423,7 @@ public static class LibraryNameFamilyInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteFamilyIdentity(
+    internal static void WriteFamilyIdentity(
         Utf8JsonWriter writer,
         LibraryNameFamilyIdentity? identity)
     {
@@ -507,7 +507,7 @@ public static class LibraryNameFamilyInspectionJson
         writer.WriteEndArray();
     }
 
-    private static void WriteTypeAddress(
+    internal static void WriteTypeAddress(
         Utf8JsonWriter writer,
         MetadataTypeDefinitionAddress address)
     {
@@ -521,7 +521,7 @@ public static class LibraryNameFamilyInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteTypeName(
+    internal static void WriteTypeName(
         Utf8JsonWriter writer,
         MetadataTypeDefinitionName name)
     {

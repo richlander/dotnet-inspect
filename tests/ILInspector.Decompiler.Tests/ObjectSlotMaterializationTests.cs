@@ -35,7 +35,7 @@ public class ObjectSlotMaterializationTests
         Assert.Same(value, Assert.Single(function.Descendants.OfType<StoreLocal>()).Value);
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
-        Assert.Contains("object S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("object S_0", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant(includeSemantics: true);
     }
@@ -78,7 +78,7 @@ public class ObjectSlotMaterializationTests
         Assert.Equal(Object, Assert.Single(function.Locals));
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
-        Assert.Contains("object S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("object S_0", DecidedPrint.Print(function).Output);
         function.CheckInvariant(includeSemantics: true);
     }
 
@@ -225,7 +225,7 @@ public class ObjectSlotMaterializationTests
 
         Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
         Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
-        Assert.Contains("object S_1", CSharpPrinter.Print(function).Output);
+        Assert.Contains("object S_1", DecidedPrint.Print(function).Output);
         function.CheckInvariant(includeSemantics: true);
     }
 
@@ -266,7 +266,7 @@ public class ObjectSlotMaterializationTests
         new SwapIdiomPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
-        Assert.Contains("(first, second) = (second, first);", CSharpPrinter.Print(function).Output);
+        Assert.Contains("(first, second) = (second, first);", DecidedPrint.Print(function).Output);
         function.CheckInvariant(includeSemantics: true);
     }
 

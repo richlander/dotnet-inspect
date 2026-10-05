@@ -35,7 +35,7 @@ public class TypeShapeTruthinessTests
         {
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [conditionType] = shape },
         };
-        return CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        return DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
     }
 
     [Fact]

@@ -4136,6 +4136,18 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(
       topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
+    expect(measured.implementation.outcome).toBe("available");
+    const implementationTypes =
+      measured.implementation.typeLeverageShards.flatMap(
+        shard => shard.types,
+      );
+    expect(implementationTypes).toHaveLength(1_907);
+    expect(
+      implementationTypes.filter(row => row.pole === "SeaLevel"),
+    ).toHaveLength(29);
+    expect(
+      implementationTypes.filter(row => row.pole === "MountainPeak"),
+    ).toHaveLength(35);
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Private.CoreLib/.NET 11 RC1",
       namespaceCount: namespaceIndex.namespaces.length,
@@ -4150,6 +4162,12 @@ test.describe("bounded network-backed Worker smoke", () => {
       mountainPeakDesignations:
         surface.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "MountainPeak").length,
+      bodyTypeRows: implementationTypes.length,
+      bodySeaLevelDesignations:
+        implementationTypes.filter(row => row.pole === "SeaLevel").length,
+      bodyMountainPeakDesignations:
+        implementationTypes.filter(
+          row => row.pole === "MountainPeak").length,
       exhaustiveMedianMilliseconds: median(
         measurements.map(measurement => measurement.milliseconds),
       ),

@@ -25,7 +25,7 @@ public class RetainedMergeStructuringTests
         Assert.IsType<Comparison>(firstRetained.Condition);
 
         Assert.Equal(40, function.Body.Blocks[1].Children[0].SourceOffset);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("if (", output);
         Assert.Contains("goto IL_0028;", output);
         Assert.Contains("IL_0028:", output);
@@ -409,7 +409,7 @@ public class RetainedMergeStructuringTests
             usesUpdatedMemorySafetyRules: true);
 
         Assert.Equal(1, diagnostics.RetainedRegions);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         int label = output.IndexOf("IL_000B:", StringComparison.Ordinal);
         int unsafeBlock = output.IndexOf("unsafe\n", StringComparison.Ordinal);
         Assert.True(label >= 0, output);
@@ -433,7 +433,7 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("goto IL_000B;", output);
         Assert.Contains("IL_000B:", output);
     }
@@ -584,7 +584,7 @@ public class RetainedMergeStructuringTests
         Assert.Contains(
             function.Descendants.OfType<Branch>(),
             branch => branch.TargetOffset == 0xB5);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("for (", output);
         Assert.Contains("goto IL_00B5;", output);
     }
@@ -638,7 +638,7 @@ public class RetainedMergeStructuringTests
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.False(facts.Bailed);
         Assert.Empty(facts.ReadBeforeAssign);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("int V_0;", output);
         Assert.DoesNotContain("int V_0 = default;", output);
     }
@@ -663,7 +663,7 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.True(facts.Bailed);
-        Assert.Contains("int V_0 = default;", CSharpPrinter.Print(function).Output!);
+        Assert.Contains("int V_0 = default;", DecidedPrint.Print(function).Output!);
     }
 
     [Fact]
@@ -674,7 +674,7 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.True(facts.Bailed);
-        Assert.Contains("int V_0 = default;", CSharpPrinter.Print(function).Output!);
+        Assert.Contains("int V_0 = default;", DecidedPrint.Print(function).Output!);
     }
 
     [Fact]
@@ -695,7 +695,7 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.Equal(8, function.Body.Blocks[1].Children[0].SourceOffset);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("goto IL_0008;", output);
         Assert.Contains("IL_0008:", output);
     }

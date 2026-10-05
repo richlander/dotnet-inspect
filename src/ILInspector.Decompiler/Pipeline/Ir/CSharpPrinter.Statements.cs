@@ -194,6 +194,7 @@ public sealed partial class CSharpPrinter
                 localFunction.MaterializedStackSlotLocals);
             function.RestoreResidualSlotBindings(
                 localFunction.ResidualSlotBindings);
+            function.ZeroInitializedLocals = localFunction.ZeroInitializedLocals;
             function.CopyTypeFactsFrom(_function);
 
             var nestedPrinter = new CSharpPrinter(

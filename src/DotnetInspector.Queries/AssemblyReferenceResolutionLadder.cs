@@ -87,6 +87,21 @@ public sealed record AssemblyReferenceResolutionWorkExhaustion(
     DateTimeOffset? Deadline,
     DateTimeOffset? ObservedAt);
 
+public sealed class AssemblyReferenceResolutionWorkExhaustedException :
+    Exception
+{
+    public AssemblyReferenceResolutionWorkExhaustedException(
+        AssemblyReferenceResolutionWorkExhaustion exhaustion)
+        : base(
+            $"Assembly-reference resolution work was exhausted ({exhaustion?.Kind}).")
+    {
+        Exhaustion = exhaustion
+            ?? throw new ArgumentNullException(nameof(exhaustion));
+    }
+
+    public AssemblyReferenceResolutionWorkExhaustion Exhaustion { get; }
+}
+
 public sealed record AssemblyReferenceResolutionWorkReceipt(
     AssemblyReferenceResolutionWorkBudget Budget,
     long PackageRouteOccurrences,
@@ -211,6 +226,37 @@ public sealed class AssemblyReferenceResolutionWorkLedger
 
     public AssemblyReferenceResolutionWorkBudget Budget { get; }
 
+    public long GetRemainingAllowance(
+        AssemblyReferenceResolutionWorkKind kind)
+    {
+        if (!Enum.IsDefined(kind)
+            || kind == AssemblyReferenceResolutionWorkKind.Deadline)
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        }
+
+        lock (_gate)
+        {
+            if (_exhaustion is not null
+                || ObserveDeadlineLocked() is not null)
+            {
+                return 0;
+            }
+
+            (long consumed, long maximum) = GetConsumption(kind);
+            return maximum - consumed;
+        }
+    }
+
+    public void Charge(
+        AssemblyReferenceResolutionWorkKind kind,
+        long amount)
+    {
+        if (!TryCharge(kind, amount, out var exhaustion))
+            throw new AssemblyReferenceResolutionWorkExhaustedException(
+                exhaustion!);
+    }
+
     public bool TryCharge(
         AssemblyReferenceResolutionWorkKind kind,
         long amount,
@@ -236,35 +282,7 @@ public sealed class AssemblyReferenceResolutionWorkLedger
                 return false;
             }
 
-            (long consumed, long maximum) = kind switch
-            {
-                AssemblyReferenceResolutionWorkKind
-                    .PackageRouteOccurrence =>
-                    (_packageRouteOccurrences,
-                        Budget.MaxPackageRouteOccurrences),
-                AssemblyReferenceResolutionWorkKind
-                    .PackageCandidateOperation =>
-                    (_packageCandidateOperations,
-                        Budget.MaxPackageCandidateOperations),
-                AssemblyReferenceResolutionWorkKind.SourceOperation =>
-                    (_sourceOperations, Budget.MaxSourceOperations),
-                AssemblyReferenceResolutionWorkKind.Acquisition =>
-                    (_acquisitions, Budget.MaxAcquisitions),
-                AssemblyReferenceResolutionWorkKind.RealizedAssembly =>
-                    (_realizedAssemblies, Budget.MaxRealizedAssemblies),
-                AssemblyReferenceResolutionWorkKind.TransferBytes =>
-                    (_transferBytes, Budget.MaxTransferBytes),
-                AssemblyReferenceResolutionWorkKind
-                    .RetainedAssemblyBytes =>
-                    (_retainedAssemblyBytes,
-                        Budget.MaxRetainedAssemblyBytes),
-                AssemblyReferenceResolutionWorkKind
-                    .WorkspaceReplacement =>
-                    (_workspaceReplacements,
-                        Budget.MaxWorkspaceReplacements),
-                _ => throw new InvalidOperationException(
-                    "Unknown assembly-reference resolution work kind."),
-            };
+            (long consumed, long maximum) = GetConsumption(kind);
 
             long next;
             bool overflowed = false;
@@ -328,6 +346,36 @@ public sealed class AssemblyReferenceResolutionWorkLedger
             return true;
         }
     }
+
+    (long Consumed, long Maximum) GetConsumption(
+        AssemblyReferenceResolutionWorkKind kind) =>
+        kind switch
+        {
+            AssemblyReferenceResolutionWorkKind
+                .PackageRouteOccurrence =>
+                (_packageRouteOccurrences,
+                    Budget.MaxPackageRouteOccurrences),
+            AssemblyReferenceResolutionWorkKind
+                .PackageCandidateOperation =>
+                (_packageCandidateOperations,
+                    Budget.MaxPackageCandidateOperations),
+            AssemblyReferenceResolutionWorkKind.SourceOperation =>
+                (_sourceOperations, Budget.MaxSourceOperations),
+            AssemblyReferenceResolutionWorkKind.Acquisition =>
+                (_acquisitions, Budget.MaxAcquisitions),
+            AssemblyReferenceResolutionWorkKind.RealizedAssembly =>
+                (_realizedAssemblies, Budget.MaxRealizedAssemblies),
+            AssemblyReferenceResolutionWorkKind.TransferBytes =>
+                (_transferBytes, Budget.MaxTransferBytes),
+            AssemblyReferenceResolutionWorkKind.RetainedAssemblyBytes =>
+                (_retainedAssemblyBytes,
+                    Budget.MaxRetainedAssemblyBytes),
+            AssemblyReferenceResolutionWorkKind.WorkspaceReplacement =>
+                (_workspaceReplacements,
+                    Budget.MaxWorkspaceReplacements),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly-reference resolution work kind."),
+        };
 
     internal AssemblyReferenceResolutionWorkExhaustion?
         ObserveExhaustion()
@@ -842,6 +890,36 @@ public abstract record AssemblyReferenceExternalRouteOutcome
         public AssemblyReferenceExternalRoute? SelectedRoute { get; }
     }
 
+    public sealed record AcquisitionRequired :
+        AssemblyReferenceExternalRouteOutcome
+    {
+        public AcquisitionRequired(
+            AssemblyBindingRequest request,
+            AssemblyReferenceResolutionGenerationReceipt generation,
+            AssemblyReferenceExternalRouteSet routeSet,
+            AssemblyReferenceExternalRoute selectedRoute,
+            object ownerEvidence)
+            : base(request, generation, routeSet, continuation: null)
+        {
+            ArgumentNullException.ThrowIfNull(selectedRoute);
+            ArgumentNullException.ThrowIfNull(ownerEvidence);
+            if (!routeSet.Routes.Any(
+                    route => ReferenceEquals(route, selectedRoute)))
+            {
+                throw new ArgumentException(
+                    "An acquisition demand must select one route from its exact route set.",
+                    nameof(selectedRoute));
+            }
+
+            SelectedRoute = selectedRoute;
+            OwnerEvidence = ownerEvidence;
+        }
+
+        public AssemblyReferenceExternalRoute SelectedRoute { get; }
+
+        public object OwnerEvidence { get; }
+    }
+
     public sealed record Unavailable :
         AssemblyReferenceExternalRouteOutcome
     {
@@ -1161,6 +1239,37 @@ public abstract record AssemblyReferenceResolutionOutcome
                 .Disposition;
     }
 
+    public sealed record AcquisitionRequired :
+        AssemblyReferenceResolutionOutcome
+    {
+        internal AcquisitionRequired(
+            AssemblyBindingRequest request,
+            AssemblyBindingRequest finalRequest,
+            AssemblyReferenceResolutionGenerationReceipt generation,
+            AssemblyReferenceExternalRouteSet routeSet,
+            AssemblyReferenceExternalRoute selectedRoute,
+            object ownerEvidence,
+            ImmutableArray<AssemblyReferenceResolutionRungAttempt> trace,
+            AssemblyReferenceResolutionWorkReceipt work)
+            : base(
+                request,
+                finalRequest,
+                generation,
+                trace,
+                work)
+        {
+            RouteSet = routeSet;
+            SelectedRoute = selectedRoute;
+            OwnerEvidence = ownerEvidence;
+        }
+
+        public AssemblyReferenceExternalRouteSet RouteSet { get; }
+
+        public AssemblyReferenceExternalRoute SelectedRoute { get; }
+
+        public object OwnerEvidence { get; }
+    }
+
     public sealed record Ambiguous :
         AssemblyReferenceResolutionOutcome
     {
@@ -1303,6 +1412,14 @@ public static class AssemblyReferenceResolutionLadder
                 AssemblyReferenceResolutionRung.ReferencingContext,
                 trace);
         }
+        catch (AssemblyReferenceResolutionWorkExhaustedException exhausted)
+        {
+            return Incomplete(
+                request,
+                AssemblyReferenceResolutionRung.ReferencingContext,
+                exhausted.Exhaustion,
+                trace);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         if (context is null)
         {
@@ -1402,6 +1519,14 @@ public static class AssemblyReferenceResolutionLadder
             return DeadlineIncomplete(
                 request,
                 AssemblyReferenceResolutionRung.ExternalSupplier,
+                trace);
+        }
+        catch (AssemblyReferenceResolutionWorkExhaustedException exhausted)
+        {
+            return Incomplete(
+                request,
+                AssemblyReferenceResolutionRung.ExternalSupplier,
+                exhausted.Exhaustion,
                 trace);
         }
         cancellationToken.ThrowIfCancellationRequested();
@@ -1533,6 +1658,14 @@ public static class AssemblyReferenceResolutionLadder
                 AssemblyReferenceResolutionRung.ExternalSupplier,
                 trace);
         }
+        catch (AssemblyReferenceResolutionWorkExhaustedException exhausted)
+        {
+            return Incomplete(
+                request,
+                AssemblyReferenceResolutionRung.ExternalSupplier,
+                exhausted.Exhaustion,
+                trace);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         if (external is null)
         {
@@ -1577,6 +1710,12 @@ public static class AssemblyReferenceResolutionLadder
                     completed.SelectedRoute,
                     routeSet,
                     trace),
+            AssemblyReferenceExternalRouteOutcome.AcquisitionRequired
+                acquisition =>
+                    AcquisitionRequired(
+                        request,
+                        acquisition,
+                        trace),
             AssemblyReferenceExternalRouteOutcome.Unavailable unavailable =>
                 Unavailable(
                     request,
@@ -1861,6 +2000,22 @@ public static class AssemblyReferenceResolutionLadder
             exhaustion,
             trace);
     }
+
+    static AssemblyReferenceResolutionOutcome.AcquisitionRequired
+        AcquisitionRequired(
+        AssemblyReferenceResolutionRequest request,
+        AssemblyReferenceExternalRouteOutcome.AcquisitionRequired
+            acquisition,
+        ImmutableArray<AssemblyReferenceResolutionRungAttempt>.Builder trace)
+        => new(
+            request.BindingRequest,
+            acquisition.Request,
+            acquisition.Generation,
+            acquisition.RouteSet,
+            acquisition.SelectedRoute,
+            acquisition.OwnerEvidence,
+            trace.ToImmutable(),
+            request.Work.Capture());
 
     static AssemblyReferenceResolutionOutcome.Unavailable Unavailable(
         AssemblyReferenceResolutionRequest request,

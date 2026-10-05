@@ -22,6 +22,8 @@ public sealed class ViewFacetRegistryTests
     [InlineData(StructuralSubjectKind.Workspace, "overview", "workspace.overview")]
     [InlineData(StructuralSubjectKind.Ecosystem, "overview", "ecosystem.overview")]
     [InlineData(StructuralSubjectKind.Package, "dependencies", "package.dependencies")]
+    [InlineData(StructuralSubjectKind.Library, "ecosystem-dependencies",
+        "library.ecosystem-dependencies")]
     [InlineData(StructuralSubjectKind.Library, "compare", "library.compare")]
     [InlineData(StructuralSubjectKind.Type, "compare", "type.compare")]
     [InlineData(StructuralSubjectKind.Member, "compare", "member.compare")]
@@ -637,6 +639,11 @@ public sealed class ViewFacetRegistryTests
             new("library.references", StructuralSubjectKind.Library, "References",
                 "Direct assembly references for the active Library.",
                 100, ViewFacetRole.LibraryReferences),
+            new("library.ecosystem-dependencies", StructuralSubjectKind.Library,
+                "Ecosystem Dependencies",
+                "Product-relative ecosystem recognition and candidate evidence "
+                    + "for direct assembly references in the active Library.",
+                125),
             new("library.reference-hierarchy", StructuralSubjectKind.Library,
                 "Reference Hierarchy",
                 "Rooted transitive assembly references for the active Library.",
@@ -712,6 +719,8 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.PackageDependencyHierarchy),
                 ("library.references",
                     InspectionViewFacetExecution.LibraryReferences),
+                ("library.ecosystem-dependencies",
+                    InspectionViewFacetExecution.LibraryEcosystemDependencies),
                 ("library.reference-hierarchy",
                     InspectionViewFacetExecution.LibraryReferenceHierarchy),
                 ("library.integrations",

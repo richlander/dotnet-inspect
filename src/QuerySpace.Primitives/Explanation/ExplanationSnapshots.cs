@@ -326,6 +326,27 @@ public static class ExplanationConformance
         ArgumentNullException.ThrowIfNull(schemas);
         ArgumentNullException.ThrowIfNull(snapshot);
         SchemaIndex index = SchemaIndex.Create(schemas);
+        ValidateSnapshot(index, snapshot);
+    }
+
+    public static void ValidateSnapshots(
+        IEnumerable<ExplanationSchema> schemas,
+        IEnumerable<ExplanationResourceSnapshot> snapshots)
+    {
+        ArgumentNullException.ThrowIfNull(schemas);
+        ArgumentNullException.ThrowIfNull(snapshots);
+        SchemaIndex index = SchemaIndex.Create(schemas);
+        foreach (ExplanationResourceSnapshot snapshot in snapshots)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+            ValidateSnapshot(index, snapshot);
+        }
+    }
+
+    private static void ValidateSnapshot(
+        SchemaIndex index,
+        ExplanationResourceSnapshot snapshot)
+    {
         ExplanationSchema schema = index.GetSchema(
             snapshot.Key.ResourceType.Schema,
             snapshot.SchemaVersion);

@@ -229,6 +229,8 @@ public static class SectionNames
     /// exact library.
     /// </summary>
     public const string NameFamilies = "Name Families";
+    public const string NameFamilyRoles = "Name Family Roles";
+    public const string NameFamilyRoleTypes = "Name Family Role Types";
     public const string DependencyStructure = "Dependency Structure";
 
     public static bool IncludesBodyMetrics(

@@ -103,14 +103,10 @@ public static class AssemblyContextLibraryTypeLeverageQuery
                         {
                             AnalysisLibraryBodyUseOutcome.Available body =>
                                 new LibraryBodyTypeLeverageResult.Available(
-                                [
-                                    .. available.TypeInventories.Select(
-                                        inventory =>
-                                            LibraryStructuralReport
-                                                .CreateBodyTypeLeverageShard(
-                                                    inventory,
-                                                    body.Result)),
-                                ]),
+                                    LibraryStructuralReport
+                                        .CreateBodyTypeLeverageShards(
+                                            available.TypeInventories,
+                                            body.Result)),
                             AnalysisLibraryBodyUseOutcome.Rejected body =>
                                 new LibraryBodyTypeLeverageResult.Rejected(
                                     body.Kind,
