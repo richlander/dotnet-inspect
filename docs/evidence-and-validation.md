@@ -340,13 +340,12 @@ agreement on the acquired population. Safety for admitted ECMA input remains
 owned by the shared Analysis acquisition; the incidence operation itself is
 bounded by the finite detached arrays it receives.
 
-The Focused route removes the scorecard's `LibraryBodyIndex` dependency but
-remains the pre-Planner baseline. A successor adds the method-targeted
-population as Planner, moves the remaining production consumers onto it, and
-retires the direct-call compatibility-index surface. The quadratic legacy scan
-is already retired and therefore remains in its preserved fixed-input
-before/after evidence rather than making every multi-round oracle run repeat
-that cost.
+The Focused route uses the shipping
+`LibraryCallGraphAnalysisResult.DirectCallsByEvidenceMethod` surface and remains
+the pre-Planner baseline. A successor adds the method-targeted population as
+Planner. The aggregate compatibility surface and quadratic legacy scan are
+retired, so they remain in preserved fixed-input before/after evidence rather
+than making every multi-round oracle run repeat that cost.
 
 Run the answer check against one or more product binaries:
 

@@ -64,7 +64,7 @@
     <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageHouse.Execution\DotnetInspector.PackageHouse.Execution.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.PlatformHouse.Execution\DotnetInspector.PlatformHouse.Execution.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.PlatformHouse\DotnetInspector.PlatformHouse.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PlatformQueries\DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />

@@ -40,9 +40,9 @@ family.
 Research takes each input's analyzed methods from the Analysis-issued
 `LibraryCallGraphAnalysisResult` of one `LibraryBodyAnalysisService` execution:
 its declared-method population, its receipt's module identity, and its
-receipt's diagnostics. Research does not accept `LibraryBodyIndex`, which
-remains an Analysis compatibility adapter for consumers outside Research
-tracked by [#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
+receipt's diagnostics. The former aggregate compatibility adapter was retired
+after all consumers moved to focused results under
+[#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
 
 `LibraryCallGraphAnalysisResult` is the interim carrier of that method
 population, not the population's contract. Research inputs name the concept

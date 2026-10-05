@@ -47,7 +47,7 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                     fullPath,
                     () => File.OpenRead(fullPath),
                     AssemblyResolutionProvenance.Local(
-                        "LibraryBodyIndex"));
+                        nameof(LibraryBodyAnalysisService)));
             }
             _bindingPolicy =
                 bindingPolicy

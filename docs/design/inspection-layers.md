@@ -1682,15 +1682,17 @@ above preserve the real-asset observation.
   `Available`, `NoMetadata`, or `Failed`. `Signals` composes those facts with
   direct references, classified methods, and later source evidence in the CLI;
   metadata acquisition no longer requires a mutable composition scanner.
-- `UnsafeEvidenceQuery` consumes an already-acquired `LibraryBodyIndex` and
-  returns immutable Analysis-owned unsafe evidence plus diagnostics. The CLI
+- `UnsafeEvidenceQuery` consumes an already-produced
+  `LibrarySafetyAnalysisResult` and returns immutable Analysis-owned unsafe
+  evidence plus diagnostics. The CLI
   adds path-scoped per-method Finding provenance, retains partial-census
   diagnostics, and projects compatibility JSON, while Markdown rows contain raw
   evidence only at the `UnsafeMemberRow` sink.
-- `TopLeverageQuery` consumes that same host-acquired body index and returns the
-  unbounded ranked `MethodLeverage` set, generated-framework type evidence, and
-  Analysis diagnostics. The CLI owns visibility and selector enrichment plus
-  legacy JSON projection; Markdown formats raw method identity and introduces
+- `TopLeverageQuery` consumes an already-produced
+  `LibraryLeverageAnalysisResult` and returns the unbounded ranked
+  `MethodLeverage` set, generated-framework type evidence, and Analysis
+  diagnostics. The CLI owns visibility and selector enrichment plus legacy
+  JSON projection; Markdown formats raw method identity and introduces
   `InertString` only at the `TopLeverageRow` sink.
 - `SwitchesQuery` lives in the optional Research-backed query companion. It
   composes attribute-declared metadata with Research-owned AppContext IL
