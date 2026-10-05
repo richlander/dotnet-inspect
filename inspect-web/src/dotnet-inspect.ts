@@ -8117,14 +8117,32 @@ function navGroupHeatIdentity(group: { key: string }) {
   const groups = memberGroups(type);
   const appGroup = groups.find(candidate => candidate.key === group.key);
   const requestGroups = typeHeatRequestGroups(type);
+  const matchedRequestGroup = appGroup
+    ? requestGroups.find(requestGroup =>
+        typeHeatRequestFamilyIsEligible(type, requestGroups, requestGroup)
+        && implementationHeatVisibleFamilyMatchesRequest(
+          requestGroup,
+          appGroup))
+    : undefined;
   if (!appGroup
     || appGroup.overloads.some(overload => overload.graphOnly)
     || !implementationHeatVisibleFamilyIsEligible(groups, appGroup)
-    || !requestGroups.some(requestGroup =>
-      typeHeatRequestFamilyIsEligible(type, requestGroups, requestGroup)
-      && implementationHeatVisibleFamilyMatchesRequest(
-        requestGroup,
-        appGroup))) {
+    || !matchedRequestGroup) {
+    return null;
+  }
+  if (currentTypeHeatState().status !== "ready"
+    && !appGroup.overloads.some(overload => {
+      const token =
+        overload.declarationMetadataToken ?? overload.metadataToken ?? 0;
+      const selector = overload.stableSelector ?? "";
+      return token !== 0
+        && Boolean(selector)
+        && matchedRequestGroup.overloads.some(requestOverload =>
+          (requestOverload.declarationMetadataToken
+            ?? requestOverload.metadataToken
+            ?? 0) === token
+          && requestOverload.stableSelector === selector);
+    })) {
     return null;
   }
   const overloads = appGroup.overloads.map(overload => ({
@@ -8317,7 +8335,8 @@ async function loadSelectedMemberOverview(): Promise<void> {
       && !member.overloads.some(overload => overload.graphOnly)
       && state.selectedOverloadIndex === null
       && (member.overloads.length === 0
-        || member.detailsPending)) {
+        || member.detailsPending
+        || ordinaryMethodGroup(member))) {
     if (await loadSelectedMemberGroupAndSelectSingleton()) {
       await loadSelectedMemberDocumentation();
     }
