@@ -293,6 +293,41 @@ test("only multiple visible declarations use the MemberGroup surface", () => {
     sourceOverloadCount: 3,
   }), false);
   assert.equal(memberGroupUsesFamilySurface({ overloads: [{}, {}] }), true);
+  assert.equal(memberGroupUsesFamilySurface({
+    overloads: [],
+    detailsPending: true,
+  }), true);
+});
+
+test("compact summary groups filter before exact declarations load", () => {
+  const summary = {
+    key: "method:Create",
+    name: "Create",
+    kind: "method",
+    overloads: [],
+    completeCount: 3,
+    sourceOverloadCount: 3,
+    detailsPending: true,
+    receivers: ["Static"],
+  };
+
+  assert.equal(memberGroupMatches(summary, {
+    kind: "method",
+    trait: "static",
+    query: "cre",
+  }), true);
+  assert.equal(memberGroupMatches(summary, {
+    kind: "method",
+    trait: "instance",
+    query: "",
+  }), false);
+  assert.deepEqual(
+    filterMemberGroups([summary], {
+      kind: "method",
+      trait: "static",
+      query: "",
+    }),
+    [summary]);
 });
 
 test("member traits use the complete selector vocabulary", () => {

@@ -1176,6 +1176,8 @@ interface AppMemberGroup {
   completeCount: number;
   completeCountStatus: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
+  receivers?: readonly string[];
+  detailsPending?: boolean;
 }
 
 type MemberAccessibility =
@@ -6694,13 +6696,24 @@ function loadedMemberDeclarationsApplyToSelection() {
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
+    const fallbackGroups = loadedMemberDeclarationsApplyToSelection()
+      ? new Map(groupMembers(partitionGraphMembers(type.api).publicMembers)
+        .map(group => [group.key, group]))
+      : new Map<string, AppMemberGroup>();
     return population.groups.map(group => ({
       key: group.key,
       name: group.name,
       kind: group.kind,
       completeCount: group.completeCount,
-      completeCountStatus: "available",
-      overloads: group.members.map(createAppMemberSurface),
+      completeCountStatus:
+        fallbackGroups.get(group.key)?.overloads.length === group.completeCount
+          ? "available"
+          : "pending",
+      overloads: fallbackGroups.get(group.key)?.overloads ?? [],
+      sourceOverloadCount: group.completeCount,
+      receivers: group.receivers,
+      detailsPending:
+        fallbackGroups.get(group.key)?.overloads.length !== group.completeCount,
     }));
   }
   if (!loadedMemberDeclarationsApplyToSelection()) {
@@ -9804,10 +9817,12 @@ function renderMemberNavPane(type: AppTypeSurface) {
     type,
     entries: memberNavEntries(type),
     memberCount: groups.reduce(
-      (count, group) => count + group.overloads.length,
+      (count, group) =>
+        count + (group.sourceOverloadCount ?? group.overloads.length),
       0),
     visibleMemberCount: visibleGroups.reduce(
-      (count, group) => count + group.overloads.length,
+      (count, group) =>
+        count + (group.sourceOverloadCount ?? group.overloads.length),
       0),
     filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
@@ -12108,10 +12123,12 @@ function renderApiLens(item: AppTypeSurface) {
   const selectedGroups = selectedMemberGroups(item);
   const visibleGroups = visibleMemberGroups(item);
   const memberCount = selectedGroups.reduce(
-    (count, group) => count + group.overloads.length,
+    (count, group) =>
+      count + (group.sourceOverloadCount ?? group.overloads.length),
     0);
   const visibleMemberCount = visibleGroups.reduce(
-    (count, group) => count + group.overloads.length,
+    (count, group) =>
+      count + (group.sourceOverloadCount ?? group.overloads.length),
     0);
   const populationSummary =
     memberPopulationSummary(item, visibleMemberCount, memberCount);
@@ -12148,8 +12165,6 @@ function renderApiLens(item: AppTypeSurface) {
       <div class="api-surface-scroll">
         <div class="api-list api-surface-list">${visibleGroups.map(group => {
         const overload = group.overloads[0];
-        if (!overload)
-          throw new Error(`Member group '${group.key}' did not contain an overload.`);
         const outsideMarker = familyOutsideMarkerHtml(
           group,
           state.memberAccessibilityFilter,
@@ -12159,14 +12174,14 @@ function renderApiLens(item: AppTypeSurface) {
           group.sourceOverloadCount ?? group.overloads.length;
         const achievements = methodLeverageAchievements(
           group,
-          sourceOverloadCount === 1 ? 0 : null);
+          overload && sourceOverloadCount === 1 ? 0 : null);
         const achievementClasses =
           itemAchievementClassNames(achievements);
         return `
         <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}" data-member="${escapeHtml(group.key)}">
           ${renderItemAchievementRail(achievements, escapeHtml)}
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-          <code>${highlight(overload.signature)}</code>
+          <code>${highlight(overload?.signature ?? group.name)}</code>
           <small>${sourceOverloadCount === 1 ? escapeHtml(group.kind) : `${sourceOverloadCount} overloads`}${outsideMarker}</small>
         </button>`;
         }).join("") || `<div class="empty-list">${
@@ -12314,7 +12329,22 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       </section>`;
   }
   const overload = selectedOverload ?? member.overloads[0];
-  if (!overload) return "";
+  if (!overload) {
+    return `
+      <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+          <p>${escapeHtml(member.kind)} <span>· ${member.sourceOverloadCount ?? member.completeCount} declared</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <section class="empty-member-section">
+            <span class="large-glyph">⌕</span>
+            <h2>Declaration details are not loaded</h2>
+            <p>The shared Type document supplied this Member-group inventory without constructing exact declaration rows.</p>
+          </section>
+        </div>
+      </section>`;
+  }
   const pkg = currentPackage();
   const documentationKey = memberRequestSignature(type, overload);
   const documentationState = scopedRequestState(

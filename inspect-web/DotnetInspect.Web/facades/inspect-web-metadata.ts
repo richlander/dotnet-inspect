@@ -671,7 +671,7 @@ export interface BrowserTypeMemberPopulationGroup {
   readonly name: string;
   readonly kind: string;
   readonly completeCount: number;
-  readonly members: ReadonlyArray<BrowserMemberSurface>;
+  readonly receivers: ReadonlyArray<string>;
 }
 
 export interface BrowserTypeMemberPopulationInspection {
@@ -1707,4 +1707,3 @@ export async function queryUploadedLibraryTypeMemberPopulation(declaredName: str
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMemberPopulationInspection;
 }
-

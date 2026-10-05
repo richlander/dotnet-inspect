@@ -1154,6 +1154,39 @@ test("only an overload family's row takes the family color", () => {
   assert.equal(html.match(/family-count/g)?.length, 1);
 });
 
+test("a compact pending family paints before exact overload rows", () => {
+  const summary = {
+    key: "method:Deserialize",
+    name: "Deserialize",
+    kind: "method",
+    overloads: [],
+    completeCount: 40,
+    completeCountStatus: "pending" as const,
+    sourceOverloadCount: 40,
+    detailsPending: true,
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group: summary }],
+    memberCount: 40,
+    visibleMemberCount: 40,
+    filterControlsHtml: "",
+    selectedMemberKey: summary.key,
+    selectedOverloadIndex: null,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /<span class="type-name family-name">Deserialize<\/span>/);
+  assert.match(html, /<span class="family-count">40×<\/span>/);
+  assert.match(html, /data-nav-selection="member:method:Deserialize"/);
+});
+
 test("member families show product-issued out-of-view counts", () => {
   const group = {
     key: "method:Parse",

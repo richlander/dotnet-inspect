@@ -328,6 +328,17 @@ public static class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
+            if (loadedSurface is null
+                && await TypeDocumentOutput.TryExecuteAsync(
+                        source,
+                        options,
+                        cancellationToken)
+                    .ConfigureAwait(false)
+                    is { } typeDocumentExitCode)
+            {
+                return typeDocumentExitCode;
+            }
+
             if (string.IsNullOrEmpty(typeName)
                 || new TypeGestureIntent(
                         options.TypeFilter)

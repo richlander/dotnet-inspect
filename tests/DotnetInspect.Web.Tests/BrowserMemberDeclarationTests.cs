@@ -448,10 +448,10 @@ public sealed class BrowserMemberDeclarationTests
                 packagePopulation.Population);
         Assert.Equal(
             packageMembers.Composition.Public,
-            packageMembers.Groups.Sum(group => group.Members.Length));
+            packageMembers.Groups.Sum(group => group.CompleteCount));
         Assert.Equal(
             packageMembers.SelectorCounts.Traits.All,
-            packageMembers.Groups.Sum(group => group.Members.Length));
+            packageMembers.Groups.Sum(group => group.CompleteCount));
         Assert.Equal(
             packageMembers.SelectorCounts.Traits.All,
             packageMembers.SelectorCounts.Kinds.Sum(count => count.Count));
@@ -471,15 +471,11 @@ public sealed class BrowserMemberDeclarationTests
         BrowserTypeMemberPopulationGroup getter = Assert.Single(
             metadataMembers.Groups,
             group => group.Name == "get_Type");
-        Assert.All(
-            getter.Members,
-            static member => Assert.Null(member.BaselineOrdinal));
+        Assert.Equal(1, getter.CompleteCount);
         BrowserTypeMemberPopulationGroup metadataMethod = Assert.Single(
             metadataMembers.Groups,
             group => group.Name == "PointerFreeUnsafeMethod");
-        Assert.Equal<int?>(
-            [1],
-            metadataMethod.Members.Select(member => member.BaselineOrdinal));
+        Assert.Equal(1, metadataMethod.CompleteCount);
         BrowserTypeMemberPopulationInspection privatePopulation =
             TypeMemberPopulation(
                 await MetadataExports.QueryTypeMemberPopulation(
@@ -493,12 +489,10 @@ public sealed class BrowserMemberDeclarationTests
         BrowserTypeMemberPopulation privateMembers =
             Assert.IsType<BrowserTypeMemberPopulation>(
                 privatePopulation.Population);
-        BrowserMemberSurface[] privateRows =
-            [.. privateMembers.Groups.SelectMany(group => group.Members)];
-        Assert.NotEmpty(privateRows);
+        Assert.NotEmpty(privateMembers.Groups);
         Assert.All(
-            privateRows,
-            static member => Assert.Null(member.BaselineOrdinal));
+            privateMembers.Groups,
+            static group => Assert.True(group.CompleteCount > 0));
 
         BrowserTypeMemberPopulationInspection allPopulation =
             TypeMemberPopulation(
@@ -519,7 +513,7 @@ public sealed class BrowserMemberDeclarationTests
                 + allMembers.Composition.Protected
                 + allMembers.Composition.Internal
                 + allMembers.Composition.Private,
-            allMembers.Groups.Sum(group => group.Members.Length));
+            allMembers.Groups.Sum(group => group.CompleteCount));
 
         BrowserTypeMemberPopulationInspection uploadedPopulation =
             TypeMemberPopulation(
@@ -539,11 +533,8 @@ public sealed class BrowserMemberDeclarationTests
         BrowserTypeMemberPopulationGroup examine = Assert.Single(
             uploadedMembers.Groups,
             group => group.Name == "Examine");
-        Assert.Equal(5, examine.Members.Length);
         Assert.Equal(5, examine.CompleteCount);
-        Assert.Equal<int?>(
-            [1, 2, 3, 4, 5],
-            examine.Members.Select(member => member.BaselineOrdinal));
+        Assert.Equal(["Extension"], examine.Receivers);
 
         BrowserMemberGroupDocumentInspection missingGroup =
             MemberGroupDocument(
@@ -852,7 +843,8 @@ public sealed class BrowserMemberDeclarationTests
                     population.Population);
             Assert.Equal(
                 members.Composition.Public,
-                members.Groups.Sum(candidate => candidate.Members.Length));
+                members.Groups.Sum(
+                    candidate => candidate.CompleteCount));
             Assert.Equal(requests, handler.Requests);
         }
         finally

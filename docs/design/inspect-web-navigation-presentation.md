@@ -853,10 +853,21 @@ Inventory rows are a directed display, not a data list: a row says what its
 subject is rather than repeating which kind it is, because the kind icon
 already carries the kind.
 
+- Opening a Type requests its declared Member-group inventory through the
+  shared `TypeDocument` route and paints that result independently of
+  contextual extension discovery. The compact result carries names,
+  categories, receiver forms, and exact declaration Counts; it does not embed
+  every exact Member row. Exact public rows already resident in the selected
+  Type may enrich the same inventory immediately. Ordinary method groups load
+  their exact overload document only when activated. Workspace-wide inherited
+  and extension populations remain the separate #9183 adoption.
 - A Type row shows its display name and its member count.
 - A single-member row shows a method's compact parameter list (the member
   name and unqualified parameter types, as nested overload rows spell them)
-  or a property's, field's, or event's unqualified value type.
+  or a property's, field's, or event's unqualified value type when that exact
+  declaration row is resident. Before exact detail is available, the compact
+  row shows the truthful Member-group name and declaration Count rather than
+  inventing a signature.
 - Activating a row with one exact declaration in the active inventory opens
   that exact Member directly. It does not insert a one-row MemberGroup chooser
   between the inventory and the Member surface. This is the same traversal

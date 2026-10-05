@@ -1386,8 +1386,24 @@ declaration-document contract over that route: one Metadata declaration
 session establishes the detached exact-Type subject and optionally executes
 declared Member-group population. Subject-only requests issue no population
 demand, and requested population rejection, incompleteness, or failure remains
-independently typed without discarding the available Type subject. CLI and
-Browser adoption remains step 9; no production host uses this route yet.
+independently typed without discarding the available Type subject. That
+completed the step 8 substrate; production-host binding remains step 9.
+
+Step 9 binds the native Type Tree and Browser declaration inventory to the
+shared route. The CLI executes exact package or platform Type Tree and bare
+Count gestures, plus explicit local-Library Tree and Count gestures, before
+the eager API-surface path. It renders declared Member-group Rows with nested
+exact-member Counts or the matching declaration Composition Count. The
+implicit local-Library default remains on the rich route so existing
+inspection-failure diagnostics remain visible. Inspect Web projects the same
+document envelope mechanically into compact group rows, composition Counts,
+and selector Counts; TypeScript does not regroup or count exact declarations.
+Already resident exact public rows may enrich those groups, while ordinary
+method activation uses `MemberGroupDocument`. Attached and workspace-wide
+contextual extensions remain independent and are not awaited by the declared
+result; #9183 owns their replacement population. Accepted NativeAOT
+before/after evidence is still required before this adoption makes a
+performance-success claim.
 
 ## Required evidence
 

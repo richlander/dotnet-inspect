@@ -367,7 +367,7 @@ public sealed record BrowserTypeMemberPopulationGroup(
     string Name,
     string Kind,
     int CompleteCount,
-    BrowserMemberSurface[] Members);
+    string[] Receivers);
 
 /// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the

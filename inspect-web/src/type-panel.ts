@@ -224,15 +224,19 @@ export interface MemberGroup {
   completeCount?: number;
   completeCountStatus?: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
+  receivers?: readonly string[];
+  detailsPending?: boolean;
 }
 
 export function memberGroupUsesFamilySurface(
   group: {
     readonly overloads: readonly unknown[];
     readonly sourceOverloadCount?: number;
+    readonly detailsPending?: boolean;
   } | null | undefined,
 ): boolean {
-  return (group?.overloads.length ?? 0) > 1;
+  return group?.detailsPending === true
+    || (group?.overloads.length ?? 0) > 1;
 }
 
 export function familyOutsideMarkerHtml(
@@ -862,7 +866,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;
-            const overloadCount = group.overloads.length;
+            const overloadCount =
+              group.sourceOverloadCount ?? group.overloads.length;
             const isMulti = memberGroupUsesFamilySurface(group);
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);

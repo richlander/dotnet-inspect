@@ -53,6 +53,10 @@ export function memberGroupMatches(
 
   const overloads = group.overloads.filter(
     overload => memberMatchesTrait(overload, filters.trait ?? ""));
+  if (group.detailsPending && group.overloads.length === 0) {
+    return groupMatchesSummaryTrait(group, filters.trait ?? "")
+      && (!query || group.name.toLowerCase().includes(query));
+  }
   return overloads.length > 0 && (
     !query
     || group.name.toLowerCase().includes(query)
@@ -97,6 +101,18 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
 
     const overloads = group.overloads.filter(
       overload => memberMatchesTrait(overload, filters.trait ?? ""));
+    if (group.detailsPending && group.overloads.length === 0) {
+      if (!groupMatchesSummaryTrait(group, filters.trait ?? "")
+        || query && !group.name.toLowerCase().includes(query)) {
+        return [];
+      }
+      return [{
+        ...group,
+        overloads,
+        sourceOverloadCount:
+          group.sourceOverloadCount ?? group.completeCount ?? 0,
+      }];
+    }
     if (overloads.length === 0 || (
       query
       && !group.name.toLowerCase().includes(query)
@@ -113,6 +129,29 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
         group.sourceOverloadCount ?? group.overloads.length,
     }];
   });
+}
+
+function groupMatchesSummaryTrait(
+  group: FilterableMemberGroup,
+  trait: string,
+): boolean {
+  const receivers = group.receivers ?? [];
+  switch (trait) {
+    case "":
+      return true;
+    case "static":
+      return receivers.includes("Static")
+        && !receivers.includes("Extension");
+    case "instance":
+      return receivers.includes("This");
+    case "extensions":
+      return receivers.includes("Extension");
+    case "virtual":
+    case "interface":
+      return false;
+    default:
+      return false;
+  }
 }
 
 interface StableMemberOverload {
