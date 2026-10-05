@@ -195,45 +195,6 @@ internal static partial class MetadataRelationInspection
                 && AttributeReader.HasHiddenAttribute(
                     reader,
                     type.GetCustomAttributes());
-            foreach (MethodDefinitionHandle methodHandle
-                in type.GetMethods())
-            {
-                MethodDefinition method =
-                    reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.Static) == 0
-                    || !AttributeReader.HasExtensionAttribute(
-                        reader,
-                        method.GetCustomAttributes()))
-                {
-                    continue;
-                }
-
-                bool methodExcluded =
-                    typeExcluded
-                    || (!includeNonPublic
-                        && ((method.Attributes
-                                & MethodAttributes.MemberAccessMask)
-                                != MethodAttributes.Public
-                            || AttributeReader.HasHiddenAttribute(
-                                reader,
-                                method.GetCustomAttributes())));
-                if (methodExcluded)
-                    excluded++;
-                else
-                {
-                    int metadataToken =
-                        MetadataTokens.GetToken(methodHandle);
-                    included.Add(metadataToken);
-                    candidates.Add(
-                        new(
-                            typeHandle,
-                            default,
-                            methodHandle,
-                            default,
-                            metadataToken));
-                }
-            }
-
             foreach (TypeDefinitionHandle groupingHandle
                 in type.GetNestedTypes())
             {
@@ -287,6 +248,45 @@ internal static partial class MetadataRelationInspection
                                 propertyHandle,
                                 metadataToken));
                     }
+                }
+            }
+
+            foreach (MethodDefinitionHandle methodHandle
+                in type.GetMethods())
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                if ((method.Attributes & MethodAttributes.Static) == 0
+                    || !AttributeReader.HasExtensionAttribute(
+                        reader,
+                        method.GetCustomAttributes()))
+                {
+                    continue;
+                }
+
+                bool methodExcluded =
+                    typeExcluded
+                    || (!includeNonPublic
+                        && ((method.Attributes
+                                & MethodAttributes.MemberAccessMask)
+                                != MethodAttributes.Public
+                            || AttributeReader.HasHiddenAttribute(
+                                reader,
+                                method.GetCustomAttributes())));
+                if (methodExcluded)
+                    excluded++;
+                else
+                {
+                    int metadataToken =
+                        MetadataTokens.GetToken(methodHandle);
+                    included.Add(metadataToken);
+                    candidates.Add(
+                        new(
+                            typeHandle,
+                            default,
+                            methodHandle,
+                            default,
+                            metadataToken));
                 }
             }
         }

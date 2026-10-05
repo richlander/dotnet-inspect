@@ -1463,6 +1463,7 @@ identity remain occurrences inside one row.
 
 `ExtensionPopulationPushesCountAndBoundedRowsForHttpClient`,
 `ExtensionPopulationMatchesRuntimeCensusInMetadataOrder`,
+`ExtensionPopulationPreservesMixedDeclarationDiscoveryOrder`,
 `ExtensionPopulationPreservesConstructedReceiverContext`, and
 `ExtensionAndReferenceProducersRetainExactEvidence` gate the result contract.
 The NativeAOT scorecard for #9284 gates equivalent cardinality and logical-row
