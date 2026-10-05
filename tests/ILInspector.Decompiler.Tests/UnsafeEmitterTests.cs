@@ -97,7 +97,7 @@ public class UnsafeEmitterTests
     static DecompilerResult PrintBound(IrFunction function)
     {
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        return CSharpPrinter.Print(function);
+        return DecidedPrint.Print(function);
     }
 
     /// <summary>The body of the first <c>unsafe { }</c> block, by brace matching.</summary>

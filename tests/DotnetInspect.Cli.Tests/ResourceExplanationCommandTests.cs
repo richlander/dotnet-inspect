@@ -71,6 +71,33 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetString());
     }
 
+    [Theory]
+    [InlineData("package-query", "inspection-document")]
+    [InlineData("package-files", "inspection-document")]
+    public async Task Explain_CapabilityRootUsesItsOwnerCatalog(
+        string path,
+        string resourceType)
+    {
+        var result = await RunAsync(
+            "explain",
+            path,
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            path,
+            document.RootElement
+                .GetProperty("requested_path")
+                .GetString());
+        Assert.Equal(
+            resourceType,
+            ResourceType(
+                document.RootElement
+                    .GetProperty("resources")[0]));
+    }
+
     [Fact]
     public async Task Explain_TypeAndMemberSections_ReportDeclaredShapeAndCardinality()
     {
@@ -609,6 +636,21 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Empty(result.Output);
         Assert.Contains("was not found", result.Error);
         Assert.DoesNotContain("No installed capabilities", result.Error);
+    }
+
+    [Fact]
+    public async Task CanonicalUnknownPath_SuggestsAcrossFocusedCatalogs()
+    {
+        var result = await RunAsync(
+            "explain",
+            "library/package-query");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("was not found", result.Error);
+        Assert.Contains(
+            result.Error.Split('\n'),
+            static line => line.Trim() == "package-query");
     }
 
     [Fact]

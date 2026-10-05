@@ -319,7 +319,7 @@ public class ArgumentSinkTestimonyTests
         var function = IrImporter.Import(source, typeName, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Contains(expected, result.Output);
         Assert.Contains("object S_1", result.Output);
@@ -346,7 +346,7 @@ public class ArgumentSinkTestimonyTests
         var function = IrImporter.Import(source, typeName, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Contains(expected, result.Output);
         Assert.Contains(function.ResidualSlotBindings.Values, static binding => binding.Kind == ResidualSlotBindingKind.Unified);
@@ -359,7 +359,7 @@ public class ArgumentSinkTestimonyTests
         new SlotMaterializationPass().Run(function, PassContext.None);
         new CoercionInsertionPass().Run(function, PassContext.None);
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        return CSharpPrinter.Print(function).Output!;
+        return DecidedPrint.Print(function).Output!;
     }
 
     static Block BlockOf(IrNode statement)

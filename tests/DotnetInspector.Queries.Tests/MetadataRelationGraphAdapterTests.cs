@@ -5,6 +5,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Sections;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using InertText;
@@ -422,6 +423,674 @@ public sealed class MetadataRelationGraphAdapterTests
                 SubjectRelationPopulationRowsOutcome.Rejected>(
                     resumed.Population.Rows).Reason);
         Assert.Null(resumed.ContinuationAuthority);
+    }
+
+    [Fact]
+    public void HierarchyPopulationCarriesTerminalsToMetadata()
+    {
+        string path = typeof(object).Assembly.Location;
+        AssemblyReferenceIdentity identity = ReadIdentity(path);
+        ResolvedAssemblyReference assembly = Resolved(path, identity);
+        var coordinate =
+            new RealizedMemberCoordinate.Package(
+                "system.private.corelib",
+                "1.0.0",
+                "runtime",
+                "net11.0",
+                runtimeIdentifier: null);
+        StructuralSubjectTestData.PackageContext package =
+            StructuralSubjectTestData.Package(coordinate);
+        var libraryInput =
+            new WorkspaceContextMember(
+                WorkspaceMemberCoordinate.Package(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    coordinate.Framework,
+                    coordinate.RuntimeIdentifier),
+                coordinate,
+                new AssemblyContextParticipant(
+                    assembly,
+                    NoResolverAssemblyBindingPolicy.Instance));
+        StructuralSubjectIdentity.LibrarySubject library =
+            StructuralSubjectIdentity.ForLibrary(
+                package.Subject,
+                libraryInput);
+        StructuralSubjectIdentity.TypeSubject focus =
+            StructuralSubjectIdentity.ForType(
+                library,
+                TypeName("System.IO", "Stream"));
+        SubjectRelationPopulationAuthority population =
+            SubjectRelationPopulationAuthority.Capture(
+                package.Workspace,
+                new object());
+        var selection =
+            new SubjectRelationPopulationSelection(
+                SubjectRelationForm.BaseType,
+                MetadataRelationGraphCatalog.BaseType.Id,
+                SubjectRelationDirectionSelection.Incoming,
+                SubjectRelationEvidenceKind.Declaration);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        MetadataHierarchySubjectRelationsExecution countOnly =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        count:
+                            new SubjectRelationPopulationCountRequest())),
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        int expected =
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    countOnly.Population.Count).Value;
+        Assert.True(expected > 1);
+        Assert.Null(countOnly.Population.Rows);
+        Assert.Null(countOnly.ContinuationAuthority);
+
+        StructuralSubjectIdentity.TypeSubject interfaceFocus =
+            StructuralSubjectIdentity.ForType(
+                library,
+                TypeName("System", "IDisposable"));
+        var interfaceSelection =
+            new SubjectRelationPopulationSelection(
+                SubjectRelationForm.Interface,
+                MetadataRelationGraphCatalog.Interface.Id,
+                SubjectRelationDirectionSelection.Incoming,
+                SubjectRelationEvidenceKind.Declaration);
+        MetadataHierarchySubjectRelationsExecution interfaceCount =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    interfaceFocus,
+                    population,
+                    new(
+                        interfaceSelection,
+                        count:
+                            new SubjectRelationPopulationCountRequest())),
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.True(
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    interfaceCount.Population.Count).Value
+            > 0);
+
+        string candidatePath =
+            typeof(System.Reflection.Metadata.MetadataReader)
+                .Assembly.Location;
+        ResolvedAssemblyReference candidateAssembly =
+            Resolved(candidatePath, ReadIdentity(candidatePath));
+        using AssemblyInspectionSession candidateSession =
+            AssemblyInspectionSession.Open(candidatePath);
+        MetadataHierarchySubjectRelationsExecution crossAssembly =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                candidateSession,
+                candidateAssembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    interfaceFocus,
+                    population,
+                    new(
+                        interfaceSelection,
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(1))),
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.True(
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    crossAssembly.Population.Count).Value
+            > 0);
+        SubjectRelationRow crossAssemblyRow =
+            Assert.Single(
+                Assert.IsType<
+                    SubjectRelationPopulationRowsOutcome.Read>(
+                        crossAssembly.Population.Rows).Items);
+        Assert.Same(
+            candidateAssembly.Registration,
+            Assert.IsType<
+                InspectionGraphTypeIdentity.AcquiredDefinition>(
+                    Assert.IsType<
+                        InspectionGraphSubject.TypeSubject>(
+                            crossAssemblyRow.Source).Identity)
+                .Registration);
+        Assert.Same(
+            assembly.Registration,
+            Assert.IsType<
+                InspectionGraphTypeIdentity.AcquiredDefinition>(
+                    Assert.IsType<
+                        InspectionGraphSubject.TypeSubject>(
+                            crossAssemblyRow.Target).Identity)
+                .Registration);
+
+        MetadataHierarchySubjectRelationsExecution limited =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(1))),
+                new(
+                    long.MaxValue,
+                    maxDeclarationCandidates: 0),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.IsType<
+            SubjectRelationPopulationCountOutcome.Incomplete>(
+                limited.Population.Count);
+        Assert.Empty(
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Read>(
+                    limited.Population.Rows).Items);
+        SubjectRelationProducerOutcome limitedProducer =
+            Assert.Single(limited.Population.Evidence.Producers);
+        Assert.Equal(
+            SubjectRelationProducerDisposition.Partial,
+            limitedProducer.Disposition);
+        Assert.Equal(
+            SubjectRelationProducerDiagnosticKind.Limit,
+            Assert.Single(limitedProducer.Diagnostics).Kind);
+
+        MetadataHierarchySubjectRelationsExecution projectionLimited =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(1))),
+                new(
+                    long.MaxValue,
+                    maxStructuredNodes: 0),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            expected,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    projectionLimited.Population.Count).Value);
+        Assert.Empty(
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Read>(
+                    projectionLimited.Population.Rows).Items);
+        SubjectRelationProducerOutcome projectionLimitedProducer =
+            Assert.Single(
+                projectionLimited.Population.Evidence.Producers);
+        Assert.Equal(
+            SubjectRelationProducerDisposition.Partial,
+            projectionLimitedProducer.Disposition);
+        Assert.Equal(
+            SubjectRelationProducerDiagnosticKind.Limit,
+            Assert.Single(
+                projectionLimitedProducer.Diagnostics).Kind);
+
+        MetadataHierarchySubjectRelationsExecution execution =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(1))),
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            expected,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    execution.Population.Count).Value);
+        Assert.Same(
+            MetadataRelationGraphAdapter.HierarchyQuery,
+            Assert.Single(
+                execution.Population.Evidence.Producers).Producer);
+
+        var allRows = new List<SubjectRelationRow>();
+        var occurrenceIdentities =
+            new HashSet<object>();
+        while (true)
+        {
+            var rows =
+                Assert.IsType<
+                    SubjectRelationPopulationRowsOutcome.Read>(
+                        execution.Population.Rows);
+            Assert.InRange(rows.Items.Length, 0, 1);
+            foreach (SubjectRelationRow row in rows.Items)
+            {
+                Assert.Equal(SubjectRelationForm.BaseType, row.Form);
+                Assert.Equal(
+                    SubjectRelationDirection.Incoming,
+                    row.Direction);
+                Assert.Same(focus, row.Correspondence.Focus);
+                var target =
+                    Assert.IsType<
+                        InspectionGraphSubject.TypeSubject>(
+                            row.Target);
+                var targetIdentity =
+                    Assert.IsType<
+                        InspectionGraphTypeIdentity.AcquiredDefinition>(
+                            target.Identity);
+                Assert.Same(
+                    assembly.Registration,
+                    targetIdentity.Registration);
+                Assert.Equal(focus.Identity.Type, targetIdentity.Type);
+                SubjectRelationOccurrence occurrence =
+                    Assert.Single(row.Occurrences);
+                var evidence =
+                    Assert.IsType<
+                        MetadataTargetedHierarchyGraphEvidence>(
+                            occurrence.Occurrence.Evidence);
+                Assert.Same(
+                    assembly.Registration,
+                    evidence.Registration);
+                Assert.Equal(
+                    MetadataHierarchyRelationKind.BaseType,
+                    evidence.Kind);
+                Assert.NotEqual(0, evidence.MetadataToken);
+                Assert.True(
+                    occurrenceIdentities.Add(occurrence.Identity));
+            }
+            allRows.AddRange(rows.Items);
+
+            if (rows.Continuation is null)
+                break;
+
+            MetadataHierarchySubjectRelationsContinuationAuthority
+                authority =
+                execution.ContinuationAuthority
+                ?? throw new Xunit.Sdk.XunitException(
+                    "Expected hierarchy continuation authority.");
+            execution =
+                MetadataHierarchySubjectRelationsOperation.Execute(
+                    session,
+                    assembly,
+                    assembly,
+                    new(
+                        SubjectRelationsRouteKind.Type,
+                        focus,
+                        population,
+                        new(
+                            selection,
+                            rows:
+                                new SubjectRelationPopulationRowsRequest(
+                                    1,
+                                    continuation:
+                                        rows.Continuation))),
+                    MetadataOperationPolicy.Unbounded,
+                    continuationAuthority: authority,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(expected, allRows.Count);
+        Assert.Equal(
+            expected,
+            allRows
+                .Select(static row =>
+                    Assert.IsType<
+                        InspectionGraphSubject.TypeSubject>(
+                            row.Source).Identity)
+                .Distinct()
+                .Count());
+        Assert.Null(execution.ContinuationAuthority);
+    }
+
+    [Fact]
+    public void
+        HierarchyPopulationDoesNotContinuePastRejectedProjection()
+    {
+        byte[] image =
+            HierarchyRelationSafetyFixtures
+                .BuildRejectedSourceNameBetweenHierarchyMatches();
+        ResolvedAssemblyReference assembly = Resolved(image);
+        var coordinate =
+            new RealizedMemberCoordinate.Package(
+                "rejected-hierarchy-source",
+                "1.0.0",
+                "local",
+                "net11.0",
+                runtimeIdentifier: null);
+        StructuralSubjectTestData.PackageContext package =
+            StructuralSubjectTestData.Package(coordinate);
+        var libraryInput =
+            new WorkspaceContextMember(
+                WorkspaceMemberCoordinate.Package(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    coordinate.Framework,
+                    coordinate.RuntimeIdentifier),
+                coordinate,
+                new AssemblyContextParticipant(
+                    assembly,
+                    NoResolverAssemblyBindingPolicy.Instance));
+        StructuralSubjectIdentity.LibrarySubject library =
+            StructuralSubjectIdentity.ForLibrary(
+                package.Subject,
+                libraryInput);
+        StructuralSubjectIdentity.TypeSubject focus =
+            StructuralSubjectIdentity.ForType(
+                library,
+                TypeName("Sample", "ITarget"));
+        SubjectRelationPopulationAuthority population =
+            SubjectRelationPopulationAuthority.Capture(
+                package.Workspace,
+                new object());
+        var selection =
+            new SubjectRelationPopulationSelection(
+                SubjectRelationForm.Interface,
+                MetadataRelationGraphCatalog.Interface.Id,
+                SubjectRelationDirectionSelection.Incoming,
+                SubjectRelationEvidenceKind.Declaration);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+
+        MetadataHierarchySubjectRelationsExecution execution =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(1))),
+                MetadataOperationPolicy.Unbounded,
+                includeNonPublic: true,
+                includeHidden: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            4,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    execution.Population.Count).Value);
+        SubjectRelationPopulationRowsOutcome.Read rows =
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Read>(
+                    execution.Population.Rows);
+        SubjectRelationRow row = Assert.Single(rows.Items);
+        Assert.Equal(
+            "First",
+            Assert.IsType<
+                InspectionGraphTypeIdentity.AcquiredDefinition>(
+                    Assert.IsType<
+                        InspectionGraphSubject.TypeSubject>(
+                            row.Source).Identity)
+                .Type.Segments[^1]);
+        Assert.Null(rows.Continuation);
+        Assert.Null(execution.ContinuationAuthority);
+        SubjectRelationProducerOutcome producer =
+            Assert.Single(execution.Population.Evidence.Producers);
+        Assert.Equal(
+            SubjectRelationProducerDisposition.Partial,
+            producer.Disposition);
+        Assert.Single(producer.Diagnostics);
+    }
+
+    [Fact]
+    public void HierarchyPopulationRejectsChangedContinuationAuthority()
+    {
+        string path = typeof(object).Assembly.Location;
+        AssemblyReferenceIdentity identity = ReadIdentity(path);
+        ResolvedAssemblyReference assembly = Resolved(path, identity);
+        var coordinate =
+            new RealizedMemberCoordinate.Package(
+                "system.private.corelib",
+                "1.0.0",
+                "runtime",
+                "net11.0",
+                runtimeIdentifier: null);
+        StructuralSubjectTestData.PackageContext package =
+            StructuralSubjectTestData.Package(coordinate);
+        var libraryInput =
+            new WorkspaceContextMember(
+                WorkspaceMemberCoordinate.Package(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    coordinate.Framework,
+                    coordinate.RuntimeIdentifier),
+                coordinate,
+                new AssemblyContextParticipant(
+                    assembly,
+                    NoResolverAssemblyBindingPolicy.Instance));
+        StructuralSubjectIdentity.LibrarySubject library =
+            StructuralSubjectIdentity.ForLibrary(
+                package.Subject,
+                libraryInput);
+        StructuralSubjectIdentity.TypeSubject focus =
+            StructuralSubjectIdentity.ForType(
+                library,
+                TypeName("System.IO", "Stream"));
+        SubjectRelationPopulationAuthority population =
+            SubjectRelationPopulationAuthority.Capture(
+                package.Workspace,
+                new object());
+        var selection =
+            new SubjectRelationPopulationSelection(
+                SubjectRelationForm.BaseType,
+                MetadataRelationGraphCatalog.BaseType.Id,
+                SubjectRelationDirectionSelection.Incoming,
+                SubjectRelationEvidenceKind.Declaration);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        MetadataHierarchySubjectRelationsExecution initial =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(1))),
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        SubjectRelationPopulationContinuation continuation =
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Read>(
+                    initial.Population.Rows).Continuation
+            ?? throw new Xunit.Sdk.XunitException(
+                "Expected hierarchy continuation.");
+        MetadataHierarchySubjectRelationsContinuationAuthority authority =
+            initial.ContinuationAuthority
+            ?? throw new Xunit.Sdk.XunitException(
+                "Expected hierarchy continuation authority.");
+
+        MetadataHierarchySubjectRelationsExecution accessibilityChanged =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(
+                                1,
+                                continuation:
+                                    continuation))),
+                MetadataOperationPolicy.Unbounded,
+                includeNonPublic: true,
+                continuationAuthority: authority,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection
+                .IncompatibleContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    accessibilityChanged.Population.Rows).Reason);
+
+        SubjectRelationPopulationAuthority differentPopulation =
+            SubjectRelationPopulationAuthority.Capture(
+                package.Workspace,
+                new object());
+        MetadataHierarchySubjectRelationsExecution populationChanged =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    differentPopulation,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(
+                                1,
+                                continuation:
+                                    continuation))),
+                MetadataOperationPolicy.Unbounded,
+                continuationAuthority: authority,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection.StaleContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    populationChanged.Population.Rows).Reason);
+
+        ResolvedAssemblyReference changedSource =
+            Resolved(path, identity);
+        MetadataHierarchySubjectRelationsExecution sourceChanged =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                changedSource,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(
+                                1,
+                                continuation:
+                                    continuation))),
+                MetadataOperationPolicy.Unbounded,
+                continuationAuthority: authority,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection.StaleContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    sourceChanged.Population.Rows).Reason);
+
+        StructuralSubjectIdentity.TypeSubject differentFocus =
+            StructuralSubjectIdentity.ForType(
+                library,
+                TypeName("System", "IDisposable"));
+        var differentSelection =
+            new SubjectRelationPopulationSelection(
+                SubjectRelationForm.Interface,
+                MetadataRelationGraphCatalog.Interface.Id,
+                SubjectRelationDirectionSelection.Incoming,
+                SubjectRelationEvidenceKind.Declaration);
+        MetadataHierarchySubjectRelationsExecution targetChanged =
+            MetadataHierarchySubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    differentFocus,
+                    population,
+                    new(
+                        differentSelection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(
+                                1,
+                                continuation:
+                                    continuation))),
+                MetadataOperationPolicy.Unbounded,
+                continuationAuthority: authority,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection
+                .IncompatibleContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    targetChanged.Population.Rows).Reason);
+
+        ResolvedAssemblyReference changedFocusAssembly =
+            Resolved(path, identity);
+        ArgumentException mismatchedFocus =
+            Assert.Throws<ArgumentException>(() =>
+                MetadataHierarchySubjectRelationsOperation.Execute(
+                    session,
+                    assembly,
+                    changedFocusAssembly,
+                    new(
+                        SubjectRelationsRouteKind.Type,
+                        focus,
+                        population,
+                        new(
+                            selection,
+                            count:
+                                new
+                                    SubjectRelationPopulationCountRequest())),
+                    MetadataOperationPolicy.Unbounded,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        Assert.Equal("focusAssembly", mismatchedFocus.ParamName);
     }
 
     [Fact]

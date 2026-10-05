@@ -116,7 +116,7 @@ public class StructuringGotoScopeTests
         Assert.Contains(
             function.Descendants.OfType<Branch>(),
             branch => branch.TargetOffset == 50);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("goto IL_0032;", output);
         Assert.Contains("IL_0032:", output);
     }
@@ -145,7 +145,7 @@ public class StructuringGotoScopeTests
         Assert.Contains(
             function.Descendants.OfType<Branch>(),
             branch => branch.TargetOffset == 10);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("goto IL_000A;", output);
         Assert.Contains("IL_000A:", output);
     }
@@ -183,7 +183,7 @@ public class StructuringGotoScopeTests
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Equal(2, output.Split("return 10;", StringSplitOptions.None).Length - 1);
     }
 
@@ -205,7 +205,7 @@ public class StructuringGotoScopeTests
 
                 IrPasses.Run(imported!, IrPasses.Default, PassContext.None);
                 imported!.CheckInvariant();
-                return (imported, CSharpPrinter.Print(imported).Output!);
+                return (imported, DecidedPrint.Print(imported).Output!);
             });
 
         Assert.Empty(function.Descendants.OfType<Branch>());
@@ -349,7 +349,7 @@ public class StructuringGotoScopeTests
 
         Assert.Contains(function.Descendants.OfType<Leave>(), leave => leave.TargetOffset == 64);
         Assert.Empty(function.Descendants.OfType<Break>());
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
         Assert.DoesNotContain("goto IL_0018;", output);
         Assert.DoesNotContain("IL_0018:", output);
     }
@@ -369,7 +369,7 @@ public class StructuringGotoScopeTests
         Assert.Equal(7, Assert.IsType<Constant>(fallthroughStore.Value).Value);
         Assert.Same(conditional, Assert.IsType<Block>(conditional.Parent).Children[^1]);
 
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
         Assert.Contains(" = 7;", output);
         Assert.Contains("else", output);
         AssertCompiles(output);
@@ -424,7 +424,7 @@ public class StructuringGotoScopeTests
         IrPasses.Run(after);
         after.CheckInvariant();
 
-        string output = CSharpPrinter.Print(after).Output ?? "";
+        string output = DecidedPrint.Print(after).Output ?? "";
         Assert.Contains("else", output);
         Assert.Contains("V_2 = default;", output);
     }
@@ -570,7 +570,7 @@ public class StructuringGotoScopeTests
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
         Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
         Assert.Empty(function.Descendants.OfType<Break>());
     }
@@ -590,7 +590,7 @@ public class StructuringGotoScopeTests
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
         Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
         Assert.Empty(function.Descendants.OfType<Break>());
     }
@@ -647,7 +647,7 @@ public class StructuringGotoScopeTests
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
         Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
         Assert.Empty(function.Descendants.OfType<Break>());
     }
@@ -788,7 +788,7 @@ public class StructuringGotoScopeTests
         Assert.NotNull(function);
         IrPasses.Run(function);
         function.CheckInvariant();
-        return CSharpPrinter.Print(function).Output ?? "";
+        return DecidedPrint.Print(function).Output ?? "";
     }
 
     static void AssertCompiles(string body)
@@ -865,7 +865,7 @@ public class StructuringGotoScopeTests
         b5.Add(new Return(new LoadLocal(0, Int32)));
 
         var function = Structured([b0, b1, b2, b3, b4, b5]);
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
 
         int label = output.IndexOf("IL_0040:", StringComparison.Ordinal);
         int finalGoto = output.LastIndexOf("goto IL_0040;", StringComparison.Ordinal);
@@ -916,7 +916,7 @@ public class StructuringGotoScopeTests
         Assert.Empty(function.Descendants.OfType<Branch>());
         Assert.Empty(function.Descendants.OfType<Leave>());
 
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
         Assert.DoesNotContain("goto IL_", output);
         Assert.DoesNotContain("IL_00", output);
     }

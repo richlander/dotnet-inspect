@@ -158,7 +158,7 @@ public class StackSlotReuseRenderingTests
     static DecompilerResult PrintBound(IrFunction function)
     {
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        return CSharpPrinter.Print(function);
+        return DecidedPrint.Print(function);
     }
 
     static Block BlockOf(IrNode statement)
