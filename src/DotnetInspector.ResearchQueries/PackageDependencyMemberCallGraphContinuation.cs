@@ -187,7 +187,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                         .ConfigureAwait(false);
                                 ApplyPackageSelection(
                                     supplier,
-                                    graphPreparation.GraphBindings,
+                                    graphPreparation,
                                     additionalAssets);
                                 AddPlatformTarget(
                                     supplier,
@@ -247,27 +247,37 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                             cancellationToken)
                         .ConfigureAwait(false);
 
-                WorkspaceRealizationOperationLease? successorOperation =
-                    continuation
-                        is AssemblyReferenceWorkspaceContinuationOutcome
-                            .Published published
-                        ? published.SuccessorOperation
-                        : await EnterPublishedSuccessorAsync(
+                WorkspaceRealizationOperationLease? successorOperation;
+                if (continuation
+                    is AssemblyReferenceWorkspaceContinuationOutcome
+                        .Published published)
+                {
+                    successorOperation = published.SuccessorOperation;
+                }
+                else
+                {
+                    Func<ValueTask>? disposeUnadoptedSuccessor =
+                        successorGeneration is null
+                            ? null
+                            : successorGeneration.DisposeAsync;
+                    successorOperation =
+                        await AdoptPublishedSuccessorOperationAsync(
                                 coordinator,
                                 continuation,
-                                cancellationToken)
+                                disposeUnadoptedSuccessor)
                             .ConfigureAwait(false);
-                InspectionEnvelope<
-                    PackageDependencyMemberCallGraphInspectionOutcome>?
-                    continuationTerminal =
-                        ProjectTerminal(
-                            continuation,
-                            cancellationToken);
+                }
                 if (successorOperation is null)
                 {
+                    InspectionEnvelope<
+                        PackageDependencyMemberCallGraphInspectionOutcome>?
+                        terminalWithoutPublication =
+                            ProjectTerminal(
+                                continuation,
+                                cancellationToken);
                     if (successorGeneration is not null)
                         await successorGeneration.DisposeAsync();
-                    return continuationTerminal
+                    return terminalWithoutPublication
                         ?? throw new InvalidOperationException(
                             "A non-published continuation did not retain a terminal outcome.");
                 }
@@ -283,6 +293,12 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 association = successorAssociation
                     ?? throw new InvalidOperationException(
                         "A published continuation did not retain its successor Package supplier association.");
+                InspectionEnvelope<
+                    PackageDependencyMemberCallGraphInspectionOutcome>?
+                    continuationTerminal =
+                        ProjectTerminal(
+                            continuation,
+                            cancellationToken);
                 if (continuationTerminal is not null)
                     return continuationTerminal;
             }
@@ -843,7 +859,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
 
     static void ApplyPackageSelection(
         ExternalAssemblyReferenceSupplierOutcome supplier,
-        ImmutableArray<PackageRootBinding> graphBindings,
+        PackageDependencyMemberCallGraphPreparation graphPreparation,
         ICollection<PackageAssemblyContextAdditionalPackageAsset>
             additionalAssets)
     {
@@ -854,20 +870,9 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             return;
         }
 
-        string packageId =
-            package.Package.Selection.Evidence.Route.Candidate
-                .Coordinate.PackageId;
-        string packageVersion =
-            package.Package.Selection.Evidence.Route.Candidate
-                .Coordinate.Version;
-        PackageRootBinding binding = graphBindings.Single(
-            candidate =>
-                candidate.Coordinate.PackageId.Equals(
-                    packageId,
-                    StringComparison.OrdinalIgnoreCase)
-                && candidate.Coordinate.Version.Equals(
-                    packageVersion,
-                    StringComparison.OrdinalIgnoreCase));
+        PackageRootBinding binding =
+            graphPreparation.ResolvePackageBinding(
+                package.Package.Selection.Evidence.Route);
         PackageCompileAsset asset =
             package.Package.Selection.Evidence.PayloadAsset;
         if (!additionalAssets.Any(item =>
@@ -891,12 +896,14 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         }
     }
 
-    static async ValueTask<WorkspaceRealizationOperationLease?>
-        EnterPublishedSuccessorAsync(
+    internal static async ValueTask<WorkspaceRealizationOperationLease?>
+        AdoptPublishedSuccessorOperationAsync(
         WorkspaceReplacementCoordinator coordinator,
         AssemblyReferenceWorkspaceContinuationOutcome continuation,
-        CancellationToken cancellationToken)
+        Func<ValueTask>? disposeUnadoptedSuccessor)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
+        ArgumentNullException.ThrowIfNull(continuation);
         AssemblyReferenceWorkspaceContinuationPublication? publication =
             continuation switch
             {
@@ -912,25 +919,38 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             };
         if (publication is null)
             return null;
-
-        WorkspaceRealizationOperationAdmission admission =
-            await coordinator.EnterOperationAsync(cancellationToken)
-                .ConfigureAwait(false);
-        if (admission
-            is not WorkspaceRealizationOperationAdmission.Admitted admitted
-            || !ReferenceEquals(
-                admitted.Lease.Realization,
-                publication.Successor.Identity))
+        if (disposeUnadoptedSuccessor is null)
         {
-            if (admission
-                is WorkspaceRealizationOperationAdmission.Admitted invalid)
-            {
-                invalid.Lease.Dispose();
-            }
             throw new InvalidOperationException(
-                "A published successor Workspace could not issue its retained graph operation.");
+                "A published continuation did not retain its successor graph generation.");
         }
-        return admitted.Lease;
+
+        try
+        {
+            WorkspaceRealizationOperationAdmission admission =
+                await coordinator.EnterOperationAsync(CancellationToken.None)
+                    .ConfigureAwait(false);
+            if (admission
+                is not WorkspaceRealizationOperationAdmission.Admitted admitted
+                || !ReferenceEquals(
+                    admitted.Lease.Realization,
+                    publication.Successor.Identity))
+            {
+                if (admission
+                    is WorkspaceRealizationOperationAdmission.Admitted invalid)
+                {
+                    invalid.Lease.Dispose();
+                }
+                throw new InvalidOperationException(
+                    "A published successor Workspace could not issue its retained graph operation.");
+            }
+            return admitted.Lease;
+        }
+        catch
+        {
+            await disposeUnadoptedSuccessor().ConfigureAwait(false);
+            throw;
+        }
     }
 
     static AssemblyReferenceOccurrenceKey Key(

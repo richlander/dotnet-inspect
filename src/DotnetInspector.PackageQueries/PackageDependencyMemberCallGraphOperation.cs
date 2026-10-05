@@ -378,6 +378,45 @@ public sealed class PackageDependencyMemberCallGraphPreparation
     public ImmutableArray<PackageRootBinding> GraphBindings { get; }
 
     public PackageRootIdentity Root { get; }
+
+    public PackageRootBinding ResolvePackageBinding(
+        PackageDependencyEdgeRealizationSubject route)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        PackageDependencyWorkspaceDestination.Package? selected = null;
+        foreach (PackageDependencyWorkspaceDestination.Package package
+            in Routes.Destinations.OfType<
+                PackageDependencyWorkspaceDestination.Package>())
+        {
+            if (!ReferenceEquals(
+                    package.Realization?.Execution.Subject,
+                    route))
+            {
+                continue;
+            }
+            if (selected is not null)
+            {
+                throw new InvalidOperationException(
+                    "One dependency route cannot contribute multiple exact Package bindings.");
+            }
+            selected = package;
+        }
+
+        if (selected is null
+            || selected.Source
+                != PackageDependencyWorkspacePackageRouteSource
+                    .ResolvedCandidate
+            || selected.Realization?.RootContribution
+                is not PackageHouseRootContributionOutcome.Contributed
+            || !ReferenceEquals(
+                Routes.Scope.FindExactPackageOccurrence(selected.Binding),
+                selected.Occurrence))
+        {
+            throw new InvalidOperationException(
+                "A selected dependency supplier must retain its exact contributed Package binding.");
+        }
+        return selected.Binding;
+    }
 }
 
 /// <summary>
