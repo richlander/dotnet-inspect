@@ -580,7 +580,8 @@ public static class PortablePdbSettlement
                 Stopped: false);
 
         internal static PackageLocalProbe BindingFailed(
-            PortablePdbPackageBindingFailureKind failure)
+            PortablePdbPackageBindingFailureKind failure,
+            PortablePdbPackagePreparationReceipt? preparation)
         {
             bool incomplete =
                 failure
@@ -597,8 +598,15 @@ public static class PortablePdbSettlement
                             .Incomplete
                         : PortablePdbSettlementAttemptOutcome
                             .Failed,
+                    RequestCount:
+                        preparation?.RequestCount ?? 0,
+                    BodyBytesRead:
+                        preparation?.BodyBytesRead ?? 0,
+                    Elapsed:
+                        preparation?.Elapsed ?? default,
                     PackageBindingFailure: failure),
-                NetworkOccurred: false,
+                NetworkOccurred:
+                    preparation?.NetworkOccurred ?? false,
                 Stopped: incomplete);
         }
     }
@@ -932,6 +940,8 @@ public static class PortablePdbSettlement
         bool positiveStoreReceiptRecorded = false;
         PackageLocalProbe packageProbe =
             PackageLocalProbe.NotApplicable;
+        PortablePdbPackagePreparationReceipt?
+            packagePreparationReceipt = null;
         bool packageAttemptStarted = false;
         bool packageReceiptRecorded = false;
         try
@@ -1019,6 +1029,8 @@ public static class PortablePdbSettlement
                         preparedCandidate)
                 {
                     packageCandidate = preparedCandidate.Candidate;
+                    packagePreparationReceipt =
+                        preparedCandidate.Receipt;
                     request.ValidatePreparedPackageCandidate(
                         packageCandidate);
                     if (packageCandidate.Producer != packageProducer)
@@ -1033,6 +1045,8 @@ public static class PortablePdbSettlement
                         terminal)
                 {
                     packageBindingFailure = terminal.Failure;
+                    packagePreparationReceipt =
+                        terminal.Receipt;
                 }
             }
 
@@ -1040,7 +1054,8 @@ public static class PortablePdbSettlement
             {
                 packageProbe =
                     PackageLocalProbe.BindingFailed(
-                        bindingFailure);
+                        bindingFailure,
+                        packagePreparationReceipt);
                 receipts.Add(packageProbe.Receipt);
                 packageReceiptRecorded = true;
             }
@@ -1058,6 +1073,7 @@ public static class PortablePdbSettlement
                 packageProbe =
                     await ProbePackageLocalAsync(
                             packageCandidate,
+                            packagePreparationReceipt,
                             request.PositiveStore,
                             positiveStoreKey,
                             positiveStoreProvenanceKey,
@@ -1365,7 +1381,8 @@ public static class PortablePdbSettlement
                 acquiredProvenance.Coordinates,
                 PortablePdbPositiveStoreDisposition.Published,
                 document.NetworkAttempts.Any(
-                    static attempt => attempt.RequestCount > 0),
+                    static attempt => attempt.RequestCount > 0)
+                    || packageProbe.NetworkOccurred,
                 packageCandidate?.Row,
                 settledReceipts);
         }
@@ -1496,6 +1513,7 @@ public static class PortablePdbSettlement
     private static async Task<PackageLocalProbe>
         ProbePackageLocalAsync(
         PortablePdbPackageCandidate? candidate,
+        PortablePdbPackagePreparationReceipt? preparation,
         IPdbStore positiveStore,
         string positiveStoreKey,
         string positiveStoreProvenanceKey,
@@ -1506,9 +1524,38 @@ public static class PortablePdbSettlement
     {
         if (candidate is null)
         {
-            return PackageLocalProbe.NotApplicable;
+            return ApplyPreparation(
+                PackageLocalProbe.NotApplicable,
+                preparation);
         }
 
+        PackageLocalProbe probe =
+            await ProbePackageLocalCandidateAsync(
+                    candidate,
+                    positiveStore,
+                    positiveStoreKey,
+                    positiveStoreProvenanceKey,
+                    identity,
+                    limits,
+                    log,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return ApplyPreparation(
+            probe,
+            preparation);
+    }
+
+    private static async Task<PackageLocalProbe>
+        ProbePackageLocalCandidateAsync(
+        PortablePdbPackageCandidate candidate,
+        IPdbStore positiveStore,
+        string positiveStoreKey,
+        string positiveStoreProvenanceKey,
+        PortablePdbContentIdentity identity,
+        SymbolAcquisitionLimits? limits,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
         PackageHouseLibraryInventoryRow row =
             candidate.Row;
         if (row.PortablePdbEvidence
@@ -1902,6 +1949,35 @@ public static class PortablePdbSettlement
                 Stopped: true);
         }
 
+    }
+
+    private static PackageLocalProbe ApplyPreparation(
+        PackageLocalProbe probe,
+        PortablePdbPackagePreparationReceipt? preparation)
+    {
+        if (preparation is null)
+            return probe;
+
+        PortablePdbSettlementReceipt receipt =
+            probe.Receipt with
+            {
+                RequestCount = checked(
+                    probe.Receipt.RequestCount
+                    + preparation.RequestCount),
+                BodyBytesRead = checked(
+                    probe.Receipt.BodyBytesRead
+                    + preparation.BodyBytesRead),
+                Elapsed =
+                    probe.Receipt.Elapsed
+                    + preparation.Elapsed,
+            };
+        return probe with
+        {
+            Receipt = receipt,
+            NetworkOccurred =
+                probe.NetworkOccurred
+                || preparation.NetworkOccurred,
+        };
     }
 
     private static async Task<PositiveStoreProbe>

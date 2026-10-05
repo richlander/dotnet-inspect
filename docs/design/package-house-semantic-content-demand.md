@@ -221,7 +221,7 @@ but returns no selected-Library handoff and expands no compile or
 implementation entry. Its result is directory-derived evidence only. A later
 Files query may expand exact references issued by that inventory.
 
-The terminal returns:
+`GetLibraryAndInventoryForTarget` returns:
 
 - one selected Library whose required assembly content is complete and
   validated;

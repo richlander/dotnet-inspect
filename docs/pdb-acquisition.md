@@ -356,6 +356,13 @@ available, bytes read, and elapsed duration. Negative hits retain the original
 absence evidence and record zero requests. Receipts describe the operation;
 they do not expose an acquisition plan or host capability.
 
+When deferred package preparation runs, the package-local receipt includes its
+inventory request count, transferred bytes, elapsed duration, and network
+disposition together with any later exact-PDB File acquisition. That work
+remains visible when row binding fails or a later external provider supplies
+the PDB, and the final result's network disposition covers both package and
+external-provider work.
+
 Unavailable requires that no retained failure can explain the lack of content.
 A rejected same-identity response, store failure, authorization failure, or
 malformed package-local candidate therefore cannot be flattened into

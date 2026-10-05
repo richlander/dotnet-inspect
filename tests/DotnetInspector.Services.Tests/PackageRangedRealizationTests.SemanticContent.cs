@@ -724,6 +724,226 @@ public sealed partial class PackageRangedRealizationTests
 
     [Fact]
     public async Task
+        DeferredPackagePortablePdbSettlement_AccountsForInventoryAndPdbWork()
+    {
+        const string DllPath =
+            "lib/net11.0/SettlementWitness.dll";
+        const string PdbPath =
+            "lib/net11.0/SettlementWitness.pdb";
+        string testAssembly =
+            typeof(PackageRangedRealizationTests)
+                .Assembly.Location;
+        byte[] assemblyBytes =
+            File.ReadAllBytes(testAssembly);
+        byte[] pdbBytes =
+            File.ReadAllBytes(
+                Path.ChangeExtension(
+                    testAssembly,
+                    ".pdb"));
+        byte[] archive = CreateFrameworkArchive(
+            (DllPath, assemblyBytes),
+            (PdbPath, pdbBytes));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(
+                new RangeFeed(
+                    AddressPackageId,
+                    AddressPackageVersion,
+                    archive)
+                {
+                    Host = "api.nuget.org",
+                },
+                PackageSource.NuGetOrg);
+        var packageSource =
+            new TestPortablePdbPackageContentSource(
+                environment,
+                new InMemoryPackageStore());
+        ResolvedAssemblyReference assembly =
+            CreatePackageAssembly(
+                assemblyBytes,
+                DllPath);
+        using SourceLinkService source =
+            SourceLinkService.OpenEmbeddedPdbOnly(
+                assembly);
+        using var client =
+            new HttpClient(
+                new RejectNetworkHandler());
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(
+                    await PortablePdbSettlement.SettleAsync(
+                        new PortablePdbSettlementRequest(
+                            source.Context,
+                            assembly,
+                            client,
+                            new InMemoryPdbStore(),
+                            new UniformPackageSourceAuthorization(
+                                [PackageSource.NuGetOrg]))
+                        {
+                            PackagePreparation =
+                                PortablePdbPackageComposition
+                                    .DeferForAssembly(
+                                        assembly,
+                                        packageSource,
+                                        PackageProducerIdentity
+                                            .NuGetOrg),
+                        },
+                        TestContext.Current
+                            .CancellationToken));
+
+        Assert.Equal(
+            PortablePdbSettlementSource.PackageLocal,
+            acquired.Source);
+        Assert.True(acquired.NetworkOccurred);
+        PortablePdbSettlementReceipt packageReceipt =
+            Assert.Single(
+                acquired.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            packageSource.Settlements.Sum(
+                static settlement =>
+                    settlement.Result.Evidence.Acquisition!
+                        .Transfer.RequestCount),
+            packageReceipt.RequestCount);
+        Assert.Equal(
+            packageSource.Settlements[0]
+                .Result.Evidence.Acquisition!
+                .Transfer.BytesReceived
+                + pdbBytes.Length,
+            packageReceipt.BodyBytesRead);
+        Assert.True(packageReceipt.Elapsed > TimeSpan.Zero);
+        Assert.Collection(
+            packageSource.Queries,
+            query => Assert.IsType<
+                PackageHouseContentTerminal
+                    .LibraryInventoryForTarget>(
+                    Assert.Single(query.Terminals)),
+            query =>
+            {
+                var files = Assert.IsType<
+                    PackageHouseContentTerminal.Files>(
+                        Assert.Single(query.Terminals));
+                Assert.Equal(
+                    [PdbPath],
+                    files.Entries);
+            });
+        Assert.Empty(
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                    packageSource.Settlements[0])
+                .Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public async Task
+        DeferredPackageBindingFailure_AccountsForInventoryBeforeProviderFallback()
+    {
+        const string DllPath =
+            "lib/net11.0/SettlementWitness.dll";
+        const string MissingPath =
+            "lib/net11.0/Missing.dll";
+        const string PdbPath =
+            "lib/net11.0/SettlementWitness.pdb";
+        string testAssembly =
+            typeof(PackageRangedRealizationTests)
+                .Assembly.Location;
+        byte[] assemblyBytes =
+            File.ReadAllBytes(testAssembly);
+        byte[] pdbBytes =
+            File.ReadAllBytes(
+                Path.ChangeExtension(
+                    testAssembly,
+                    ".pdb"));
+        byte[] archive = CreateFrameworkArchive(
+            (DllPath, assemblyBytes),
+            (PdbPath, pdbBytes));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(
+                new RangeFeed(
+                    AddressPackageId,
+                    AddressPackageVersion,
+                    archive)
+                {
+                    Host = "api.nuget.org",
+                },
+                PackageSource.NuGetOrg);
+        var packageSource =
+            new TestPortablePdbPackageContentSource(
+                environment,
+                new InMemoryPackageStore());
+        ResolvedAssemblyReference assembly =
+            CreatePackageAssembly(
+                assemblyBytes,
+                MissingPath);
+        using SourceLinkService source =
+            SourceLinkService.OpenEmbeddedPdbOnly(
+                assembly);
+        using var client =
+            new HttpClient(
+                new RawPdbNetworkHandler(pdbBytes));
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(
+                    await PortablePdbSettlement.SettleAsync(
+                        new PortablePdbSettlementRequest(
+                            source.Context,
+                            assembly,
+                            client,
+                            new InMemoryPdbStore(),
+                            new UniformPackageSourceAuthorization(
+                                [PackageSource.NuGetOrg]))
+                        {
+                            PackagePreparation =
+                                PortablePdbPackageComposition
+                                    .DeferForAssembly(
+                                        assembly,
+                                        packageSource,
+                                        PackageProducerIdentity
+                                            .NuGetOrg),
+                        },
+                        TestContext.Current
+                            .CancellationToken));
+
+        Assert.NotEqual(
+            PortablePdbSettlementSource.PackageLocal,
+            acquired.Source);
+        Assert.True(acquired.NetworkOccurred);
+        PortablePdbSettlementReceipt packageReceipt =
+            Assert.Single(
+                acquired.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            PortablePdbSettlementAttemptOutcome.Failed,
+            packageReceipt.Outcome);
+        Assert.Equal(
+            PortablePdbPackageBindingFailureKind
+                .SelectedLibraryUnavailable,
+            packageReceipt.PackageBindingFailure);
+        PackageTransferReceipt transfer =
+            packageSource.Settlements[0]
+                .Result.Evidence.Acquisition!
+                .Transfer;
+        Assert.Equal(
+            transfer.RequestCount,
+            packageReceipt.RequestCount);
+        Assert.Equal(
+            transfer.BytesReceived,
+            packageReceipt.BodyBytesRead);
+        Assert.True(packageReceipt.Elapsed > TimeSpan.Zero);
+        Assert.Single(packageSource.Queries);
+        Assert.IsType<
+            PackageHouseContentTerminal
+                .LibraryInventoryForTarget>(
+                Assert.Single(
+                    packageSource.Queries[0].Terminals));
+    }
+
+    [Fact]
+    public async Task
         PackagePortablePdbSettlement_StoreReadBackFailureIsVisible()
     {
         const string DllPath =
@@ -2395,6 +2615,26 @@ public sealed partial class PackageRangedRealizationTests
             => throw new InvalidOperationException(
                 "Package-local settlement performed external network work.");
     }
+
+    private static ResolvedAssemblyReference
+        CreatePackageAssembly(
+        byte[] assemblyBytes,
+        string assetPath) =>
+        ResolvedAssemblyReference.CreateFromStreamIfManaged(
+            () => new MemoryStream(
+                assemblyBytes,
+                writable: false),
+            AssemblyResolutionProvenance.Package(
+                AddressPackageId,
+                AddressPackageVersion,
+                "net11.0",
+                rid: null,
+                assetPath),
+            lastWriteTimeUtc: null,
+            assetFileName:
+                Path.GetFileName(assetPath))
+        ?? throw new InvalidOperationException(
+            "The settlement witness must be a managed assembly.");
 
     private sealed class RawPdbNetworkHandler(
         byte[] pdb)

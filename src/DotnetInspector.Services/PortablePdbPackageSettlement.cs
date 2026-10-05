@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -115,14 +117,26 @@ public abstract record PortablePdbPackagePreparationResult
     }
 
     public sealed record Prepared(
-        PortablePdbPackageCandidate Candidate)
+        PortablePdbPackageCandidate Candidate,
+        PortablePdbPackagePreparationReceipt Receipt)
         : PortablePdbPackagePreparationResult;
 
     public sealed record Terminal(
         PortablePdbPackageBindingFailureKind Failure,
-        PackageHouseSettlement Settlement)
+        PackageHouseSettlement Settlement,
+        PortablePdbPackagePreparationReceipt Receipt)
         : PortablePdbPackagePreparationResult;
 }
+
+/// <summary>
+/// The PackageHouse work completed while preparing one deferred package-local
+/// Portable PDB candidate.
+/// </summary>
+public sealed record PortablePdbPackagePreparationReceipt(
+    int RequestCount,
+    long BodyBytesRead,
+    TimeSpan Elapsed,
+    bool NetworkOccurred);
 
 /// <summary>
 /// Deferred package-local candidate preparation for one exact already
@@ -221,6 +235,7 @@ public static class PortablePdbPackageComposition
             PackageHouseTargetContext.Exact(
                 framework,
                 package.Rid);
+        var stopwatch = Stopwatch.StartNew();
         PackageHouseSettlement inventorySettlement =
             await AcquireInventoryOnlyAsync(
                     coordinate,
@@ -228,6 +243,11 @@ public static class PortablePdbPackageComposition
                     source,
                     cancellationToken)
                 .ConfigureAwait(false);
+        stopwatch.Stop();
+        PortablePdbPackagePreparationReceipt preparationReceipt =
+            CreatePreparationReceipt(
+                inventorySettlement,
+                stopwatch.Elapsed);
         if (inventorySettlement
                 is not PackageHouseSettlement.Acquired acquired
             || acquired.Result
@@ -235,7 +255,8 @@ public static class PortablePdbPackageComposition
         {
             return new PortablePdbPackagePreparationResult.Terminal(
                 Classify(inventorySettlement.Result),
-                inventorySettlement);
+                inventorySettlement,
+                preparationReceipt);
         }
 
         PackageHouseLibraryInventory? inventory =
@@ -244,7 +265,8 @@ public static class PortablePdbPackageComposition
         {
             return new PortablePdbPackagePreparationResult.Terminal(
                 PortablePdbPackageBindingFailureKind.PackageFailed,
-                inventorySettlement);
+                inventorySettlement,
+                preparationReceipt);
         }
 
         PackageHouseLibraryInventoryRow[] matchingRows =
@@ -261,14 +283,16 @@ public static class PortablePdbPackageComposition
             return new PortablePdbPackagePreparationResult.Terminal(
                 PortablePdbPackageBindingFailureKind
                     .SelectedLibraryUnavailable,
-                inventorySettlement);
+                inventorySettlement,
+                preparationReceipt);
         }
 
         return new PortablePdbPackagePreparationResult.Prepared(
             new PortablePdbPackageCandidate(
                 inventory,
                 matchingRows[0],
-                source));
+                source),
+            preparationReceipt);
     }
 
     public static async Task<PortablePdbPackageBindingResult>
@@ -503,6 +527,22 @@ public static class PortablePdbPackageComposition
             coordinate,
             query,
             cancellationToken);
+    }
+
+    private static PortablePdbPackagePreparationReceipt
+        CreatePreparationReceipt(
+        PackageHouseSettlement settlement,
+        TimeSpan elapsed)
+    {
+        PackageHouseAcquisitionReceipt? acquisition =
+            settlement.Result.Evidence.Acquisition;
+        return new(
+            acquisition?.Transfer.RequestCount ?? 0,
+            acquisition?.Transfer.BytesReceived ?? 0,
+            elapsed,
+            acquisition?.Origin
+                is PackagePayloadOrigin.Download
+                    or PackagePayloadOrigin.Ranged);
     }
 
     private static ResolvedAssemblyReference?
