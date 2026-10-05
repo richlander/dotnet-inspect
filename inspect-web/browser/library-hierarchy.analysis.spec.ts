@@ -945,12 +945,18 @@ for (const width of [1440, 390]) {
     await openReferences(page);
     const frame = page.locator(".library-references-surface");
     await expect(frame.locator(".dep-list li")).toHaveCount(1);
+    await expect(frame.locator(".reference-graph-section .graph-viewport"))
+      .toBeVisible();
+    await expect(frame.locator(".reference-graph-section")).toContainText(
+      "inspected assembly");
+    await expect(frame.locator(".reference-list-section")).toContainText(
+      "Assembly references");
     await expect(frame.locator("header")).toContainText("1 direct reference");
     await expect(frame.locator("footer")).toContainText(core.asset);
     await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
     await expect(frame.locator("footer")).toContainText("Example.Package@1.0.0");
     await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
-    await expect(frame.locator("h2")).toHaveCount(0);
+    await expect(frame.locator("h2")).toHaveCount(2);
     const panelBox = await page.locator("#inspector-panel").boundingBox();
     const frameBox = await frame.boundingBox();
     expect(panelBox).not.toBeNull();
@@ -958,8 +964,9 @@ for (const width of [1440, 390]) {
     expect(Math.abs(frameBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
     expect(Math.abs(frameBox!.height - panelBox!.height)).toBeLessThanOrEqual(2);
     const listBox = await frame.locator(".dep-list").boundingBox();
-    expect(Math.abs(listBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(listBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
+    expect(listBox!.x).toBeGreaterThan(frameBox!.x);
+    expect(listBox!.x + listBox!.width)
+      .toBeLessThan(frameBox!.x + frameBox!.width);
     await page.screenshot({ path: testInfo.outputPath("references.png") });
     if (width === 390) {
       const back = page.getByRole("button", { name: "Libraries", exact: true });
@@ -981,6 +988,8 @@ for (const width of [1440, 390]) {
     await openReferences(page);
     const frame = page.locator(".library-references-surface");
     await expect(frame.locator(".dep-list li")).toHaveCount(80);
+    await expect(frame.locator(".reference-graph-section")).toContainText(
+      "Reference graph shows 79 of 80 direct references");
     await expect(frame.locator("header")).toContainText("80 direct references");
     await expect(frame.locator("footer span").first()).toHaveAttribute("title", new RegExp(longCore.name));
     const headerBox = await frame.locator("header").boundingBox();
