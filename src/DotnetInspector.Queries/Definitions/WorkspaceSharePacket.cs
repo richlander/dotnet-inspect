@@ -10,6 +10,37 @@ public enum WorkspaceShareSourceKind
     Group = 1,
 }
 
+public enum WorkspaceShareMemberAccessibility
+{
+    All = 0,
+    Public = 1,
+    Protected = 2,
+    Internal = 3,
+    Private = 4,
+}
+
+public enum WorkspaceShareDeclarationSource
+{
+    Surface = 0,
+    Implementation = 1,
+}
+
+public sealed record WorkspaceShareDeclarationSourceRequirement
+{
+    public WorkspaceShareDeclarationSourceRequirement(
+        WorkspaceShareDeclarationSource source,
+        string libraryAsset)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(libraryAsset);
+        Source = source;
+        LibraryAsset = libraryAsset;
+    }
+
+    public WorkspaceShareDeclarationSource Source { get; }
+
+    public string LibraryAsset { get; }
+}
+
 /// <summary>
 /// One navigation source in a versioned workspace share packet.
 /// </summary>
@@ -126,8 +157,68 @@ public sealed class WorkspaceSharePacket
         string? section,
         string[] libraries,
         string? sourceView = null)
+        : this(
+            WorkspaceSharePacketCodec.LegacyFormatVersion,
+            tabs,
+            contexts,
+            activeTabIndex,
+            selectedContextIndex,
+            lens,
+            type,
+            memberAnchor,
+            memberSignature,
+            section,
+            libraries,
+            sourceView,
+            memberAccessibility: null,
+            declarationSourceRequirement: null)
     {
-        FormatVersion = WorkspaceSharePacketCodec.LegacyFormatVersion;
+    }
+
+    private WorkspaceSharePacket(
+        int formatVersion,
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        int activeTabIndex,
+        int selectedContextIndex,
+        string? lens,
+        string? type,
+        string? memberAnchor,
+        string? memberSignature,
+        string? section,
+        string[] libraries,
+        string? sourceView,
+        WorkspaceShareMemberAccessibility? memberAccessibility,
+        WorkspaceShareDeclarationSourceRequirement? declarationSourceRequirement)
+    {
+        if (formatVersion is not (
+            WorkspaceSharePacketCodec.LegacyFormatVersion
+            or WorkspaceSharePacketCodec.Format6Version))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(formatVersion),
+                formatVersion,
+                "A flat Browser packet must use format 1 or 6.");
+        }
+        if (formatVersion == WorkspaceSharePacketCodec.LegacyFormatVersion
+            && (memberAccessibility is not null
+                || declarationSourceRequirement is not null))
+        {
+            throw new ArgumentException(
+                "Workspace share format 1 cannot carry exact symbol view requirements.",
+                nameof(memberAccessibility));
+        }
+        bool hasType = type is not null;
+        if (formatVersion == WorkspaceSharePacketCodec.Format6Version
+            && (hasType != (memberAccessibility is not null)
+                || hasType != (declarationSourceRequirement is not null)))
+        {
+            throw new ArgumentException(
+                "Workspace share format 6 requires accessibility and declaration source exactly when a Type is selected.",
+                nameof(memberAccessibility));
+        }
+
+        FormatVersion = formatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
             (WorkspaceShareTab[])tabs.Clone());
         Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
@@ -144,6 +235,8 @@ public sealed class WorkspaceSharePacket
         MemberSignature = memberSignature;
         Section = section;
         SourceView = sourceView;
+        MemberAccessibility = memberAccessibility;
+        DeclarationSourceRequirement = declarationSourceRequirement;
         Libraries = new ReadOnlyCollection<string>((string[])libraries.Clone());
         ViewStates = Array.Empty<WorkspaceShareViewState>();
     }
@@ -176,6 +269,8 @@ public sealed class WorkspaceSharePacket
         MemberSignature = null;
         Section = null;
         SourceView = null;
+        MemberAccessibility = null;
+        DeclarationSourceRequirement = null;
         Libraries = Array.Empty<string>();
         ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
             (WorkspaceShareViewState[])viewStates.Clone());
@@ -262,6 +357,8 @@ public sealed class WorkspaceSharePacket
         MemberSignature = null;
         Section = null;
         SourceView = null;
+        MemberAccessibility = null;
+        DeclarationSourceRequirement = null;
         Libraries = Array.Empty<string>();
         ViewStates = new ReadOnlyCollection<WorkspaceShareViewState>(
             (WorkspaceShareViewState[])viewStates.Clone());
@@ -305,6 +402,36 @@ public sealed class WorkspaceSharePacket
             selectedContextIndex,
             viewStates,
             queries);
+
+    internal static WorkspaceSharePacket CreateV6(
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        int activeTabIndex,
+        int selectedContextIndex,
+        string? lens,
+        string? type,
+        string? memberAnchor,
+        string? memberSignature,
+        string? section,
+        string[] libraries,
+        string? sourceView,
+        WorkspaceShareMemberAccessibility? memberAccessibility,
+        WorkspaceShareDeclarationSourceRequirement? declarationSourceRequirement) =>
+        new(
+            WorkspaceSharePacketCodec.Format6Version,
+            tabs,
+            contexts,
+            activeTabIndex,
+            selectedContextIndex,
+            lens,
+            type,
+            memberAnchor,
+            memberSignature,
+            section,
+            libraries,
+            sourceView,
+            memberAccessibility,
+            declarationSourceRequirement);
 
     public int FormatVersion { get; }
 
@@ -356,6 +483,12 @@ public sealed class WorkspaceSharePacket
     public string? Section { get; }
 
     public string? SourceView { get; }
+
+    /// <summary>Format-6 surrounding Member accessibility view.</summary>
+    public WorkspaceShareMemberAccessibility? MemberAccessibility { get; }
+
+    /// <summary>Format-6 exact declaration participant requirement.</summary>
+    public WorkspaceShareDeclarationSourceRequirement? DeclarationSourceRequirement { get; }
 
     /// <summary>Format-1 filename-stem Library scope.</summary>
     public IReadOnlyList<string> Libraries { get; }

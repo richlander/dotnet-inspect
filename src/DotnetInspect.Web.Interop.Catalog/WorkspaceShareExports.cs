@@ -92,8 +92,9 @@ namespace DotnetInspect.Web.Interop.Catalog
             try
             {
                 WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(encoded);
-                if (packet.FormatVersion
-                    != WorkspaceSharePacketCodec.LegacyFormatVersion)
+                if (packet.FormatVersion is not (
+                    WorkspaceSharePacketCodec.LegacyFormatVersion
+                    or WorkspaceSharePacketCodec.Format6Version))
                 {
                     return new BrowserWorkspaceShareDecodeResult(
                         Succeeded: false,
@@ -145,7 +146,14 @@ namespace DotnetInspect.Web.Interop.Catalog
                             definitions.View.MemberSignature,
                             definitions.View.Section,
                             [.. definitions.View.Libraries],
-                            definitions.View.SourceView)),
+                            definitions.View.SourceView,
+                            MemberAccessibility(
+                                definitions.View.MemberAccessibility),
+                            DeclarationSource(
+                                definitions.View
+                                    .DeclarationSourceRequirement?.Source),
+                            definitions.View
+                                .DeclarationSourceRequirement?.LibraryAsset)),
                     Failure: null);
             }
             catch (WorkspaceSharePacketException ex)
@@ -462,17 +470,39 @@ namespace DotnetInspect.Web.Interop.Catalog
                     members);
             }
 
+            bool hasExactSymbolView =
+                state.View.MemberAccessibility is not null
+                || state.View.DeclarationSource is not null
+                || state.View.DeclarationLibraryAsset is not null;
+            if (hasExactSymbolView && state.View.Type is null)
+            {
+                throw new ArgumentException(
+                    "Workspace share exact symbol view requirements require a Type.",
+                    nameof(state));
+            }
+            if (hasExactSymbolView
+                && (state.View.MemberAccessibility is null
+                    || state.View.DeclarationSource is null
+                    || state.View.DeclarationLibraryAsset is null))
+            {
+                throw new ArgumentException(
+                    "Workspace share exact symbol view requires accessibility, declaration source, and declaration Library asset.",
+                    nameof(state));
+            }
+            int schemaVersion = hasExactSymbolView
+                ? InspectionDefinitionSchema.Version6
+                : InspectionDefinitionSchema.Version1;
             var workspace = new WorkspaceDefinition(
-                InspectionDefinitionSchema.Version1,
+                schemaVersion,
                 WorkspaceSharePacketTransposer.WorkspaceId,
                 workspaceContexts);
             var navigation = new NavigationDefinition(
-                InspectionDefinitionSchema.Version1,
+                schemaVersion,
                 WorkspaceSharePacketTransposer.NavigationId,
                 navigationTabs,
                 state.ActiveTabId);
             var view = new ViewDefinition(
-                InspectionDefinitionSchema.Version1,
+                schemaVersion,
                 WorkspaceSharePacketTransposer.ViewId,
                 lens: state.View.Lens,
                 type: state.View.Type,
@@ -480,9 +510,14 @@ namespace DotnetInspect.Web.Interop.Catalog
                 memberSignature: state.View.MemberSignature,
                 section: state.View.Section,
                 libraries: state.View.Libraries,
-                sourceView: state.View.SourceView);
+                sourceView: state.View.SourceView,
+                memberAccessibility:
+                    ParseMemberAccessibility(
+                        state.View.MemberAccessibility),
+                declarationSourceRequirement:
+                    ParseDeclarationSourceRequirement(state.View));
             var scenario = new ScenarioDefinition(
-                InspectionDefinitionSchema.Version1,
+                schemaVersion,
                 WorkspaceSharePacketTransposer.ScenarioId,
                 workspace: workspace.Id,
                 context: state.SelectedContextId,
@@ -493,6 +528,74 @@ namespace DotnetInspect.Web.Interop.Catalog
                 navigation,
                 view,
                 scenario);
+        }
+
+        private static string? MemberAccessibility(
+            WorkspaceShareMemberAccessibility? accessibility) =>
+            accessibility switch
+            {
+                null => null,
+                WorkspaceShareMemberAccessibility.All => "all",
+                WorkspaceShareMemberAccessibility.Public => "public",
+                WorkspaceShareMemberAccessibility.Protected => "protected",
+                WorkspaceShareMemberAccessibility.Internal => "internal",
+                WorkspaceShareMemberAccessibility.Private => "private",
+                _ => throw new InvalidOperationException(
+                    "Unknown workspace share Member accessibility."),
+            };
+
+        private static WorkspaceShareMemberAccessibility?
+            ParseMemberAccessibility(string? accessibility) =>
+            accessibility switch
+            {
+                null => null,
+                "all" => WorkspaceShareMemberAccessibility.All,
+                "public" => WorkspaceShareMemberAccessibility.Public,
+                "protected" => WorkspaceShareMemberAccessibility.Protected,
+                "internal" => WorkspaceShareMemberAccessibility.Internal,
+                "private" => WorkspaceShareMemberAccessibility.Private,
+                _ => throw new ArgumentException(
+                    $"Workspace share Member accessibility '{accessibility}' is unsupported."),
+            };
+
+        private static string? DeclarationSource(
+            WorkspaceShareDeclarationSource? source) =>
+            source switch
+            {
+                null => null,
+                WorkspaceShareDeclarationSource.Surface => "surface",
+                WorkspaceShareDeclarationSource.Implementation =>
+                    "implementation",
+                _ => throw new InvalidOperationException(
+                    "Unknown workspace share declaration source."),
+            };
+
+        private static WorkspaceShareDeclarationSourceRequirement?
+            ParseDeclarationSourceRequirement(
+                BrowserWorkspaceShareView view)
+        {
+            if (view.DeclarationSource is null
+                && view.DeclarationLibraryAsset is null)
+            {
+                return null;
+            }
+            if (view.DeclarationSource is null
+                || view.DeclarationLibraryAsset is null)
+            {
+                throw new ArgumentException(
+                    "Workspace share declaration source and Library asset must be supplied together.");
+            }
+
+            return new WorkspaceShareDeclarationSourceRequirement(
+                view.DeclarationSource switch
+                {
+                    "surface" => WorkspaceShareDeclarationSource.Surface,
+                    "implementation" =>
+                        WorkspaceShareDeclarationSource.Implementation,
+                    _ => throw new ArgumentException(
+                        $"Workspace share declaration source '{view.DeclarationSource}' is unsupported."),
+                },
+                view.DeclarationLibraryAsset);
         }
 
         private static DefinitionMemberCoordinate.PackageCoordinate PackageCoordinate(

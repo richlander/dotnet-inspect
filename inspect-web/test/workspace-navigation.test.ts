@@ -95,6 +95,9 @@ function workspaceState(
       section: "facts",
       libraries: ["Example.Second"],
       sourceView: null,
+      memberAccessibility: "all",
+      declarationSource: "implementation",
+      declarationLibraryAsset: "Example.Second",
     },
     ...overrides,
   };
@@ -390,7 +393,9 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.overload, null);
   assert.equal(parsed.section, "facts");
   assert.equal(parsed.memberSourceView, null);
-  assert.equal(parsed.memberAccessibilityFilter, "public");
+  assert.equal(parsed.memberAccessibilityFilter, "all");
+  assert.equal(parsed.declarationSource, "implementation");
+  assert.equal(parsed.declarationLibraryAsset, "Example.Second");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
 });
@@ -444,6 +449,9 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
       memberSignature: null,
       section: null,
       libraries: [],
+      memberAccessibility: null,
+      declarationSource: null,
+      declarationLibraryAsset: null,
       sourceView: null,
     },
   });
@@ -475,6 +483,9 @@ test("canonical package dependency views restore the package root lens", () => {
       memberSignature: null,
       section: null,
       libraries: [],
+      memberAccessibility: null,
+      declarationSource: null,
+      declarationLibraryAsset: null,
     },
   });
 
@@ -542,6 +553,9 @@ test("canonical Library views restore one exact library and its lens", () => {
       memberSignature: null,
       section: null,
       libraries: ["Example.Second"],
+      memberAccessibility: null,
+      declarationSource: null,
+      declarationLibraryAsset: null,
     },
   });
 
@@ -596,6 +610,9 @@ test("canonical context capture does not broaden a selected subset for Call Grap
       section: "Call Graph",
       libraries: [],
       sourceView: null,
+      memberAccessibility: null,
+      declarationSource: null,
+      declarationLibraryAsset: null,
     },
   };
 
@@ -1254,7 +1271,12 @@ test("history signatures distinguish captured library scope", () => {
       tabs: [{ id: "p", kind: "group", source: ":Platform", version: "11.0.0-preview.7.26381.103",
         framework: "net11.0", runtimeIdentifier: null }],
       contexts: [{ id: "g", tabIds: ["p"] }], activeTabId: "p", selectedContextId: "g",
-      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [], sourceView: null },
+      view: {
+        lens: null, type: null, memberAnchor: null, memberSignature: null,
+        section: null, libraries: [], sourceView: null,
+        memberAccessibility: null, declarationSource: null,
+        declarationLibraryAsset: null,
+      },
     });
     for (const library of [null, '["aspnetcore.app","Microsoft.AspNetCore.dll"]']) {
       const state = { ...root, view: { ...root.view,

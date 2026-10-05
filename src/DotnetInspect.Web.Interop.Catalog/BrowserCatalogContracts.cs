@@ -510,7 +510,7 @@ public sealed record BrowserWorkspaceShareContext(
     string Id,
     string[] TabIds);
 
-/// <summary>Canonical product-owned view fields carried by share packet v1.</summary>
+/// <summary>Canonical product-owned view fields carried by Browser share packets.</summary>
 public sealed record BrowserWorkspaceShareView(
     string? Lens,
     string? Type,
@@ -518,7 +518,10 @@ public sealed record BrowserWorkspaceShareView(
     string? MemberSignature,
     string? Section,
     string[] Libraries,
-    string? SourceView);
+    string? SourceView,
+    string? MemberAccessibility = null,
+    string? DeclarationSource = null,
+    string? DeclarationLibraryAsset = null);
 
 /// <summary>
 /// Long-form Browser transport for one canonical packet-local scenario.

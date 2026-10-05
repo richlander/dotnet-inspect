@@ -45,6 +45,9 @@ public sealed class BrowserWorkspaceShareOperationsTests
         Assert.Equal("api", state.View.Lens);
         Assert.Equal("System.Text.Json.JsonSerializer", state.View.Type);
         Assert.Null(state.View.SourceView);
+        Assert.Null(state.View.MemberAccessibility);
+        Assert.Null(state.View.DeclarationSource);
+        Assert.Null(state.View.DeclarationLibraryAsset);
         Assert.Equal(["System.Text.Json"], state.View.Libraries);
 
         BrowserWorkspaceShareEncodeResult encoded =
@@ -53,6 +56,98 @@ public sealed class BrowserWorkspaceShareOperationsTests
         Assert.True(encoded.Succeeded);
         Assert.Null(encoded.Failure);
         Assert.Equal(CanonicalVector, encoded.Packet);
+    }
+
+    [Fact]
+    public void ExactImplementationMember_AuthorsFormat6AndRoundTripsRequirements()
+    {
+        var state = new BrowserWorkspaceShareState(
+            [
+                new BrowserWorkspaceShareTab(
+                    "t0",
+                    "package",
+                    "P",
+                    "1.0.0",
+                    "net10.0",
+                    RuntimeIdentifier: null),
+            ],
+            [new BrowserWorkspaceShareContext("g0", ["t0"])],
+            ActiveTabId: "t0",
+            SelectedContextId: "g0",
+            new BrowserWorkspaceShareView(
+                Lens: "api",
+                Type: "P.HiddenType",
+                MemberAnchor: "0123456789",
+                MemberSignature: null,
+                Section: null,
+                Libraries: [],
+                SourceView: null,
+                MemberAccessibility: "all",
+                DeclarationSource: "implementation",
+                DeclarationLibraryAsset: "ref/net10.0/P.dll"));
+
+        BrowserWorkspaceShareEncodeResult encoded =
+            BrowserWorkspaceShareOperations.Encode(state);
+
+        Assert.True(encoded.Succeeded);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            Assert.IsType<string>(encoded.Packet),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(WorkspaceSharePacketCodec.Format6Version, packet.FormatVersion);
+        Assert.Equal(
+            """{"f":6,"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"a":0,"x":0,"v":"api","y":"P.HiddenType","m":"0123456789","z":"all","d":["implementation","ref/net10.0/P.dll"]}""",
+            WorkspaceSharePacketCodec.SerializeJson(packet));
+        Assert.Equal(
+            WorkspaceShareMemberAccessibility.All,
+            packet.MemberAccessibility);
+        Assert.Equal(
+            WorkspaceShareDeclarationSource.Implementation,
+            packet.DeclarationSourceRequirement?.Source);
+
+        BrowserWorkspaceShareState decoded =
+            Assert.IsType<BrowserWorkspaceShareState>(
+                BrowserWorkspaceShareOperations.Decode(encoded.Packet!).State);
+        Assert.Equal("all", decoded.View.MemberAccessibility);
+        Assert.Equal("implementation", decoded.View.DeclarationSource);
+        Assert.Equal(
+            "ref/net10.0/P.dll",
+            decoded.View.DeclarationLibraryAsset);
+    }
+
+    [Fact]
+    public void ExactSymbolRequirements_RejectIncompleteBrowserState()
+    {
+        var state = new BrowserWorkspaceShareState(
+            [
+                new BrowserWorkspaceShareTab(
+                    "t0",
+                    "package",
+                    "P",
+                    "1.0.0",
+                    "net10.0",
+                    RuntimeIdentifier: null),
+            ],
+            [new BrowserWorkspaceShareContext("g0", ["t0"])],
+            ActiveTabId: "t0",
+            SelectedContextId: "g0",
+            new BrowserWorkspaceShareView(
+                Lens: "api",
+                Type: "P.HiddenType",
+                MemberAnchor: null,
+                MemberSignature: null,
+                Section: null,
+                Libraries: [],
+                SourceView: null,
+                MemberAccessibility: "all"));
+
+        BrowserWorkspaceShareEncodeResult encoded =
+            BrowserWorkspaceShareOperations.Encode(state);
+
+        Assert.False(encoded.Succeeded);
+        Assert.Equal("InvalidBrowserState", encoded.Failure?.Kind);
+        Assert.Contains(
+            "requires accessibility, declaration source",
+            encoded.Failure?.Message);
     }
 
     [Fact]

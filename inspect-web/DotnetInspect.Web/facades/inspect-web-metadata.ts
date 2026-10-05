@@ -664,6 +664,7 @@ export interface BrowserTypeMemberPopulation {
   readonly spelling: string;
   readonly accessibility: string;
   readonly declarationSource: BrowserTypeMemberDeclarationSource;
+  readonly type: BrowserTypeSurface | null;
   readonly composition: BrowserTypeMemberComposition;
   readonly selectorCounts: BrowserTypeMemberSelectorCounts;
   readonly groups: ReadonlyArray<BrowserTypeMemberPopulationGroup>;

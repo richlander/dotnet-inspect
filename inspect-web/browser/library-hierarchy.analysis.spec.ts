@@ -21,6 +21,27 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value);
+}
+
+function workspaceShareState(packet: string): {
+  state: Record<string, unknown>;
+  view: Record<string, unknown>;
+} {
+  const state: unknown = JSON.parse(
+    Buffer.from(packet, "base64").toString("utf8"));
+  if (!isRecord(state) || !isRecord(state.view)) {
+    throw new Error("The fixture Workspace packet has no view.");
+  }
+  return {
+    state,
+    view: state.view,
+  };
+}
+
 async function openIntegrations(page: Page, location = root) {
   await page.goto(location);
   await selectLibrary(page, core.id);
@@ -393,6 +414,195 @@ test("ranked Analysis members replace sticky private intent with all access", as
   await expect(page.locator("html")).toHaveAttribute(
     "data-member-declaration-request",
     /"Transform","Transform",100663299,true\]$/,
+  );
+});
+
+test("shared hidden implementation Member reopens inside the requested public view", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "Transform" })
+    .click();
+
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view;
+  }).toMatchObject({
+    type: "Example.Widget",
+    memberAnchor: "transform",
+    memberAccessibility: "all",
+    declarationSource: "implementation",
+    declarationLibraryAsset: "asset:core",
+  });
+  const narrowedUrl = new URL(page.url());
+  {
+    const url = narrowedUrl;
+    const { state, view } = workspaceShareState(url.searchParams.get("w")!);
+    view.memberAccessibility = "public";
+    url.searchParams.set(
+      "w",
+      Buffer.from(JSON.stringify(state)).toString("base64"),
+    );
+  }
+  await page.evaluate(
+    url => history.replaceState(null, "", url),
+    narrowedUrl.toString(),
+  );
+
+  await page.reload();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-implementation-type-member-population-request",
+    /"Example.Core.dll","Example.Widget","csharp","public"\]$/,
+  );
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Transform");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("public");
+});
+
+test("shared implementation-only Type reopens without entering discovery", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "implementation-only",
+  );
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "ImplementationOnly.Hidden" })
+    .click();
+
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view;
+  }).toMatchObject({
+    type: "Example.ImplementationOnly",
+    memberAnchor: "hidden",
+    memberAccessibility: "all",
+    declarationSource: "implementation",
+    declarationLibraryAsset: "asset:core",
+  });
+  const narrowedUrl = new URL(page.url());
+  {
+    const url = narrowedUrl;
+    const { state, view } = workspaceShareState(url.searchParams.get("w")!);
+    view.memberAccessibility = "public";
+    url.searchParams.set(
+      "w",
+      Buffer.from(JSON.stringify(state)).toString("base64"),
+    );
+  }
+  await page.evaluate(
+    url => history.replaceState(null, "", url),
+    narrowedUrl.toString(),
+  );
+
+  await page.reload();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-implementation-type-member-population-request",
+    /"Example.Core.dll","Example.ImplementationOnly","csharp","public"\]$/,
+  );
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Hidden");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("public");
+  await expect(page.locator(
+    '#type-list [data-type="asset:core:Example.ImplementationOnly"]',
+  )).toHaveCount(0);
+  await page.locator("#open-search").dispatchEvent("click");
+  await page.locator("#spotlight-input").fill("ImplementationOnly");
+  await expect(page.locator(
+    '[data-sl-type*="Example.ImplementationOnly"]:not([data-sl-member])',
+  )).toHaveCount(0);
+});
+
+test("shared implementation requirement fails visibly without surface fallback", async ({
+  page,
+  browser,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "Transform" })
+    .click();
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view.memberAnchor;
+  }).toBe("transform");
+  const sharedUrl = page.url();
+
+  const rejectedContext = await browser.newContext();
+  const rejectedPage = await rejectedContext.newPage();
+  await installFacades(
+    rejectedPage,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { rejectImplementationTypeMemberPopulation: true },
+  );
+  await rejectedPage.goto(sharedUrl);
+
+  await expect(rejectedPage.getByText("Workspace restore failed"))
+    .toBeVisible();
+  await expect(rejectedPage.locator("#app")).toContainText(
+    "The required implementation declaration is unavailable.",
+  );
+  await rejectedContext.close();
+});
+
+test("shared implementation request rejects a mismatched declaration Library", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row")
+    .filter({ hasText: "Transform" })
+    .click();
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view.memberAnchor;
+  }).toBe("transform");
+  const mismatchedUrl = new URL(page.url());
+  {
+    const url = mismatchedUrl;
+    const { state, view } = workspaceShareState(url.searchParams.get("w")!);
+    view.declarationLibraryAsset = "asset:other";
+    url.searchParams.set(
+      "w",
+      Buffer.from(JSON.stringify(state)).toString("base64"),
+    );
+  }
+  await page.evaluate(
+    url => history.replaceState(null, "", url),
+    mismatchedUrl.toString(),
+  );
+
+  await page.reload();
+
+  await expect(page.getByText("Workspace restore failed")).toBeVisible();
+  await expect(page.locator("#app")).toContainText(
+    "The implementation Type projection did not retain the requested identity.",
   );
 });
 

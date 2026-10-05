@@ -210,7 +210,14 @@ Navigation effect authority remain separate owner-issued currencies.
    to ephemeral credentials or, where supported, a noninteractive credential
    provider before acquisition. It refuses unsupported, duplicate, or
    unexpected bindings rather than widening to ambient source configuration.
-9. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
+9. **Exact Browser symbol restoration begins at definition schema version 6
+   and packet format 6.** Versions 1 through 5 remain immutable source
+   contracts. Version 6 preserves format 1's flat Browser view while carrying
+   Member accessibility as surrounding view state and one exact
+   declaration-source requirement for a Type or Member request. The requested
+   symbol is resolved before that accessibility state is applied. A required
+   implementation source must not fall back to a surface declaration.
+10. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
    construction authority for that exact plan; ordinary owner APIs populate
@@ -2706,6 +2713,64 @@ arrays and the transposer must not collapse their identities.
   packets. Readers reject non-canonical packets instead of normalizing them,
   so packet → records → packet semantic identity is meaningful rather than
   identity after a lossy deduplication or truncation step.
+
+#### Packet format 6
+
+Format 6 is the exact-symbol extension of format 1 used by Inspect Web. It
+retains format 1's `t`, `g`, `a`, `x`, `v`, `y`, `m`, `s`, `c`, `o`, and `l`
+meanings and adds two fields without changing formats 1 through 5:
+
+- `z` is one exact Member accessibility view value: `all`, `public`,
+  `protected`, `internal`, or `private`.
+- `d` is the required declaration source tuple
+  `[role,library-asset]`. `role` is exactly `surface` or `implementation`.
+  `library-asset` is the host-issued exact Library asset selector already used
+  by Browser Library requests. It is an opaque participant identity, not a
+  path to open directly and not display text.
+
+Canonical property order is `f`, `t`, `g`, `a`, `x`, optional `v`, optional
+`y`, optional `m`, optional `s`, optional `c`, optional `o`, optional `l`,
+optional `z`, then optional `d`. `f` is the exact integer `6`. A Type request
+requires `y`, `z`, and `d`; `z` and `d` are forbidden without `y`. A Member
+request retains format 1's exactly-one-of-`m`/`s` rule and therefore also
+requires `y`, `z`, and `d`. Non-symbol Browser views omit `y`, `z`, and `d`.
+
+`y` and the optional Member selector are an explicit exact-symbol request.
+Restoration resolves that request against the exact `d` participant before
+applying `z` to the surrounding Member view. `z` never narrows the symbol
+lookup and cannot deny a private or hidden requested declaration. A
+surface-required request resolves only through the reference-preferred surface.
+An implementation-required request acquires the exact implementation
+participant and fails visibly when that participant or symbol is unavailable;
+it never falls back to the surface or to a namesake in another Library.
+
+An implementation-only Type may be projected temporarily to satisfy the exact
+request. That projection belongs only to the active navigation context: it does
+not enter ordinary Type inventory, Library composition, Spotlight, completion,
+or command surfaces. The same rule applies to an exact hidden implementation
+Member. Accessibility, hidden status, declaration source, and ordinary
+discovery admission remain independent facts.
+
+Schema version 6 uses the schema-version-1 Workspace, Navigation, Scenario, and
+flat View shapes plus the View's optional `memberAccessibility` and
+`declarationSourceRequirement`. Those two properties obey the same
+Type-required and paired-presence rules as packet `z` and `d`. Version-6 peer
+records project only to packet 6, and packet 6 transposes only to version-6
+records. Format-1 packets and schema-version-1 records retain their exact
+accepted property sets and canonical bytes.
+
+The Browser producer emits format 6 when a Type or Member is selected. Existing
+format-1 links remain accepted with their historical surface lookup and public
+Member-view defaults. Non-symbol Browser states may continue to project to
+format 1. Browser transport continues to invoke the managed
+`WorkspaceSharePacketCodec` and `WorkspaceSharePacketTransposer`; TypeScript
+does not parse or write the compact fields.
+
+The gates pin old format-1 vectors byte-for-byte and cover format-6
+packet-record-packet identity, every `z` and `d` value, malformed or incomplete
+field combinations, a public surface Member, a private and hidden
+implementation Member, an implementation-only Type, implementation
+unavailability, and ordinary-inventory containment after restoration.
 
 #### Packet format 2
 

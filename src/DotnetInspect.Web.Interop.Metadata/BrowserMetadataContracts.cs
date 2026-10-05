@@ -342,6 +342,7 @@ public sealed record BrowserTypeMemberPopulation(
     string Spelling,
     string Accessibility,
     BrowserTypeMemberDeclarationSource DeclarationSource,
+    BrowserTypeSurface? Type,
     BrowserTypeMemberComposition Composition,
     BrowserTypeMemberSelectorCounts SelectorCounts,
     BrowserTypeMemberPopulationGroup[] Groups);

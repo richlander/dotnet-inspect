@@ -97,6 +97,11 @@ public static partial class MetadataExports
             : scope.SurfaceParticipant(
                 coordinate,
                 coordinate.CompileAsset(assemblyName));
+        BrowserWorkspaceParticipant projectionParticipant = implementation
+            ? scope.SurfaceParticipant(
+                coordinate,
+                coordinate.CompileAsset(assemblyName))
+            : participant;
         AssemblyContextLibraryRole role =
             scope.ImplementationParticipants.Contains(participant)
                 ? AssemblyContextLibraryRole.Implementation
@@ -132,7 +137,14 @@ public static partial class MetadataExports
                 role == AssemblyContextLibraryRole.Implementation
                     ? BrowserTypeMemberDeclarationSource.Implementation
                     : BrowserTypeMemberDeclarationSource.Surface,
-                includeHidden: implementation)
+                includeHidden: implementation,
+                implementation
+                    ? new TypeProjection(
+                        projectionParticipant.Asset.AssemblyName,
+                        projectionParticipant.Asset.Id,
+                        projectionParticipant.Assembly.Identity.Name,
+                        PlatformPack: null)
+                    : null)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -171,7 +183,8 @@ public static partial class MetadataExports
                     spelling,
                     accessibility,
                     BrowserTypeMemberDeclarationSource.Implementation,
-                    includeHidden: false)
+                    includeHidden: false,
+                    projection: null)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -198,7 +211,8 @@ public static partial class MetadataExports
                     spelling,
                     accessibility,
                     BrowserTypeMemberDeclarationSource.Implementation,
-                    includeHidden: false)
+                    includeHidden: false,
+                    projection: null)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -210,7 +224,8 @@ public static partial class MetadataExports
             string spelling,
             string accessibility,
             BrowserTypeMemberDeclarationSource declarationSource,
-            bool includeHidden)
+            bool includeHidden,
+            TypeProjection? projection)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         MetadataTypeMemberPopulationRequest request = new(
@@ -256,6 +271,7 @@ public static partial class MetadataExports
         return ProjectTypeMemberPopulation(
             outcome,
             declarationSource,
+            projection,
             [.. run.CleanupFailures]);
     }
 
@@ -263,6 +279,7 @@ public static partial class MetadataExports
         ProjectTypeMemberPopulation(
             LibraryTypeMemberPopulationInspectionOutcome outcome,
             BrowserTypeMemberDeclarationSource declarationSource,
+            TypeProjection? projection,
             string[] diagnostics) =>
         outcome switch
         {
@@ -273,6 +290,7 @@ public static partial class MetadataExports
                         ProjectAvailable(
                             available.Population,
                             declarationSource,
+                            projection,
                             diagnostics),
                     MetadataTypeMemberPopulationOutcome.TypeNotFound =>
                         Failed("The exact Type was not found.", diagnostics),
@@ -306,6 +324,7 @@ public static partial class MetadataExports
     private static BrowserTypeMemberPopulationInspection ProjectAvailable(
         MetadataTypeMemberPopulation population,
         BrowserTypeMemberDeclarationSource declarationSource,
+        TypeProjection? projection,
         string[] diagnostics)
     {
         MetadataTypeMemberComposition composition = population.Composition;
@@ -317,6 +336,17 @@ public static partial class MetadataExports
                 population.Spelling.ToString(),
                 population.Accessibility.ToString(),
                 declarationSource,
+                projection is null
+                    ? null
+                    : BrowserMetadataWireProjection.Project(
+                        BrowserSurfaceProjection.Type(
+                            population.Subject,
+                            projection.Assembly,
+                            projection.AssemblyId,
+                            projection.AssemblyName,
+                            qualifyId: true,
+                            platformPack: projection.PlatformPack,
+                            selectedMembers: [])),
                 new(
                     composition.Public,
                     composition.Protected,
@@ -374,6 +404,12 @@ public static partial class MetadataExports
                 ]),
             diagnostics);
     }
+
+    private sealed record TypeProjection(
+        string Assembly,
+        string AssemblyId,
+        string AssemblyName,
+        string? PlatformPack);
 
     private static BrowserTypeMemberPopulationInspection Failed(
         string detail,

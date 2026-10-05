@@ -292,6 +292,7 @@ interface DiagnosticsFixture {
   libraryApiIncomplete?: boolean;
   deferGraphMemberSurface?: boolean;
   deferTypeMemberPopulation?: boolean;
+  rejectImplementationTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
   slowStructuralSalience?: boolean;
 }
@@ -1553,6 +1554,9 @@ async function installFacades(
             spelling,
             accessibility,
             declarationSource,
+            type: declarationSource === "Implementation"
+              ? { ...type, api: [] }
+              : null,
             composition,
             selectorCounts,
             groups: [...groups.values()],
@@ -1597,6 +1601,15 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
+        if (${JSON.stringify(
+          diagnostics.rejectImplementationTypeMemberPopulation === true)}) {
+          return {
+            outcome: "Rejected",
+            detail: "The required implementation declaration is unavailable.",
+            population: null,
+            diagnostics: [],
+          };
+        }
         return typeMemberPopulation(
           implementationSurface(
             surfaceFor(id, version, framework),

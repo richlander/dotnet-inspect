@@ -4686,6 +4686,8 @@ function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
     memberTextFilter: loc.memberTextFilter,
     memberKindFilter: loc.memberKindFilter,
     memberAccessibilityFilter: loc.memberAccessibilityFilter,
+    declarationSource: loc.declarationSource,
+    declarationLibraryAsset: loc.declarationLibraryAsset,
     memberTraitFilter: loc.memberTraitFilter,
     graphTarget: loc.graphTarget
   };
@@ -16711,28 +16713,27 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   const member = structuralRootOpen
     ? null
     : selectedMember(type);
+  let memberOverload: AppMemberSurface | undefined;
   let memberAnchor: string | null = null;
   let memberSignature: string | null = null;
   if (member) {
-    const overload = selectedMemberOverload(type, member);
-    if (!overload) {
+    memberOverload = selectedMemberOverload(type, member);
+    if (!memberOverload) {
       throw new Error(
         state.selectedOverloadIndex == null
           ? "Select a concrete overload before sharing this member view."
           : "The selected overload is no longer available and cannot be shared.");
     }
-    if (overload.graphOnly) {
-      throw new Error(
-        "Graph-discovered members cannot be shared until workspace packets carry their portable target identity.");
-    }
-    memberAnchor = overload.anchorDigest || null;
-    memberSignature = memberAnchor ? null : overload.canonicalSignature || null;
+    memberAnchor = memberOverload.anchorDigest || null;
+    memberSignature = memberAnchor
+      ? null
+      : memberOverload.canonicalSignature || null;
     if (!memberAnchor && !memberSignature) {
       throw new Error(
         "The selected overload has no portable product identity and cannot be shared.");
     }
     if (state.memberSection !== "overview"
-      && overload.bodySelectors.length > 1) {
+      && memberOverload.bodySelectors.length > 1) {
       throw new Error(
         "This accessor-specific section cannot be shared until workspace packets carry portable body identity.");
     }
@@ -16749,6 +16750,14 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     workspaceSubjectOpen || platformRoot || packageSubjectOpen || !library
       ? []
       : [library];
+  const declarationSource = type
+    ? ((memberOverload
+        && memberDeclarationUsesImplementation(type, memberOverload))
+      || type.graphOnly
+      || typeMemberPopulationSource(type) === "implementation")
+      ? "implementation"
+      : "surface"
+    : null;
   return {
     package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
     subject: workspaceSubjectOpen ? "workspace" : null,
@@ -16766,7 +16775,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
             : state.lens,
       type: structuralRootOpen
         ? null
-        : state.selectedTypeId || null,
+        : type?.definitionId ?? type?.id ?? null,
       memberAnchor,
       memberSignature,
       section: member && state.memberSection !== "overview"
@@ -16778,6 +16787,11 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         && state.memberSourceRequestedView === "decompiler-source"
           ? "decompiler-source"
           : null,
+      memberAccessibility: type
+        ? state.memberAccessibilityFilter
+        : null,
+      declarationSource,
+      declarationLibraryAsset: type?.assemblyId ?? null,
     },
   };
 }
@@ -16983,6 +16997,113 @@ function solePortableBodyTarget(
     : null;
 }
 
+function sharedTypeCandidates(
+  pkg: AppPackage,
+  deep: DeepLink,
+  includeImplementation: boolean,
+) {
+  if (!deep.type) return [];
+  return pkg.types.filter(type =>
+    (includeImplementation || !type.graphOnly)
+    && (type.definitionId ?? type.id) === deep.type
+    && (!deep.declarationLibraryAsset
+      || type.assemblyId === deep.declarationLibraryAsset));
+}
+
+async function prepareSharedSymbolRequest(
+  pkg: AppPackage,
+  deep: DeepLink,
+): Promise<string | null> {
+  if (!deep.type || !deep.declarationSource) return null;
+  const memberAccessibility = deep.memberAccessibilityFilter;
+  if (!memberAccessibility
+    || !isMemberAccessibility(memberAccessibility)) {
+    return "The shared exact symbol request has unsupported Member accessibility.";
+  }
+  if (!deep.declarationLibraryAsset) {
+    return "The shared exact symbol request has no declaration Library.";
+  }
+  const library = resolvePackageLibrary(
+    packageLibrariesForModel(pkg),
+    deep.declarationLibraryAsset);
+  if (!library) {
+    return `The shared declaration library '${deep.declarationLibraryAsset}' is not uniquely available in ${pkg.id}.`;
+  }
+
+  if (deep.declarationSource === "surface") {
+    if (sharedTypeCandidates(pkg, deep, false).length !== 1) {
+      return `The shared surface type '${deep.type}' is no longer available in '${library.name}'.`;
+    }
+    setTypeMemberPopulationIntent(
+      memberAccessibility,
+      "csharp",
+      "surface");
+    return null;
+  }
+  if (pkg.isRuntimePack) {
+    return "This Browser cannot yet restore an implementation-required Platform symbol.";
+  }
+
+  const inspection = await inspectImplementationTypeMemberPopulation(
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    library.id,
+    deep.type,
+    "csharp",
+    "all");
+  if (inspection.outcome !== "Available" || !inspection.population) {
+    return inspection.detail
+      ?? `The implementation declaration '${deep.type}' is unavailable.`;
+  }
+  const population = inspection.population;
+  let type = sharedTypeCandidates(pkg, deep, true)[0] ?? null;
+  if (!type) {
+    if (!population.type) {
+      return `The implementation Type '${deep.type}' could not be projected for navigation.`;
+    }
+    const projected = createAppTypeSurface(population.type);
+    if ((projected.definitionId ?? projected.id) !== deep.type
+      || projected.assemblyId !== library.id) {
+      return "The implementation Type projection did not retain the requested identity.";
+    }
+    type = { ...projected, graphOnly: true };
+    pkg.types.push(type);
+  }
+
+  if (deep.memberAnchor || deep.memberSignature) {
+    const matches = population.groups.flatMap(group =>
+      group.members.filter(member =>
+        deep.memberAnchor
+          ? member.anchorDigest === deep.memberAnchor
+          : member.canonicalSignature === deep.memberSignature));
+    if (matches.length === 0) {
+      return "The shared implementation Member is no longer available.";
+    }
+    if (matches.length > 1) {
+      return "The shared implementation Member identity is ambiguous.";
+    }
+    const requestedMember = matches[0]!;
+    const existing = type.api.find(member =>
+      deep.memberAnchor
+        ? member.anchorDigest === deep.memberAnchor
+        : member.canonicalSignature === deep.memberSignature);
+    if (!existing?.graphOnly) {
+      type.api.push({
+        ...createAppMemberSurface(requestedMember),
+        graphOnly: true,
+      });
+    }
+  }
+
+  state.selectedTypeId = type.id;
+  setTypeMemberPopulationIntent(
+    memberAccessibility,
+    "csharp",
+    "implementation");
+  return null;
+}
+
 function canonicalViewRestorationFailure(
   pkg: AppPackage,
   deep: DeepLink,
@@ -17017,9 +17138,13 @@ function canonicalViewRestorationFailure(
   if (lens !== "api" && !deep.type) {
     return `The shared '${lens}' lens requires a selected type.`;
   }
-  const requestedType = deep.type
-    ? pkg.types.find(type => type.id === deep.type)
+  const requestedTypes = sharedTypeCandidates(pkg, deep, true);
+  const requestedType = requestedTypes.length === 1
+    ? requestedTypes[0]!
     : null;
+  if (deep.type && requestedTypes.length > 1) {
+    return `The shared type '${deep.type}' is ambiguous.`;
+  }
   if (deep.type && !requestedType && !forwarder) {
     return `The shared type '${deep.type}' is no longer available.`;
   }
@@ -17110,11 +17235,14 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.platformDrillError = "";
   const forwarder = currentPlatformForwarderView()?.forwarders.find(
     row => row.id === deep?.type);
+  const requestedTypes = deep
+    ? sharedTypeCandidates(pkg, deep, true)
+    : [];
   const restoreType = deep?.type
-    && (pkg.types.some(item => item.id === deep.type) || forwarder !== undefined);
+    && (requestedTypes.length === 1 || forwarder !== undefined);
   resetMemberFilters();
   state.selectedTypeId = restoreType
-    ? deep?.type ?? ""
+    ? requestedTypes[0]?.id ?? forwarder?.id ?? ""
     : defaultVisibleTypeId(pkg) || currentPlatformForwarderView()?.forwarders[0]?.id || "";
   // The restored/defaulted type may sit outside the current accessibility bucket or the
   // platform's library scope (e.g. an internal type reached via a shared link, or a history
@@ -17143,7 +17271,9 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     appendQueryNotice(
       "The shared graph member's declaring type is no longer available and was not opened.");
   } else if (restoreType && deep) {
-    const type = pkg.types.find(item => item.id === deep.type);
+    const type = requestedTypes.length === 1
+      ? requestedTypes[0]!
+      : null;
     if (!type) return;
     revealTypeInFilters(type);
     const groups = memberGroups(type);
@@ -24592,12 +24722,15 @@ function retainPackageHomeDemoShareBasis(
     selectedContextId: topology.selectedContextId,
     view: {
       lens: "api",
-      type: selection.type.id,
+      type: selection.type.definitionId ?? selection.type.id,
       memberAnchor: selection.overload?.anchorDigest ?? null,
       memberSignature: null,
       section: selection.member ? "call-graph" : null,
       libraries: [],
       sourceView: null,
+      memberAccessibility: "public",
+      declarationSource: "surface",
+      declarationLibraryAsset: selection.type.assemblyId,
     },
   };
 }
@@ -24932,6 +25065,11 @@ async function restoreWorkspaceFromLocation(
         return;
       }
       applyLocationView(loc);
+      const symbolFailure = loc.shareState
+        ? await prepareSharedSymbolRequest(opened, deep)
+        : null;
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
+      if (symbolFailure) { failRestore(symbolFailure); return; }
       const failure = canonicalViewRestorationFailure(opened, deep, loc.lens, loc.libraryLens);
       if (failure) { failRestore(failure); return; }
       applyDeepLink(deep);
@@ -25001,6 +25139,10 @@ async function restoreWorkspaceFromLocation(
       }
     }
     applyLocationView(loc);
+    const symbolFailure = loc.shareState
+      ? await prepareSharedSymbolRequest(targetModel, deep)
+      : null;
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     const viewFailure = loc.shareState
       ? canonicalViewRestorationFailure(
           targetModel,
@@ -25011,8 +25153,8 @@ async function restoreWorkspaceFromLocation(
             ? loc.packageLens
             : null)
       : null;
-    if (loc.shareState && viewFailure) {
-      failRestore(viewFailure);
+    if (loc.shareState && (symbolFailure || viewFailure)) {
+      failRestore(symbolFailure ?? viewFailure!);
       return;
     }
     applyDeepLink(deep);
@@ -25775,6 +25917,10 @@ async function navigateWithinCurrentWorkspace(
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   const libraryFailure = applyLoadedPackageLibraryScope(pkg, loc.library);
   applyLocationView(loc);
+  const symbolFailure = loc.shareState
+    ? await prepareSharedSymbolRequest(pkg, loc)
+    : null;
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const viewFailure = loc.shareState
     ? canonicalViewRestorationFailure(
         pkg,
@@ -25785,7 +25931,7 @@ async function navigateWithinCurrentWorkspace(
           ? loc.packageLens
           : null)
     : null;
-  const restorationFailure = libraryFailure ?? viewFailure;
+  const restorationFailure = libraryFailure ?? symbolFailure ?? viewFailure;
   if (loc.shareState && restorationFailure) {
     failCanonicalWorkspaceRestore(
       loc,
@@ -26978,6 +27124,10 @@ window.addEventListener("popstate", () => {
         state.package,
         loc.library);
       applyLocationView(loc);
+      const symbolFailure = loc.shareState
+        ? await prepareSharedSymbolRequest(state.package, loc)
+        : null;
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       const viewFailure = loc.shareState
         ? canonicalViewRestorationFailure(
             state.package,
@@ -26988,7 +27138,8 @@ window.addEventListener("popstate", () => {
               ? loc.packageLens
               : null)
         : null;
-      const restorationFailure = libraryFailure ?? viewFailure;
+      const restorationFailure =
+        libraryFailure ?? symbolFailure ?? viewFailure;
       if (loc.shareState && restorationFailure) {
         failCanonicalWorkspaceRestore(
           loc,
@@ -27047,6 +27198,10 @@ async function restorePlatformScopeThenDeepLink(
     return;
   }
   const pkg = state.package;
+  const symbolFailure = pkg && loc.shareState
+    ? await prepareSharedSymbolRequest(pkg, loc)
+    : null;
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const viewFailure = pkg && loc.shareState
     ? canonicalViewRestorationFailure(
         pkg,
@@ -27057,11 +27212,11 @@ async function restorePlatformScopeThenDeepLink(
           ? loc.packageLens
           : null)
     : null;
-  if (loc.shareState && viewFailure) {
+  if (loc.shareState && (symbolFailure || viewFailure)) {
     failCanonicalWorkspaceRestore(
       loc,
       loc,
-      viewFailure,
+      symbolFailure ?? viewFailure!,
       canonicalSnapshot);
     return;
   }

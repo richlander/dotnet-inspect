@@ -697,6 +697,9 @@ async function measureMethodComparison(
           section: null,
           libraries: [],
           sourceView: null,
+          memberAccessibility: null,
+          declarationSource: null,
+          declarationLibraryAsset: null,
         },
       });
     if (!encoded.succeeded || encoded.packet === null) {
