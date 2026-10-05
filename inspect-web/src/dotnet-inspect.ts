@@ -10843,7 +10843,8 @@ function maybeAutoLoadPackageDependencies() {
 }
 
 function maybeAutoLoadPackageVulnerabilities() {
-  if (!state.atPackageRoot
+  if (scope() !== "package"
+    || !state.atPackageRoot
     || state.packageLens !== "vulnerabilities"
     || state.package?.source.kind !== "nuget.org") return;
   const signature = packageVulnerabilitiesSignature();
@@ -15351,17 +15352,21 @@ async function switchPackageVersion(newVersion: string) {
   const oldVersion = pkg.version;
   if (!newVersion || newVersion.toLowerCase() === oldVersion.toLowerCase()) return;
   const framework = pkg.activeFramework;
-  await loadPackage(id, newVersion, framework, {
+  const navigationSeq = navigationSequence.begin();
+  const loaded = await loadPackage(id, newVersion, framework, {
+    navigationSeq,
     replacePackage: pkg,
     ...capturePackageCoordinateView(),
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
     loadingFocusControl: "package-version",
   });
-  if (state.package?.version.toLowerCase() === newVersion.toLowerCase())
+  if (loaded
+    && navigationSequence.isCurrent(navigationSeq)
+    && packageIdentityEquals(state.package, loaded))
     focusPackageCoordinateControl(
       "package-version",
-      state.package.activeFramework);
+      loaded.activeFramework);
 }
 
 async function switchPackageFramework(
@@ -15372,22 +15377,25 @@ async function switchPackageFramework(
   if (!pkg || pkg.isRuntimePack) return;
   if (!newFramework
     || newFramework.toLowerCase() === pkg.activeFramework.toLowerCase()) return;
-  await loadPackage(
+  const navigationSeq = navigationSequence.begin();
+  const loaded = await loadPackage(
     pkg.id,
     pkg.version,
     newFramework,
     {
+      navigationSeq,
       replacePackage: pkg,
       ...capturePackageCoordinateView(),
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
       loadingFocusControl,
     });
-  if (state.package?.activeFramework.toLowerCase()
-    === newFramework.toLowerCase())
+  if (loaded
+    && navigationSequence.isCurrent(navigationSeq)
+    && packageIdentityEquals(state.package, loaded))
     focusPackageCoordinateControl(
       loadingFocusControl,
-      state.package.activeFramework);
+      loaded.activeFramework);
 }
 
 

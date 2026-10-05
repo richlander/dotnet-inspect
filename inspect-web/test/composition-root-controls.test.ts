@@ -654,6 +654,25 @@ test("explicit coordinate changes discard a floating canonical basis", () => {
     /state\.workspaceShareBasis = null;\s*state\.platformStack = \[\];\s*activatePackage[\s\S]*const firstLibrary = packageLibraries\(\)\[0\];\s*state\.libraryScope = firstLibrary \? new Set\(\[firstLibrary\.id\]\) : null/);
 });
 
+test("package coordinate work stays owned by the visible initiating view", () => {
+  const packageVersion = appSource.match(
+    /async function switchPackageVersion\([\s\S]*?\n}/)?.[0] ?? "";
+  const packageFramework = appSource.match(
+    /async function switchPackageFramework\([\s\S]*?\n}/)?.[0] ?? "";
+  const vulnerabilitiesLoader = appSource.match(
+    /function maybeAutoLoadPackageVulnerabilities\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+
+  assert.match(
+    vulnerabilitiesLoader,
+    /scope\(\) !== "package"[\s\S]*state\.packageLens !== "vulnerabilities"/);
+  for (const coordinateSwitch of [packageVersion, packageFramework]) {
+    assert.match(
+      coordinateSwitch,
+      /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*const loaded = await loadPackage\([\s\S]*navigationSeq,[\s\S]*if \(loaded\s*&& navigationSequence\.isCurrent\(navigationSeq\)\s*&& packageIdentityEquals\(state\.package, loaded\)\)/);
+  }
+});
+
 test("typed package inspection owns package-root request coordination", () => {
   const dependenciesLoader =
     appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
