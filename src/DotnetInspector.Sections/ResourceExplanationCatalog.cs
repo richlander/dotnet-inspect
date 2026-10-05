@@ -152,6 +152,93 @@ public sealed class ResourceExplanationCatalog
             resourcesByPath);
     }
 
+    public static InspectionEnvelope<ResourceExplanationDocument>
+        ExplainDetached(
+            IEnumerable<ExplanationSchema> schemas,
+            ExplanationResourceSnapshot root,
+            IEnumerable<ExplanationResourceSnapshot>? related,
+            ResourceExplanationRequest request,
+            string shareIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(schemas);
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(shareIdentity);
+
+        ImmutableArray<ExplanationSchema> schemaArray = [.. schemas];
+        ImmutableArray<ExplanationResourceSnapshot> snapshotArray =
+        [
+            root,
+            .. related ?? [],
+        ];
+        if (schemaArray.IsEmpty)
+        {
+            throw new ArgumentException(
+                "Detached explanation requires a schema closure.",
+                nameof(schemas));
+        }
+        if (snapshotArray.Any(static snapshot =>
+                snapshot.Scope != ExplanationSnapshotScope.Detached))
+        {
+            throw new ArgumentException(
+                "Detached explanation accepts only detached snapshots.",
+                nameof(related));
+        }
+        if (TryPath(root) is not null)
+        {
+            throw new ArgumentException(
+                "A detached explanation root must not have a Resource "
+                    + "Explanation path.",
+                nameof(root));
+        }
+
+        ExplanationConformance.ValidateSnapshots(schemaArray, snapshotArray);
+        var resourcesByKey =
+            new Dictionary<ExplanationResourceKey, CatalogResource>();
+        var resourcesByPath =
+            new Dictionary<string, CatalogResource>(
+                StringComparer.OrdinalIgnoreCase);
+        var catalogResources =
+            ImmutableArray.CreateBuilder<CatalogResource>(
+                snapshotArray.Length);
+        foreach (ExplanationResourceSnapshot snapshot in snapshotArray)
+        {
+            ResourcePath? path = TryPath(snapshot);
+            var resource = new CatalogResource(path, snapshot);
+            if (!resourcesByKey.TryAdd(snapshot.Key, resource))
+            {
+                throw new ArgumentException(
+                    $"Duplicate explanation resource key '{snapshot.Key}'.",
+                    nameof(related));
+            }
+            if (path is not null
+                && !resourcesByPath.TryAdd(path.Value, resource))
+            {
+                throw new ArgumentException(
+                    $"Duplicate explanation path '{path.Value}'.",
+                    nameof(related));
+            }
+            ValidateRelationshipTargets(snapshot, nameof(related));
+            catalogResources.Add(resource);
+        }
+
+        ResourceExplanationCatalog operation = new(
+            schemaArray,
+            catalogResources.MoveToImmutable(),
+            [
+                .. resourcesByKey.Values.Select(static resource =>
+                    resource.Projection),
+            ],
+            [],
+            resourcesByKey,
+            resourcesByPath);
+        return operation.ExplainCore(
+            resourcesByKey[root.Key],
+            requestedPath: null,
+            request,
+            shareIdentity);
+    }
+
     public static ResourceExplanationCatalog CreateStructural(
         DiscoveryDocument document,
         IEnumerable<StructuralResourcePathRegistration> registrations)
@@ -1078,15 +1165,16 @@ public sealed class ResourceExplanationCatalog
         ImmutableArray<ResourcePath> suggestions =
         [
             .. _catalogResources
+                .Where(static resource => resource.Path is not null)
                 .OrderBy(resource =>
                     EditDistance(
                         canonicalPath.Value,
-                        resource.Path.Value))
+                        resource.Path!.Value))
                 .ThenBy(
-                    resource => resource.Path.Value,
+                    resource => resource.Path!.Value,
                     StringComparer.Ordinal)
                 .Take(5)
-                .Select(static resource => resource.Path),
+                .Select(static resource => resource.Path!),
         ];
         return new ResourcePathResolution.Unknown(
             requestedPath,
@@ -1107,7 +1195,7 @@ public sealed class ResourceExplanationCatalog
             return false;
         }
 
-        resolved = new(resource.Path, resource.Snapshot.Key);
+        resolved = new(resource.Path!, resource.Snapshot.Key);
         return true;
     }
 
@@ -1127,6 +1215,19 @@ public sealed class ResourceExplanationCatalog
                 nameof(resolved));
         }
 
+        return ExplainCore(
+            root,
+            root.Path,
+            request,
+            root.Path!.Value);
+    }
+
+    private InspectionEnvelope<ResourceExplanationDocument> ExplainCore(
+        CatalogResource root,
+        ResourcePath? requestedPath,
+        ResourceExplanationRequest request,
+        string shareIdentity)
+    {
         var resources = new List<CatalogResource> { root };
         var resourceDepth =
             new Dictionary<ExplanationResourceKey, int>
@@ -1265,7 +1366,7 @@ public sealed class ResourceExplanationCatalog
                 truncationReasons.Order());
         var document =
             new ResourceExplanationDocument(
-                root.Path,
+                requestedPath,
                 root.Snapshot.Key,
                 schemaSlice,
                 resources.Select(static resource =>
@@ -1275,7 +1376,7 @@ public sealed class ResourceExplanationCatalog
         return new InspectionEnvelope<ResourceExplanationDocument>(
             document,
             new InspectionShare.NonProjectable(
-                root.Path.Value,
+                shareIdentity,
                 "Resource Explanation does not yet have a portable "
                 + "Workspace projection."));
     }
@@ -1935,8 +2036,56 @@ public sealed class ResourceExplanationCatalog
         return previous[right.Length];
     }
 
+    private static void ValidateRelationshipTargets(
+        ExplanationResourceSnapshot snapshot,
+        string parameterName)
+    {
+        foreach (ExplanationRelationshipObservation observation
+                 in snapshot.Relationships)
+        {
+            if (observation.Targets
+                .Select(static target => target.Resource)
+                .Distinct()
+                .Count()
+                != observation.Targets.Length)
+            {
+                throw new ArgumentException(
+                    $"Resource '{snapshot.Key}' relationship "
+                    + $"'{observation.Relationship}' repeats a target.",
+                    parameterName);
+            }
+        }
+    }
+
+    private static ResourcePath? TryPath(
+        ExplanationResourceSnapshot snapshot)
+    {
+        ExplanationPublicAddress? address =
+            snapshot.Addresses.SingleOrDefault(candidate =>
+                candidate.Kind
+                    == ResourceExplanationVocabulary
+                        .ResourcePathAddressKind);
+        if (address is null)
+            return null;
+        if (address.Value is not ExplanationValue.Scalar
+            {
+                Value:
+                {
+                    Kind: ExplanationScalarKind.Text,
+                    Text: { } text,
+                },
+            })
+        {
+            throw new ArgumentException(
+                $"Resource '{snapshot.Key}' has a non-text Resource "
+                    + "Explanation path.",
+                nameof(snapshot));
+        }
+        return new ResourcePath(text);
+    }
+
     private sealed record CatalogResource(
-        ResourcePath Path,
+        ResourcePath? Path,
         ExplanationResourceSnapshot Snapshot)
     {
         public ResourceExplanationResource Projection { get; } =

@@ -10,9 +10,10 @@ document, route, operation facets, required-context links, and current-host
 binding resources. The target object model defined here generalizes that
 slice so installed resources, command resources, and detached resolved
 subjects can use one typed explanation contract. Migration of the current
-closed detail variants and Member-specific contextual wrapper remains staged,
-as do Value, broader result-contract, Browser/Wasm, and subject-reference
-adoption.
+closed detail variants remains staged. Member now uses one installed command
+resource or one detached resolved-subject snapshot in the common Document;
+Value, broader result-contract, Browser/Wasm, and subject-reference adoption
+remain staged.
 It is the focused design for
 [#9324](https://github.com/richlander/dotnet-inspect/issues/9324), continuing
 the installed-resource lineage from
@@ -1264,6 +1265,7 @@ The object-model convergence sequence is:
    preserving current CLI Content.
 4. Have Contextual Resource Explanation adopt the same Document for Member and
    retire the Member-specific wrapper as the bounded first contextual adopter.
+   **Complete in #9418.**
 5. Let Section Shapes, Query Space, Product Vocabulary, result contracts,
    analyses, Findings, and reusable references adopt one owner at a time.
 6. Add Browser/Wasm over the same Content and decide whether HAL-JSON earns a
