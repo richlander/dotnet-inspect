@@ -476,6 +476,46 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        MethodQuerySource_GeneratedExpansionAvoidsLegacyLiftedDeclaringChainWalk()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        ImmutableArray<MethodDefinitionHandle> direct =
+            MethodsOfType(path, type);
+        var work = new MethodDefinitionGeneratedExpansionWork(
+            MethodDefinitionGeneratedExpansionLimits.Default);
+        int legacyChainWalks = 0;
+
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        MetadataReader reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            liftedDeclaringTypeChainWalked:
+                () => legacyChainWalks++,
+            generatedExpansionWork: work);
+
+        MethodDefinitionGeneratedExpansionResult expansion =
+            builder.ExpandGeneratedExecutionBodies(direct);
+
+        Assert.Equal(0, legacyChainWalks);
+        Assert.Contains(
+            expansion.Coverage.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody);
+    }
+
+    [Fact]
+    public void
         MethodQuerySource_GeneratedExpansionSettlesSiblingLiftedEvidenceOnce()
     {
         string path =

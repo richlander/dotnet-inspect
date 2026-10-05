@@ -67,6 +67,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         _implementationMetricRecorder;
     readonly MethodDefinitionGeneratedExpansionWork?
         _generatedExpansionWork;
+    readonly Action? _declaringTypeChainWalked;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -113,7 +114,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         ImplementationMetricExecutionRecorder?
             implementationMetricRecorder = null,
         MethodDefinitionGeneratedExpansionWork?
-            generatedExpansionWork = null)
+            generatedExpansionWork = null,
+        Action? declaringTypeChainWalked = null)
     {
         _reader = reader;
         _peReader = peReader;
@@ -127,6 +129,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             implementationMetricRecorder;
         _generatedExpansionWork =
             generatedExpansionWork;
+        _declaringTypeChainWalked =
+            declaringTypeChainWalked;
         _liftedMethodsByOwner = new(
             BuildLiftedMethodsByOwner,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -191,10 +195,16 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         bool cacheScopedGroup = false)
     {
         sourceOwner = default;
-        if (!TryGetLiftedOwnerGroup(
+        bool hasGroup = cacheScopedGroup
+            ? TryGetTargetedLiftedOwnerGroup(
                 liftedMethod,
                 out LiftedOwnerGroupKey group,
-                out bool rejected))
+                out bool rejected)
+            : TryGetLiftedOwnerGroup(
+                liftedMethod,
+                out group,
+                out rejected);
+        if (!hasGroup)
         {
             return rejected
                 ? LiftedSourceOwnerResolution.Rejected
@@ -926,6 +936,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[
                 MetadataSafetyPolicy.MaxRelationshipNodes];
+        _declaringTypeChainWalked?.Invoke();
         if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
                 _reader,
                 method.GetDeclaringType(),
@@ -952,13 +963,22 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
     bool TryGetTargetedLiftedOwnerGroup(
         MethodDefinition method,
-        out LiftedOwnerGroupKey group)
+        out LiftedOwnerGroupKey group) =>
+        TryGetTargetedLiftedOwnerGroup(
+            method,
+            out group,
+            out _);
+
+    bool TryGetTargetedLiftedOwnerGroup(
+        MethodDefinition method,
+        out LiftedOwnerGroupKey group,
+        out bool rejected)
     {
         group = default;
         if (!TryGetLiftedOwnerName(
                 method,
                 out string ownerName,
-                out _))
+                out rejected))
         {
             return false;
         }
@@ -967,11 +987,15 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             GetTargetedLiftedDeclaringTypeChain(
                 method.GetDeclaringType());
         if (!chain.Complete || chain.Types.IsEmpty)
+        {
+            rejected = true;
             return false;
+        }
 
         group = CreateLiftedOwnerGroup(
             chain.Types.AsSpan(),
             ownerName);
+        rejected = false;
         return true;
     }
 

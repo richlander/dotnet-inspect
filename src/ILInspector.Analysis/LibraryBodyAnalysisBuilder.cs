@@ -75,6 +75,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         Action<TypeDefinitionHandle>? sourceGeneratedTypeClassified = null,
         Action? typeDefinitionIndexBuilt = null,
         Action? stateMachineExecutionMethodsBuilt = null,
+        Action? liftedDeclaringTypeChainWalked = null,
         Action? asyncStateMachineTypesBuilt = null,
         Action? parallelBuildStarting = null,
         Action<MetadataReader, MethodDefinitionHandle>?
@@ -160,7 +161,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 methodBodyReferenceIndexed,
                 implementationMetricWork,
                 implementationMetricRecorder,
-                generatedExpansionWork);
+                generatedExpansionWork,
+                liftedDeclaringTypeChainWalked);
         _declaredSourceResolver =
             new LibraryBodyDeclaredSourceResolver(
                 reader,

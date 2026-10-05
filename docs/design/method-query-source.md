@@ -557,6 +557,7 @@ Generated expansion is gated in Release:
 - `MethodQuerySource_GeneratedExpansionVisitsOnlyAuthenticatedBodies`
 - `MethodQuerySource_GeneratedExpansionAccountsBodyDependentDiscovery`
 - `MethodQuerySource_GeneratedExpansionAvoidsAssemblyStateMachineIndex`
+- `MethodQuerySource_GeneratedExpansionAvoidsLegacyLiftedDeclaringChainWalk`
 - `MethodQuerySource_GeneratedExpansionSettlesSiblingLiftedEvidenceOnce`
 - `MethodQuerySource_GeneratedExpansionBoundsLiftedDeclaringTypeTraversal`
 - `MethodQuerySource_GeneratedExpansionBoundsNestedTypeTraversal`
