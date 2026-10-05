@@ -986,6 +986,35 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task Package_InadmissibleExplicitFormat_NamesTheShapes()
+    {
+        // An explicit format a shape cannot carry fails before acquisition and
+        // names the shape and its permitted formats (Section shapes).
+        var tree = await RunAppAsync(
+            "package", "Missing.Package.ForShapes", "-S", "Target Frameworks", "--tree");
+        var mixed = await RunAppAsync(
+            "package", "Missing.Package.ForShapes", "-S", "Package README file,Target Frameworks", "--tsv");
+        var dependencies = await RunAppAsync(
+            "package", "Missing.Package.ForShapes", "-S", "Dependencies", "--tree");
+
+        Assert.Equal(1, tree.Exit);
+        Assert.Empty(tree.Output);
+        Assert.Contains("'Target Frameworks' (Table)", tree.Error);
+        Assert.Contains("--tsv", tree.Error);
+        Assert.Contains("'Package files'", tree.Error);
+
+        Assert.Equal(1, mixed.Exit);
+        Assert.Empty(mixed.Output);
+        Assert.Contains("'Package README file' (Text)", mixed.Error);
+        Assert.Contains("'Target Frameworks' (Table)", mixed.Error);
+        Assert.Contains("-S @Files", mixed.Error);
+
+        Assert.Equal(1, dependencies.Exit);
+        Assert.Contains("direct evidence", dependencies.Error);
+        Assert.Contains("'Dependency Hierarchy'", dependencies.Error);
+    }
+
     [Theory]
     [InlineData("Package Info", "--count")]
     [InlineData("Package README file", "--count")]

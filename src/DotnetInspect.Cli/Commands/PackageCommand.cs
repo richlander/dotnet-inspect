@@ -471,12 +471,7 @@ public partial class PackageCommand
                     : options.IncludeSections;
             if (!options.Count
                 && !packageChildrenProjection
-                && !OutputFormatResolver.ValidateSingleSectionForTabular(
-                    options.TabularExplicitlySet,
-                    tabularSections,
-                    sections => PackageOutputCapabilities.Catalog.Supports(
-                        DiscoveryOutputMode.Table,
-                        sections)))
+                && !ValidatePackageTabularSelection(options, tabularSections))
                 return 1;
 
             // Auto-promote verbosity when -S targets specific sections

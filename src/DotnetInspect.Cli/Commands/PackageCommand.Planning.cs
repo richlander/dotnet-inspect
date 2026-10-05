@@ -726,11 +726,7 @@ public partial class PackageCommand
             && !packageChildrenProjection
             && !filesTreeProjection)
         {
-            CommandError.Write(
-                options.IncludeSections is { Count: 1 }
-                && options.IncludeSections.Contains(PackageSections.Dependencies)
-                    ? "Dependencies is direct evidence and cannot be rendered as a hierarchy. Use '-S \"Dependency Hierarchy\" --tree'."
-                    : "--tree without a section renders Package children; a selected section must be exactly '-S \"Dependency Hierarchy\"'.");
+            CommandError.Write(DescribeTreeRejection(options.IncludeSections!));
             return false;
         }
 

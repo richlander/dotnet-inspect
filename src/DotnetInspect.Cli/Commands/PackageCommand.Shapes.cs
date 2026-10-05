@@ -121,6 +121,80 @@ public partial class PackageCommand
         sections is { Count: > 1 }
         && sections.All(PackageFileFamily.IsFamilySection);
 
+    /// <summary>
+    /// Names a section with its declared shape for a diagnostic, as
+    /// <c>docs/design/section-shapes.md</c> requires of an inadmissible
+    /// shape/format pair ("Target Frameworks (Table)").
+    /// </summary>
+    private static string DescribeSectionShape(string section)
+    {
+        PackageSectionCatalog catalog = PackageSectionDescriptors.CreateCatalog();
+        return catalog.Sections.SectionShapes.TryGetValue(section, out SectionShape shape)
+            ? $"'{section}' ({shape})"
+            : $"'{section}'";
+    }
+
+    private static string FormatsForSection(string section)
+    {
+        PackageSectionCatalog catalog = PackageSectionDescriptors.CreateCatalog();
+        return catalog.Sections.SectionShapes.TryGetValue(section, out SectionShape shape)
+            ? string.Join(
+                ", ",
+                OutputCapabilityCatalog.FormatsForShape(shape)
+                    .Select(OutputCapabilityCatalog.CliOption))
+            : "--markdown, --json";
+    }
+
+    /// <summary>
+    /// Explicit <c>--tree</c> on a lone section that is not a Hierarchy fails
+    /// before acquisition, naming the section's shape, the formats that shape
+    /// supports, and the Hierarchy sections a tree can render.
+    /// </summary>
+    private static string DescribeTreeRejection(IReadOnlySet<string> sections)
+    {
+        if (sections.Count == 1)
+        {
+            string section = sections.Single();
+            string prefix = section.Equals(PackageSections.Dependencies, StringComparison.OrdinalIgnoreCase)
+                ? "Dependencies is direct evidence and cannot be rendered as a hierarchy. "
+                : "";
+            return prefix
+                + $"--tree renders a Hierarchy; {DescribeSectionShape(section)} supports "
+                + $"{FormatsForSection(section)}. Hierarchy sections: "
+                + $"'{PackageSections.Files}', '{PackageSections.DependencyHierarchy}'.";
+        }
+
+        return "--tree renders exactly one Hierarchy section; select "
+            + $"'{PackageSections.Files}' or '{PackageSections.DependencyHierarchy}' alone, "
+            + "or omit the section for the Package children tree.";
+    }
+
+    /// <summary>
+    /// Explicit <c>--table</c>, <c>--tsv</c>, or <c>--jsonl</c> over several
+    /// sections is admitted only for one homogeneous row family; otherwise the
+    /// rejection names each section's shape so the caller can pick one Table
+    /// or a composition format.
+    /// </summary>
+    private static bool ValidatePackageTabularSelection(
+        InspectionOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (!options.TabularExplicitlySet || sections is not { Count: > 1 })
+            return true;
+        if (PackageOutputCapabilities.Catalog.Supports(DiscoveryOutputMode.Table, sections))
+            return true;
+
+        CommandError.Write(
+            $"Selection matches {sections.Count} sections of different shapes: "
+                + string.Join(", ", sections.Select(DescribeSectionShape)) + ".");
+        CommandError.WriteBlankLine();
+        CommandError.WriteLine(
+            "--table, --tsv, and --jsonl display one Table or one homogeneous row family at a time.");
+        CommandError.WriteLine(
+            "Use -S with a single section, -S @Files for the package file family, or --markdown/--json for multi-section output.");
+        return false;
+    }
+
     private static bool IsSingleFilesSelection(InspectionOptions options) =>
         options.IncludeSections is { Count: 1 } sections
         && sections.Single().Equals(
