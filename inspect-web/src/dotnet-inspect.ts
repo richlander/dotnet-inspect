@@ -6766,9 +6766,7 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
           : null;
       const exactRows = new Map(
         document?.rows.map(row => [row.metadataToken, row]) ?? []);
-      const residentOverloads = uploadedLibraryIsActive()
-        ? []
-        : type.api.filter(member =>
+      const residentOverloads = type.api.filter(member =>
           member.name === group.name
           && member.kind === group.kind
           && !member.graphOnly
@@ -6795,7 +6793,8 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
                 `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`,
             };
           })
-        : residentOverloads.length <= group.completeCount
+        : !uploadedLibraryIsActive()
+            && residentOverloads.length <= group.completeCount
           ? residentOverloads
           : [];
       return {

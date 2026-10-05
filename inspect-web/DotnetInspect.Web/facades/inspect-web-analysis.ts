@@ -1336,3 +1336,4 @@ export async function queryPlatformTypeMethodLeverage(targetFramework: string, p
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMethodLeverage;
 }
+
