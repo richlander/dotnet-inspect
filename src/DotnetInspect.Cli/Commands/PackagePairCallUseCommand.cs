@@ -26,6 +26,8 @@ public sealed record PackagePairCallUseOptions
     public RowWindow? Rows { get; init; }
     public bool NoHeader { get; init; }
     public bool Verbose { get; init; }
+    public string[]? Columns { get; init; }
+    public string[]? Fields { get; init; }
     public IReadOnlyList<string> Sections { get; init; } = [];
     public int? Cluster { get; init; }
     public NuGetSourceOptions SourceOptions { get; init; } =
@@ -48,11 +50,36 @@ public static class PackagePairCallUseCommand
             ],
             StringComparer.OrdinalIgnoreCase);
 
-    public static async Task<int> ExecuteAsync(
+    public static Task<int> ExecuteAsync(
         PackagePairCallUseOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
+        return ExecuteAsync(
+            options,
+            new WorkspaceContextLoadOptions
+            {
+                HttpClient = HttpClientFactory.Shared,
+                SourceAuthorization =
+                    new SourcePolicyPackageSourceAuthorization(
+                        options.SourceOptions),
+                PackageStore = new FileSystemPackageStore(),
+                IncludePackageRootBindings = true,
+                UseVersionCache = true,
+                Log = options.Verbose
+                    ? CommandError.WriteLine
+                    : null,
+            },
+            cancellationToken);
+    }
+
+    internal static async Task<int> ExecuteAsync(
+        PackagePairCallUseOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(loadOptions);
         if (options.Packages.Count != 2)
         {
             CommandError.Write(
@@ -109,19 +136,7 @@ public static class PackagePairCallUseCommand
                         Framework = options.TargetFramework,
                         Members = members,
                     },
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = HttpClientFactory.Shared,
-                        SourceAuthorization =
-                            new SourcePolicyPackageSourceAuthorization(
-                                options.SourceOptions),
-                        PackageStore = new FileSystemPackageStore(),
-                        IncludePackageRootBindings = true,
-                        UseVersionCache = true,
-                        Log = options.Verbose
-                            ? CommandError.WriteLine
-                            : null,
-                    },
+                    loadOptions,
                     cancellationToken)
                 .ConfigureAwait(false);
         if (load is WorkspaceContextLoadOutcome.Failed failed)
@@ -422,15 +437,20 @@ public static class PackagePairCallUseCommand
         PackagePairCallUseView view,
         PackagePairCallUseOptions options)
     {
+        string[]? projection = PackagePairProjection(options);
         if (options.Count)
         {
             CountProjection count = CountProjectionFormatter.Capture(
                 view,
                 PackagePairCallUseViewContext.Default,
-                new MarkoutWriterOptions());
+                OutputFormatter.CreateProjectedWriterOptions(
+                    projection));
             CountOutput.WriteCount(count.Total);
             return;
         }
+        MarkoutWriterOptions projectedWriterOptions =
+            OutputFormatter.CreateProjectedWriterOptions(
+                projection);
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions>
             serialize = (writer, formatter, writerOptions) =>
                 MarkoutSerializer.Serialize(
@@ -444,7 +464,7 @@ public static class PackagePairCallUseCommand
             case OutputFormat.Json:
                 OutputFormatter.WriteProjectedJson(
                     Console.Out,
-                    columns: null,
+                    projection,
                     fields: null,
                     serialize);
                 break;
@@ -456,19 +476,33 @@ public static class PackagePairCallUseCommand
                     showHeader: !options.NoHeader,
                     tsv: options.Format == OutputFormat.Tsv,
                     jsonl: options.Format == OutputFormat.Jsonl,
-                    columns: null,
+                    projection,
                     fields: null,
                     serialize);
                 break;
             default:
-                MarkoutSerializer.Serialize(
-                    view,
+                serialize(
                     Console.Out,
                     options.Format == OutputFormat.PlainText
                         ? new PlainTextFormatter()
                         : new MarkdownFormatter(),
-                    PackagePairCallUseViewContext.Default);
+                    projectedWriterOptions);
                 break;
         }
+    }
+
+    static string[]? PackagePairProjection(
+        PackagePairCallUseOptions options)
+    {
+        if (options.Columns is null && options.Fields is null)
+            return null;
+
+        // This view has section rows but no root scalar fields.
+        return
+        [
+            .. (options.Columns ?? [])
+                .Concat(options.Fields ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
     }
 }

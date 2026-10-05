@@ -2094,16 +2094,19 @@ described below.
 `graph packages` requires exactly two Package coordinates and one explicit
 `--tfm`. It acquires only those Package subjects, enumerates the complete
 cross-Package implementation-Library matrix, and evaluates both call
-directions for each Library pair. The default `Direct Use Clusters` rows use a
-canonical Package-pair-wide cluster ordinal. `Library Pairs` exposes every
-admitted matrix cell, including complete empty pairs, while `Call Sites`
-exposes the physical calls supporting each cluster. Reversing the two
-`--package` values does not change canonical row order or cluster assignment.
-The operation does not traverse Package dependencies; use `graph calls` for
-the dependency-aware member workflow. `graph cluster N` accepts the same
-Package pair and defaults to the selected cluster's `Call Sites`.
-Package-backed `Public Root Paths` is not yet available; that exact section
-continues to require the local-Library route.
+directions for each Library pair. The explicit `--tfm` is one shared
+acquisition request; each Package may independently select a different
+compatible implementation asset framework. The default `Direct Use Clusters`
+rows use a canonical Package-pair-wide cluster ordinal. `Library Pairs`
+exposes every admitted matrix cell, including complete empty pairs, while
+`Call Sites` exposes the physical calls supporting each cluster. `--columns`
+and `--fields` both project the selected section's row vocabulary. Reversing
+the two `--package` values does not change canonical row order or cluster
+assignment. The operation does not traverse Package dependencies; use
+`graph calls` for the dependency-aware member workflow. `graph cluster N`
+accepts the same Package pair and defaults to the selected cluster's
+`Call Sites`. Package-backed `Public Root Paths` is not yet available; that
+exact section continues to require the local-Library route.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in

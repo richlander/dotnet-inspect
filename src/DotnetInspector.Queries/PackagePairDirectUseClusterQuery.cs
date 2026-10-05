@@ -169,6 +169,11 @@ public static class PackagePairDirectUseClusterQuery
         limits ??= new();
         RequireCoordinate(first, firstCoordinate, nameof(firstCoordinate));
         RequireCoordinate(second, secondCoordinate, nameof(secondCoordinate));
+        string targetFramework = SharedTargetFramework(
+            first,
+            firstCoordinate,
+            second,
+            secondCoordinate);
 
         if (string.Equals(
             first.PackageId,
@@ -191,29 +196,18 @@ public static class PackagePairDirectUseClusterQuery
 
         if (role is null)
         {
-            string firstFramework =
-                first.RequestedTargetFramework
-                ?? throw new InvalidOperationException(
-                    "An empty Package implementation population requires an explicit target framework.");
-            string secondFramework =
-                second.RequestedTargetFramework
-                ?? throw new InvalidOperationException(
-                    "An empty Package implementation population requires an explicit target framework.");
-            if (!string.Equals(
-                firstFramework,
-                secondFramework,
-                StringComparison.OrdinalIgnoreCase))
-            {
-                throw new PackagePairDirectUseClusterRequestException(
-                    PackagePairDirectUseClusterRequestFailureKind
-                        .IncompatibleTargetFrameworks,
-                    "Package-pair call use requires one shared selected target framework.",
-                    nameof(second));
-            }
             PackagePairPackageDescriptor firstPackage =
-                Describe(first, firstCoordinate, firstFramework);
+                Describe(
+                    first,
+                    firstCoordinate,
+                    targetFramework,
+                    SelectedFramework(first, []));
             PackagePairPackageDescriptor secondPackage =
-                Describe(second, secondCoordinate, secondFramework);
+                Describe(
+                    second,
+                    secondCoordinate,
+                    targetFramework,
+                    SelectedFramework(second, []));
             return new PackagePairDirectUseClusterOutcome.EndpointUnavailable(
                 ComparePackages(firstPackage, secondPackage) <= 0
                     ? [firstPackage, secondPackage]
@@ -226,6 +220,7 @@ public static class PackagePairDirectUseClusterQuery
                 firstCoordinate,
                 second,
                 secondCoordinate,
+                targetFramework,
                 limits));
     }
 
@@ -236,6 +231,7 @@ public static class PackagePairDirectUseClusterQuery
         RealizedMemberCoordinate.Package firstCoordinate,
         PackageRootIdentity second,
         RealizedMemberCoordinate.Package secondCoordinate,
+        string targetFramework,
         PackagePairDirectUseClusterLimits limits)
     {
         ImmutableArray<PackageAssemblyRoleParticipant> firstParticipants =
@@ -248,22 +244,19 @@ public static class PackagePairDirectUseClusterQuery
         string secondFramework = SelectedFramework(
             second,
             secondParticipants);
-        if (!string.Equals(
-            firstFramework,
-            secondFramework,
-            StringComparison.OrdinalIgnoreCase))
-        {
-            throw new PackagePairDirectUseClusterRequestException(
-                PackagePairDirectUseClusterRequestFailureKind
-                    .IncompatibleTargetFrameworks,
-                "Package-pair call use requires one shared selected target framework.",
-                nameof(second));
-        }
 
         PackagePairPackageDescriptor firstPackage =
-            Describe(first, firstCoordinate, firstFramework);
+            Describe(
+                first,
+                firstCoordinate,
+                targetFramework,
+                firstFramework);
         PackagePairPackageDescriptor secondPackage =
-            Describe(second, secondCoordinate, secondFramework);
+            Describe(
+                second,
+                secondCoordinate,
+                targetFramework,
+                secondFramework);
         bool reverse = ComparePackages(
             firstPackage,
             secondPackage) > 0;
@@ -467,7 +460,7 @@ public static class PackagePairDirectUseClusterQuery
             new(
                 canonicalFirstPackage,
                 canonicalSecondPackage,
-                canonicalFirstPackage.SelectedTargetFramework,
+                targetFramework,
                 [
                     .. canonicalFirstParticipants
                         .Concat(canonicalSecondParticipants)
@@ -526,14 +519,45 @@ public static class PackagePairDirectUseClusterQuery
     static PackagePairPackageDescriptor Describe(
         PackageRootIdentity package,
         RealizedMemberCoordinate.Package coordinate,
+        string requestedFramework,
         string selectedFramework) =>
         new(
             coordinate,
             package.PackageId,
             package.PackageVersion,
-            package.RequestedTargetFramework,
+            requestedFramework,
             selectedFramework,
             package.RequestedRuntimeIdentifier);
+
+    static string SharedTargetFramework(
+        PackageRootIdentity first,
+        RealizedMemberCoordinate.Package firstCoordinate,
+        PackageRootIdentity second,
+        RealizedMemberCoordinate.Package secondCoordinate)
+    {
+        string firstFramework =
+            firstCoordinate.Framework
+            ?? first.RequestedTargetFramework
+            ?? throw new InvalidOperationException(
+                "Package-pair call use requires an explicit target framework.");
+        string secondFramework =
+            secondCoordinate.Framework
+            ?? second.RequestedTargetFramework
+            ?? throw new InvalidOperationException(
+                "Package-pair call use requires an explicit target framework.");
+        if (!string.Equals(
+            firstFramework,
+            secondFramework,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PackagePairDirectUseClusterRequestException(
+                PackagePairDirectUseClusterRequestFailureKind
+                    .IncompatibleTargetFrameworks,
+                "Package-pair call use requires one shared requested target framework.",
+                nameof(second));
+        }
+        return firstFramework;
+    }
 
     static void RequireCoordinate(
         PackageRootIdentity package,
@@ -547,10 +571,6 @@ public static class PackagePairDirectUseClusterQuery
             || !string.Equals(
                 package.PackageVersion,
                 coordinate.Version,
-                StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(
-                package.RequestedTargetFramework,
-                coordinate.Framework,
                 StringComparison.OrdinalIgnoreCase)
             || !string.Equals(
                 package.RequestedRuntimeIdentifier,

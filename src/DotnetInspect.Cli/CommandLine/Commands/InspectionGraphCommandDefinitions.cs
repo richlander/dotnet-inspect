@@ -389,6 +389,8 @@ public static class InspectionGraphCommandDefinitions
                         : null,
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
+                    Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
                     Sections = opts.ParseSelect(parseResult) ?? [],
                     SourceOptions =
                         opts.ParseNuGetSourceOptions(parseResult),

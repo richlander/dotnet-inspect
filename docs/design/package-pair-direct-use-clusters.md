@@ -52,10 +52,11 @@ from one selected Member and traverses a dependency closure. The Package-pair
 question instead selects both exact Packages and inventories every direct
 cross-Package Library relationship.
 
-An independently compiled fixture supplies two implementation Libraries on
-each Package side, calls in both directions, disconnected Library pairs,
-shared and disjoint Direct Use Clusters, repeated physical call sites, and one
-participant whose body evidence is incomplete.
+Independently compiled fixtures supply two implementation Libraries on each
+Package side, calls in both directions, disconnected Library pairs, shared and
+disjoint Direct Use Clusters, repeated physical call sites, and version-skewed
+correspondence that retains a physical call while making its Library pair
+incomplete.
 
 ## Design basis
 
@@ -102,8 +103,13 @@ Both identities must:
 
 - belong to the supplied package-role projection;
 - name different canonical Package IDs;
-- carry compatible explicit target-framework context; and
+- carry one shared explicit requested and acquisition framework context; and
 - identify exact retained package-role participants.
+
+Each Package may independently select a different compatible implementation
+asset framework for that shared request. The shared request and each selected
+implementation framework are separate identity facts; compatible fallback
+never requires the two selected frameworks to be equal.
 
 The surrounding PackageQueries operation carries one exact
 `InspectionWorkspace`, one captured Scope containing both exact Package
@@ -171,7 +177,8 @@ retains that qualification.
 The completed value is one resource-free
 `PackagePairDirectUseClusterDocument`. It contains:
 
-1. both exact Package descriptors and the shared selected framework;
+1. both exact Package descriptors, the shared requested framework, and each
+   Package's independently selected implementation framework;
 2. one exact implementation-Library descriptor per admitted participant;
 3. one result per canonical cross-Package Library pair;
 4. every owner-issued Direct Use Cluster and supporting physical call
@@ -309,21 +316,24 @@ Release gates cover:
 
 1. two Packages with two implementation Libraries each produce exactly the
    canonical cross-product and no same-Package pair;
-2. both call directions remain distinct;
-3. reversing request endpoints produces identical detached Content;
-4. each cluster is the existing Library-pair projection with unchanged
+2. one shared requested framework permits different compatible implementation
+   framework selections on the two Packages;
+3. both call directions remain distinct;
+4. reversing request endpoints produces identical detached Content;
+5. each cluster is the existing Library-pair projection with unchanged
    membership, anchors, and physical occurrences;
-5. repeated call sites affect physical count but not cluster membership;
-6. an incomplete pair preserves positive neighboring results and prevents a
+6. repeated call sites affect physical count but not cluster membership;
+7. an incomplete pair preserves positive calls and prevents a
    complete document claim;
-7. no implementation population and pair-population admission failure remain
+8. no implementation population and pair-population admission failure remain
    typed non-success;
-8. every detached endpoint retains exact Package, asset, assembly, MVID, and
+9. every detached endpoint retains exact Package, asset, assembly, MVID, and
    Member identity without live Workspace or registration state;
-9. focused Package cluster selection resolves the same owner-issued cluster
+10. focused Package cluster selection resolves the same owner-issued cluster
    selected by the pair-wide document;
-10. CLI terminals and row selection consume the shared declarations; and
-11. the pinned Polly pair demonstrates an exact cross-Package cluster without
+11. CLI terminals, row selection, and column or field projection consume the
+    shared declarations; and
+12. the pinned Polly pair demonstrates an exact cross-Package cluster without
     dependency-closure traversal.
 
 NativeAOT before/after evidence covers every supported `graph packages`

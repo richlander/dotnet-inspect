@@ -187,6 +187,41 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task PackagesCommand_AppliesColumnAndFieldProjections()
+    {
+        Execution table = await ExecutePackagePairAsync(
+            OutputFormat.Table,
+            columns: ["Cluster"]);
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Contains("Cluster", table.Output);
+        Assert.DoesNotContain("Library Pair", table.Output);
+        Assert.DoesNotContain("Source Package", table.Output);
+
+        Execution json = await ExecutePackagePairAsync(
+            OutputFormat.Json,
+            fields: ["Cluster"]);
+
+        Assert.Equal(0, json.ExitCode);
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        JsonElement[] rows =
+        [
+            .. parsed.RootElement
+                .GetProperty("direct_use_clusters")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            static row =>
+                Assert.Equal(
+                    ["cluster"],
+                    row.EnumerateObject()
+                        .Select(static property => property.Name)
+                        .ToArray()));
+    }
+
+    [Fact]
     public void ClusterCommand_ExposesFocusedPairWithoutTraversal()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
@@ -3328,6 +3363,70 @@ public sealed class InspectionGraphCommandTests
             captured.ExitCode,
             captured.Output,
             captured.Error);
+    }
+
+    static async Task<Execution> ExecutePackagePairAsync(
+        OutputFormat format,
+        string[]? columns = null,
+        string[]? fields = null)
+    {
+        var store = new InMemoryPackageStore();
+        string sourceKey = NuGetCache.GetSourceKey(Source.Url);
+        await CommitAsync(
+            PackageId,
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        await CommitAsync(
+            OtherPackageId,
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextLoadOptions loadOptions = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+            IncludePackageRootBindings = true,
+        };
+        var captured = await ConsoleCapture.RunAsync(
+            () => PackagePairCallUseCommand.ExecuteAsync(
+                new PackagePairCallUseOptions
+                {
+                    Packages =
+                    [
+                        $"{PackageId}@{Version}",
+                        $"{OtherPackageId}@{Version}",
+                    ],
+                    TargetFramework = Framework,
+                    Format = format,
+                    Columns = columns,
+                    Fields = fields,
+                },
+                loadOptions,
+                TestContext.Current.CancellationToken));
+        return new Execution(
+            captured.ExitCode,
+            captured.Output,
+            captured.Error);
+
+        async Task CommitAsync(
+            string packageId,
+            string assemblyPath)
+        {
+            byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+                ($"{packageId}.nuspec", "<package />"u8.ToArray()),
+                ($"lib/{Framework}/{Path.GetFileName(assemblyPath)}",
+                    await File.ReadAllBytesAsync(
+                        assemblyPath,
+                        TestContext.Current.CancellationToken)));
+            using var stream = new MemoryStream(package);
+            await store.CommitAsync(
+                packageId,
+                Version,
+                sourceKey,
+                stream,
+                TestContext.Current.CancellationToken);
+        }
     }
 
     static Task<(int ExitCode, string Output, string Error)> RunCliAsync(
