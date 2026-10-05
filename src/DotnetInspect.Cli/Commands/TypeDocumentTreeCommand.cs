@@ -36,6 +36,7 @@ internal static class TypeDocumentTreeCommand
                 && !options.PlainText
                 && !options.MarkdownExplicitlySet);
         return nativeTree
+            && !options.HasSectionQuery
             && (options.Count
                 || options.Tree
                 || options.ShapeOutput
