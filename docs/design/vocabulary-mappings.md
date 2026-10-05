@@ -302,6 +302,11 @@ Maps admit a fixed subset of that grammar:
 | Vocabulary-term value | Yes, in a term-reference map |
 | Record and choice values | No |
 
+A vocabulary-term value also inherits the explanation floor's identity bound:
+the term identity's own value is at most 1,024 UTF-8 bytes. A term with a
+longer identity can be declared but cannot be a term-map target; constructing
+the value fails visibly.
+
 Construction rejects anything outside the subset. The snapshot identity
 encoding, the CLI document, and the Browser export each lower exactly these
 cases. The identity encoding and the Browser export carry signed 64-bit
