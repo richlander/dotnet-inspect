@@ -562,6 +562,7 @@ Terminal work bounds are gated in Release:
 
 - `Execute_TerminalBodyBoundIsLaneLocal`
 - `Execute_TerminalBodyBoundInCountKernelIsSourceIncomplete`
+- `Execute_TerminalBodyBoundThroughBodyUseProducerIsSourceIncomplete`
 - `Execute_TerminalEncodedIlByteBoundPublishesPartialWork`
 - `TerminalWorkBudget_OrderedAdmissionsUseCompactRetention`
 - `TerminalWorkBudget_MultipassRevisitIsNotChargedTwice`
