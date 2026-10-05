@@ -118,13 +118,10 @@ superseded infrastructure is prohibited:
   and applies only domain meaning: internal/external selection, namespace cycle
   vocabulary, completeness, qualification, and presentation order. It never
   copies SCC or levelization logic.
-- **`LibraryBodyIndex` is prohibited.** That includes its
-  `CompatibilityIndex()` adapter on `LibraryBodyAnalysisExecution` and any
-  API that returns or wraps it. Research, the query, and both hosts consume
-  only Analysis's focused typed results from one
-  `LibraryBodyAnalysisExecution`. When a needed fact exists only on the
-  compatibility index, the resolution is to have Analysis publish it on a
-  focused result (step 0). Never read through the index "for now".
+- **Analysis stays focused.** Research, the query, and both hosts consume only
+  Analysis's focused typed results from one `LibraryBodyAnalysisExecution`.
+  When a needed fact lacks a focused owner, the resolution is to have Analysis
+  publish it on a focused result (step 0), not to introduce another aggregate.
 - **QuerySpace is the encouraged selection substrate.** Filtering, ordering,
   counting, and limiting the issued rows (type, namespace, and external nodes;
   edges; cycles) use QuerySpace, with the row vocabulary declared

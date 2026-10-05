@@ -98,7 +98,7 @@ public class LibraryBodyRootPathAnalysisTests
     }
 
     [Fact]
-    public void FindShortestPaths_DoesNotMaterializeCompatibilityIndex()
+    public void FindShortestPaths_ConsumesFocusedCallGraph()
     {
         LibraryBodyAnalysisExecution execution =
             LibraryBodyAnalysisService.ExecutePath(
@@ -112,8 +112,6 @@ public class LibraryBodyRootPathAnalysisTests
         MethodIdentity mapped =
             RootPathMethod(callGraph, "CreateMappedTextDiff");
 
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
-
         LibraryBodyRootPathResult result =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
                 callGraph,
@@ -122,7 +120,6 @@ public class LibraryBodyRootPathAnalysisTests
                 s_generousLimits);
 
         Assert.Single(result.Witnesses);
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 
     [Fact]

@@ -88,10 +88,11 @@ single `library` inspection opened the *same* PE image multiple times:
   `PdbContext` already owns a `PEReader` and exposes metadata operations
   (`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`). Full library Analysis prefetches
   that owner. AppContext scanning and member-drill projection use its public capabilities;
-  `LibraryBodyIndex` consumes immutable content from the prefetched image, so none of those
-  consumers reopens the target. Bounded unsafe-presence discovery instead uses a synchronous
-  capability callback over the same non-prefetched reader and scans sequentially, avoiding
-  complete-image materialization without granting a production assembly friendship.
+  library-body Analysis consumes immutable content from the prefetched image, so none of
+  those consumers reopens the target. Bounded unsafe-presence discovery instead uses a
+  synchronous capability callback over the same non-prefetched reader and scans
+  sequentially, avoiding complete-image materialization without granting a production
+  assembly friendship.
 - `MemberCodeProvider` opens a `PEReader` to build a type index, then calls
   `MetadataSource.Open`, which opens the PE image **again** internally.
 
@@ -1310,18 +1311,19 @@ remains the public
 body-local Metadata capability, and high-level Metadata facets own drill projection. These paths
 remove target reopens without exposing the raw reader to the CLI.
 
-Every image-backed `LibraryBodyIndex` publishes one immutable
+Every image-backed library-body Analysis execution publishes one immutable
 `LibraryBodyModuleIdentity` derived from the same `MetadataReader` before
-feature selection or method filtering. It retains the exact assembly-definition
-identity and non-empty MVID; a standalone managed module has no assembly
-identity. The caller-supplied `Path` remains a display/acquisition input and
-method rows remain body evidence, so neither can substitute for module
-identity. `CatalogCallGraphScope` validates and keys participants with the
-issued identity even when an index has no declared methods. The internal
-`FromEvidence` test seam is not image-backed: non-empty synthetic method
-evidence is validated against its synthetic identity, and an empty synthetic
-index must receive identity explicitly rather than acquiring a success-shaped
-default. `ModuleIdentity_IsImageDerivedAcrossFeaturesAndScopes`,
+feature selection or method filtering. It retains the exact
+assembly-definition identity and non-empty MVID; a standalone managed module
+has no assembly identity. The caller-supplied path remains a
+display/acquisition input and method rows remain body evidence, so neither can
+substitute for module identity. `CatalogCallGraphScope` validates and keys
+participants with the focused call-graph result's issued identity even when it
+has no declared methods. The internal synthetic-evidence test seam is not
+image-backed: non-empty synthetic method evidence is validated against its
+synthetic identity, and empty synthetic evidence must receive identity
+explicitly rather than acquiring a success-shaped default.
+`ModuleIdentity_IsImageDerivedAcrossFeaturesAndScopes`,
 `ModuleIdentity_MethodlessPrefetchedImageRetainsExactIdentity`,
 `ModuleIdentity_DistinguishesAssemblyAndModuleGeneration`,
 `ModuleIdentity_StandaloneModuleHasNoAssemblyIdentity`,

@@ -79,10 +79,10 @@ Method Classification is the first mixed-terminal production adopter. Its
 session-backed query lowers independent analyzer Rows, Count, Exists, and Head
 requests into the Method request set, while its PEReader overload remains the
 direct reference. CLI effective discovery uses exact Exists for Async Methods
-and P/Invoke Methods instead of projecting their rows. This metadata-only
-adoption does not shrink the temporary Library Body Analysis remainder; the
-unsafe-evidence-plus-live-body-producer adoption below remains required before
-claiming `LibraryBodyIndex` reduction.
+and P/Invoke Methods instead of projecting their rows. At that metadata-only
+slice, the adoption did not shrink the temporary Library Body Analysis
+remainder; the unsafe-evidence-plus-live-body-producer adoption below remained
+required before reducing the aggregate compatibility surface.
 
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
