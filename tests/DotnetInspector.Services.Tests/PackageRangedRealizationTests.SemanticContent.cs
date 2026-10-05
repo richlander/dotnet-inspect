@@ -811,7 +811,9 @@ public sealed partial class PackageRangedRealizationTests
             packageSource.Settlements[0]
                 .Result.Evidence.Acquisition!
                 .Transfer.BytesReceived
-                + pdbBytes.Length,
+                + packageSource.Settlements[1]
+                    .Result.Evidence.Acquisition!
+                    .Transfer.BytesReceived,
             packageReceipt.BodyBytesRead);
         Assert.True(packageReceipt.Elapsed > TimeSpan.Zero);
         Assert.Collection(
@@ -833,6 +835,56 @@ public sealed partial class PackageRangedRealizationTests
             Assert.IsType<PackageHouseSettlement.Acquired>(
                     packageSource.Settlements[0])
                 .Payload.Content.EnumerateEntries());
+
+        using SourceLinkService cachedSource =
+            SourceLinkService.OpenEmbeddedPdbOnly(
+                assembly);
+        var cached =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(
+                    await PortablePdbSettlement.SettleAsync(
+                        new PortablePdbSettlementRequest(
+                            cachedSource.Context,
+                            assembly,
+                            client,
+                            new InMemoryPdbStore(),
+                            new UniformPackageSourceAuthorization(
+                                [PackageSource.NuGetOrg]))
+                        {
+                            PackagePreparation =
+                                PortablePdbPackageComposition
+                                    .DeferForAssembly(
+                                        assembly,
+                                        packageSource,
+                                        PackageProducerIdentity
+                                            .NuGetOrg),
+                        },
+                        TestContext.Current
+                            .CancellationToken));
+        PortablePdbSettlementReceipt cachedReceipt =
+            Assert.Single(
+                cached.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            packageSource.Settlements[2]
+                .Result.Evidence.Acquisition!
+                .Transfer.RequestCount
+                + packageSource.Settlements[3]
+                    .Result.Evidence.Acquisition!
+                    .Transfer.RequestCount,
+            cachedReceipt.RequestCount);
+        Assert.Equal(
+            packageSource.Settlements[2]
+                .Result.Evidence.Acquisition!
+                .Transfer.BytesReceived
+                + packageSource.Settlements[3]
+                    .Result.Evidence.Acquisition!
+                    .Transfer.BytesReceived,
+            cachedReceipt.BodyBytesRead);
+        Assert.Equal(0, cachedReceipt.RequestCount);
+        Assert.Equal(0, cachedReceipt.BodyBytesRead);
     }
 
     [Fact]

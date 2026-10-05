@@ -1675,6 +1675,10 @@ public static class PortablePdbSettlement
             settlement.Result.Evidence.Acquisition?
                 .Transfer.RequestCount
             ?? 0;
+        long bodyBytesRead =
+            settlement.Result.Evidence.Acquisition?
+                .Transfer.BytesReceived
+            ?? 0;
         if (settlement
                 is not PackageHouseSettlement.Acquired acquired
             || acquired.Result
@@ -1694,6 +1698,7 @@ public static class PortablePdbSettlement
                         : PortablePdbSettlementAttemptOutcome
                             .Failed,
                     RequestCount: requestCount,
+                    BodyBytesRead: bodyBytesRead,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1727,6 +1732,7 @@ public static class PortablePdbSettlement
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Canceled,
                     RequestCount: requestCount,
+                    BodyBytesRead: bodyBytesRead,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1741,6 +1747,7 @@ public static class PortablePdbSettlement
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Incomplete,
                     RequestCount: requestCount,
+                    BodyBytesRead: bodyBytesRead,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1760,6 +1767,7 @@ public static class PortablePdbSettlement
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Failed,
                     RequestCount: requestCount,
+                    BodyBytesRead: bodyBytesRead,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1790,7 +1798,7 @@ public static class PortablePdbSettlement
                         : PortablePdbSettlementAttemptOutcome
                             .Failed,
                     RequestCount: requestCount,
-                    BodyBytesRead: image.Length,
+                    BodyBytesRead: bodyBytesRead,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1833,7 +1841,7 @@ public static class PortablePdbSettlement
                         PortablePdbSettlementAttemptOutcome.Canceled,
                         RequestCount:
                             requestCount,
-                        BodyBytesRead: image.Length,
+                        BodyBytesRead: bodyBytesRead,
                         Elapsed: stopwatch.Elapsed,
                         Coordinates: coordinates),
                     networkOccurred,
@@ -1850,7 +1858,7 @@ public static class PortablePdbSettlement
                         PortablePdbSettlementAttemptOutcome.Failed,
                         RequestCount:
                             requestCount,
-                        BodyBytesRead: image.Length,
+                        BodyBytesRead: bodyBytesRead,
                         Elapsed: stopwatch.Elapsed,
                         Coordinates: coordinates,
                         StoreFailure: publicationFailure),
@@ -1877,7 +1885,7 @@ public static class PortablePdbSettlement
                         PortablePdbSettlementCandidate.PackageLocal,
                         PortablePdbSettlementAttemptOutcome.Incomplete,
                         RequestCount: requestCount,
-                        BodyBytesRead: image.Length,
+                        BodyBytesRead: bodyBytesRead,
                         Elapsed: stopwatch.Elapsed,
                         Coordinates: coordinates),
                     networkOccurred,
@@ -1893,7 +1901,7 @@ public static class PortablePdbSettlement
                         PortablePdbSettlementCandidate.PackageLocal,
                         PortablePdbSettlementAttemptOutcome.Failed,
                         RequestCount: requestCount,
-                        BodyBytesRead: image.Length,
+                        BodyBytesRead: bodyBytesRead,
                         Elapsed: stopwatch.Elapsed,
                         Coordinates: coordinates,
                         StoreFailure:
@@ -1911,7 +1919,7 @@ public static class PortablePdbSettlement
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Acquired,
                     RequestCount: requestCount,
-                    BodyBytesRead: image.Length,
+                    BodyBytesRead: bodyBytesRead,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1926,7 +1934,7 @@ public static class PortablePdbSettlement
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Failed,
                     RequestCount: requestCount,
-                    BodyBytesRead: image.Length,
+                    BodyBytesRead: bodyBytesRead,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates,
                     StoreFailure: exception.StoreFailure),
@@ -1942,7 +1950,7 @@ public static class PortablePdbSettlement
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Canceled,
                     RequestCount: requestCount,
-                    BodyBytesRead: image.Length,
+                    BodyBytesRead: bodyBytesRead,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
