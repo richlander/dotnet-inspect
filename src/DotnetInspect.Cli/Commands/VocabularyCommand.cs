@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
+using QuerySpace.Vocabulary;
 using Markout;
 
 namespace DotnetInspect.Cli.Commands;
@@ -17,7 +18,8 @@ public static class VocabularyCommand
     public static int Execute(VocabularyOptions options)
     {
         InspectionEnvelope<VocabularySnapshot> inspection =
-            ProductVocabularyInspection.Execute();
+            ProductVocabularyInspection.Execute(
+                CliVocabularyComposition.Snapshot);
         VocabularyDocument document =
             VocabularyCatalog.ProjectDocument(inspection.Content);
         SectionCatalog<VocabularyDocument> catalog = VocabularySections.Catalog;

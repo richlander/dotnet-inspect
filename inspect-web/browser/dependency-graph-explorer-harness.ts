@@ -213,9 +213,9 @@ async function render() {
     </main>`;
   bindGraphExplore(document, () => explorer.open(target()));
   bindPackageView(document, {
+    onPackageChildLibrarySelect() {},
+    onRuntimeIdentifierPackageLoad() {},
     onDependencyGroupSelect: index => { groupIndex = index; void patchGroup(); },
-    onPruningEvaluate() {},
-    onPruningFamilySelect() {},
     onDependencyOpen: id => { void navigate(id); },
     onDependencyLoad: id => { void navigate(id); },
     onGraphTypeSelect() {},

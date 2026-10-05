@@ -404,10 +404,11 @@ public static class IrPasses
         // mismatch) renders an honest marker instead of an uncompilable fp(x).
         new CallIndirectSpellabilityPass(),
         new RefKindDiagnosticsPass(),
-        // Last: wrap every in-domain typed-sink value not provably at its
-        // target in a Coerce node, so the printer receives a decided tree and
+        // Wrap every in-domain typed-sink value not provably at its target in
+        // a Coerce node, so the printer receives a decided tree and
         // CoercionInvariant is checkable (value-typed-emission.md, slice 3).
-        // Nothing may reshape sink values after this.
+        // Only ResidualSlotBindingPass may reshape sink values after this, and
+        // it re-runs this same decision to a fixpoint when it does.
         // F2 (#2386): a final slots-only inlining run collapses the single-use
         // spill slots that structuring/reconstruction minted after the earlier
         // ExpressionInliningPass runs, so they render as their value expression
@@ -482,11 +483,20 @@ public static class IrPasses
         new ReferenceConditionalBindingPass(),
         new PrimitiveJoinBindingPass(),
         new CoercionInsertionPass(),
+        // Every stack-slot web materialization declined becomes decided locals
+        // here, by the printer's frozen residual policy, then the shared
+        // insertion decision is re-run to a fixpoint. Last pass that may see a
+        // slot node: the printer rejects any that survive.
+        new ResidualSlotBindingPass(),
         new ScalarSelfUpdatePass(),
         // Parameter metadata is imported before nested bodies are known. Allocate
         // missing-name fallbacks only after every raise has exposed the final
         // lexical binder tree, so exact nested names reserve before synthesis.
         new ParameterNameAllocationPass(),
+        // Decide which up-front locals keep `= default` on the final tree,
+        // with residual provenance as an input (value-typed-emission.md,
+        // Instance 3). Last: every statement-rewriting pass has run.
+        new DefiniteAssignmentPass(),
     ];
 
     /// <summary>
@@ -516,6 +526,17 @@ public static class IrPasses
         [.. Default.Skip(CapturingLambdaPreparation.Length)];
 
     /// <summary>
+    /// <see cref="Default"/> for a reconstructed body that re-enters the host
+    /// pipeline before presentation (iterator reconstruction's intermediate
+    /// re-runs). Residual storage binding is the last decision before the
+    /// printer and runs once, at the host's tail: binding here would turn a
+    /// slot web the transplant still recognizes (a dead state-machine
+    /// <c>this</c> spill) into a local it cannot.
+    /// </summary>
+    internal static ImmutableArray<IIrPass> ForIntermediateBody { get; } =
+        [.. Default.Where(p => p is not (ResidualSlotBindingPass or DefiniteAssignmentPass))];
+
+    /// <summary>
     /// The sub-pipeline for cross-method reconstruction imports (async and
     /// iterator <c>MoveNext</c> bodies): <see cref="Default"/> without the
     /// requesting pass and without <see cref="SlotMaterializationPass"/>.
@@ -528,7 +549,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
+        [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or ResidualSlotBindingPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass or DefiniteAssignmentPass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

@@ -18,6 +18,16 @@ public class InspectionResult
 
     public string? ManifestVersion { get; set; }
 
+    [JsonIgnore]
+    internal bool ToolSettingsProjectionComplete { get; set; } = true;
+
+    [JsonIgnore]
+    internal DotnetToolSettingsProjectionStatus ToolSettingsProjectionStatus
+    {
+        get;
+        set;
+    } = DotnetToolSettingsProjectionStatus.Missing;
+
     public string Version { get; set; } = "";
 
     /// <summary>
@@ -87,11 +97,12 @@ public class InspectionResult
         EcosystemDependencyRecognitionInspection { get; set; }
 
     /// <summary>
-    /// Presentation-selected ecosystem-dependency pairs. Null retains the
-    /// complete recognized population from the recognition Document.
+    /// Presentation-selected ecosystem-dependency matches. Null retains the
+    /// complete recognized and candidate populations from the recognition
+    /// Document.
     /// </summary>
     [JsonIgnore]
-    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+    public IReadOnlyList<EcosystemDependencyMatchEntry>?
         EcosystemDependencyRows { get; set; }
 
     /// <summary>

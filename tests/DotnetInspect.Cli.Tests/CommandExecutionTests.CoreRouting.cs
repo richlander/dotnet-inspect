@@ -428,8 +428,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("# System.CommandLine", output);
-        Assert.Contains("## Package Info", output);
+        Assert.StartsWith("System.CommandLine ", output);
+        Assert.Contains("System.CommandLine", output);
+        Assert.DoesNotContain("Type declarations", output);
+        Assert.DoesNotContain("## Package Info", output);
         Assert.DoesNotContain("Library: System.CommandLine.dll | Types:", output);
     }
 
@@ -4032,13 +4034,15 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.4",
             "-S",
             "Package Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
             "package",
             "Newtonsoft.Json@13.0.4",
             "-S",
-            "Package Info");
+            "Package Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4091,13 +4095,15 @@ public partial class CommandExecutionTests
             "--package:Newtonsoft.Json@13.0.4",
             "-S",
             "Package Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
             "package",
             "Newtonsoft.Json@13.0.4",
             "-S",
-            "Package Info");
+            "Package Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);

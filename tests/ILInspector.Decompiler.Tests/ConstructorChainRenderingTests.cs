@@ -39,7 +39,7 @@ public class ConstructorChainRenderingTests
         {
             BaseType = Base,
         };
-        return CSharpPrinter.Print(function);
+        return DecidedPrint.Print(function);
     }
 
     static DecompilerResult RenderConstructor(TypeRef chainDeclaringType, IrExpression receiver, bool diagnose = false)
@@ -58,7 +58,7 @@ public class ConstructorChainRenderingTests
         };
         if (diagnose)
             new ConstructorCallDiagnosticsPass().Run(function, PassContext.None);
-        return CSharpPrinter.Print(function);
+        return DecidedPrint.Print(function);
     }
 
     [Fact]

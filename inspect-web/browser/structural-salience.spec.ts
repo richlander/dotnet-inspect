@@ -41,17 +41,30 @@ test("aggregate Type lists load icon-only cues automatically", async ({
     "data-structural-salience-request-count",
     "2",
   );
-  await expect(page.locator(".type-row.sea-level")).toHaveCount(1);
-  await expect(page.locator(".type-row.mountain-peak")).toHaveCount(1);
-  await expect(page.locator(".type-row.sea-level.mountain-peak"))
-    .toHaveCount(0);
-  expect(await page.locator(".item-achievement-glyph.sea-level").first()
+  await expect(page.locator(".type-row.surface-sea-level")).toHaveCount(1);
+  await expect(page.locator(".type-row.surface-mountain-peak")).toHaveCount(1);
+  await expect(page.locator(".type-row.implementation-sea-level"))
+    .toHaveCount(2);
+  await expect(page.locator(
+    ".type-row.surface-sea-level.implementation-sea-level",
+  )).toHaveCount(1);
+  await expect(page.locator(
+    ".type-row.surface-mountain-peak.implementation-sea-level",
+  )).toHaveCount(1);
+  expect(await page.locator(
+    ".item-achievement-glyph.surface-sea-level",
+  ).first()
     .evaluate(element => getComputedStyle(element).maskImage)).not.toBe("none");
   await expect(page.locator(".metadata-warning")).toHaveCount(0);
   await page.locator("#clear-filter").click();
-  await expect(page.locator(".item-achievement-glyph.sea-level")).toHaveCount(1);
-  await expect(page.locator(".item-achievement-glyph.mountain-peak"))
+  await expect(page.locator(".item-achievement-glyph.surface-sea-level"))
     .toHaveCount(1);
+  await expect(page.locator(
+    ".item-achievement-glyph.surface-mountain-peak",
+  )).toHaveCount(1);
+  await expect(page.locator(
+    ".item-achievement-glyph.implementation-sea-level",
+  )).toHaveCount(2);
   await expect(page.locator("html")).toHaveAttribute(
     "data-structural-salience-request-count",
     "2",
@@ -63,8 +76,11 @@ test("aggregate Type lists load icon-only cues automatically", async ({
   await selectLibrary(page, core.id);
   await chooseSubject(page, "library", "Library");
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
-  await page.locator('[data-analysis-mode="metrics"]').click();
-  await expect(page.locator(".library-metrics-surface"))
+  await page.locator('[data-analysis-mode="complexity"]').click();
+  await expect(page.locator(".library-complexity-surface"))
+    .not.toContainText("Structural Salience");
+  await page.locator('[data-analysis-mode="relationships"]').click();
+  await expect(page.locator(".library-relationships-surface"))
     .not.toContainText("Structural Salience");
 });
 

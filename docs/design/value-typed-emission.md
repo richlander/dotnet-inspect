@@ -33,7 +33,7 @@ was written for, wrong in the next one.
 | --- | --- | --- | --- |
 | **1. Coercion** (flagship) | whether/how to cast a value to a target type, and when to wrap `unchecked` | a `Coerce` node + one renderer | the six-round enum-cast history below |
 | **2. Stack-slot materialization** | which locals exist, their types, and when to split one slot into two | typed local IR nodes from type propagation | #2075 — the `S_0`/`S_256` collapse |
-| **3. Definite assignment** (later) | which locals need `= default` | a pre-print flow pass handing over a decided tree | #631 (partial) |
+| **3. Definite assignment** (decided pre-print, #2095) | which locals need `= default` | a pre-print flow pass handing over a decided tree | #631 (partial) |
 
 Precedence, escaping, layout, node-spelling are deliberately *not* on this list —
 they are the writer's real job.
@@ -237,7 +237,12 @@ either:
 - a coalesce has a proven assignment type accepted by
   `ReferenceAssignmentTargets`; or
 - an ordinary expression has a proven reference assignment type and the
-  storage target is nominal core-library `System.Object`.
+  storage target is nominal core-library `System.Object`; or
+- a coalesce of two proven references with no assignment type of its own is
+  stored to a slot whose every load testifies nominal `System.Object`: the
+  slot-target binding pass issues the one reference-conversion witness C#
+  needs on the left operand (`(object)left ?? right`), after which the
+  coalesce carries the `object` assignment type the first bullet accepts.
 
 This combines the already bounded coalesce assignment decision with the
 ordinary C# reference-to-`object` conversion. It does not infer a class or
@@ -290,10 +295,13 @@ A supplemental full 42,120-method product-render hash comparison reports only
 both changes move an existing `object` declaration to its materialized-local
 position without changing statements.
 
-### Primitive-join target testimony
+### Join target testimony
 
-Primitive integer-family join compatibility is decided before printing
-(#2095). One bounded relation serves `Conditional`, `SwitchExpression`, and
+Join target compatibility is decided before printing (#2095). Its
+integer-family part is the primitive relation below; its enum and `char`
+parts are two arm facts issued with it (the last subsection).
+
+Primitive integer-family join compatibility is decided before printing. One bounded relation serves `Conditional`, `SwitchExpression`, and
 `Coalesce`. It records whole-join compatibility and, for each target whose
 rendered arms are accepted, the effective source type that licenses
 target-aware arm rendering. Rendered-arm testimony is issued only for an actual
@@ -349,6 +357,55 @@ same-width signedness, constant behavior, boolean arms, differing-width and
 missing-type declines, enum/`char` non-preemption, clone/refresh, raised/lowered
 output, and the pinned witness. Fixed-input censuses and Render A/B measure
 population effects separately.
+
+#### Enum and `char` arm facts
+
+The same binding issues two arm facts over each join's rendered arms (both arms
+of a conditional, every switch-expression arm value, a coalesce's right
+operand): the join has at least one rendered arm and every rendered arm is
+integer-typed, and the join has at least one rendered arm and every rendered
+arm is a `char` constant. They are issued even when the join's own type is not an
+integer (an enum-typed conditional of integer arms is the enum route's case).
+One relation, `CanRenderValueJoinAt`, decides whether a join renders as a value
+join at a target, and both the printer's targeted join spellings and the
+residual storage policy query it:
+
+- a conditional of `char` constants at `char` keeps the literal route;
+- a join of integer arms at an enum-like target takes the enum route, a
+  coalesce only when its left operand is that enum's `Nullable<T>`;
+- otherwise the issued integer-family testimony decides.
+
+A conditional's full relation, `CanRenderConditionalAt`, adds the issued
+reference assignment testimony. Enum-likeness of the target
+(`CoercionRendering.IsEnumLikeInteger`: a named definition with no primitive
+family that the shape map does not class as a reference or struct, or a
+generic instance the map classes as an enum) is a property of the target, not
+of the arms, and is shared by every caller. A coalesce that is not a value join
+at an enum target still takes the whole-operand enum spelling; that cast is a
+spelling decision and stays with the writer.
+
+The arm facts are issued at construction and by the final binding, retained
+by cloning, and re-taken where their readers look. Two rewrites follow the
+final binding: coercion insertion wraps an enum-merged join's integer arms in
+`Coerce` nodes, and residual storage binding retypes slot-load arms and then
+discharges coercions again. Each reader previously walked the arms live, so
+residual storage binding re-takes the arm facts (and only them) at its entry,
+before its policy reads them and before its early return when no slot
+remains, and again after its discharge, where the printer reads them. The
+integer-family testimony keeps its own binding point and is not refreshed, so
+neither reader sees a fact the deleted walks would not have computed. On the
+pinned 14-assembly corpus no join's arm facts or integer-family testimony
+differ between the final binding and print time (6,581 joins); the
+coercion-wrapped enum-merge shape is gated synthetically, including the
+residual policy's storage decision for it. The printer's `CanRenderValueConditionalForTarget` and
+`CanRenderSwitchExpressionForTarget` and the residual policy's verbatim copy of
+the former are deleted; the printer asks the relation and only spells the
+join. `JoinTargetTestimonyTests` gates the three join kinds, the enum-typed
+join with integer arms, the `Nullable<T>` coalesce condition, the `char`
+route's conditional-only scope, the missing-type and reference declines, and
+clone and refresh, the arms coercion insertion wraps (with and without a
+residual slot), the arms residual discharge wraps, and the residual policy's
+split decision for a slot that stores a coercion-wrapped enum merge.
 
 ## Instance 1 — coercion: the missing member of the type system
 
@@ -708,6 +765,45 @@ residual identity. The seven removed identities are the package
 `GetEffectiveParametersInNormalForm`, `ShouldMethodDisplayReadOnly`,
 `MakeParameters`, and `VisitLock`.
 
+### Loop-contained entry-reset ranges
+
+A block contained in a structured loop supplies another bounded proof when
+every reference to one reused slot remains in that block and the first
+reference on every block entry is a direct store. If that store does not read
+the same slot, each execution resets the carrier before any load. A later
+store-to-load range therefore cannot feed an earlier load on the next loop
+iteration and may receive a distinct identity under the ordinary block-local
+proof.
+
+The proof admits the block inside structured exception handling because no
+handler or sibling block references the carrier. It declines when a reference
+escapes the block, the first reference is a load or nested store, the entry
+store reads the prior carrier, or the block retains a label or unraised
+transfer. It does not construct a loop CFG, infer exception flow, or treat a
+PDB lexical block as execution evidence.
+
+The motivating dotnet-inspect.any 0.14.0 method is
+`DiffCommand.BuildAnalysisDiff`. Its raised `foreach` body directly stores and
+consumes two `MethodSignals` ranges before directly storing and consuming one
+`List<OptimizationOpportunity>` range in the same reused carriers. The first
+`MethodSignals` stores reset those carriers on every iteration, so the
+opportunity ranges cannot reach the earlier signal loads. The product output
+now declares those types separately instead of asking the printer to create
+`S_6_1` and `S_8_1`.
+
+`PublishedLoopEntryResetRangesResolveBeforePrinting` pins that package witness.
+Synthetic cases gate the positive reset, a self-reading entry store, a retained
+label, read-before-write, and nested structured-EH ownership. On the fixed
+14-assembly corpus the proof performs three range rewrites with zero collection
+failures, reduces residual split slots from 131 to 129 as the printer's
+unifier counted them at that base (after [Residual storage
+binding](#residual-storage-binding) the same effect reads as two fewer
+residual-bound split webs in `--residual-binding-census`), removes exactly
+the `BuildAnalysisDiff` `S_6` and `S_8` identities, and introduces none. The
+third rewrite is a compatible `string`/`object` carrier in
+`ApiOutputFormatter.BuildMemberDrillMap`; it is disclosed separately because it
+was not a residual split.
+
 ### Residual storage binding
 
 The focused claim:
@@ -738,9 +834,10 @@ rules to the pass.
 local function — immediately after `CoercionInsertionPass` and before
 `ScalarSelfUpdatePass`, in every pipeline that includes
 `SlotMaterializationPass` (`Default`, `Lowered`, and the capturing-lambda
-completion split) and in none that excludes it: the `ForReconstruction` pipelines leave
-their slot nodes for the host's tail, which binds the transplanted body. It is
-the last pass that may observe a stack-slot node. The position is chosen so
+completion split) and in none that excludes it: the `ForReconstruction`
+pipelines and the intermediate re-runs of a reconstructed body
+(`ForIntermediateBody`) leave their slot nodes for the host's tail, which binds
+the transplanted body. It is the last pass that may observe a stack-slot node. The position is chosen so
 the pass sees exactly the tree the printer sees today in that pipeline: the
 slot-consuming raises present in it (`SwapIdiomPass`,
 `PointerCompoundAssignmentPass`, `UnsafeAwaitBoundaryPass`) have run;
@@ -809,7 +906,7 @@ residual policy `CSharpPrinter.CollectStackSlotNames` and
    No producer at this head sets `Fixed.LocalIsStackSlot`, so the printer's
    slot-keyed `FixedLocalName` branch is dead; the flag and every reader branch
    (`UnsafeAwaitBoundaryPass`, `ArrayLiteralFromStoresPass`,
-   `LocalDeclarationPlan`, `IrNode.NodeBindsLocalSlot`, both printer sites)
+   `LocalDeclarationPlan`, `IrFunction.NodeBindsLocalSlot`, both printer sites)
    are deleted as unreachable in the same
    slice, with that evidence stated, rather than rebound by this pass.
 3. **Untyped.** Any local that steps 1 and 2 would issue without a type — a
@@ -828,8 +925,41 @@ primitive targets as the binding passes have just bound them; for the Boolean
 sink rule, each load's parent shape and the consuming sink target
 `CoercionSinks.SemanticLoadSinkTargetType` derives (field type, setter
 parameter, `Box` type, `StoreLocal` type, argument store type, indirect store
-type, element target, or the body's return type); and the function's type
-shapes and enum backing. That inventory is closed. The pass does not read materialization
+type, element target, the body's return type, a call or object-creation
+argument's declared parameter type after MethodSpec substitution when that
+type is closed, or the other operand of a comparison when that operand is not
+a constant and its type is width-exact for the comparison); and the function's type
+shapes and enum backing. That inventory is closed. The argument and comparison
+sinks are the same "consuming sink's target type" the one slot-evidence rule
+(`TestifiedSlotTypes`) has always stated for an untyped load; they joined its
+derivation for the #9248 remainder, where a reference `??` join or an
+enum/constant join spilled to a slot and consumed only by such a sink had no
+testimony and failed visibly at residual storage binding. An open generic
+parameter never testifies, and a constant comparison operand never does: it
+carries only its stack width, and `c ? CfgFlags.Top : e` compared against
+`0` keeps the enum naming route (`EnumCastPrinterTests`). A comparison operand
+testifies only when its static type is exactly the operand type the IL
+comparison itself fixes — by stack family, by width, and, for an ordering
+comparison, by signedness (ECMA-335 III.1.5; `clt` versus `clt.un`). Width: an
+I4-family operand is compared at int32 width, so `int` and `uint` testify while
+`byte`, `short`, `char`, `bool`, and enums (whose backing width the derivation
+does not see) decline; `long`, floats, native ints, and proven references are
+width-exact. Signedness: on an ordering comparison an integer sibling testifies
+only when it is unsigned exactly when the comparison is, because the printer
+spells signedness from the operand types; equality ignores signedness. Taking
+a narrow sibling would declare the slot narrower than the comparison and
+truncate its other stores (`b == (c ? (int)e : x)` as
+`byte S = c ? (byte)e : (byte)x`); taking a `uint` sibling on a signed `clt`
+would turn `(int)u < (c ? (int)be : x)` into the unsigned
+`uint S = c ? (uint)be : (uint)x; return S_0 < S;`. Both compile and change
+the result; `ArgumentSinkTestimonyTests` gates both declines. A declined narrow or enum sibling leaves the load underivable, so the
+web fails visibly as before, and widening the rule to enum siblings once the
+derivation carries enum backing widths is a named follow-up on the #9371
+docket. For a raised lambda body
+the return type is the body's own signature, the closure method's; the deleted
+printer read it from the delegate's shape and fell back to `void`, so a
+delegate it could not read (`Predicate<T>`, for example) is a named, expected
+delta from the verbatim port: the input is more exact and no rule changed. The pass does not read materialization
 testimony to choose a type (the testimony reaches it only through the
 `Coerce` wrappers insertion owns), does not infer a join, hierarchy, or
 variance conversion, and does not gain an admission rule when a class fails
@@ -848,13 +978,39 @@ grouped as *late-decidable*; that group's owner is materialization's position,
 not this pass.
 Provenance is a typed side fact keyed by local index, available to hosts and
 to the census; it is not display text, it does not widen the local declaration
-shape, and it never upgrades fidelity or identity. Bound locals keep their
-`S_n` and `S_n_k` names so render A/B stays comparable; readable naming
+shape, and it never upgrades fidelity or identity. A raised `Lambda` or
+`LocalFunctionStatement` carries its body's provenance the way it carries the
+body's materialized slot locals, and a host re-entering the body restores it,
+so nested bindings stay visible to hosts and to the census. Bound locals keep
+their `S_n` and `S_n_k` names so render A/B stays comparable; readable naming
 remains owned by the declaration plan and
 [Readable local names](readable-local-names.md). Because bound locals are
 ordinary appended locals, the declaration plan owns their placement; the
 plan's current statement that residual slots stay outside it is updated by the
 implementation slice.
+
+**A bound local is never zero-initialised.** The policy binds by type only; it
+proves no live range and no reaching store, so a split piece can be read on a
+path no store of that piece reaches. Such a read is a binding gap, not a
+definitely unassigned local, and `= default` would turn it into compiling C#
+that silently drops the term. Every residual-bound local is therefore declared
+bare: `DefiniteAssignmentPass` (Instance 3) takes the residual provenance as an
+input and leaves those locals out of the issued zero-initialized set, and the
+gap stays visible as CS0165 exactly as it did before the move. Gate:
+`ResidualSlotBindingPassTests` on a synthetic split piece and on
+`Microsoft.CodeAnalysis.Operations.ForEachLoopOperation.get_ChildOperationsCount`
+(Microsoft.CodeAnalysis 5.0.0).
+
+**A decided type retires the untyped-load diagnostic; provenance does not.**
+The printer reported `DEC0008` for a slot load it could not type even when
+its policy unified the web, so the method was labelled `Partial` and stayed
+out of compile-back. The pass issues that same decided type as a typed local,
+so the diagnostic has nothing to report and the method is labelled by its
+remaining diagnostics alone; the fidelity change is the type, not the
+provenance record. The corpus methods that moved `Partial`→`Full` this way
+(`GetArgArray` among them) entered compile-back, where their pre-existing
+structural gaps are visible (#9249) rather than hidden behind a slot-type
+label.
 
 **The printer deletes its slot machinery in the same slice.**
 `TryChooseUnifiedStackSlotType`, `CanAssignTo`, `CanLoadAsType`,
@@ -901,7 +1057,7 @@ visible-failure tests), and a compiler-produced boundary where a surviving
 slot must fail visibly.
 
 **Measurement replaces the printer census.** The harness's
-`--slot-unifier-census` retires with the unifier. A residual-binding census
+`--slot-unifier-census` retires with the unifier. `--residual-binding-census`
 over the fixed 14-assembly, 89,065-method corpus reports bound webs grouped by
 binding kind and veto flags, with one example per group, and
 `--slot-residual-census` continues to report materialization's own
@@ -935,8 +1091,9 @@ compound-assignment operands, merge-node arms, event and `using` values), so
 an implicit IL narrowing such as an `int` carrier stored to a `short` field
 gains its explicit cast, and a sibling operand whose checked-operand or
 element-store target the bound occurrence completed gains the same wrapper;
-multi-dimensional index text for two split pieces of one slot, which the
-printer's slot-keyed `HasRepeatedStackSlot` rule spells today; and untyped
+multi-dimensional index text where one slot occurred more than once,
+top-level or nested or as split pieces, which the printer's slot-keyed
+`HasRepeatedStackSlot` rule spelled as a pseudo-member; and untyped
 webs and managed-reference
 webs moving from invalid or renderer-fallback output to visible failure. The
 pass moves no expression; the only nodes it adds are the discharge's `Coerce`
@@ -970,15 +1127,53 @@ owners; no new control-flow, liveness, or reaching-definitions analysis; no
 readable-name or declaration-placement redesign; no definite-assignment
 change (instance 3); no claim that the frozen policy is a correctness proof.
 
-## Instance 3 — definite assignment (noted, deferred)
+## Instance 3 — definite assignment (decided before printing)
 
-The writer also decides which locals need `= default` to satisfy C# definite
-assignment (the `#631` flow walk over the printer's `_facts`). This is a third
-flow analysis — the sibling of control-flow structuring and type flow — and it is
-*thin-writer-adjacent*: defensible where it is, but strictly it could run as a
-pre-print pass that hands the writer a decided tree. It is the lowest-priority
-instance and is called out here only so the umbrella is complete; it is not
-sequenced below.
+Which up-front locals keep `= default` is decided before printing, not by the
+writer (#2095). The analysis is the conservative structured definite-assignment
+walk in `DefiniteAssignment` (the `#631` flow walk), unchanged: it yields the
+locals that may be read before they are definitely assigned and gives up —
+marking every local — on control flow it does not model, so it can only keep a
+redundant initializer, never drop a required one.
+
+`DefiniteAssignmentPass` runs last in the emission tail, after residual storage
+binding and every statement-rewriting pass, and issues
+`IrFunction.ZeroInitializedLocals`: the analysis result minus the residual-bound
+locals (see "A bound local is never zero-initialised" above), so residual
+provenance is an input to the decision, not a writer special case. A raised
+lambda or local function owns its own local table and prints through its own
+scope, so the pass issues the same decision on the `Lambda` or
+`LocalFunctionStatement` node over that body, at the host's tail: host passes
+still rewrite nested bodies after they are raised (Microsoft.CodeAnalysis.CSharp
+`BinderFactory.MakeCrefBinder`, whose local function `getBinder` changes its set
+after `IsPatternPass`), so a decision taken at raise time would be stale. The
+opt-in style lenses rewrite statements after the pipeline, so the decision is
+re-taken when a lens applies. Intermediate and reconstruction bodies are never
+printed and do not run the pass.
+
+The writer only spells the issued set. A non-ref local declared up front from a
+body with no decision fails visibly rather than defaulting either way; a
+`ref` local keeps its type-only `Unsafe.NullRef<T>()` initializer. Under
+`IrInvariants` (on by default in tests and the harness) the writer checks that
+the issued set equals a fresh decision over the body it prints, so a rewrite
+after the pass that does not re-issue the decision fails instead of printing a
+stale initializer. Declaration placement is unchanged: the declaration plan
+still decides which locals are declared up front, and the analysis does not
+depend on it. Two pre-existing analysis limits are unchanged: a lambda that
+shares its enclosing scope has no separate decision, and a local bound by an
+`is` pattern counts as read before assignment.
+
+On the pinned 14-assembly, 89,065-method corpus the decision reaches 10,077
+methods (42,822 up-front declarations): 7,392 declarations in 1,781 methods
+keep `= default`, 35,309 declare bare, and the residual exclusion changes 121
+declarations in 73 methods; the analysis gives up in 474 methods. Computed at
+the host's tail, all 594 analysed nested bodies match what the writer computed
+at print time. `DefiniteAssignmentPassTests` gates the host set, the residual
+exclusion (synthetic and Newtonsoft.Json 13.0.4
+`JsonSerializer.PopulateInternal`), nested bodies, the visible failure of an
+undecided body, the freshness invariant, and the final-tree decision for
+`MakeCrefBinder`'s local functions; tests that print hand-built IR run the pass
+first (`DecidedPrint`), as residual-binding tests run residual storage binding.
 
 ## The output half — structure, not strings
 
@@ -1118,11 +1313,51 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    expression, and coalesce arms alike, family-guarded so the underlying cast
    can never truncate. Join-census over the 15-assembly corpus:
    `Partial`-by-unknown-join methods 155 → 119; the enum/int bucket for
-   same-assembly int-backed enums is zero. Remaining, by census: cross-assembly
-   enum-likes (width unprovable — recoverable later only with sink-context
-   evidence), the reference-merge lane (cross-assembly base chains and
-   constructed-generic interfaces, SRM-boundary work), and the `void*`/`nuint`
-   native clique. The full RyuJIT typed-temp model (spill and re-import) stays
+   same-assembly int-backed enums is zero. The reference-merge lane now reads
+   cross-assembly base chains, interface-ness, and interface implementations
+   through the shared metadata context (`CrossAssemblyTypeResolver.BaseType`,
+   `Implements`, `SameDefinition`), so a `UTF8Encoding`/`Encoding` diamond or
+   an `IEqualityComparer<T>` ?? `EqualityComparer<T>` join types at import.
+   The cross-assembly reach is merge-private (`ResolveBaseTypeForMerge`,
+   `IsInterfaceForMerge`, `ImplementsForMerge`), and every chain walk the merge runs — the
+   merge-private walks and the shared `InterfacesOf` walk behind `Implements`
+   — ends on a revisited definition (the generic definition for an instance)
+   within 64 steps, and `InterfacesOf` expands an interface only while its
+   definition is absent from its own expansion path, yielding at most 256
+   distinct interfaces (a malformed InterfaceImpl row can make
+   `IA<T> : IA<List<T>>` or the doubling `IA<T> : IA<Tuple<T,T>>`, whose
+   instances never repeat and grow too fast even to hash); the bounds are
+   exact on any valid hierarchy within them and can only decline beyond
+   them, because two resolved assemblies in version skew can
+   declare `A : B` and `B : A`, or `GA<T> : GB<Tuple<T,T>>` and
+   `GB<T> : GA<Tuple<T,T>>` whose instances never repeat and double at every
+   step (each compiled against the other's earlier shape), and malformed
+   same-module metadata can point a TypeDef's `Extends` back down its own
+   chain; `ResolveBaseType` and its other consumers —
+   `AreProvablyDisjoint`, `InterfacesOf`, `SupportsCollectionInitializer`,
+   the importer's declaring-type base, `ConstructorConfinementFacts` — keep
+   their same-assembly contracts, because a facade-forwarded ancestor
+   compared by `TypeRef` equality would otherwise make `AreProvablyDisjoint`
+   claim disjointness it cannot prove. Identity rule: a definition reached
+   through another module enters the IR only under the identity this module
+   itself uses for it (its own TypeRef row, matched through the context as the
+   same definition); the merge returns the arm instance when the common
+   ancestor is an arm and declines (honest unknown) an ancestor this module
+   never references, so no `TypeRef` enters a function under an identity its
+   rows do not share. Each reference join the importer types — a successful
+   reference merge, or the ECMA O-family fallback that types two `object`,
+   `string`, or array arms with no provable common supertype as `object`,
+   every reference type being assignable to it — publishes the conversions it proved as
+   `IrFunction.ProvenReferenceWidenings` (`From → To`), the only hierarchy
+   fact `ReferenceAssignmentTargets` consults when materialization admits a
+   subtype store into a join-typed slot; a null-literal arm adopting the
+   other arm's type publishes nothing. Remaining, by census:
+   cross-assembly enum-likes (width unprovable — recoverable later only with
+   sink-context evidence), reference joins with no common supertype below
+   `object` (`ISymbolInternal` ?? `ITypeReference` consumed at an `object`
+   sink — a sink-typed join plus an arm cast, not a merge), sibling joins
+   whose common ancestor this module never references (declined under the
+   identity rule), and the `void*`/`nuint` native clique. The full RyuJIT typed-temp model (spill and re-import) stays
    open here for instance 2.
 5. **Materialize stack-slot locals (instance 2).** On the step-4 propagation, emit
    each slot's live ranges as typed local IR nodes and **delete
@@ -1384,6 +1619,33 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    unspellable or out-of-scope constructions remain deferred. Admission
    consumes existing metadata facts; it does not acquire dependencies or
    infer assignability, boxing, covariance, or generic constraints.
+   **Generated-name reference storage.** A compiler-generated metadata type
+   name — a closure display class, a lambda holder, a state machine, an
+   anonymous type, a collection-expression type, or any other `<`-prefixed
+   generated name, at any depth of the complete type — is not a defect for
+   named reference storage, for the reason the managed-reference rule below
+   states: the residual path and the typed local render the same `TypeText`,
+   and the existing fidelity diagnostic reports the name either way, so the
+   name cannot make one path more valid than the other. Every other spelling
+   check still applies (shape and arity, contextual names, shadowing and
+   collisions, unsupported constituents, generated generic-parameter and
+   function-pointer constituent names), the definition must still be a proven
+   reference type, and producers must still be exact. Value storage keeps the
+   full gate: a struct's `this` spilled to a slot is a managed pointer the
+   importer types as the value, so admitting a generated struct state machine
+   as value storage would turn the spill into a copy that loses writes
+   ([#9395](https://github.com/richlander/dotnet-inspect/issues/9395)), the
+   defect that already ships for speakable struct names. The motivating
+   witnesses are Newtonsoft.Json 13.0.4
+   `ReflectionUtils.GetChildPrivateProperties` (a display class) and
+   `ArraySliceFilter.<ExecuteFilter>d__12.MoveNext` (a reference iterator), and
+   dotnet-inspect 0.14.0 `PackageCommand.AppendAggregatedSection` (a
+   `<>z__ReadOnlyArray<string>` and a `List<>` of an anonymous type);
+   `GeneratedNameReferenceStorageTests` gates them, the generated struct
+   decline, the real struct-state-machine `this` that stays residual, and the
+   defects a generated name does not excuse. Output stays invalid where the
+   generated name is printed — the methods were and remain `Partial` — so this
+   rule retires residual bindings without claiming validity.
    Named value storage follows the same exact-type rule when the imported
    definition is a known value type, the complete type is spellable, and the
    type is not byref-like. This includes ordinary structs and their
@@ -1789,7 +2051,7 @@ insistence on a falsifiable trigger rather than a standing intention:
   [Residual storage binding](#residual-storage-binding) — so the writer is a
   total function of a decided, fully-typed IR. The residual-binding population
   is then a measured pipeline burn-down with a named floor, not a printer
-  concern. Instance 3 remains an optional later slice.
+  concern. Instance 3 is decided before printing (see its section).
 - **Explicitly out of scope** and tracked separately: member-naming of
   `Convert`-wrapped constants (a naming nicety, not a validity gap) and any
   cross-assembly enum backing that would require loading the defining assembly.

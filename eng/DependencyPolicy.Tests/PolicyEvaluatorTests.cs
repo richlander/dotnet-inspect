@@ -633,6 +633,7 @@ public sealed class PolicyEvaluatorTests
     [Theory]
     [InlineData("Inspector.Resources")]
     [InlineData("TsJsExport.Contracts")]
+    [InlineData("QuerySpace.Primitives")]
     public void CheckedInPolicyTreatsContractFloorAsDependencyFree(
         string contractFloor)
     {
@@ -815,14 +816,53 @@ public sealed class PolicyEvaluatorTests
             [
                 "$platform",
                 "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
                 "ILInspector.Decompiler",
+                "QuerySpace.Primitives",
             ],
             rule.AllowOnly);
 
         AssertCheckedInRuleRejectsRepositoryDependency(
             "vocabulary-dependencies",
             "DotnetInspector.Vocabulary",
-            "DotnetInspector.Sections");
+            "QuerySpace");
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsLocalAdaptersOutOfBrowserHosts()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "browser-hosts-never-reference-local-adapters");
+        Assert.Equal(
+            [
+                DependencyGraphKind.Project,
+                DependencyGraphKind.Assembly,
+            ],
+            rule.Graphs);
+        Assert.Equal(["DotnetInspect.Web*"], rule.Targets);
+        Assert.NotNull(rule.Deny);
+        Assert.Equal(
+            [
+                "DotnetInspector.PlatformHouse.Local",
+                "DotnetInspector.Sections.Local",
+            ],
+            rule.Deny);
+
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "browser-hosts-never-reference-local-adapters",
+            "DotnetInspect.Web.Core",
+            "DotnetInspector.PlatformHouse.Local",
+            "src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj");
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "browser-hosts-never-reference-local-adapters",
+            "DotnetInspect.Web",
+            "DotnetInspector.Sections.Local",
+            "src/DotnetInspect.Web/DotnetInspect.Web.csproj");
     }
 
     [Fact]
@@ -977,7 +1017,6 @@ public sealed class PolicyEvaluatorTests
             [
                 "CSharpText",
                 "DotnetInspector.Cache",
-                "DotnetInspector.DocumentationHouse.Direct",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
@@ -986,20 +1025,16 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.PlatformHouse",
-                "DotnetInspector.PlatformHouse.Execution.Installed",
-                "DotnetInspector.PlatformHouse.Execution.Packages",
-                "DotnetInspector.PlatformHouse.Installed",
+                "DotnetInspector.PlatformHouse.Local",
                 "DotnetInspector.PlatformHouse.Packages",
                 "DotnetInspector.PlatformQueries",
                 "DotnetInspector.Platforms",
-                "DotnetInspector.Platforms.Installed",
-                "DotnetInspector.Platforms.Packages",
                 "DotnetInspector.Presentation",
                 "DotnetInspector.Queries",
                 "DotnetInspector.ResearchQueries",
                 "DotnetInspector.ResearchSections",
                 "DotnetInspector.Sections",
-                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.Sections.Local",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceSelection",
                 "DotnetInspector.Vocabulary",
@@ -1018,6 +1053,7 @@ public sealed class PolicyEvaluatorTests
                 "Inspector.Findings",
                 "Inspector.Text",
                 "QuerySpace",
+                "QuerySpace.Primitives",
             ],
             allowOnly);
         Assert.Null(rule.Deny);
@@ -1058,7 +1094,6 @@ public sealed class PolicyEvaluatorTests
                 "CSharpText",
                 "DotnetInspector.Cache",
                 "DotnetInspector.DocumentationHouse.Contracts",
-                "DotnetInspector.DocumentationHouse.Direct",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
@@ -1067,21 +1102,16 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.PlatformHouse",
-                "DotnetInspector.PlatformHouse.Execution",
-                "DotnetInspector.PlatformHouse.Execution.Installed",
-                "DotnetInspector.PlatformHouse.Execution.Packages",
-                "DotnetInspector.PlatformHouse.Installed",
+                "DotnetInspector.PlatformHouse.Local",
                 "DotnetInspector.PlatformHouse.Packages",
                 "DotnetInspector.PlatformQueries",
                 "DotnetInspector.Platforms",
-                "DotnetInspector.Platforms.Installed",
-                "DotnetInspector.Platforms.Packages",
                 "DotnetInspector.Presentation",
                 "DotnetInspector.Queries",
                 "DotnetInspector.ResearchQueries",
                 "DotnetInspector.ResearchSections",
                 "DotnetInspector.Sections",
-                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.Sections.Local",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceHouse",
                 "DotnetInspector.SourceSelection",
@@ -1109,6 +1139,7 @@ public sealed class PolicyEvaluatorTests
                 "NuGet.Versioning",
                 "NuGetFetch",
                 "QuerySpace",
+                "QuerySpace.Primitives",
                 "System.CommandLine",
             ],
             allowOnly);
@@ -1198,6 +1229,163 @@ public sealed class PolicyEvaluatorTests
         Assert.Empty(rule.ExcludeTargets);
         Assert.Empty(rule.ExcludeProjectPaths);
         Assert.Empty(rule.Except);
+    }
+
+    [Fact]
+    public void CheckedInInspectWebLibraryRulesMatchCapabilityRatchet()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule projectRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-library-facade-project-dependencies-"
+                    + "stay-within-capability-ratchet");
+        DependencyRule assemblyRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-library-facade-assembly-dependencies-"
+                    + "stay-within-capability-ratchet");
+        string[] target = ["DotnetInspect.Web.Interop.Library"];
+        string[] projectPath =
+        [
+            "src/DotnetInspect.Web.Interop.Library/"
+                + "DotnetInspect.Web.Interop.Library.csproj",
+        ];
+
+        Assert.Equal([DependencyGraphKind.Project], projectRule.Graphs);
+        Assert.Equal(target, projectRule.Targets);
+        Assert.Equal(projectPath, projectRule.ProjectPaths);
+        Assert.Equal(
+            [
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
+                "ILInspector.Metadata",
+                "TsJsExport.Contracts",
+            ],
+            Assert.IsType<string[]>(projectRule.AllowOnly));
+        Assert.Null(projectRule.Deny);
+        Assert.Empty(projectRule.ExcludeTargets);
+        Assert.Empty(projectRule.ExcludeProjectPaths);
+        Assert.Empty(projectRule.Except);
+
+        Assert.Equal([DependencyGraphKind.Assembly], assemblyRule.Graphs);
+        Assert.Equal(target, assemblyRule.Targets);
+        Assert.Equal(projectPath, assemblyRule.ProjectPaths);
+        Assert.Equal(
+            [
+                "$platform",
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.Libraries",
+                "DotnetInspector.LibraryMetadata",
+                "DotnetInspector.Packages",
+                "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
+                "ILInspector.Metadata",
+                "ILInspector.MetadataPrimitives",
+                "InertText",
+                "TsJsExport.Contracts",
+            ],
+            Assert.IsType<string[]>(assemblyRule.AllowOnly));
+        Assert.Null(assemblyRule.Deny);
+        Assert.Empty(assemblyRule.ExcludeTargets);
+        Assert.Empty(assemblyRule.ExcludeProjectPaths);
+        Assert.Empty(assemblyRule.Except);
+
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+    }
+
+    [Fact]
+    public void CheckedInInspectWebCatalogRulesMatchCapabilityRatchet()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule projectRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-catalog-facade-project-dependencies-"
+                    + "stay-within-capability-ratchet");
+        DependencyRule assemblyRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-catalog-facade-assembly-dependencies-"
+                    + "stay-within-capability-ratchet");
+        string[] target = ["DotnetInspect.Web.Interop.Catalog"];
+        string[] projectPath =
+        [
+            "src/DotnetInspect.Web.Interop.Catalog/"
+                + "DotnetInspect.Web.Interop.Catalog.csproj",
+        ];
+
+        Assert.Equal([DependencyGraphKind.Project], projectRule.Graphs);
+        Assert.Equal(target, projectRule.Targets);
+        Assert.Equal(projectPath, projectRule.ProjectPaths);
+        Assert.Equal(
+            [
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.Ecosystems",
+                "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
+                "DotnetInspector.Vocabulary",
+                "ILInspector.Metadata",
+            ],
+            Assert.IsType<string[]>(projectRule.AllowOnly));
+        Assert.Null(projectRule.Deny);
+        Assert.Empty(projectRule.ExcludeTargets);
+        Assert.Empty(projectRule.ExcludeProjectPaths);
+        Assert.Empty(projectRule.Except);
+
+        Assert.Equal([DependencyGraphKind.Assembly], assemblyRule.Graphs);
+        Assert.Equal(target, assemblyRule.Targets);
+        Assert.Equal(projectPath, assemblyRule.ProjectPaths);
+        Assert.Equal(
+            [
+                "$platform",
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.Ecosystems",
+                "DotnetInspector.Packages",
+                "DotnetInspector.Platforms",
+                "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
+                "DotnetInspector.SourceSelection",
+                "DotnetInspector.Vocabulary",
+                "ILInspector.Metadata",
+                "InertText",
+                "NuGetFetch",
+                "QuerySpace.Primitives",
+            ],
+            Assert.IsType<string[]>(assemblyRule.AllowOnly));
+        Assert.Null(assemblyRule.Deny);
+        Assert.Empty(assemblyRule.ExcludeTargets);
+        Assert.Empty(assemblyRule.ExcludeProjectPaths);
+        Assert.Empty(assemblyRule.Except);
+
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
     }
 
     private static ProjectDependencyNode Node(

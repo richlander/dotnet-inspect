@@ -858,9 +858,10 @@ and `docs/decompiler-ir.md:20`:
 > Structured type identity must survive the pipeline: the moment a type degrades
 > to a string, every downstream consumer inherits the loss.
 
-This is the general form of `AGENTS.md`'s "Do not infer one from display text
-when a typed identity exists." Strings are a boundary format, not a working
-format.
+This is the general form of the
+[repository engineering rule](../repository-workflow.md#engineering-constraints)
+against inferring identity from display text. Strings are a boundary format,
+not a working format.
 
 The boundary is real and is also structural. `docs/decompiler-ir.md:10`:
 
@@ -975,7 +976,7 @@ only neutral mechanics with one bounded answer.**
 
 `member-target-resolution.md` states the divergence is deliberate: "Body identity
 deliberately has a different type-name vocabulary from API identity because it
-mirrors `LibraryBodyIndex`/`MethodIdentity` evidence."
+mirrors focused Analysis `MethodIdentity` evidence."
 
 **This is the highest-value fact in this document for anyone writing a type
 predicate.** The two spellings agree on non-nested types and diverge silently on

@@ -131,6 +131,17 @@ The checked-in rules provide full gate coverage for these dependency claims:
    staged claims.
 7. The Inspect Web CallGraph facade depends directly only on the .NET
    platform, Web Core, Queries, and Sections.
+8. The Inspect Web Library facade cannot expand beyond its current five
+   evaluated project edges or its current ten repository assembly edges.
+   The separate graph rules preserve those different ceilings while focused
+   #8779 successors retire Metadata-facing composition. The facade retains the
+   broad semantic banned-symbol input until that positive boundary no longer
+   admits low-level product assemblies.
+9. The Inspect Web Catalog facade cannot expand beyond its current six
+   evaluated project edges or its current twelve repository and external
+   assembly edges. Its home-demo call-graph path reaches the host-neutral
+   projection through Web Core, so both graph rules reject a direct
+   `ILInspector.Analysis` dependency.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing

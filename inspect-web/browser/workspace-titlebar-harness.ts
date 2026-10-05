@@ -398,6 +398,9 @@ const navigationHtml = workspaceMode
     ? renderPackageNav({
         frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
         activeFramework: "net10.0",
+        versionFieldHtml: packageOverviewMode
+          ? '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>'
+          : "",
         escapeHtml,
       })
   : activeScope === "library"
@@ -545,11 +548,11 @@ function detailHtml() {
       activeFramework: "net10.0",
       totalTypes: emptyMode ? 0 : libraryOverviewMode && !longMode ? 81 : 32,
       totalMembers: emptyMode ? 0 : libraryOverviewMode && !longMode ? 932 : 1234,
-      coordinateFieldsHtml: packageOverviewMode ? `
-        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>` : "",
       contentHtml: packageOverviewMode
         ? renderPackageOverviewContent({
             packageInfoHtml,
+            packageChildrenHtml:
+              '<section class="document-section"><div class="section-title"><h2>Libraries</h2><span>1</span></div></section>',
             comparisonHtml,
             documentsHtml,
           })

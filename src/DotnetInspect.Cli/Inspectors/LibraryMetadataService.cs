@@ -32,6 +32,8 @@ internal static class LibraryMetadataService
 {
     internal const int DiscoveryMaxEmbeddedPdbBytes =
         64 * 1024 * 1024;
+    // Runtime gate for the document-only CLI path.
+    internal static int InspectionCountForTests;
 
     /// <summary>
     /// Full inspection pipeline for a single assembly.
@@ -54,6 +56,8 @@ internal static class LibraryMetadataService
         bool discoveryOnly = false,
         Sections.InspectionTrace? trace = null)
     {
+        System.Threading.Interlocked.Increment(
+            ref InspectionCountForTests);
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
         try
@@ -68,8 +72,10 @@ internal static class LibraryMetadataService
             bool applicabilityOnly =
                 options.Discover is not null
                 && options.Effective;
-            if (requiredQueries?.Contains(
+            if ((requiredQueries?.Contains(
                     LibraryNameFamilyQuery.Definition) == true
+                || requiredQueries?.Contains(
+                    LibraryFamilyRoleQuery.Definition) == true)
                 && assemblyReference is
                 {
                     Registration.ArtifactRegistration: null,
@@ -205,6 +211,8 @@ internal static class LibraryMetadataService
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
                             options.NameFamilyRowSelection,
+                        NameFamilyRoleTypeRows =
+                            options.NameFamilyRoleTypeRows,
                         DependencyStructureRowSelection =
                             options.DependencyStructureRowSelection,
                     };
@@ -359,6 +367,8 @@ internal static class LibraryMetadataService
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
                         options.NameFamilyRowSelection,
+                    NameFamilyRoleTypeRows =
+                        options.NameFamilyRoleTypeRows,
                     DependencyStructureRowSelection =
                         options.DependencyStructureRowSelection,
                 };
@@ -2237,61 +2247,20 @@ internal static class LibraryMetadataService
         => Analysis.OptimizationOpportunityRanking.IteratesInLoop(
             opportunity);
 
-    internal static IEnumerable<Analysis.OptimizationOpportunity> FilterAndOrderTriageOpportunities(
-        IEnumerable<Analysis.OptimizationOpportunity> opportunities,
-        PerformanceTriageOptions? options)
-    {
-        options ??= PerformanceTriageOptions.Default;
-        IEnumerable<Analysis.OptimizationOpportunity> filtered = opportunities;
-        if (options.Shapes.Length > 0)
-        {
-            var shapes = options.Shapes.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            filtered = filtered.Where(opportunity => shapes.Contains(opportunity.Shape));
-        }
-
-        RowSelectionResult<Analysis.OptimizationOpportunity> result =
-            RowQueryExecutor.Apply(
-                filtered.ToArray(),
-                options.GetResolvedPlan());
-        if (!result.IsSuccess)
-        {
-            throw new InvalidOperationException(
-                "Performance Triage produced an unexpected row-window failure.");
-        }
-
-        return result.Values;
-    }
-
-    internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(
-        Analysis.LibraryOptimizationAnalysisResult optimization,
-        PerformanceTriageOptions? options)
-        => options?.IncludesAllocationFanout == true
-            ? optimization.Opportunities.Concat(optimization.AllocationFanoutOpportunities)
-            : optimization.Opportunities;
-
     static string? FormatToken(int? token)
         => token is { } value ? $"0x{value:X8}" : null;
 
     internal static string? FormatProvenance(Analysis.PerformanceTriageProvenance provenance)
-        => provenance switch
-        {
-            Analysis.PerformanceTriageProvenance.Exact => "exact",
-            Analysis.PerformanceTriageProvenance.Aggregate => "aggregate",
-            Analysis.PerformanceTriageProvenance.Unmatched => "unmatched",
-            _ => null,
-        };
+        => Analysis.OptimizationOpportunityRowSpace.ProvenanceText(
+            provenance);
 
     internal static string? FormatCallerLoop(Analysis.CallerLoopEvidence? evidence)
-        => evidence is null ? null : evidence.Depth == 1 ? "direct" : "transitive";
+        => Analysis.OptimizationOpportunityRowSpace.CallerLoopText(
+            evidence);
 
     internal static string? FormatCallerLoopWitness(Analysis.CallerLoopEvidence? evidence)
-    {
-        if (evidence is null || evidence.Witness.IsDefaultOrEmpty)
-            return null;
-
-        var calls = evidence.Witness.Select(step => $"{FormatMethod(step.Caller)} @ IL_{step.ILOffset:X4}");
-        return $"{string.Join(" -> ", calls)} -> {FormatMethod(evidence.Witness[^1].Callee)}";
-    }
+        => Analysis.OptimizationOpportunityRowSpace.CallerLoopWitnessText(
+            evidence);
 
     private static void ApplyQueryResults(
         string path,
@@ -2397,6 +2366,17 @@ internal static class LibraryMetadataService
                 inspection,
                 logger,
                 nameFamilies);
+        }
+
+        if (results.TryGet(
+                LibraryFamilyRoleQuery.Definition,
+                out LibraryFamilyRoleQueryResult? familyRoles))
+        {
+            ApplyLibraryFamilyRoleResult(
+                path,
+                inspection,
+                logger,
+                familyRoles);
         }
 
         if (results.TryGet(
@@ -2608,6 +2588,7 @@ internal static class LibraryMetadataService
     {
         inspection.OptimizationOpportunitiesQueryResult = result;
         inspection.PerformanceTriageOpportunities = [];
+        inspection.PerformanceTriageCounts = null;
         inspection.OptimizationOpportunities = null;
 
         switch (result)
@@ -2615,7 +2596,7 @@ internal static class LibraryMetadataService
             case OptimizationOpportunitiesResult.Available available:
                 ReportOptimizationDiagnostics(available.Diagnostics);
                 ImmutableArray<Analysis.OptimizationOpportunity> opportunities =
-                    SelectPerformanceTriageOpportunities(
+                    PerformanceTriageRowQuery.Select(
                         available,
                         inspection.PerformanceTriageOptions);
                 inspection.PerformanceTriageOpportunities = opportunities;
@@ -2627,6 +2608,12 @@ internal static class LibraryMetadataService
                     inspection.OptimizationOpportunities =
                         rows.Count > 0 ? rows : null;
                 }
+                break;
+
+            case OptimizationOpportunitiesResult.Counted counted:
+                ReportOptimizationDiagnostics(counted.Diagnostics);
+                inspection.PerformanceTriageCounts =
+                    counted.Counts;
                 break;
 
             case OptimizationOpportunitiesResult.NoMetadata:
@@ -2740,6 +2727,38 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ApplyLibraryFamilyRoleResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryFamilyRoleQueryResult result)
+    {
+        inspection.FamilyRoleQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryFamilyRoleQueryResult.Available:
+            case LibraryFamilyRoleQueryResult.NameFamiliesUnavailable:
+            case LibraryFamilyRoleQueryResult.NameFamiliesRejected:
+            case LibraryFamilyRoleQueryResult.StructuralRejected:
+            case LibraryFamilyRoleQueryResult.CompositionRejected:
+            case LibraryFamilyRoleQueryResult.PopulationUnavailable:
+            case LibraryFamilyRoleQueryResult.SelectionFailed:
+                break;
+
+            case LibraryFamilyRoleQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting Library name-family roles in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Library family-role result "
+                    + $"'{result.GetType().Name}'.");
+        }
+    }
+
     internal static void ApplyLibraryDependencyStructureResult(
         string path,
         LibraryInspection inspection,
@@ -2767,25 +2786,6 @@ internal static class LibraryMetadataService
                     + $"'{result.GetType().Name}'.");
         }
     }
-
-    internal static ImmutableArray<Analysis.OptimizationOpportunity>
-        SelectPerformanceTriageOpportunities(
-            OptimizationOpportunitiesResult.Available available,
-            PerformanceTriageOptions options)
-        =>
-        [
-            .. FilterAndOrderTriageOpportunities(
-                available.Opportunities
-                    .Concat(available.AllocationFanoutOpportunities)
-                    .Where(opportunity =>
-                        opportunity.Shape
-                            == Analysis.AnalysisFindings
-                                .StringMaterializationShape
-                        || IncludePerformanceOpportunity(
-                            opportunity,
-                            available.GeneratedFrameworkTypes)),
-                options),
-        ];
 
     internal static void ApplyBodyShapesResult(
         LibraryInspection inspection,

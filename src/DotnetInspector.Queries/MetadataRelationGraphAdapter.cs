@@ -140,6 +140,10 @@ public static class MetadataRelationGraphCatalog
                     new TokenOccurrenceIdentity(
                         hierarchy.Registration,
                         hierarchy.Evidence.MetadataToken),
+                MetadataTargetedHierarchyGraphEvidence hierarchy =>
+                    new TokenOccurrenceIdentity(
+                        hierarchy.Registration,
+                        hierarchy.MetadataToken),
                 MetadataExtensionGraphEvidence extension =>
                     new TokenOccurrenceIdentity(
                         extension.Registration,
@@ -230,6 +234,22 @@ public sealed record MetadataHierarchyGraphEvidence(
     public InspectionGraphEvidenceDescriptor Descriptor =>
         MetadataRelationGraphCatalog.HierarchyEvidence;
 }
+
+public sealed record MetadataTargetedHierarchyGraphEvidence(
+    AssemblyAcquisitionRegistration Registration,
+    MetadataTypeDefinitionAddress Source,
+    MetadataTypeDefinitionName SourceType,
+    MetadataTypeDefinitionName Target,
+    MetadataHierarchyRelationKind Kind,
+    int MetadataToken)
+    : IInspectionGraphOccurrenceEvidence
+{
+    public InspectionGraphEvidenceDescriptor Descriptor =>
+        MetadataRelationGraphCatalog.HierarchyEvidence;
+}
+
+public sealed record MetadataHierarchyTargetCorrespondenceEvidence(
+    MetadataHierarchyTargetSelection Selection);
 
 public sealed record MetadataExtensionGraphEvidence(
     AssemblyAcquisitionRegistration Registration,
@@ -411,6 +431,168 @@ public static class MetadataRelationGraphAdapter
                     correspondence,
                     group)),
         ];
+    }
+
+    public static ImmutableArray<SubjectRelationRow>
+        BindHierarchyRows(
+            ResolvedAssemblyReference source,
+            IEnumerable<MetadataHierarchyRelationAnalysisRow> rows,
+            ResolvedAssemblyReference focusAssembly,
+            StructuralSubjectIdentity focus,
+            SubjectRelationPopulationAuthority population,
+            MetadataHierarchyTargetSelection target)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(focusAssembly);
+        ArgumentNullException.ThrowIfNull(focus);
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(target);
+        if (target.Kind is null)
+        {
+            throw new ArgumentException(
+                "Targeted hierarchy rows require one exact relation kind.",
+                nameof(target));
+        }
+        if (focus
+                is not StructuralSubjectIdentity.TypeSubject typeFocus
+            || !ReferenceEquals(
+                typeFocus.Identity.Registration,
+                NavigationRegistrationIdentity.From(
+                    focusAssembly.Registration))
+            || typeFocus.Identity.Type != target.Type)
+        {
+            throw new ArgumentException(
+                "Targeted hierarchy rows require the exact acquired Type focus.",
+                nameof(focus));
+        }
+
+        var result = ImmutableArray.CreateBuilder<SubjectRelationRow>();
+        InspectionGraphSubject targetSubject =
+            InspectionGraphSubject.ForAcquiredType(
+                focusAssembly.Registration,
+                target.Type);
+        SubjectRelationFocusCorrespondence correspondence =
+            SubjectRelationFocusCorrespondence.Create(
+                focus,
+                population,
+                targetSubject,
+                InspectionGraphEndpointRole.Target,
+                new MetadataHierarchyTargetCorrespondenceEvidence(
+                    target));
+        int occurrenceId = 0;
+        foreach (MetadataHierarchyRelationAnalysisRow row in rows)
+        {
+            if (row.Kind != target.Kind)
+            {
+                throw new ArgumentException(
+                    "A targeted hierarchy row must match the requested relation kind.",
+                    nameof(rows));
+            }
+
+            InspectionGraphRelationshipDescriptor relationship =
+                row.Kind == MetadataHierarchyRelationKind.BaseType
+                    ? MetadataRelationGraphCatalog.BaseType
+                    : MetadataRelationGraphCatalog.Interface;
+            InspectionGraphSubject sourceSubject =
+                InspectionGraphSubject.ForAcquiredType(
+                    source.Registration,
+                    row.SourceType);
+            InspectionGraphOccurrence[] occurrences =
+            [
+                .. row.MetadataTokens.Select(token =>
+                    new InspectionGraphOccurrence(
+                        occurrenceId++,
+                        relationship,
+                        sourceSubject,
+                        targetSubject,
+                        new MetadataTargetedHierarchyGraphEvidence(
+                            source.Registration,
+                            row.Source,
+                            row.SourceType,
+                            target.Type,
+                            row.Kind,
+                            token),
+                        [])),
+            ];
+            result.Add(
+                new(
+                    MetadataRelationGraphCatalog.Form(relationship),
+                    SubjectRelationEvidenceKind.Declaration,
+                    relationship,
+                    sourceSubject,
+                    targetSubject,
+                    correspondence,
+                    occurrences));
+        }
+
+        return result.ToImmutable();
+    }
+
+    public static void ValidateHierarchyFocus(
+        ResolvedAssemblyReference focusAssembly,
+        StructuralSubjectIdentity.TypeSubject focus,
+        MetadataHierarchyTargetSelection target)
+    {
+        ArgumentNullException.ThrowIfNull(focusAssembly);
+        ArgumentNullException.ThrowIfNull(focus);
+        ArgumentNullException.ThrowIfNull(target);
+        if (!ReferenceEquals(
+                focus.Identity.Registration,
+                NavigationRegistrationIdentity.From(
+                    focusAssembly.Registration))
+            || focus.Identity.Type != target.Type)
+        {
+            throw new ArgumentException(
+                "The resolved focus assembly must match the exact Type focus.",
+                nameof(focusAssembly));
+        }
+    }
+
+    public static SubjectRelationProducerOutcome HierarchyProducerOutcome(
+        MetadataHierarchyRelationAnalysisResult result,
+        MetadataHierarchyRelationKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return Outcome(
+            HierarchyQuery,
+            result.Relations,
+            [
+                kind == MetadataHierarchyRelationKind.BaseType
+                    ? MetadataRelationGraphCatalog.BaseType
+                    : MetadataRelationGraphCatalog.Interface,
+            ]);
+    }
+
+    public static void ValidateHierarchyAnalysis(
+        ResolvedAssemblyReference source,
+        MetadataHierarchyRelationAnalysisResult result)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(result);
+        Guid? moduleVersionId = result.Receipt.ModuleVersionId;
+        AssemblyReferenceIdentity? assembly = result.Receipt.Assembly;
+        bool requiresIdentity =
+            result.Relations.Disposition
+                is MetadataRelationFamilyDisposition.Complete
+                    or MetadataRelationFamilyDisposition.Partial;
+        if ((requiresIdentity
+                && (moduleVersionId is null
+                    || assembly is null))
+            || assembly is not null
+                && !source.Identity.IsEquivalentTo(assembly)
+            || requiresIdentity
+                && source.Registration.ModuleVersionId is Guid bound
+                && moduleVersionId is Guid receipt
+                && bound != receipt
+            || result.Relations.Evidence.Any(row =>
+                moduleVersionId is null
+                || row.Source.ModuleVersionId != moduleVersionId))
+        {
+            throw new ArgumentException(
+                "The Metadata hierarchy analysis must belong to the exact resolved acquisition.",
+                nameof(result));
+        }
     }
 
     public static ImmutableArray<SubjectRelationRow>
@@ -787,7 +969,7 @@ public static class MetadataRelationGraphAdapter
     }
 
     private static SubjectRelationProducerOutcome Outcome<TEvidence>(
-        InspectionQuery<MetadataRelationFamilyResult<TEvidence>> query,
+        InspectionQueryDefinition query,
         MetadataRelationFamilyResult<TEvidence> result,
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships)
     {

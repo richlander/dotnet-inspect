@@ -81,8 +81,10 @@ public class NamedReferenceSlotMaterializationTests
     [InlineData("name")]
     public void UnspellableReferenceTypesRemainSlots(string shape)
     {
+        // A non-generated unspellable name; a compiler-generated (`<`-prefixed)
+        // name is admitted by GeneratedNameReferenceStorageTests.
         var definition = shape == "name"
-            ? TypeRef.Definition("Samples", "Samples", "<Invalid>") : GenericReference;
+            ? TypeRef.Definition("Samples", "Samples", "Invalid-Name") : GenericReference;
         var type = shape switch
         {
             "open-generic" or "name" => definition,

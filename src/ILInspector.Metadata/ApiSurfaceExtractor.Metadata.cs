@@ -71,6 +71,7 @@ public static partial class ApiSurfaceExtractor
             var surface = new ApiSurface();
             CountSummaryMembers(
                 reader,
+                handle,
                 reader.GetTypeDefinition(handle),
                 apiType: null,
                 surface,
@@ -97,6 +98,7 @@ public static partial class ApiSurfaceExtractor
 
     private static void CountSummaryMembers(
         MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition typeDef,
         ApiType? apiType,
         ApiSurface surface,
@@ -113,10 +115,12 @@ public static partial class ApiSurfaceExtractor
             extensionReceiverDefinitions);
         ClassifyDeclaredMembers(
             reader,
+            typeHandle,
             typeDef,
             MetadataMemberSpelling.CSharp,
             publicOnly: true,
             extensionContainer: isExtensionClass,
+            classifyLogicalMethodKinds: false,
             ref sink);
     }
 
@@ -871,10 +875,7 @@ public static partial class ApiSurfaceExtractor
         MethodDefinition method,
         Action<int>? beforeDecodeWork = null)
     {
-        if (!string.Equals(
-                DecodeString(reader, method.Name, beforeDecodeWork),
-                "Finalize",
-                StringComparison.Ordinal))
+        if (!reader.StringComparer.Equals(method.Name, "Finalize"))
             return false;
 
         var attributes = method.Attributes;
@@ -927,8 +928,7 @@ public static partial class ApiSurfaceExtractor
                     var baseType = reader.GetTypeDefinition(baseTypeHandle);
                     if (DeclaresNewVirtualFinalize(
                             reader,
-                            baseType,
-                            beforeDecodeWork))
+                            baseType))
                         return false; // custom Finalize slot introduced below object — not a destructor
                     currentType = baseType;
                     continue;
@@ -951,16 +951,12 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     private static bool DeclaresNewVirtualFinalize(
         MetadataReader reader,
-        TypeDefinition type,
-        Action<int>? beforeDecodeWork = null)
+        TypeDefinition type)
     {
         foreach (var methodHandle in type.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (!string.Equals(
-                    DecodeString(reader, method.Name, beforeDecodeWork),
-                    "Finalize",
-                    StringComparison.Ordinal))
+            if (!reader.StringComparer.Equals(method.Name, "Finalize"))
                 continue;
             var attributes = method.Attributes;
             if ((attributes & MethodAttributes.Virtual) != 0
@@ -1049,20 +1045,18 @@ public static partial class ApiSurfaceExtractor
         {
             case HandleKind.MemberReference:
                 var memberRef = reader.GetMemberReference((MemberReferenceHandle)methodDeclaration);
-                return string.Equals(
-                        DecodeString(reader, memberRef.Name, beforeDecodeWork),
-                        "Finalize",
-                        StringComparison.Ordinal)
+                return reader.StringComparer.Equals(
+                        memberRef.Name,
+                        "Finalize")
                     && IsSystemObjectType(
                         reader,
                         memberRef.Parent,
                         beforeDecodeWork);
             case HandleKind.MethodDefinition:
                 var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
-                return string.Equals(
-                        DecodeString(reader, methodDef.Name, beforeDecodeWork),
-                        "Finalize",
-                        StringComparison.Ordinal)
+                return reader.StringComparer.Equals(
+                        methodDef.Name,
+                        "Finalize")
                     && IsSystemObjectType(
                         reader,
                         methodDef.GetDeclaringType(),
@@ -1090,14 +1084,12 @@ public static partial class ApiSurfaceExtractor
                 // its strong-name public-key token — so that an adversarial
                 // `System.Object` defined in an arbitrary or name-impersonating
                 // assembly is rejected.
-                return string.Equals(
-                        DecodeString(reader, typeRef.Namespace, beforeDecodeWork),
-                        "System",
-                        StringComparison.Ordinal)
-                    && string.Equals(
-                        DecodeString(reader, typeRef.Name, beforeDecodeWork),
-                        "Object",
-                        StringComparison.Ordinal)
+                return reader.StringComparer.Equals(
+                        typeRef.Namespace,
+                        "System")
+                    && reader.StringComparer.Equals(
+                        typeRef.Name,
+                        "Object")
                     && ResolvesThroughCoreLibrary(
                         reader,
                         typeRef.ResolutionScope,

@@ -19,6 +19,150 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Explain_PackageSection_ReportsDeclaredShapeAndCardinality()
+    {
+        // Package structural sections are explainable with the shape and
+        // cardinality their owner declared; the structural identity carries
+        // the catalog so a package section never collides with a library one.
+        var human = await RunAsync(
+            "explain",
+            "package/sections/files");
+
+        Assert.Equal(0, human.ExitCode);
+        Assert.Empty(human.Error);
+        Assert.Contains(
+            "Shape: hierarchy | Cardinality: inventory",
+            human.Output);
+
+        var json = await RunAsync(
+            "explain",
+            "package/sections/readme",
+            "--json");
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Error);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal(
+            "structural-section",
+            ResourceType(root));
+        Assert.Equal("text", TextFact(root, "shape"));
+        Assert.Equal("scalar", TextFact(root, "cardinality"));
+
+        var catalog = await RunAsync("explain", "package");
+
+        Assert.Equal(0, catalog.ExitCode);
+        Assert.Empty(catalog.Error);
+        Assert.Contains("Kind: Catalog | Name: Package", catalog.Output);
+
+        var library = await RunAsync(
+            "explain",
+            "library/sections/references",
+            "--json");
+
+        Assert.Equal(0, library.ExitCode);
+        JsonElement libraryRoot =
+            JsonDocument.Parse(library.Output).RootElement
+                .GetProperty("resources")[0];
+        Assert.Equal(
+            "Absent",
+            Fact(libraryRoot, "shape")
+                .GetProperty("state")
+                .GetString());
+    }
+
+    [Theory]
+    [InlineData("package-query", "inspection-document")]
+    [InlineData("package-files", "inspection-document")]
+    public async Task Explain_CapabilityRootUsesItsOwnerCatalog(
+        string path,
+        string resourceType)
+    {
+        var result = await RunAsync(
+            "explain",
+            path,
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            path,
+            document.RootElement
+                .GetProperty("requested_path")
+                .GetString());
+        Assert.Equal(
+            resourceType,
+            ResourceType(
+                document.RootElement
+                    .GetProperty("resources")[0]));
+    }
+
+    [Fact]
+    public async Task Explain_TypeAndMemberSections_ReportDeclaredShapeAndCardinality()
+    {
+        // The type listing and the three member catalogs are explainable under
+        // the catalog names the member explanation already publishes, each
+        // section with the shape and cardinality its owner declared.
+        var classes = await RunAsync("explain", "type/sections/classes");
+
+        Assert.Equal(0, classes.ExitCode);
+        Assert.Empty(classes.Error);
+        Assert.Contains(
+            "Shape: table | Cardinality: inventory",
+            classes.Output);
+
+        var typeInfo = await RunAsync(
+            "explain",
+            "member/sections/type-info",
+            "--json");
+
+        Assert.Equal(0, typeInfo.ExitCode);
+        Assert.Empty(typeInfo.Error);
+        using JsonDocument typeInfoDocument = JsonDocument.Parse(typeInfo.Output);
+        JsonElement typeInfoRoot = typeInfoDocument.RootElement.GetProperty("resources")[0];
+        Assert.Equal("structural-section", ResourceType(typeInfoRoot));
+        Assert.Equal("member/sections/type-info", typeInfoRoot.GetProperty("path").GetString());
+        Assert.Equal("table", TextFact(typeInfoRoot, "shape"));
+        Assert.Equal("scalar", TextFact(typeInfoRoot, "cardinality"));
+
+        // Source is a scalar Text until its Lines inventory is executed by
+        // the CLI; the declaration follows the behavior, not the plan.
+        var source = await RunAsync(
+            "explain",
+            "member-detail/sections/source",
+            "--json");
+
+        Assert.Equal(0, source.ExitCode);
+        Assert.Empty(source.Error);
+        JsonElement sourceRoot =
+            JsonDocument.Parse(source.Output).RootElement.GetProperty("resources")[0];
+        Assert.Equal("structural-section", ResourceType(sourceRoot));
+        Assert.Equal("member-detail/sections/source", sourceRoot.GetProperty("path").GetString());
+        Assert.Equal("text", TextFact(sourceRoot, "shape"));
+        Assert.Equal("scalar", TextFact(sourceRoot, "cardinality"));
+
+        // Call Graph is a Graph: no shape, but the tree and Mermaid formats.
+        var callGraph = await RunAsync(
+            "explain",
+            "member-detail/sections/call-graph");
+
+        Assert.Equal(0, callGraph.ExitCode);
+        Assert.Empty(callGraph.Error);
+        Assert.DoesNotContain("Shape:", callGraph.Output);
+        Assert.Contains("Tree, Mermaid", callGraph.Output);
+
+        var overload = await RunAsync(
+            "explain",
+            "member-overload/sections/methods");
+
+        Assert.Equal(0, overload.ExitCode);
+        Assert.Contains(
+            "Shape: table | Cardinality: inventory",
+            overload.Output);
+    }
+
+    [Fact]
     public async Task ExactSection_RendersResourceAndRelatedPaths()
     {
         var result = await RunAsync(
@@ -34,6 +178,47 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "library/sections/reference-hierarchy/items/column/target",
             result.Output);
         Assert.Contains("Structural section", result.Output);
+    }
+
+    [Fact]
+    public async Task DefaultHumanExplanation_PreservesTargetlessRelationships()
+    {
+        var json = await RunAsync(
+            "explain",
+            "library/categories",
+            "--json");
+        var human = await RunAsync(
+            "explain",
+            "library/categories");
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Error);
+        Assert.Equal(0, human.ExitCode);
+        Assert.Empty(human.Error);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
+        string[] targetlessRelationships =
+        [
+            .. document.RootElement
+                .GetProperty("relationships")
+                .EnumerateArray()
+                .Where(static relationship =>
+                    relationship.GetProperty("targets")
+                        .GetArrayLength() == 0)
+                .Select(static relationship =>
+                    relationship.GetProperty("relationship")
+                        .GetProperty("value")
+                        .GetString()!),
+        ];
+
+        Assert.NotEmpty(targetlessRelationships);
+        Assert.All(
+            targetlessRelationships,
+            relationship =>
+                Assert.Contains(
+                    $"({relationship})",
+                    human.Output));
+        Assert.Contains("| Available | (none) |", human.Output);
+        Assert.Contains("| Complete |", human.Output);
     }
 
     [Fact]
@@ -205,44 +390,36 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             explanationDocument.RootElement
                 .GetProperty("resources")[0];
         Assert.Equal(
-            "QueryFacet",
-            root.GetProperty("resource_kind").GetString());
+            "query-facet",
+            ResourceType(root));
         Assert.Equal(
             "library-literal",
-            root.GetProperty("details")
-                .GetProperty("key")
-                .GetString());
+            TextFact(root, "key"));
         Assert.Equal(
             ["https://"],
-            root.GetProperty("details")
-                .GetProperty("examples")
-                .EnumerateArray()
-                .Select(static value => value.GetString()));
+            TextFacts(root, "examples"));
         Assert.Contains(
             explanationDocument.RootElement
                 .GetProperty("resources")
                 .EnumerateArray(),
             resource =>
-                resource.GetProperty("resource_kind").GetString()
-                    == "ConsumerBinding");
+                ResourceType(resource) == "consumer-binding");
         Assert.Contains(
             explanationDocument.RootElement
                 .GetProperty("relationships")
                 .EnumerateArray(),
             relationship =>
-                relationship.GetProperty("relationship_kind").GetString()
-                    == "ExposedBy"
-                && relationship.GetProperty("target_path").GetString()
-                    == "package-query/bindings/cli");
+                RelationshipKind(relationship) == "exposed-by"
+                && TargetPaths(relationship).Contains(
+                    "package-query/bindings/cli"));
         Assert.Contains(
             explanationDocument.RootElement
                 .GetProperty("relationships")
                 .EnumerateArray(),
             relationship =>
-                relationship.GetProperty("relationship_kind").GetString()
-                    == "RequiredContext"
-                && relationship.GetProperty("target_path").GetString()
-                    == "package-query/query/facets/library-target");
+                RelationshipKind(relationship) == "required-context"
+                && TargetPaths(relationship).Contains(
+                    "package-query/query/facets/library-target"));
     }
 
     [Fact]
@@ -271,8 +448,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("resources")
                 .EnumerateArray(),
             resource =>
-                resource.GetProperty("resource_kind").GetString()
-                    == "InspectionDocument"
+                ResourceType(resource) == "inspection-document"
                 && resource.GetProperty("path").GetString()
                     == "package-files");
         Assert.Contains(
@@ -280,8 +456,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("resources")
                 .EnumerateArray(),
             resource =>
-                resource.GetProperty("resource_kind").GetString()
-                    == "QuerySpace"
+                ResourceType(resource) == "query-space"
                 && resource.GetProperty("path").GetString()
                     == "package-files/query");
         Assert.Contains(
@@ -289,8 +464,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("resources")
                 .EnumerateArray(),
             resource =>
-                resource.GetProperty("resource_kind").GetString()
-                    == "ConsumerBinding"
+                ResourceType(resource) == "consumer-binding"
                 && resource.GetProperty("path").GetString()
                     == "package-files/bindings/cli");
     }
@@ -317,7 +491,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("identity")
                 .GetString());
         Assert.Equal(
-            "package <id> -S \"Package files\"",
+            "package <id> -S \"Files\"",
             first.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());
@@ -362,11 +536,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             JsonDocument.Parse(explanation.Output);
         Assert.Equal(
             "library-literal",
-            explanationDocument.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("details")
-                .GetProperty("key")
-                .GetString());
+            TextFact(
+                explanationDocument.RootElement
+                    .GetProperty("resources")[0],
+                "key"));
     }
 
     [Fact]
@@ -466,6 +639,21 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task CanonicalUnknownPath_SuggestsAcrossFocusedCatalogs()
+    {
+        var result = await RunAsync(
+            "explain",
+            "library/package-query");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("was not found", result.Error);
+        Assert.Contains(
+            result.Error.Split('\n'),
+            static line => line.Trim() == "package-query");
+    }
+
+    [Fact]
     public async Task OversizedSearchText_IsRejectedBeforePathSuggestions()
     {
         var stopwatch = Stopwatch.StartNew();
@@ -503,9 +691,11 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     [Fact]
     public async Task SearchLimitBoundsReturnedResults()
     {
+        // "package" is an exact structural catalog path since the Package
+        // adoption of Section shapes, so search uses a non-path term.
         var result = await RunAsync(
             "explain",
-            "package",
+            "query",
             "-n",
             "1",
             "--json");
@@ -545,11 +735,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("requested_path")
                 .GetString());
         Assert.Equal(
-            "StructuralSection",
-            document.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("resource_kind")
-                .GetString());
+            "structural-section",
+            ResourceType(
+                document.RootElement
+                    .GetProperty("resources")[0]));
         Assert.True(
             document.RootElement
                 .GetProperty("resources")
@@ -610,6 +799,61 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(0, requests);
     }
+
+    private static string ResourceType(JsonElement resource) =>
+        resource.GetProperty("key")
+            .GetProperty("resource_type")
+            .GetProperty("value")
+            .GetString()!;
+
+    private static JsonElement Fact(
+        JsonElement resource,
+        string identity) =>
+        resource.GetProperty("facts")
+            .EnumerateArray()
+            .Single(fact =>
+                fact.GetProperty("fact")
+                    .GetProperty("value")
+                    .GetString()
+                == identity);
+
+    private static string TextFact(
+        JsonElement resource,
+        string identity) =>
+        Fact(resource, identity)
+            .GetProperty("values")[0]
+            .GetProperty("value")
+            .GetProperty("text")
+            .GetString()!;
+
+    private static string?[] TextFacts(
+        JsonElement resource,
+        string identity) =>
+        Fact(resource, identity)
+            .GetProperty("values")
+            .EnumerateArray()
+            .Select(value =>
+                value.GetProperty("value")
+                    .GetProperty("text")
+                    .GetString())
+            .ToArray();
+
+    private static string RelationshipKind(JsonElement relationship) =>
+        relationship.GetProperty("relationship")
+            .GetProperty("value")
+            .GetString()!;
+
+    private static string?[] TargetPaths(JsonElement relationship) =>
+        relationship.GetProperty("targets")
+            .EnumerateArray()
+            .SelectMany(target =>
+                target.GetProperty("addresses").EnumerateArray())
+            .Select(address =>
+                address.GetProperty("value")
+                    .GetProperty("value")
+                    .GetProperty("text")
+                    .GetString())
+            .ToArray();
 
     private static Task<(
         int ExitCode,

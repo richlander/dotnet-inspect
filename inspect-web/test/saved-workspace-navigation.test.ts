@@ -4,6 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
+import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
@@ -303,6 +304,33 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: surface.activeFramework,
+        libraries: surface.assemblies.map(assembly => ({
+          assetId: assembly.id,
+          assetPath: assembly.asset,
+          assemblyName: assembly.name,
+          role: "Compile",
+        })),
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    documents: surface.documents,
     surface,
   };
 }
@@ -525,7 +553,12 @@ function harness() {
     },
   };
   const context = {
-    state, location, history, document, workspaceLocation: asyncWorkspaceLocation,
+    state,
+    location,
+    history,
+    document,
+    defaultAnalysisMode,
+    workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
       catalog: {
         captureCompleteWorkspaceShareState: async (
@@ -640,7 +673,11 @@ function harness() {
         capacity);
     },
     createPackageAcquisition,
-    inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
+    inspectPackageSummary: (
+      ...coordinate: Parameters<
+        PackageAcquisitionDependencies["queryPackageSummary"]
+      >
+    ) => {
       queries.push(coordinate);
       return controls.queryPackage(...coordinate);
     },
@@ -718,6 +755,7 @@ function harness() {
       state.packages.push(pkg);
       return pkg;
     },
+    loadDeepPackageSurface: async () => {},
     applyLoadedPackageLibraryScope: () => null,
     applyDeepLink: (deep: ParsedWorkspaceLocation) => {
       effects.push("deep-link");

@@ -4,9 +4,12 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 using ILAnalysis = ILInspector.Analysis;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
@@ -25,7 +28,8 @@ namespace DotnetInspect.Web.Interop.Analysis;
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {
-    private const int BrowserLibraryStructuralSalienceSchemaVersion = 1;
+    private const int BrowserLibraryStructuralSalienceSchemaVersion = 2;
+    private const int BrowserDependencyStructureEdgeLimit = 64;
 
     /// <summary>
     /// Exact method-body Analysis and metadata evidence for one implementation participant. The
@@ -605,6 +609,26 @@ public static partial class AnalysisExports
     }
 
     /// <summary>
+    /// Research-owned dependency topology for one exact package library. This
+    /// operation runs only after an explicit Browser request.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageLibraryDependencyStructure(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        BrowserLibraryDependencyStructure structure =
+            await PackageLibraryDependencyStructureAsync(
+                packageId, version, targetFramework, assemblyName);
+        return JsonSerializer.Serialize(
+            structure,
+            BrowserAnalysisJsonContext.Default
+                .BrowserLibraryDependencyStructure);
+    }
+
+    /// <summary>
     /// Signature-only namespace and Type leverage for one exact package
     /// Library. This returns every exact namespace shard without running
     /// implementation profiles or body analysis.
@@ -912,8 +936,48 @@ public static partial class AnalysisExports
         AssemblyContextEntry<LibraryMetricsResult> entry =
             scope.UseImplementationParticipant(
                 participant,
-                AssemblyContextLibraryMetricsQuery.ExecuteParticipant);
+                AssemblyContextLibraryMetricsQuery
+                    .ExecuteParticipant);
         return ProjectLibraryMetrics(entry, compileLibrary);
+    }
+
+    static async Task<BrowserLibraryDependencyStructure>
+        PackageLibraryDependencyStructureAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        if (!coordinate.Selection.IsSelected)
+        {
+            return UnavailableLibraryDependencyStructure(
+                "unavailable",
+                "The package has no selected compile library "
+                    + $"({coordinate.Selection.Status}).");
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        if (!scope.ImplementationParticipants.Contains(participant))
+        {
+            return UnavailableLibraryDependencyStructure(
+                "unavailable",
+                "The selected library has no managed implementation assembly.");
+        }
+
+        AssemblyContextEntry<LibraryDependencyStructureResult> entry =
+            scope.UseImplementationParticipant(
+                participant,
+                AssemblyContextLibraryDependencyStructureQuery
+                    .ExecuteParticipant);
+        return ProjectLibraryDependencyStructure(entry);
     }
 
     static async Task<BrowserLibraryStructuralSalience>
@@ -943,7 +1007,20 @@ public static partial class AnalysisExports
 
         BrowserWorkspaceParticipant participant =
             scope.LibraryParticipant(coordinate, assemblyName);
-        AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+        if (scope.ImplementationParticipants.Contains(participant))
+        {
+            AssemblyContextEntry<LibraryTypeLeverageResult> entry =
+                scope.UseImplementationParticipant(
+                    participant,
+                    static (group, selectedParticipant) =>
+                        AssemblyContextLibraryTypeLeverageQuery
+                            .ExecuteParticipant(
+                                group,
+                                selectedParticipant));
+            return ProjectLibraryStructuralSalience(entry, compileLibrary);
+        }
+
+        AssemblyContextEntry<LibrarySurfaceLeverageResult> surface =
             scope.UseMetadataParticipant(
                 participant,
                 static (group, selectedParticipant) =>
@@ -951,18 +1028,38 @@ public static partial class AnalysisExports
                         .ExecuteExhaustiveParticipant(
                             group,
                             selectedParticipant));
-        return ProjectLibraryStructuralSalience(entry, compileLibrary);
+        return ProjectLibraryStructuralSalience(
+            surface,
+            UnavailableTypeLeverageChannel(
+                "body-use",
+                "NoImplementationAssembly",
+                "The selected library has no managed implementation assembly."),
+            compileLibrary);
     }
 
     internal static BrowserLibraryStructuralSalience
         ProjectLibraryStructuralSalience(
             AssemblyContextEntry<LibrarySurfaceLeverageResult> entry,
             BrowserCompileLibraryAvailability compileLibrary) =>
+        ProjectLibraryStructuralSalience(
+            entry,
+            UnavailableTypeLeverageChannel(
+                "body-use",
+                "NotRequested",
+                "Implementation Type leverage was not requested."),
+            compileLibrary);
+
+    private static BrowserLibraryStructuralSalience
+        ProjectLibraryStructuralSalience(
+            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry,
+            BrowserLibraryTypeLeverageChannel implementation,
+            BrowserCompileLibraryAvailability compileLibrary) =>
         entry switch
         {
             AssemblyContextEntry<LibrarySurfaceLeverageResult>.Available
                 available => ProjectLibraryStructuralSalience(
                     available.Value,
+                    implementation,
                     compileLibrary),
             AssemblyContextEntry<LibrarySurfaceLeverageResult>.Rejected
                 rejected => UnavailableLibraryStructuralSalience(
@@ -983,12 +1080,14 @@ public static partial class AnalysisExports
     internal static BrowserLibraryStructuralSalience
         ProjectLibraryStructuralSalience(
             LibrarySurfaceLeverageResult result,
+            BrowserLibraryTypeLeverageChannel implementation,
             BrowserCompileLibraryAvailability compileLibrary) =>
         result switch
         {
             LibrarySurfaceLeverageResult.AvailableExhaustive available =>
                 ProjectLibraryStructuralSalience(
                     available.Document,
+                    implementation,
                     compileLibrary),
             LibrarySurfaceLeverageResult.Rejected rejected =>
                 UnavailableLibraryStructuralSalience(
@@ -1000,22 +1099,105 @@ public static partial class AnalysisExports
                 "Expected exhaustive structural salience result."),
         };
 
+    internal static BrowserLibraryStructuralSalience
+        ProjectLibraryStructuralSalience(
+            AssemblyContextEntry<LibraryTypeLeverageResult> entry,
+            BrowserCompileLibraryAvailability compileLibrary)
+        => entry switch
+        {
+            AssemblyContextEntry<LibraryTypeLeverageResult>.Available
+                available => ProjectLibraryStructuralSalience(
+                    available.Value,
+                    compileLibrary),
+            AssemblyContextEntry<LibraryTypeLeverageResult>.Rejected
+                rejected => UnavailableLibraryStructuralSalience(
+                    "unavailable",
+                    $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})",
+                    compileLibrary),
+            AssemblyContextEntry<LibraryTypeLeverageResult>.Failed failed =>
+                UnavailableLibraryStructuralSalience(
+                    "failed",
+                    $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type-leverage assembly-context result."),
+        };
+
+    internal static BrowserLibraryStructuralSalience
+        ProjectLibraryStructuralSalience(
+            LibraryTypeLeverageResult result,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        result switch
+        {
+            LibraryTypeLeverageResult.Available available => new(
+                BrowserLibraryStructuralSalienceSchemaVersion,
+                ProjectSurfaceTypeLeverageChannel(
+                    available.Document.Surface),
+                ProjectImplementationTypeLeverageChannel(
+                    available.Document.Implementation),
+                compileLibrary),
+            LibraryTypeLeverageResult.Rejected rejected =>
+                UnavailableLibraryStructuralSalience(
+                    "unavailable",
+                    $"Signature-use acquisition was rejected "
+                        + $"({rejected.Kind}): {rejected.Detail}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type-leverage result."),
+        };
+
     private static BrowserLibraryStructuralSalience
         ProjectLibraryStructuralSalience(
             LibraryStructuralSalienceDocument document,
+            BrowserLibraryTypeLeverageChannel implementation,
             BrowserCompileLibraryAvailability compileLibrary)
         => new(
             BrowserLibraryStructuralSalienceSchemaVersion,
+            ProjectSurfaceTypeLeverageChannel(document),
+            implementation,
+            compileLibrary);
+
+    private static BrowserLibraryTypeLeverageChannel
+        ProjectSurfaceTypeLeverageChannel(
+            LibraryStructuralSalienceDocument document) =>
+        new(
             "available",
             document.MethodologyVersion,
-            document.EvidenceMode.ToString().ToLowerInvariant(),
+            "signature",
             ProjectLibraryNamespaceLeverage(document.NamespaceIndex),
             [
                 .. document.TypeLeverageShards.Select(
                     ProjectLibraryTypeLeverageShard),
             ],
             null,
-            compileLibrary);
+            null);
+
+    private static BrowserLibraryTypeLeverageChannel
+        ProjectImplementationTypeLeverageChannel(
+            LibraryBodyTypeLeverageResult result) =>
+        result switch
+        {
+            LibraryBodyTypeLeverageResult.Available available => new(
+                "available",
+                LibraryStructuralSalience.CurrentMethodologyVersion,
+                "body-use",
+                null,
+                [
+                    .. available.Shards.Select(
+                        ProjectLibraryBodyTypeLeverageShard),
+                ],
+                null,
+                null),
+            LibraryBodyTypeLeverageResult.Rejected rejected =>
+                UnavailableTypeLeverageChannel(
+                    "body-use",
+                    rejected.Kind.ToString(),
+                    rejected.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown body Type-leverage result."),
+        };
 
     private static BrowserLibraryNamespaceLeverageIndex
         ProjectLibraryNamespaceLeverage(
@@ -1058,6 +1240,7 @@ public static partial class AnalysisExports
                 document.SignatureUse.Coverage.Examined,
                 document.SignatureUse.Coverage.Unavailable,
                 document.SignatureUse.Coverage.Limited),
+            null,
             [
                 .. document.Rows.Select(row =>
                     new BrowserLibraryTypeLeverageRow(
@@ -1090,6 +1273,85 @@ public static partial class AnalysisExports
             ]);
     }
 
+    private static BrowserLibraryTypeLeverageShard
+        ProjectLibraryBodyTypeLeverageShard(
+            LibraryStructuralBodyTypeLeverageShard document)
+    {
+        Dictionary<
+            ILInspector.Metadata.MetadataTypeDefinitionAddress,
+            string> ids =
+                document.Rows.ToDictionary(
+                    static row => row.Type,
+                    static row => row.Name.ToEscapedFullName());
+        ILAnalysis.AnalysisLibraryBodyUseCoverage coverage =
+            document.BodyUse.Coverage;
+        return new(
+            document.Namespace,
+            document.RoleDisposition.ToString().ToLowerInvariant(),
+            new(
+                document.TypeInventory.Coverage.Considered,
+                document.TypeInventory.Coverage.Examined,
+                document.TypeInventory.Coverage.Unavailable,
+                document.TypeInventory.Coverage.Limited),
+            new(
+                coverage.BodiesConsidered,
+                coverage.BodiesExamined,
+                coverage.BodiesPhysicalOnly,
+                coverage.BodiesUnavailable,
+                coverage.BodiesLimited,
+                coverage.OperandsConsidered,
+                coverage.OperandsExamined,
+                coverage.OperandsUnavailable,
+                coverage.OperandsLimited),
+            [
+                .. document.Rows.Select(row =>
+                    new BrowserLibraryTypeLeverageRow(
+                        ids[row.Type],
+                        row.Name.ToMetadataFullName(),
+                        row.DesignationEligible,
+                        row.BodyIncomingDegree,
+                        row.BodyOutgoingDegree,
+                        row.Role.ToString().ToLowerInvariant(),
+                        row.Pole switch
+                        {
+                            LibraryStructuralTypePole.SeaLevel =>
+                                BrowserLibraryStructuralTypePole.SeaLevel,
+                            LibraryStructuralTypePole.MountainPeak =>
+                                BrowserLibraryStructuralTypePole.MountainPeak,
+                            null => null,
+                            _ => throw new InvalidOperationException(
+                                "Unknown structural Type pole."),
+                        })),
+            ],
+            [
+                .. document.SeaLevel.Types.Select(type => ids[type]),
+            ],
+            [
+                .. document.MountainPeak.Types.Select(type => ids[type]),
+            ],
+            [
+                .. document.TypeInventory.Diagnostics
+                    .Select(static diagnostic => diagnostic.Detail)
+                    .Concat(
+                        document.BodyUse.Diagnostics.Select(
+                            static diagnostic => diagnostic.Detail)),
+            ]);
+    }
+
+    private static BrowserLibraryTypeLeverageChannel
+        UnavailableTypeLeverageChannel(
+            string evidenceMode,
+            string kind,
+            string failure) =>
+        new(
+            "unavailable",
+            null,
+            evidenceMode,
+            null,
+            [],
+            failure,
+            kind);
+
     internal static BrowserLibraryStructuralSalience
         UnavailableLibraryStructuralSalience(
             string outcome,
@@ -1097,12 +1359,22 @@ public static partial class AnalysisExports
             BrowserCompileLibraryAvailability compileLibrary) =>
         new(
             BrowserLibraryStructuralSalienceSchemaVersion,
-            outcome,
-            null,
-            null,
-            null,
-            [],
-            failure,
+            new(
+                outcome,
+                null,
+                "signature",
+                null,
+                [],
+                failure,
+                "SurfaceUnavailable"),
+            new(
+                outcome,
+                null,
+                "body-use",
+                null,
+                [],
+                failure,
+                "SurfaceUnavailable"),
             compileLibrary);
 
     static BrowserLibraryMetrics ProjectLibraryMetrics(
@@ -1208,6 +1480,168 @@ public static partial class AnalysisExports
             _ => throw new InvalidOperationException(
                 "Unknown Library Metrics result."),
         };
+
+    static BrowserLibraryDependencyStructure
+        ProjectLibraryDependencyStructure(
+            AssemblyContextEntry<LibraryDependencyStructureResult> entry) =>
+        entry switch
+        {
+            AssemblyContextEntry<
+                LibraryDependencyStructureResult>.Available available =>
+                ProjectLibraryDependencyStructure(available.Value),
+            AssemblyContextEntry<
+                LibraryDependencyStructureResult>.Rejected rejected =>
+                UnavailableLibraryDependencyStructure(
+                    "unavailable",
+                    $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})"),
+            AssemblyContextEntry<
+                LibraryDependencyStructureResult>.Failed failed =>
+                UnavailableLibraryDependencyStructure(
+                    "failed",
+                    $"{failed.Subject.Identity.Name}: {failed.Error.Message}"),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Dependency Structure assembly-context "
+                    + "result."),
+        };
+
+    static BrowserLibraryDependencyStructure
+        ProjectLibraryDependencyStructure(
+            LibraryDependencyStructureResult result)
+    {
+        LibraryDependencyStructureQueryResult selected =
+            LibraryDependencyStructureInspection.Select(
+                result,
+                BrowserDependencyStructureRequest);
+        return selected switch
+        {
+            LibraryDependencyStructureQueryResult.Available available =>
+                ProjectLibraryDependencyStructure(available),
+            LibraryDependencyStructureQueryResult.Unavailable unavailable =>
+                UnavailableLibraryDependencyStructure(
+                    "unavailable",
+                    unavailable.Outcome.Message),
+            LibraryDependencyStructureQueryResult.SelectionFailed failed =>
+                UnavailableLibraryDependencyStructure(
+                    "failed",
+                    failed.Detail),
+            LibraryDependencyStructureQueryResult.Failed failed =>
+                UnavailableLibraryDependencyStructure(
+                    "failed",
+                    failed.Error.Message),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Dependency Structure query result."),
+        };
+    }
+
+    static BrowserLibraryDependencyStructure
+        ProjectLibraryDependencyStructure(
+            LibraryDependencyStructureQueryResult.Available available)
+    {
+        LibraryDependencyStructureDocument document = available.Document;
+        IReadOnlyDictionary<string, LibraryDependencyTypeNode> types =
+            document.Types.ToDictionary(
+                static type => type.TypeKey,
+                StringComparer.Ordinal);
+        return new(
+            "available",
+            document.MethodologyVersion,
+            document.Completeness.ToString(),
+            new(
+                document.Population.ExaminedCallCount,
+                document.Population.InternalCallCount,
+                document.Population.ExternalCallCount,
+                document.Population.UnresolvedCallCount,
+                document.Population.IncompleteBodyCount,
+                document.Population.TypeCount,
+                document.Population.NamespaceCount),
+            [
+                .. document.Namespaces.Select(
+                    node => new BrowserLibraryDependencyNamespace(
+                        node.Namespace,
+                        node.IsGlobalNamespace,
+                        node.TypeCount,
+                        node.IntraNamespaceRelationshipCount,
+                        node.CycleIndex,
+                        node.Level)),
+            ],
+            [
+                .. available.Rows.NamespaceEdges.Select(
+                    edge => new BrowserLibraryDependencyNamespaceEdge(
+                        edge.SourceNamespace,
+                        edge.TargetNamespace,
+                        ProjectLibraryDependencyCounts(edge.Counts),
+                        edge.ContributingTypeEdgeCount,
+                        [
+                            .. edge.ExplainingTypeEdges.Select(
+                                explanation =>
+                                    new BrowserLibraryDependencyTypeEdge(
+                                        explanation.SourceTypeKey,
+                                        types[explanation.SourceTypeKey]
+                                            .Type
+                                            .ToQualifiedDisplayString(),
+                                        explanation.TargetTypeKey,
+                                        types[explanation.TargetTypeKey]
+                                            .Type
+                                            .ToQualifiedDisplayString(),
+                                        ProjectLibraryDependencyCounts(
+                                            explanation.Counts))),
+                        ],
+                        edge.RemainingContributorCount)),
+            ],
+            document.NamespaceEdges.Length,
+            [
+                .. document.Cycles.Select(
+                    cycle => new BrowserLibraryDependencyCycle(
+                        [.. cycle.Namespaces])),
+            ],
+            [
+                .. document.Diagnostics.Select(
+                    diagnostic => diagnostic.Message),
+            ],
+            null);
+    }
+
+    static BrowserLibraryDependencyCounts
+        ProjectLibraryDependencyCounts(
+            LibraryDependencyCounts counts) =>
+        new(
+            counts.Invocations,
+            counts.FunctionReferences,
+            counts.Total);
+
+    static BrowserLibraryDependencyStructure
+        UnavailableLibraryDependencyStructure(
+            string outcome,
+            string failure) =>
+        new(
+            outcome,
+            null,
+            null,
+            null,
+            [],
+            [],
+            0,
+            [],
+            [],
+            failure);
+
+    private static QuerySpaceRequest BrowserDependencyStructureRequest =>
+        BrowserDependencyStructureRegistration.Request;
+
+    private static class BrowserDependencyStructureRegistration
+    {
+        internal static QuerySpaceRequest Request { get; } =
+            LibraryDependencyStructureQuery.CreateRequest(
+                LibraryDependencyStructureQuery.NamespaceEdgesRowSet,
+                RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Top(
+                        BrowserDependencyStructureEdgeLimit),
+                ]),
+                QuerySpaceTerminalRequirement.Rows);
+    }
 
     internal static string LibraryMetricsTypeKey(ILAnalysis.TypeRef type) =>
         LibraryStructuralReport.TypeKey(type);

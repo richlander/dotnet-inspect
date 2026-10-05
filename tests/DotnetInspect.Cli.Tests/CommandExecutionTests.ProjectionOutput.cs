@@ -1373,7 +1373,7 @@ public partial class CommandExecutionTests
         // --print names the section whose rows carry the document, like every other payload
         // projection. There is no per-document flag to disagree with the selection.
         var (exit, output, _) = await RunAppAsync(
-            "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--print");
+            "package", "Newtonsoft.Json@13.0.4", "-S", "README", "--print");
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
@@ -1682,7 +1682,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task ProjectedJsonRoutingAudit_PackageTypedDocumentFailsClosed()
+    public async Task ProjectedJsonRoutingAudit_PackageChildrenUsesLoweredJson()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.JsonProjection",
@@ -1691,14 +1691,22 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--json", "--columns", "Package");
+                "package", packagePath, "--json", "--columns", "Name,Status");
             var (multiExit, multiOutput, multiError) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "--json", "--columns", "Package");
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains("requires lowered JSON", error);
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using (JsonDocument document = JsonDocument.Parse(output))
+            {
+                JsonElement row = Assert.Single(
+                    document.RootElement.EnumerateArray());
+                Assert.Equal(
+                    ["name", "status"],
+                    row.EnumerateObject().Select(
+                        static property => property.Name));
+            }
             Assert.Equal(1, multiExit);
             Assert.Empty(multiOutput);
             Assert.Contains("requires lowered JSON", multiError);
@@ -1803,7 +1811,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, packagePath,
-                "-S", "Package files",
+                "-S", "Files",
                 "--roots", "--json");
 
             Assert.Equal(1, exit);
@@ -1824,7 +1832,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "--offline",
             "package", "Package.That.Must.Not.Resolve",
-            "-D", "-S", "Package files",
+            "-D", "-S", "Files",
             "--roots");
 
         Assert.Equal(1, exit);
@@ -1911,7 +1919,7 @@ public partial class CommandExecutionTests
 
             var (readmeExit, readmeStdout, readmeError) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--print",
                 "--jsonl",
                 "--out", readmeOutput);

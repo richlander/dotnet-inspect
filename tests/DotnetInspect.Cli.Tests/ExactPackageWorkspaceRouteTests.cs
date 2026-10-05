@@ -381,8 +381,8 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.Equal(0, ordinary.ExitCode);
         Assert.Empty(ordinary.Error);
         Assert.Equal(ordinary.Output, output);
-        Assert.Contains(
-            $"# {SelectedPackage}",
+        Assert.StartsWith(
+            $"{SelectedPackage} {Version} (",
             output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -701,6 +701,9 @@ public sealed class ExactPackageWorkspaceRouteTests
             WorkspacePacket = packet,
             ShareFormat = WorkspaceShareFormat.Packet,
             Select = [PackageSections.PackageInfo],
+            // The route tests pin the Markdown document; a lone section
+            // otherwise renders in its shape's native format.
+            FormatExplicitlySet = true,
             SelectExplicitlySet = true,
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
@@ -743,6 +746,9 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             Select = [PackageSections.PackageInfo],
+            // The route tests pin the Markdown document; a lone section
+            // otherwise renders in its shape's native format.
+            FormatExplicitlySet = true,
             SelectExplicitlySet = true,
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
@@ -796,6 +802,9 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             Select = [PackageSections.PackageInfo],
+            // The route tests pin the Markdown document; a lone section
+            // otherwise renders in its shape's native format.
+            FormatExplicitlySet = true,
             SelectExplicitlySet = true,
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
@@ -819,6 +828,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         InspectionOptions detailOptions = infoOptions with
         {
             Select = [PackageSections.EcosystemDependencies],
+            FormatExplicitlySet = true,
         };
         var details = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(
@@ -863,6 +873,9 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             Select = [PackageSections.PackageInfo],
+            // The route tests pin the Markdown document; a lone section
+            // otherwise renders in its shape's native format.
+            FormatExplicitlySet = true,
             SelectExplicitlySet = true,
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
@@ -1118,8 +1131,8 @@ public sealed class ExactPackageWorkspaceRouteTests
                     LoadOptions(client, store)));
 
         Assert.Equal(1, exitCode);
-        Assert.Contains(
-            $"# {SelectedPackage}",
+        Assert.StartsWith(
+            $"{SelectedPackage} {Version} (",
             output,
             StringComparison.Ordinal);
         Assert.Contains(

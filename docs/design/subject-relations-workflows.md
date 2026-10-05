@@ -322,40 +322,15 @@ Exact end-to-end measurements separately retain acquisition and admission
 cost. Subject Relations does not redefine reader construction, format
 classification, lifetime, or admission failure semantics.
 
-### Workspace extension candidate population
-
-The initial workspace extension population is an L1 composition over one
-ordered retained assembly-context group. One request carries an exact
-Metadata-owned receiver identity, visibility, operation policy, and Count
-and/or bounded Rows demand to each participant's
-`AssemblyInspectionSession.ExtensionRelations` operation. The result preserves
-one `AssemblyContextSubject` and one typed outcome per participant in group
-order. Candidate-open rejection, producer rejection, partial coverage,
-diagnostics, and failure remain source-specific outcomes; none becomes zero
-Count or empty Rows.
-
-This slice establishes independently requested per-participant populations,
-not a workspace-global terminal. Rows bounds and continuations remain
-participant-local; the initial workspace request exposes only the first
-bounded segment and does not resume a participant continuation. No aggregate
-Count or global ordering is inferred. QuerySpace composition later decides
-whether compatible requests share work and how participant populations satisfy
-a workspace terminal. The direct producer remains the cold path; a prepared
-receiver index requires separate request-set economics and exact NativeAOT
-evidence.
-
-The receiver is the exact assembly/type identity encoded by the Metadata
-fidelity domain. This population does not resolve a selected definition
-through type forwarding, infer identity from display text, or claim complete
-C# extension applicability. It also does not settle Subject Relations rows,
-compose inherited Members, or change the CLI and Browser/Wasm hosts. Those are
-separate #9183 adoption slices.
-
-`eng/measure-workspace-extension-candidates.cs` compares this structured
-population with the existing full extension census plus exact receiver
-filtering. Its NativeAOT lanes use the same retained participants and report
-per-participant cardinality and stable logical-row checksums for Count and
-bounded Rows over zero, small, and dense real runtime receiver populations.
+For one already-resolved exact Type focus and one candidate assembly, the
+host-neutral hierarchy operation carries independent Count and producer-ordered
+Rows requests into the direct targeted Metadata producer. The source endpoint
+retains the candidate assembly registration; the target endpoint and focus
+correspondence retain the exact focus assembly registration. Continued Rows
+reuse producer authority bound to both registrations, the hierarchy target and
+kind, visibility and hidden-declaration policy, population, selection,
+ordering, projection, and next producer ordinal. This singleton path does not
+prepare the reverse index; repeated-target planning remains separately owned.
 
 Public population facets select producer work and become part of population
 identity. They are not duplicated as a second set of public `request-*` keys.
@@ -391,7 +366,9 @@ independent terminals. Count succeeds only from exact completion or another
 owner-accepted exact witness. Rows may retain a useful bounded segment while
 remaining visibly incomplete. Count success does not conceal Rows failure, and
 Rows success does not turn a partial observed cardinality, including zero, into
-exact Count.
+exact Count. The hierarchy operation treats its independently completed
+non-materializing Count pass as that exact witness when Rows projection remains
+partial and preserves the Rows diagnostics in producer evidence.
 
 Rows continuation is an opaque producer-issued receipt bound to the exact
 focus, candidate-population generation, canonical facets, ordering, row
@@ -465,6 +442,41 @@ connectors to an Integration target. Subject Relations exposes direct logical
 incidence at one exact subject. An Integration-classified relation row is not a
 target corridor, and a corridor must not be flattened into a fabricated direct
 relation.
+
+### Workspace extension candidate population
+
+The initial workspace extension population is an L1 composition over one
+ordered retained assembly-context group. One request carries an exact
+Metadata-owned receiver identity, visibility, operation policy, and Count
+and/or bounded Rows demand to each participant's
+`AssemblyInspectionSession.ExtensionRelations` operation. The result preserves
+one `AssemblyContextSubject` and one typed outcome per participant in group
+order. Candidate-open rejection, producer rejection, partial coverage,
+diagnostics, and failure remain source-specific outcomes; none becomes zero
+Count or empty Rows.
+
+This slice establishes independently requested per-participant populations,
+not a workspace-global terminal. Rows bounds and continuations remain
+participant-local; the initial workspace request exposes only the first
+bounded segment and does not resume a participant continuation. No aggregate
+Count or global ordering is inferred. QuerySpace composition later decides
+whether compatible requests share work and how participant populations satisfy
+a workspace terminal. The direct producer remains the cold path; a prepared
+receiver index requires separate request-set economics and exact NativeAOT
+evidence.
+
+The receiver is the exact assembly/type identity encoded by the Metadata
+fidelity domain. This population does not resolve a selected definition
+through type forwarding, infer identity from display text, or claim complete
+C# extension applicability. It also does not settle Subject Relations rows,
+compose inherited Members, or change the CLI and Browser/Wasm hosts. Those are
+separate #9183 adoption slices.
+
+`eng/measure-workspace-extension-candidates.cs` compares this structured
+population with the existing full extension census plus exact receiver
+filtering. Its NativeAOT lanes use the same retained participants and report
+per-participant cardinality and stable logical-row checksums for Count and
+bounded Rows over zero, small, and dense real runtime receiver populations.
 
 ## Worked example: replace the verbs, keep the workflows
 

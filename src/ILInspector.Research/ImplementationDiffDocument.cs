@@ -5,6 +5,8 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 public enum ImplementationDiffDocumentScope
@@ -19,11 +21,62 @@ public enum ImplementationDiffDocumentMechanism
     Complexity,
 }
 
+public enum ImplementationDiffDocumentPopulationKind
+{
+    All,
+    Selected,
+}
+
+public sealed record ImplementationDiffDocumentPopulation
+{
+    public ImplementationDiffDocumentPopulation(
+        ImplementationDiffDocumentPopulationKind kind,
+        IReadOnlyList<ImplementationDiffDocumentMemberSelection> selections)
+    {
+        ArgumentNullException.ThrowIfNull(selections);
+        if (!Enum.IsDefined(kind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown Implementation Diff population.");
+        }
+        if (selections.Any(static selection => selection is null))
+        {
+            throw new ArgumentException(
+                "Selected members cannot contain null entries.",
+                nameof(selections));
+        }
+        if (kind == ImplementationDiffDocumentPopulationKind.All
+            && selections.Count != 0)
+        {
+            throw new ArgumentException(
+                "The whole population cannot carry member selections.",
+                nameof(selections));
+        }
+
+        Kind = kind;
+        Selections = selections;
+    }
+
+    public ImplementationDiffDocumentPopulationKind Kind { get; }
+
+    public IReadOnlyList<ImplementationDiffDocumentMemberSelection> Selections
+    { get; }
+
+    public static ImplementationDiffDocumentPopulation All()
+        => new(ImplementationDiffDocumentPopulationKind.All, []);
+
+    public static ImplementationDiffDocumentPopulation Selected(
+        IReadOnlyList<ImplementationDiffDocumentMemberSelection> selections)
+        => new(ImplementationDiffDocumentPopulationKind.Selected, selections);
+}
+
 public sealed record ImplementationDiffDocumentRequest(
     ImplementationDiffDocumentScope Scope,
     IReadOnlyList<ImplementationDiffDocumentMechanism> Mechanisms,
     IReadOnlyList<string> TypeFilters,
-    IReadOnlyList<ImplementationDiffDocumentMemberSelection> MemberSelections);
+    ImplementationDiffDocumentPopulation Population);
 
 public sealed record ImplementationDiffDocumentMemberSelection(
     string DeclaringType,
@@ -155,7 +208,7 @@ public sealed record ImplementationDiffDocument(
     ImplementationDiffEndpoint Before,
     ImplementationDiffEndpoint After,
     IReadOnlyList<ImplementationDiffDocumentMember> Members,
-    ImplementationDiffDocumentComplexity Complexity,
+    ImplementationDiffDocumentComplexity? Complexity,
     ImplementationDiffCoverage Coverage);
 
 public static partial class ImplementationDiff
@@ -178,7 +231,7 @@ public static partial class ImplementationDiff
             newAssembly,
             result,
             options,
-            memberSelections: null);
+            ImplementationDiffDocumentPopulation.All());
     }
 
     public static ImplementationDiffDocument CreateExactPairDocument(
@@ -186,13 +239,16 @@ public static partial class ImplementationDiff
         ImplementationAssemblyInput newAssembly,
         ImplementationDiffResult result,
         ImplementationDiffOptions? options = null,
-        IReadOnlyList<ImplementationDiffDocumentMemberSelection>?
-            memberSelections = null)
+        ImplementationDiffDocumentPopulation? population = null)
     {
         ArgumentNullException.ThrowIfNull(oldAssembly);
         ArgumentNullException.ThrowIfNull(newAssembly);
         ArgumentNullException.ThrowIfNull(result);
         options ??= new ImplementationDiffOptions();
+        ImplementationDiffOptions.ValidateMechanisms(
+            options.Mechanisms,
+            nameof(options));
+        population ??= ImplementationDiffDocumentPopulation.All();
 
         var members = result.Members.ToDictionary(
             member => member.Subject.Id,
@@ -214,7 +270,7 @@ public static partial class ImplementationDiff
             .DistinctBy(subject => subject.Id, StringComparer.Ordinal);
 
         return new ImplementationDiffDocument(
-            CreateRequest(options, memberSelections),
+            CreateRequest(options, population),
             CreateEndpoint(oldAssembly),
             CreateEndpoint(newAssembly),
             [.. subjects
@@ -224,19 +280,22 @@ public static partial class ImplementationDiff
                     members.GetValueOrDefault(subject.Id),
                     oneSidedIlComparisons.GetValueOrDefault(subject.Id)
                         .Comparison))],
-            new ImplementationDiffDocumentComplexity(
-                result.Complexity.IsAvailable,
-                result.Complexity.UnavailableReason,
-                [.. result.Complexity.Changes
-                    .OrderBy(change => change.Subject.Id, StringComparer.Ordinal)
-                    .Select(CreateComplexityChange)]),
+            options.Mechanisms.HasFlag(ImplementationDiffMechanism.Complexity)
+                ? new ImplementationDiffDocumentComplexity(
+                    result.Complexity.IsAvailable,
+                    result.Complexity.UnavailableReason,
+                    [.. result.Complexity.Changes
+                        .OrderBy(
+                            change => change.Subject.Id,
+                            StringComparer.Ordinal)
+                        .Select(CreateComplexityChange)])
+                : null,
             CreateCoverage(result, options));
     }
 
     static ImplementationDiffDocumentRequest CreateRequest(
         ImplementationDiffOptions options,
-        IReadOnlyList<ImplementationDiffDocumentMemberSelection>?
-            memberSelections)
+        ImplementationDiffDocumentPopulation population)
     {
         var mechanisms =
             new List<ImplementationDiffDocumentMechanism>(3);
@@ -244,15 +303,14 @@ public static partial class ImplementationDiff
             mechanisms.Add(ImplementationDiffDocumentMechanism.CSharp);
         if (options.Mechanisms.HasFlag(ImplementationDiffMechanism.IlBody))
             mechanisms.Add(ImplementationDiffDocumentMechanism.IlBody);
-        mechanisms.Add(ImplementationDiffDocumentMechanism.Complexity);
+        if (options.Mechanisms.HasFlag(ImplementationDiffMechanism.Complexity))
+            mechanisms.Add(ImplementationDiffDocumentMechanism.Complexity);
 
         return new(
             ImplementationDiffDocumentScope.ExactLibraryPair,
             mechanisms,
             Sorted(options.TypeFilters),
-            memberSelections is null
-                ? []
-                : [.. memberSelections]);
+            population);
     }
 
     static IReadOnlyList<string> Sorted(IReadOnlySet<string>? values)
@@ -440,22 +498,35 @@ public static partial class ImplementationDiff
     static ImplementationDiffCoverage CreateCoverage(
         ImplementationDiffResult result,
         ImplementationDiffOptions options)
-        => new(
-        [
-            CreateResearchCoverage(
+    {
+        var mechanisms =
+            new List<ImplementationDiffMechanismCoverage>(3);
+        if (options.Mechanisms.HasFlag(ImplementationDiffMechanism.CSharp))
+        {
+            mechanisms.Add(CreateResearchCoverage(
                 result,
                 ImplementationDiffDocumentMechanism.CSharp,
                 ResearchChangeMechanism.CSharp,
                 CSharpFindings.LineDescriptor.Id,
-                options.Mechanisms.HasFlag(ImplementationDiffMechanism.CSharp)),
-            CreateResearchCoverage(
+                requested: true));
+        }
+        if (options.Mechanisms.HasFlag(ImplementationDiffMechanism.IlBody))
+        {
+            mechanisms.Add(CreateResearchCoverage(
                 result,
                 ImplementationDiffDocumentMechanism.IlBody,
                 ResearchChangeMechanism.IlBody,
                 IlFindings.OperationDescriptor.Id,
-                options.Mechanisms.HasFlag(ImplementationDiffMechanism.IlBody)),
-            CreateComplexityCoverage(result.Complexity),
-        ]);
+                requested: true));
+        }
+        if (options.Mechanisms.HasFlag(
+            ImplementationDiffMechanism.Complexity))
+        {
+            mechanisms.Add(CreateComplexityCoverage(result.Complexity));
+        }
+
+        return new(mechanisms);
+    }
 
     static ImplementationDiffMechanismCoverage CreateResearchCoverage(
         ImplementationDiffResult result,

@@ -88,10 +88,11 @@ every direct call: which method definition declared in the inspected module
 does this call bind to, if any? The raw definition token on a direct call
 does not answer it. A call through a generic instantiation, such as a method
 of `Box<T>` calling its own `B()`, is encoded as a member reference on a type
-specification, and that token stays unresolved. Analysis publishes that resolution through
-`LibraryCallGraphAnalysisResult.ResolveTarget`, first by token and then by
-signature. Its typed failures are indirect, unsupported signature, malformed
-signature, invalid generic declaration, unmatched, and ambiguous.
+specification, and that token stays unresolved. Analysis publishes that
+resolution through `LibraryCallGraphAnalysisResult.ResolveTarget`, first by
+token and then by signature. Its typed failures are indirect, unsupported
+signature, malformed signature, invalid generic declaration, unmatched, and
+ambiguous.
 `LibraryCallGraphAnalysisResult.ResolveDeclaredMethod` publishes the
 target-side declared-source association, including for methods that make no
 calls. These Analysis-owned prerequisites landed in #8701 and #8704.
@@ -117,13 +118,10 @@ superseded infrastructure is prohibited:
   and applies only domain meaning: internal/external selection, namespace cycle
   vocabulary, completeness, qualification, and presentation order. It never
   copies SCC or levelization logic.
-- **`LibraryBodyIndex` is prohibited.** That includes its
-  `CompatibilityIndex()` adapter on `LibraryBodyAnalysisExecution` and any
-  API that returns or wraps it. Research, the query, and both hosts consume
-  only Analysis's focused typed results from one
-  `LibraryBodyAnalysisExecution`. When a needed fact exists only on the
-  compatibility index, the resolution is to have Analysis publish it on a
-  focused result (step 0). Never read through the index "for now".
+- **Analysis stays focused.** Research, the query, and both hosts consume only
+  Analysis's focused typed results from one `LibraryBodyAnalysisExecution`.
+  When a needed fact lacks a focused owner, the resolution is to have Analysis
+  publish it on a focused result (step 0), not to introduce another aggregate.
 - **QuerySpace is the encouraged selection substrate.** Filtering, ordering,
   counting, and limiting the issued rows (type, namespace, and external nodes;
   edges; cycles) use QuerySpace, with the row vocabulary declared
@@ -334,11 +332,13 @@ connect, and where the cycles and levels fall. A narrative also needs
 dimension over the two-dimensional shape. Amplitude comes from other owners
 and is joined onto this shape by exact identity. It is never computed here.
 
-| Amplitude | Owner | Grain and qualification |
-| --- | --- | --- |
-| Implementation volume and complexity | [Library Metrics](library-structural-report.md) type summaries | Per type, over complete physical profiles |
-| Leverage (distinct callers, fan-out, depth, loops) | Analysis `LibraryLeverageAnalysisResult` | Per method; currently a bounded top-N ranking, so an overlay must disclose that it is partial |
-| Communities | [#8406](https://github.com/richlander/dotnet-inspect/issues/8406) over this graph | Grouping, not weight; it colors the shape |
+- **Implementation volume and complexity.** [Library Metrics](library-structural-report.md)
+  owns type summaries over complete physical profiles.
+- **Leverage (distinct callers, fan-out, depth, and loops).** Analysis owns
+  `LibraryLeverageAnalysisResult` per method. It is currently a bounded top-N
+  ranking, so an overlay must disclose that it is partial.
+- **Communities.** [#8406](https://github.com/richlander/dotnet-inspect/issues/8406)
+  groups this graph and colors the shape; it does not weight the graph.
 
 This owner's single obligation to amplitude is **join currency**:
 
@@ -444,13 +444,18 @@ interpretations under the #8516 narrative levels.
 The survey informs vocabulary and boundaries only. No code or architecture
 transfers.
 
-| Tool | Relevant behavior | Transfer decision |
-| --- | --- | --- |
-| Lakos, *Large-Scale C++ Software Design* | Levelization over the component condensation | Adopted as the level definition |
-| NDepend dependency matrix | Namespace dependencies, cycles, and explaining members | Adopted: edge explanation and cycle vocabulary. Declined: Instability/Abstractness scores and rule verdicts |
-| Structure101 / Sonargraph | "Tangles" (strongly connected components) and levelized views | Adopted: cycles as strongly connected components. Declined: tangle severity metrics |
-| JDepend | Package cycles plus Martin metrics | Declined: metrics are interpretations |
-| ArchUnitNET / NetArchTest | User-authored layering rules asserted in tests | Declined here. Rules are a possible later consumer of this document |
+- **Lakos, *Large-Scale C++ Software Design*.** Its levelization over the
+  component condensation is adopted as the level definition.
+- **NDepend dependency matrix.** Its namespace dependencies, cycles, and
+  explaining members inform edge explanation and cycle vocabulary.
+  Instability/Abstractness scores and rule verdicts are declined.
+- **Structure101 / Sonargraph.** Their "tangles" and levelized views inform the
+  use of strongly connected components for cycles. Tangle severity metrics are
+  declined.
+- **JDepend.** Package cycles plus Martin metrics are declined because the
+  metrics are interpretations.
+- **ArchUnitNET / NetArchTest.** User-authored layering rules asserted in tests
+  are declined here. Rules are a possible later consumer of this document.
 
 These tools usually analyze all type references. Starting from call evidence
 is a deliberate narrowing to evidence Analysis already owns and qualifies.
@@ -577,10 +582,39 @@ cache.
    outside the default `-v:m` view. It uses Markout for tables and the Mermaid
    graph lowering, and `--envelope` carries the complete Content with Share
    and diagnostics.
-4. **Browser/Wasm:** the Library Analysis inspector's Metrics tab adds a
-   levelized namespace view with cycles marked and drill-down from edge to
-   explaining type edges to Type. It uses the same managed query and does no
-   topology work in TypeScript.
+4. **Browser/Wasm:** the Library Analysis inspector exposes a dedicated
+   **Dependencies** tab with a levelized namespace view, marked cycles, and
+   drill-down from one selected namespace edge to its explaining Type edges.
+   Entering the tab does not spend the additional whole-library call-graph
+   budget; it presents an explicit **Load dependency structure** gesture.
+   That gesture invokes a separate focused managed operation whose Analysis
+   request selects only Method Evidence and whose Research query remains the
+   singular owner of topology. Its QuerySpace request retains every namespace
+   node and cycle and selects at most 64 owner-ranked namespace edges; the
+   response carries the total edge count so the host discloses any omitted
+   edges. TypeScript positions nodes by their issued levels, marks their issued
+   cycle indices, preserves distinct directional arrows for reciprocal selected
+   relationships, and activates explaining types by exact type key. One stable
+   detail panel below the graph names the selected source and target namespaces,
+   reports the edge's issued counts, and exposes only that edge's bounded Type
+   contributors. Selection uses exact namespace identity rather than display
+   text.
+
+   The global namespace remains in the returned typed document but is hidden
+   from the initial graph together with its incident selected edges and any
+   cycle that contains it. The inspector discloses those omissions and offers
+   an **Include global namespace** control. This keeps compiler-synthesized
+   global-namespace types from dominating the authored-structure view without
+   converting their absence into a product claim. Other nodes retain their
+   owner-issued levels; the Browser does not renumber them or derive a filtered
+   topology. It does not derive SCCs, levels, completeness, or relationships.
+   This interactive SVG lowering deliberately bypasses Markout because
+   visual-edge selection and exact-Type activation are Browser interaction
+   concerns. A later Library Metrics request and dependency request may repeat
+   Analysis work; cross-request prepared sharing remains owned by
+   [#8574](https://github.com/richlander/dotnet-inspect/issues/8574) and
+   [#8965](https://github.com/richlander/dotnet-inspect/issues/8965), rather
+   than widening the initial Library Metrics operation.
 5. **Skill:** the `project-analysis` workflow catalog
    ([#8518](https://github.com/richlander/dotnet-inspect/pull/8518)) gains an
    architecture-narrative workflow that consumes this document and labels

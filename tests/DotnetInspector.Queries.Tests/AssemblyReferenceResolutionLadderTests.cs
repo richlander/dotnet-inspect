@@ -4,7 +4,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class AssemblyReferenceResolutionLadderTests
+public sealed partial class AssemblyReferenceResolutionLadderTests
 {
     [Fact]
     public async Task ContextSelectionIsTerminal()
@@ -170,12 +170,14 @@ public sealed class AssemblyReferenceResolutionLadderTests
     [Fact]
     public async Task ExternalSelectionMayPublishSuccessorGeneration()
     {
+        await using ReplacementFixture replacement =
+            await ReplacementFixture.CreateAsync();
         ResolutionEnvironment predecessor =
-            await ResolutionEnvironment.CreateAsync();
+            replacement.PredecessorEnvironment;
         ResolvedAssemblyReference assembly = TestAssembly();
         AssemblyBindingRequest initialRequest = ReferenceRequest(assembly);
         AssemblyReferenceResolutionGenerationReceipt successorGeneration =
-            SuccessorGeneration(predecessor.Generation);
+            replacement.SuccessorGeneration;
         var successorRequest = new AssemblyBindingRequest(
             initialRequest.Target,
             SuccessorOrigin(assembly),
@@ -192,7 +194,7 @@ public sealed class AssemblyReferenceResolutionLadderTests
                 successorRequest,
                 successorGeneration,
                 successorVersion,
-                ownerEvidence: new object());
+                replacement.Receipt);
 
         AssemblyReferenceResolutionOutcome outcome =
             await ExecuteAsync(
@@ -256,12 +258,14 @@ public sealed class AssemblyReferenceResolutionLadderTests
     [Fact]
     public async Task ExternalOutcomeMustMatchExactContinuationSuccessor()
     {
+        await using ReplacementFixture replacement =
+            await ReplacementFixture.CreateAsync();
         ResolutionEnvironment predecessor =
-            await ResolutionEnvironment.CreateAsync();
+            replacement.PredecessorEnvironment;
         ResolvedAssemblyReference assembly = TestAssembly();
         AssemblyBindingRequest initialRequest = ReferenceRequest(assembly);
         AssemblyReferenceResolutionGenerationReceipt successorGeneration =
-            SuccessorGeneration(predecessor.Generation);
+            replacement.SuccessorGeneration;
         var correlatedSuccessor = new AssemblyBindingRequest(
             initialRequest.Target,
             SuccessorOrigin(assembly),
@@ -281,7 +285,7 @@ public sealed class AssemblyReferenceResolutionLadderTests
                 correlatedSuccessor,
                 successorGeneration,
                 successorVersion,
-                ownerEvidence: new object());
+                replacement.Receipt);
 
         AssemblyReferenceResolutionOutcome outcome =
             await ExecuteAsync(
@@ -335,12 +339,14 @@ public sealed class AssemblyReferenceResolutionLadderTests
     [Fact]
     public async Task ContinuationMustMatchPredecessorPolicyVersion()
     {
+        await using ReplacementFixture replacement =
+            await ReplacementFixture.CreateAsync();
         ResolutionEnvironment predecessor =
-            await ResolutionEnvironment.CreateAsync();
+            replacement.PredecessorEnvironment;
         ResolvedAssemblyReference assembly = TestAssembly();
         AssemblyBindingRequest initialRequest = ReferenceRequest(assembly);
         AssemblyReferenceResolutionGenerationReceipt successorGeneration =
-            SuccessorGeneration(predecessor.Generation);
+            replacement.SuccessorGeneration;
         var successorRequest = new AssemblyBindingRequest(
             initialRequest.Target,
             SuccessorOrigin(assembly),
@@ -358,7 +364,7 @@ public sealed class AssemblyReferenceResolutionLadderTests
                 successorRequest,
                 successorGeneration,
                 successorVersion,
-                ownerEvidence: new object());
+                replacement.Receipt);
 
         AssemblyReferenceResolutionOutcome outcome =
             await ExecuteAsync(
@@ -412,12 +418,14 @@ public sealed class AssemblyReferenceResolutionLadderTests
     [Fact]
     public async Task SuccessorSelectionRequiresContinuationPolicyVersion()
     {
+        await using ReplacementFixture replacement =
+            await ReplacementFixture.CreateAsync();
         ResolutionEnvironment predecessor =
-            await ResolutionEnvironment.CreateAsync();
+            replacement.PredecessorEnvironment;
         ResolvedAssemblyReference assembly = TestAssembly();
         AssemblyBindingRequest initialRequest = ReferenceRequest(assembly);
         AssemblyReferenceResolutionGenerationReceipt successorGeneration =
-            SuccessorGeneration(predecessor.Generation);
+            replacement.SuccessorGeneration;
         var successorRequest = new AssemblyBindingRequest(
             initialRequest.Target,
             SuccessorOrigin(assembly),
@@ -434,7 +442,7 @@ public sealed class AssemblyReferenceResolutionLadderTests
                 successorRequest,
                 successorGeneration,
                 successorVersion,
-                ownerEvidence: new object());
+                replacement.Receipt);
 
         AssemblyReferenceResolutionOutcome outcome =
             await ExecuteAsync(
@@ -488,8 +496,10 @@ public sealed class AssemblyReferenceResolutionLadderTests
     [Fact]
     public async Task ContinuationRequiresFreshCorrelatedWorkspaceEvidence()
     {
+        await using ReplacementFixture replacement =
+            await ReplacementFixture.CreateAsync();
         ResolutionEnvironment predecessor =
-            await ResolutionEnvironment.CreateAsync();
+            replacement.PredecessorEnvironment;
         ResolutionEnvironment foreign =
             await ResolutionEnvironment.CreateAsync();
         ResolvedAssemblyReference assembly = TestAssembly();
@@ -509,7 +519,7 @@ public sealed class AssemblyReferenceResolutionLadderTests
                 successorRequest,
                 predecessor.Generation,
                 successorVersion,
-                ownerEvidence: new object()));
+                replacement.Receipt));
         Assert.Throws<ArgumentException>(
             () => new AssemblyReferenceResolutionContinuationReceipt(
                 initialRequest,
@@ -518,7 +528,7 @@ public sealed class AssemblyReferenceResolutionLadderTests
                 successorRequest,
                 foreign.Generation,
                 successorVersion,
-                ownerEvidence: new object()));
+                replacement.Receipt));
         Assert.Throws<ArgumentException>(
             () => new AssemblyReferenceResolutionContinuationReceipt(
                 initialRequest,
@@ -528,18 +538,18 @@ public sealed class AssemblyReferenceResolutionLadderTests
                     initialRequest.Target,
                     initialRequest.Origin,
                     initialRequest.Scope),
-                SuccessorGeneration(predecessor.Generation),
+                replacement.SuccessorGeneration,
                 successorVersion,
-                ownerEvidence: new object()));
+                replacement.Receipt));
         Assert.Throws<ArgumentException>(
             () => new AssemblyReferenceResolutionContinuationReceipt(
                 initialRequest,
                 predecessor.Generation,
                 predecessorVersion,
                 successorRequest,
-                SuccessorGeneration(predecessor.Generation),
+                replacement.SuccessorGeneration,
                 predecessorVersion,
-                ownerEvidence: new object()));
+                replacement.Receipt));
     }
 
     [Fact]
@@ -879,6 +889,81 @@ public sealed class AssemblyReferenceResolutionLadderTests
     }
 
     [Fact]
+    public async Task ThrownExternalWorkExhaustionReturnsIncomplete()
+    {
+        ResolutionEnvironment environment =
+            await ResolutionEnvironment.CreateAsync();
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        var version = new AssemblyBindingPolicyVersion();
+        AssemblyReferenceExternalRouteSet? routeSet = null;
+
+        AssemblyReferenceResolutionOutcome outcome =
+            await ExecuteAsync(
+                Request(
+                    environment,
+                    binding,
+                    version,
+                    (_, _) => ValueTask.FromResult<
+                        AssemblyReferenceResolutionContextOutcome>(
+                        new AssemblyReferenceResolutionContextOutcome
+                            .Selected(
+                                binding,
+                                environment.Generation,
+                                new(
+                                    version,
+                                    AssemblyBindingSelection
+                                        .NameNotOwned()))),
+                    (advancement, _, _) =>
+                    {
+                        var route = new TestExternalRoute(
+                            binding,
+                            environment.Generation);
+                        routeSet =
+                            new AssemblyReferenceExternalRouteSet(
+                                binding,
+                                environment.Generation,
+                                advancement,
+                                [route],
+                                (work, _) =>
+                                {
+                                    work.Charge(
+                                        AssemblyReferenceResolutionWorkKind
+                                            .SourceOperation,
+                                        amount: 2);
+                                    throw new InvalidOperationException(
+                                        "Exhausted work must stop external execution.");
+                                });
+                        return ValueTask.FromResult<
+                            AssemblyReferenceExternalRouteSetFormationOutcome>(
+                            new
+                                AssemblyReferenceExternalRouteSetFormationOutcome
+                                .Completed(routeSet));
+                    },
+                    budget: new(
+                        maxPackageRouteOccurrences: 1,
+                        maxPackageCandidateOperations: 1,
+                        maxSourceOperations: 1,
+                        maxAcquisitions: 1,
+                        maxRealizedAssemblies: 1,
+                        maxTransferBytes: 1,
+                        maxRetainedAssemblyBytes: 1,
+                        maxWorkspaceReplacements: 1,
+                        deadline:
+                            DateTimeOffset.UtcNow.AddMinutes(5))));
+
+        var incomplete = Assert.IsType<
+            AssemblyReferenceResolutionOutcome.Incomplete>(outcome);
+        var exhaustion = Assert.IsType<
+            AssemblyReferenceResolutionWorkExhaustion>(
+                incomplete.Evidence);
+        Assert.Equal(
+            AssemblyReferenceResolutionWorkKind.SourceOperation,
+            exhaustion.Kind);
+        Assert.Same(exhaustion, incomplete.Work.Exhaustion);
+    }
+
+    [Fact]
     public async Task ExpiredDeadlinePerformsNoContextWork()
     {
         ResolutionEnvironment environment =
@@ -1182,13 +1267,6 @@ public sealed class AssemblyReferenceResolutionLadderTests
                 AssemblyBindingSelection.Found(assembly));
         return AssemblyBindingOrigin.FromOccurrence(selected.Occurrence);
     }
-
-    static AssemblyReferenceResolutionGenerationReceipt SuccessorGeneration(
-        AssemblyReferenceResolutionGenerationReceipt predecessor) =>
-        new(
-            predecessor.Workspace,
-            predecessor.ScopeRevision,
-            new ArtifactRootCompositionGenerationIdentity());
 
     sealed class TestExternalRoute(
         AssemblyBindingRequest request,

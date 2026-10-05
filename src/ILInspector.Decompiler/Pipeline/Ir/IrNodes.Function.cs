@@ -210,6 +210,36 @@ public sealed class IrFunction : IrNode
     internal ImmutableDictionary<int, MaterializedStackSlotLocal>
         MaterializedStackSlotLocals => _materializedStackSlotLocals;
 
+    ImmutableDictionary<int, ResidualSlotBinding> _residualSlotBindings =
+        ImmutableDictionary<int, ResidualSlotBinding>.Empty;
+
+    /// <summary>
+    /// Typed provenance for locals issued by <see cref="ResidualSlotBindingPass"/>,
+    /// keyed by local index: the originating slot, the binding kind, and the
+    /// materialization vetoes the web carried. A side fact for hosts and the
+    /// residual-binding census; it widens no local declaration and is never
+    /// identity.
+    /// </summary>
+    public ImmutableDictionary<int, ResidualSlotBinding> ResidualSlotBindings => _residualSlotBindings;
+
+    internal void RecordResidualSlotBinding(int index, ResidualSlotBinding binding)
+    {
+        if (index < 0 || index >= Locals.Length)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        _residualSlotBindings = _residualSlotBindings.SetItem(index, binding);
+    }
+
+    /// <summary>
+    /// The up-front locals whose declaration keeps its <c>= default</c>
+    /// initializer, issued by <see cref="DefiniteAssignmentPass"/>: the locals
+    /// definite assignment cannot prove assigned before every read, minus the
+    /// residual-bound locals (a residual piece read with no reaching store is a
+    /// binding gap that must stay CS0165-visible). Null means undecided; the
+    /// printer refuses to declare a non-ref up-front local from an undecided
+    /// body (value-typed-emission.md, Instance 3).
+    /// </summary>
+    public ImmutableHashSet<int>? ZeroInitializedLocals { get; internal set; }
+
     internal void RestoreMaterializedStackSlotLocals(
         ImmutableDictionary<int, MaterializedStackSlotLocal>
             materialized)
@@ -221,6 +251,17 @@ public sealed class IrFunction : IrNode
                 "Materialized stack-slot local provenance does not match the local table.");
         }
         _materializedStackSlotLocals = materialized;
+    }
+
+    internal void RestoreResidualSlotBindings(
+        ImmutableDictionary<int, ResidualSlotBinding> bindings)
+    {
+        if (bindings.Keys.Any(index => index < 0 || index >= Locals.Length))
+        {
+            throw new ArgumentException(
+                "Residual slot binding provenance does not match the local table.");
+        }
+        _residualSlotBindings = bindings;
     }
 
     internal bool IsProducerOnlySlotLocal(int index)
@@ -256,6 +297,8 @@ public sealed class IrFunction : IrNode
         Locals = locals;
         _materializedStackSlotLocals =
             ImmutableDictionary<int, MaterializedStackSlotLocal>.Empty;
+        _residualSlotBindings =
+            ImmutableDictionary<int, ResidualSlotBinding>.Empty;
         var aligned = names;
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
@@ -411,7 +454,7 @@ public sealed class IrFunction : IrNode
         ForeachStatement foreachStatement => foreachStatement.LocalIndex == index,
         UsingStatement usingStatement =>
             usingStatement.DeclaresResourceVariable && usingStatement.LocalIndex == index,
-        Fixed fixedStatement => !fixedStatement.LocalIsStackSlot && fixedStatement.LocalIndex == index,
+        Fixed fixedStatement => fixedStatement.LocalIndex == index,
         IsPattern isPattern => isPattern.LocalIndex == index,
         RecursivePropertyDeclarationPattern recursiveProperty => recursiveProperty.LocalIndex == index,
         UnionSwitchExpressionArm unionArm => unionArm.LocalIndex == index,
@@ -578,6 +621,27 @@ public sealed class IrFunction : IrNode
         = ImmutableHashSet<TypeRef>.Empty;
 
     /// <summary>
+    /// Reference widenings the importer proved at evaluation-stack joins while
+    /// metadata was live: each pair says a value of <c>From</c> flowed into a
+    /// join whose merged type is <c>To</c>, so storing a <c>From</c> value at a
+    /// <c>To</c>-typed place needs no cast. Metadata-free passes consume this
+    /// through <see cref="ReferenceAssignmentTargets"/> instead of walking a
+    /// type hierarchy they cannot see.
+    /// </summary>
+    public IReadOnlySet<ReferenceWidening> ProvenReferenceWidenings { get; set; }
+        = ImmutableHashSet<ReferenceWidening>.Empty;
+
+    internal void RecordProvenReferenceWidening(TypeRef from, TypeRef to)
+    {
+        var widening = new ReferenceWidening(from, to);
+        if (ProvenReferenceWidenings.Contains(widening))
+            return;
+        var set = ProvenReferenceWidenings as ImmutableHashSet<ReferenceWidening>
+            ?? ImmutableHashSet.CreateRange(ProvenReferenceWidenings);
+        ProvenReferenceWidenings = set.Add(widening);
+    }
+
+    /// <summary>
     /// Types proven, while metadata was live, to satisfy C# collection-initializer
     /// receiver rules. `ObjectInitializerPass` consumes this so an arbitrary
     /// method named `Add` is not enough to raise `new C { ... }`.
@@ -654,7 +718,8 @@ public sealed class IrFunction : IrNode
             ByRefLikeTypes.ToImmutableHashSet(),
             InterfaceTypes.ToImmutableHashSet(),
             EqualityOperatorFreeTypes.ToImmutableHashSet(),
-            InequalityOperatorFreeTypes.ToImmutableHashSet());
+            InequalityOperatorFreeTypes.ToImmutableHashSet(),
+            ProvenReferenceWidenings.ToImmutableHashSet());
 
     internal void MergeTypeFactsFrom(IrFunction body)
         => MergeTypeFactsFrom(body.CaptureTypeFacts());
@@ -706,6 +771,12 @@ public sealed class IrFunction : IrNode
         InequalityOperatorFreeTypes = MergeSet(
             InequalityOperatorFreeTypes,
             body.InequalityOperatorFreeTypes);
+        ProvenReferenceWidenings = MergeSet(
+            ProvenReferenceWidenings.Where(Unambiguous).ToImmutableHashSet(),
+            body.ProvenReferenceWidenings.Where(Unambiguous).ToImmutableHashSet());
+
+        bool Unambiguous(ReferenceWidening widening)
+            => !ambiguous.Contains(widening.From) && !ambiguous.Contains(widening.To);
     }
 
     internal void CopyTypeFactsFrom(IrFunction source)
@@ -722,6 +793,7 @@ public sealed class IrFunction : IrNode
         InterfaceTypes = source.InterfaceTypes;
         EqualityOperatorFreeTypes = source.EqualityOperatorFreeTypes;
         InequalityOperatorFreeTypes = source.InequalityOperatorFreeTypes;
+        ProvenReferenceWidenings = source.ProvenReferenceWidenings;
     }
 
     static IReadOnlyDictionary<TKey, TValue> MergeMap<TKey, TValue>(

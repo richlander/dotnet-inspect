@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
 
 namespace DotnetInspect.Cli.Tests;
@@ -55,7 +56,7 @@ public partial class SectionPipelineTests
             VocabularySections.CreatePipeline();
 
         Assert.Equal(
-            VocabularyCatalog.Document.Sections
+            CliVocabularyDocument.Document.Sections
                 .Select(section => section.Name)
                 .Order(StringComparer.OrdinalIgnoreCase),
             pipeline.SelectableSectionNames

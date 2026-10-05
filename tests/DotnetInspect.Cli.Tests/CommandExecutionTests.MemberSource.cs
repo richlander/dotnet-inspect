@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Commands;
 using System.Globalization;
+using System.IO.Compression;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -51,6 +52,34 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signature | File | Line | End Line | Url |", output);
         Assert.DoesNotContain("| Selector |", output);
         Assert.Contains("JsonSerializer.Write.String.cs", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_SelectedSignature_JsonUsesPlatformSettlement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "Serialize:1", "-S", "Source Locations", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Contains(
+            "JsonSerializer.Serialize",
+            document.RootElement.GetProperty("member").GetString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "JsonSerializer.Write.String.cs",
+            document.RootElement
+                .GetProperty("document")
+                .GetProperty("path")
+                .GetString(),
+            StringComparison.Ordinal);
+        Assert.True(
+            document.RootElement
+                .GetProperty("pdb_span")
+                .GetProperty("start_line")
+                .GetInt32() > 0);
     }
 
     [Theory]
@@ -1775,6 +1804,182 @@ public partial class CommandExecutionTests
         Assert.Contains("JsonConvert.cs", output);
         Assert.DoesNotContain("## Source Locations", output);
         Assert.DoesNotContain("| Url |", output);
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceLocations_PackageLocalPdbUsesSettlementRoute()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Instant",
+            "--package", "NodaTime@3.3.5",
+            "ToString:1",
+            "-S", "Source Locations",
+            "--verbose");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Settling package Portable PDB for: "
+                + "lib/net8.0/NodaTime.dll",
+            error);
+        Assert.Contains(
+            "Loaded PDB: Portable, Settlement",
+            error);
+        Assert.Contains(
+            "/_/src/NodaTime/Instant.cs",
+            output);
+        Assert.Contains(
+            "raw.githubusercontent.com/nodatime/nodatime/",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceLocations_ReferencePrimaryUsesImplementationToken()
+    {
+        string referenceAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceSurface
+                .AssemblyPath();
+        string implementationAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceRuntime
+                .AssemblyPath();
+        Assert.NotEqual(
+            FindMethodToken(
+                referenceAssembly,
+                "MethodCorrespondenceFixture.Widget",
+                "Transform",
+                parameterCount: 1),
+            FindMethodToken(
+                implementationAssembly,
+                "MethodCorrespondenceFixture.Widget",
+                "Transform",
+                parameterCount: 1));
+
+        string tempDir = CreateMethodCorrespondencePackage();
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "Widget",
+                "--package",
+                $"{MethodCorrespondencePackageId}@1.0.0",
+                "--source", tempDir,
+                "Transform:1",
+                "-S", "Source Locations",
+                "--json",
+                "--verbose");
+
+            Assert.True(exit == 0, error);
+            Assert.Contains(
+                $"Settling package Portable PDB for: "
+                + "lib/net11.0/"
+                + MethodCorrespondenceAssemblyFileName,
+                error);
+            using var document = JsonDocument.Parse(output);
+            Assert.EndsWith(
+                "MethodCorrespondenceRuntimeFixtures/Widget.cs",
+                document.RootElement
+                .GetProperty("document")
+                .GetProperty("path")
+                .GetString(),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                11,
+                document.RootElement
+                .GetProperty("pdb_span")
+                .GetProperty("start_line")
+                .GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceLocations_IncompleteImplementationMappingUsesLegacyRoute()
+    {
+        string tempDir = CreateMethodCorrespondencePackage();
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "Widget",
+                "--package",
+                $"{MethodCorrespondencePackageId}@1.0.0",
+                "--source", tempDir,
+                "SurfaceOnly:1",
+                "-S", "Source Locations",
+                "--verbose");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "No SourceLink source locations found for "
+                    + "the selected member(s).",
+                output);
+            Assert.Contains(
+                "PackageHouse implementation metadata could not "
+                    + "correspond every selected member; retaining "
+                    + "the existing source-location route.",
+                error);
+            Assert.DoesNotContain(
+                "Settling package Portable PDB for:",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private const string MethodCorrespondencePackageId =
+        "MethodCorrespondence.Package";
+
+    private const string MethodCorrespondenceAssemblyFileName =
+        "ILInspector.Analysis.MethodCorrespondenceFixture.dll";
+
+    private static string CreateMethodCorrespondencePackage()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "member-source-reference-primary-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string referenceDirectory =
+            Path.Combine(content, "ref", "net11.0");
+        string implementationDirectory =
+            Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(referenceDirectory);
+        Directory.CreateDirectory(implementationDirectory);
+        File.Copy(
+            FixtureCatalog.AnalysisMethodCorrespondenceSurface
+                .AssemblyPath(),
+            Path.Combine(
+                referenceDirectory,
+                MethodCorrespondenceAssemblyFileName));
+        string implementationAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceRuntime
+                .AssemblyPath();
+        File.Copy(
+            implementationAssembly,
+            Path.Combine(
+                implementationDirectory,
+                MethodCorrespondenceAssemblyFileName));
+        File.Copy(
+            Path.ChangeExtension(implementationAssembly, ".pdb"),
+            Path.Combine(
+                implementationDirectory,
+                Path.ChangeExtension(
+                    MethodCorrespondenceAssemblyFileName,
+                    ".pdb")));
+        WriteAddressPackageManifest(
+            content,
+            MethodCorrespondencePackageId);
+        ZipFile.CreateFromDirectory(
+            content,
+            Path.Combine(
+                tempDir,
+                $"{MethodCorrespondencePackageId}.1.0.0.nupkg"));
+        return tempDir;
     }
 
     [Fact]

@@ -237,14 +237,22 @@ public class InspectionResultView
         rows is null
         || rows.All(static row => row.Coverage is null);
 
+    public static bool EcosystemDependencyAssemblyEvidenceIsEmpty(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        rows is null
+        || rows.All(static row => row.AssemblyEvidence is null);
+
     [MarkoutSection(Name = PackageSections.EcosystemDependencies)]
     [MarkoutIgnoreColumnWhen(
         nameof(EcosystemDependencyCoverageIsComplete),
         nameof(PackageEcosystemDependencyRow.Coverage))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencyAssemblyEvidenceIsEmpty),
+        nameof(PackageEcosystemDependencyRow.AssemblyEvidence))]
     public List<PackageEcosystemDependencyRow>? EcosystemDependencies =>
         RecognitionDocument is { } document
             ? (_data.EcosystemDependencyRows
-                    ?? document.Classification.Recognized)
+                    ?? document.Classification.Matches)
                 .Select(entry =>
                     PackageEcosystemDependencyRow.Create(
                         entry,
@@ -1070,11 +1078,13 @@ public sealed class PackageEcosystemDependencyRow
 {
     public PackageEcosystemDependencyRow(
         string ecosystem,
+        string recognition,
         string kind,
         string dependency,
         string declaredBy,
         string? coverage,
         string matchingBases,
+        string? assemblyEvidence,
         string? versionOrRange,
         int occurrence,
         string? requestedTargetFramework,
@@ -1082,11 +1092,13 @@ public sealed class PackageEcosystemDependencyRow
         int? selectedGroup)
     {
         EcosystemText = Field(ecosystem);
+        RecognitionText = Field(recognition);
         KindText = Field(kind);
         DependencyText = Field(dependency);
         DeclaredByText = Field(declaredBy);
         CoverageText = OptionalField(coverage);
         MatchingBasesText = Field(matchingBases);
+        AssemblyEvidenceText = OptionalField(assemblyEvidence);
         VersionOrRangeText = OptionalField(versionOrRange);
         Occurrence = occurrence;
         RequestedTargetFrameworkText =
@@ -1100,6 +1112,11 @@ public sealed class PackageEcosystemDependencyRow
     public InertString EcosystemText { get; }
 
     public string Ecosystem => EcosystemText.ToString();
+
+    [MarkoutIgnore]
+    public InertString RecognitionText { get; }
+
+    public string Recognition => RecognitionText.ToString();
 
     [MarkoutIgnore]
     public InertString KindText { get; }
@@ -1129,6 +1146,12 @@ public sealed class PackageEcosystemDependencyRow
     public string MatchingBases => MatchingBasesText.ToString();
 
     [MarkoutIgnore]
+    public InertString? AssemblyEvidenceText { get; }
+
+    [MarkoutPropertyName("Assembly Evidence")]
+    public string? AssemblyEvidence => AssemblyEvidenceText?.ToString();
+
+    [MarkoutIgnore]
     public InertString? VersionOrRangeText { get; }
 
     [MarkoutPropertyName("Version/Range")]
@@ -1154,7 +1177,7 @@ public sealed class PackageEcosystemDependencyRow
     public int? SelectedGroup { get; }
 
     internal static PackageEcosystemDependencyRow Create(
-        EcosystemDependencyRecognitionEntry entry,
+        EcosystemDependencyMatchEntry entry,
         EcosystemDependencyRecognitionDocument document)
     {
         PackageDependencyGroups? groups =
@@ -1168,11 +1191,32 @@ public sealed class PackageEcosystemDependencyRow
         string matchingBases = string.Join(
             ", ",
             entry.MatchingAssociations.Select(DescribeAssociation));
+        string recognition = entry switch
+        {
+            EcosystemDependencyCandidateEntry => "Candidate",
+            EcosystemDependencyRecognitionEntry
+                {
+                    Observation:
+                        EcosystemDependencyObservation.AssemblyReference,
+                } => "Catalog-backed",
+            EcosystemDependencyRecognitionEntry => "Profile match",
+            _ => throw new InvalidOperationException(
+                "Unknown ecosystem dependency match."),
+        };
+        string? assemblyEvidence =
+            entry is EcosystemDependencyRecognitionEntry recognized
+            && !recognized.MatchingAssemblyEvidence.IsEmpty
+                ? string.Join(
+                    ", ",
+                    recognized.MatchingAssemblyEvidence.Select(
+                        DescribeAssemblyEvidence))
+                : null;
         return entry.Observation switch
         {
             EcosystemDependencyObservation.PackageDeclaration package =>
                 new(
                     entry.Ecosystem.Title,
+                    recognition,
                     "Package declaration",
                     $"{package.Dependency.Id} "
                         + package.Dependency.VersionRange,
@@ -1180,6 +1224,7 @@ public sealed class PackageEcosystemDependencyRow
                         + package.DeclaringPackage.Version,
                     CoverageValue(document),
                     matchingBases,
+                    assemblyEvidence,
                     package.Dependency.VersionRange,
                     package.Identity.Value,
                     groups?.RequestedTargetFramework,
@@ -1190,11 +1235,13 @@ public sealed class PackageEcosystemDependencyRow
             EcosystemDependencyObservation.AssemblyReference assembly =>
                 new(
                     entry.Ecosystem.Title,
+                    recognition,
                     "Assembly reference",
                     DescribeAssembly(assembly.Reference),
                     DescribeLibrary(assembly.DeclaringLibrary),
                     CoverageValue(document),
                     matchingBases,
+                    assemblyEvidence,
                     assembly.Reference.Version?.ToString(),
                     assembly.Identity.Value,
                     groups?.RequestedTargetFramework,
@@ -1206,6 +1253,11 @@ public sealed class PackageEcosystemDependencyRow
                 "Unknown ecosystem dependency observation."),
         };
     }
+
+    private static string DescribeAssemblyEvidence(
+        EcosystemAssemblyDefinitionEvidence evidence) =>
+        $"{evidence.Package.PackageId}@{evidence.Package.Version}/"
+        + evidence.AssetPath;
 
     private static string? CoverageValue(
         EcosystemDependencyRecognitionDocument document) =>
@@ -1414,6 +1466,7 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
 [MarkoutContext(typeof(LibraryInspectionView))]
+[MarkoutContext(typeof(LibraryDocumentContextView))]
 [MarkoutContext(typeof(ReferenceRow))]
 [MarkoutContext(typeof(ExtensionMethodRow))]
 [MarkoutContext(typeof(ClassifiedMethodRow))]

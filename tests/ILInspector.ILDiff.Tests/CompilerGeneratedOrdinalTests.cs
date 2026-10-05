@@ -6,6 +6,8 @@ using System.Text;
 
 using ILInspector.Metadata;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.ILDiff.Tests;
 
 /// <summary>

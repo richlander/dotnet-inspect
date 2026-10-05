@@ -6,3 +6,10 @@ public enum CompanionOutput
     Explanation,
     Tips,
 }
+
+public enum ExplanationProjection
+{
+    Complete,
+    Tips,
+    References,
+}

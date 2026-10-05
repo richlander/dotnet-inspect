@@ -76,15 +76,16 @@ Build from source:
 dotnet build dotnet-inspect.slnx -c Release
 ```
 
-See [AGENTS.md](../AGENTS.md) for contributor workflow, targeted test commands,
-and repository-specific guidance.
+See [AGENTS.md](../AGENTS.md) for launch guidance,
+[Repository workflow](repository-workflow.md) for contributor rules, and
+[Local development](dev-environment.md) for targeted test commands.
 
 ## What it inspects
 
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S "Package README file"` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
+| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S README` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Prefers installed packs when the requested version is available; otherwise uses package-backed Platform packs. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
@@ -340,7 +341,8 @@ stderr rather than mixed into structured output.
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
 | `graph calls TYPE MEMBER` | Explain one package member's supply-chain exits across its dependency graph, retaining highlighted boundaries and their shortest baseline connectors. |
 | `graph libraries` | Discover deterministic direct-use clusters and exact cross-library relationships between two local Libraries. |
-| `graph cluster N` | Inspect exact calls and optional public-entrypoint paths for one pair-local Direct-Use Cluster ordinal. |
+| `graph packages` | Discover deterministic direct-use clusters across the complete implementation-Library matrix of two exact Packages. |
+| `graph cluster N` | Inspect exact calls for one local-Library-pair or Package-pair Direct-Use Cluster ordinal; the local route also supports public-entrypoint paths. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -407,9 +409,20 @@ dotnet-inspect library --platform System.Text.Json \
 ```
 
 Library recognition classifies the selected Library's declared assembly
-references. It does not resolve or traverse those references. Unrecognized
-references do not become ecosystem rows, while JSON still reports the
-recognition status as complete.
+references. Package declarations use product-profile associations directly.
+Assembly references first match an authored exact or family association and
+then require a compatible same-name AssemblyDef from one exact shipped
+Package-asset evidence entry. Detail rows distinguish `Profile match`,
+`Catalog-backed`, and `Candidate`; catalog-backed rows name the exact Package
+asset. Candidates matched an ecosystem association without corroborating
+AssemblyDef evidence and therefore do not enter the compact Package or Library
+Info ecosystem rollup.
+
+Recognition does not resolve or traverse assembly references. Unrecognized
+references do not become ecosystem rows, while JSON still reports recognition
+status as complete. Complete means every available direct observation was
+classified against the shipped profile; it does not claim runtime binding or
+high-confidence provenance.
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
 no source work; a later bounded operation that selects the ecosystem may resolve
@@ -560,30 +573,50 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
-dotted token, for up to three contextual suggestions on `stderr`. Member also
-admits two complete contextual-explanation forms:
+Tips are off by default. Member uses one dotted explanation-projection
+namespace at two placements: `--explain` replaces ordinary output with a
+primary result on `stdout`, while short-only `-E` preserves ordinary output and
+writes a companion to `stderr`. Bare selects the complete explanation;
+`.tips`, as a separate dotted token, selects up to three contextual
+suggestions:
 
 ```bash
 dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
+  --explain
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
   --explain
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
+  --explain .tips
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
+  -E .tips
 ```
 
 Command-level `member --explain` is acquisition-free. Subject-bearing
-`--explain` resolves exactly one Member and writes the explanation as the
-terminal stdout document instead of ordinary inspection output. Exact-subject
-bare `-E` preserves ordinary stdout byte-for-byte, flushes it, then writes the
-same explanation Content to `stderr`. `--explain -E` is a duplicate and is
-rejected; exact-subject `--explain -E .tips` is valid. Bare `-E` remains
-reserved on other commands, and `-E .references` remains reserved everywhere.
+`--explain` resolves exactly one semantic subject and writes its explanation as
+the terminal stdout document instead of ordinary inspection output. A bare
+ordinary method name is one MemberGroup subject regardless of overload count;
+an ordinal or digest selector is one exact Member subject. Singleton groups
+remain MemberGroups, and an overloaded group is not rejected as several
+subjects or reduced to its first overload. Resolved-subject
+`--explain .tips` writes only the headless plain-text suggestions to stdout; it
+does not produce ordinary Member Content. Command-level `.tips` requires a
+MemberGroup or exact Member because the command resource has no applicable
+gesture context. Resolved-subject bare `-E` preserves ordinary stdout
+byte-for-byte, flushes it, then writes the same explanation Content to
+`stderr`. `--explain -E` and
+`--explain .tips -E .tips` are duplicate projections and are rejected;
+different primary and companion projections compose. Bare `-E` remains
+reserved on other commands. Both `.references` placements remain reserved
+until reusable inspection references are available.
 Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
-`-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
-unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
-token after `-E` remains positional. Option-like filenames and other required
-option values retain that option's ownership; for example, `--out --tips`
-names an output path rather than invoking the retired option. `E`
+`-E references` / `--explain tips` / `--explain references`, attached or
+inline `-E.tips` / `-E=.tips` / `-E:.tips` / `--explain=.tips`, unknown dotted
+children, and repeated placement options are invalid. An unrelated undotted
+token after either option remains positional. Option-like filenames and other
+required option values retain that option's ownership; for example,
+`--out --tips` names an output path rather than invoking the retired option. `E`
 suggests *explain* and can also remind users that the companion is written to
 the error stream; the latter is a mnemonic, not an error classification.
 
@@ -603,7 +636,7 @@ not adopted this transport.
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
-| Add Library format details | `-D --details`, `-D <exact-name> --details` |
+| Add structural format, shape, and cardinality details | `-D --details`, `-D <exact-name> --details` (library, package, type, member) |
 | Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
@@ -612,8 +645,8 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
-| Explain the Member command or one exact Member | `member --explain`, exact `member ... --explain`, or exact `member ... -E` |
-| Show contextual tips | `-E .tips` |
+| Explain the Member command, one MemberGroup, or one exact Member | `member --explain`, subject-bearing `member ... --explain`, or `member ... -E` |
+| Show contextual tips | Subject-bearing `member ... --explain .tips` on stdout or `-E .tips` on stderr |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
@@ -672,12 +705,30 @@ dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --valu
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl
 ```
 
-Library `-D --details` is structural and does not acquire the target. It adds a
-`Formats` column to the top-level catalog, or reports one exact category or
-section in detail. A category reports the formats supported by its complete
-expansion plus the formats of each member; it never selects or drops members to
-satisfy a format. Use the result to choose an exact section before requesting a
-single-result projection such as `--tree` or `--mermaid`.
+Library, Package, Type, and Member `-D --details` are structural and do not
+acquire the target. They add the owner-issued section properties to the
+top-level catalog, or report one exact category or section in detail:
+`Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
+or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
+(`scalar` or `inventory`), and `Terminals`. Package, Type, and Member declare
+all of them (`Call Graph` is a graph and declares no shape); Library declares
+cardinality for `Library Info`. A category reports the formats supported by its
+complete expansion plus the formats of each member; it never selects or drops
+members to satisfy a format. Use the result to choose an exact section before
+requesting a single-result projection such as `--tree` or `--mermaid`.
+`explain <catalog>/sections/<section>` reports the same shape and cardinality
+for one section, beside its formats and members. The catalogs are `library`,
+`package`, `type` (the type listing), `member` (one type's members),
+`member-overload`, and `member-detail` (one exact member).
+
+```bash
+dotnet-inspect package System.Text.Json -D --details
+dotnet-inspect package System.Text.Json -D Files --details --json
+dotnet-inspect type System.String -D --details
+dotnet-inspect member System.String.Trim:1 -D --details
+dotnet-inspect explain package/sections/files
+dotnet-inspect explain member-detail/sections/source
+```
 
 ## Common examples
 
@@ -707,9 +758,9 @@ dotnet-inspect package Markout@0.35.2 \
 dotnet-inspect package System.Text.Json --version 10.0.0 \
   --path README.md --content --raw
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
-  --tfm net8.0 -S "Package files" --paths
+  --tfm net8.0 -S Files --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
-  --tfm net8.0 -S "Package files" --roots
+  --tfm net8.0 -S Files --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 packet=$(dotnet-inspect workspace \
@@ -722,6 +773,39 @@ dotnet-inspect package System.Text.Json \
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
+Bare `package ID[@VERSION]` output and bare `--tree` render the Package's
+native children Tree. Ordinary packages list every Library in the selected
+compile population by identity without opening the Library binary or
+summarizing its Type population. `--tfm` selects an explicit target; otherwise
+the Package selection default chooses the target. Tool pointer packages list
+their RID packages, managed tool payloads list the entry-point Library before
+their dependencies, and native tool payloads state that they contain no managed
+Libraries. Minimal implicit Tree output may collapse a managed tool's
+dependency Libraries into one counted branch that names `-v:n` as the
+full-inventory gesture. Normal, Detailed, and explicit output formats list
+every Library.
+
+Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
+all consume that same Package children document. The tree title prints the
+subject identity followed by the owner-issued properties of the displayed
+children — source, selected target, and asset root, as in
+`System.Text.Json 10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
+carries subject, completion, total and selected Counts, and typed child rows.
+Row formats expose the exact asset ID, asset path, target, and child role;
+they carry no replay command, because host navigation is not package content
+(see [Section shapes](design/section-shapes.md#properties)). Package children
+output does not run the unrelated all-binary Signals scan or inspect selected
+Libraries. `--count`
+counts the owner-issued child population without producing rows; `--rows`
+windows the same ordered identities, and `--fields` or `--columns` projects
+child-row columns. Windows retain the
+complete population Count and original child ordinals; a window selecting no
+rows from a non-empty Package does not claim that the Package has no Libraries.
+
+Select `Package Info` explicitly for Package facts. A bare Package Tree is
+distinct from the dependency graph: select `Dependency Hierarchy` together
+with `--tree` for rooted transitive dependencies.
+
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
 in the packet's selected context, independently of its focused tab, and reuses
 the exact Package Root and target admitted during Workspace restoration.
@@ -730,12 +814,46 @@ packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
 
-For one package with exactly `Package files` selected, `-n`, `--tail`, and
+For one package with exactly `Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
 enumeration, optional exact directory-segment `--tfm` filtering, and optional
 `--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
+
+The package command renders a lone explicitly selected section in its declared
+shape's native format when no format is named, per
+[Section shapes](design/section-shapes.md): a Table streams its TSV rows, a
+Hierarchy renders its tree, and a Text prints its payload. `Files` and
+`Dependency Hierarchy` are Hierarchies, the nuspec and README sections are
+Text, and every other section is a Table. The `Files` tree titles the
+subject with its issued properties (source, and the target when `--tfm`
+filters), groups files under their directories, and collapses single-entry
+directory chains into one node; directory nodes are context, so `-n`, `--rows`,
+and `--count` observe files only, and `--tree` is an accepted explicit format
+for it. Selecting several sections composes Markdown as before, with a Text
+section contributing its Path/Size fact row and its body only when it is the
+whole selection. An explicit format, an environment default, `--print`,
+`--raw`, `--tree`, `--count`, a projection, a shape flag, discovery, or a lens
+keeps its existing behavior.
+
+The package file family — the nuspec, README, license, and skill sections —
+shares one Path/Size row schema, so `-S @Files --table`, `--tsv`, or `--jsonl`
+streams one listing with each member's rows in family order. Scalar sections
+(`Package Info`, `Summary`, `Statistics`, `Signature`, the SourceLink
+availability and integrity sections, and the nuspec and README Text sections)
+have no rows: selecting one of them alone with `--count` or `--rows` fails
+before acquisition and names an inventory section as the alternative. A bare
+`-n` on such a section is the rendered-line window it is for `Library Info`,
+not a row terminal. Count maps over several sections, and multi-package counts,
+keep their existing per-section meaning.
+
+```bash
+dotnet-inspect package System.Text.Json -S "Target Frameworks"
+dotnet-inspect package System.Text.Json -S README
+dotnet-inspect package System.Text.Json -S Files -n 5
+dotnet-inspect package System.Text.Json -S @Files --tsv
+```
 
 For an exact online package version, requesting one literal root `README.md` or
 `skills/**/SKILL.md` path with `--content` acquires directly through the
@@ -908,9 +1026,9 @@ Neither query opens the package archive. To inspect the license documents that
 the package actually ships, use the separate package-file section:
 
 ```bash
-dotnet-inspect package wix@7.0.0 -S "Package license files"
-dotnet-inspect package wix@7.0.0 -S "Package license files" --count
-dotnet-inspect package wix@7.0.0 -S "Package license files" --print --raw
+dotnet-inspect package wix@7.0.0 -S Licenses
+dotnet-inspect package wix@7.0.0 -S Licenses --count
+dotnet-inspect package wix@7.0.0 -S Licenses --print --raw
 ```
 
 Package Query places the semantic result in `Answer`: `MIT` for the
@@ -1332,8 +1450,8 @@ dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
 dotnet-inspect project ./src/DotnetInspect.Cli -S @Project
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills -n 1 --tail
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
-dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
-dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
+dotnet-inspect project ./src/DotnetInspect.Cli -S README
+dotnet-inspect project ./src/DotnetInspect.Cli -S README --print --row 1
 dotnet-inspect type Command --project ./src/DotnetInspect.Cli
 dotnet-inspect member Command --project ./src/DotnetInspect.Cli -S "Member Index"
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S Signals
@@ -1360,8 +1478,10 @@ dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize --explain
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize --explain .tips
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize -E
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
@@ -1379,8 +1499,8 @@ dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
-An exact method name selects its MemberGroup. Its default output is a native
-Tree rooted at one compact identity line and containing every public,
+A bare ordinary method name selects its MemberGroup. Its default output is a
+native Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.
 This remains a MemberGroup when the selected version has one overload.
 Use `--columns "Signature;Description"` to request compiled documentation for
@@ -1514,6 +1634,48 @@ These complete transports accept the population selector but reject row,
 field, column, Count, discovery, print, and shape projection. Markdown, table,
 TSV, and JSONL lower only the already selected family rows and show at most
 five labeled Type examples per family.
+
+Exact `-S "Name Family Roles"` composes those suffix families with the
+Library's exhaustive signature-only structural evidence. Each family row
+reports foundation, hub, orchestrator, unclassified-role, sea-level, and
+mountain-peak Type counts together with its population, source provenance, and
+structural-evidence disposition:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Family Roles" -n 10 --head
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Family Roles" --name-family-population ordinary --count
+```
+
+Exact `-S "Name Family Role Types"` exposes the supporting Type rows from the
+same managed operation. Each row retains its artifact-scoped Type identity,
+one- and two-word families, source disposition, signature degrees, issued
+structural role and pole, and structural-evidence disposition:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Family Role Types" -n 20 --head
+```
+
+Both sections are explicit-only. `-n`, `--head`, `--tail`, and `--rows`
+select the chosen family or Type rows before Markout lowering; `--count`
+counts that row set. `--name-family-population` applies to either exact
+section. The operation reuses the complete name-family population and one
+exhaustive signature-only structural acquisition; it does not request method
+bodies or Library Metrics implementation profiles.
+
+Exact `--json` from either section emits the same complete family-role
+composition document rather than only the selected presentation rows. It
+contains every exact Type row, every population and family support address,
+both owners' methodology and work receipts, structural qualifications, and
+composition accounting. `--envelope` emits identical Content plus a currently
+`nonProjectable` Share. Complete transports require one exact Library and
+target framework and reject row, field, column, Count, discovery, print,
+shape, and competing presentation projections.
 
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and
@@ -1963,6 +2125,21 @@ dotnet-inspect graph calls \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
+dotnet-inspect graph packages \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0
+dotnet-inspect graph packages \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0 \
+  -S "Library Pairs,Call Sites" \
+  --json
+dotnet-inspect graph cluster 1 \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0 \
+  --table
 dotnet-inspect graph cluster 3 \
   --library ./Consumer.dll \
   --library ./Provider.dll
@@ -2004,8 +2181,26 @@ graph edge in the completed typed document. Head/Tail and strict Window select
 those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
 or Count lowering; selection does not reduce package acquisition or hide
 retained graph failures. Add `--lines` only to clip rendered text explicitly.
-`graph libraries` and `graph cluster` retain independent section row sets;
-their adopted Direct Use Clusters and Call Sites cohorts are described below.
+`graph libraries`, `graph packages`, and `graph cluster` retain independent
+section row sets; their adopted Direct Use Clusters and Call Sites cohorts are
+described below.
+
+`graph packages` requires exactly two Package coordinates and one explicit
+`--tfm`. It acquires only those Package subjects, enumerates the complete
+cross-Package implementation-Library matrix, and evaluates both call
+directions for each Library pair. The explicit `--tfm` is one shared
+acquisition request; each Package may independently select a different
+compatible implementation asset framework. The default `Direct Use Clusters`
+rows use a canonical Package-pair-wide cluster ordinal. `Library Pairs`
+exposes every admitted matrix cell, including complete empty pairs, while
+`Call Sites` exposes the physical calls supporting each cluster. `--columns`
+and `--fields` both project the selected section's row vocabulary. Reversing
+the two `--package` values does not change canonical row order or cluster
+assignment. The operation does not traverse Package dependencies; use
+`graph calls` for the dependency-aware member workflow. `graph cluster N`
+accepts the same Package pair and defaults to the selected cluster's
+`Call Sites`. Package-backed `Public Root Paths` is not yet available; that
+exact section continues to require the local-Library route.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
@@ -2025,6 +2220,13 @@ with unique ownership also retains its exact package id, version, and selected
 framework. Inspect Web loads that coordinate through its ordinary package path
 only when the user selects the graph node, then opens the exact member;
 ambiguous ownership publishes no package coordinate.
+
+For an unresolved ordinary `AssemblyRef` from a Package participant, the CLI
+evaluates reachable Package suppliers first and eligible exact Platform targets
+second. A selected supplier is admitted into a fresh immutable Workspace
+generation, and the call graph is rebuilt against that successor. Continuation
+uses finite command-owned work limits and the Workspace deadline; exhausted or
+incomplete work remains visible instead of becoming a final missing binding.
 
 The default `--baseline self+registered-ecosystems` excludes the exact root,
 explicit `--first-party-prefix` values, and the product platform registrations
@@ -2232,8 +2434,9 @@ The embedded skill (`dotnet-inspect skill`) is also distributed through the
 
 ## Contributor and agent docs
 
-Start with [AGENTS.md](../AGENTS.md) for repository-wide engineering and workflow
-rules. Use [overview.md](overview.md) when a change crosses subsystem
+Start with [AGENTS.md](../AGENTS.md), then use
+[Repository workflow](repository-workflow.md) for contributor rules. Use
+[overview.md](overview.md) when a change crosses subsystem
 ownership boundaries, and [taste/skill-guidance.md](../taste/skill-guidance.md)
 when maintaining the embedded skill.
 

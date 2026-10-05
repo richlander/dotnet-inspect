@@ -101,6 +101,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
+        typeCommand.Options.Add(opts.Details);
         opts.AddCountOptionTo(typeCommand);
         opts.AddPrintOptionTo(typeCommand);
         opts.AddShapeProjectionOptionsTo(typeCommand);
@@ -359,12 +360,7 @@ public static class ApiCommandDefinitions
         {
             Description = "With --print, select an authored member part: member, xml-docs, attributes, signature, or body"
         };
-        var explainOption = new Option<bool>("--explain")
-        {
-            Description =
-                "Explain the Member command or one exact resolved Member "
-                + "instead of producing ordinary inspection output"
-        };
+        var explainOption = SharedOptions.CreateExplanationOption();
         var companionOption =
             SharedOptions.CreateCompanionOption(
                 allowBareExplanation: true);
@@ -433,6 +429,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(kindOption);
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
+        memberCommand.Options.Add(opts.Details);
         opts.AddCountOptionTo(memberCommand);
         opts.AddPrintOptionTo(memberCommand);
         opts.AddShapeProjectionOptionsTo(memberCommand);
@@ -544,7 +541,11 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
-            bool explain = parseResult.GetValue(explainOption);
+            ExplanationProjection? explanationProjection =
+                SharedOptions.ParseExplanationProjection(
+                    parseResult,
+                    explainOption);
+            bool explain = explanationProjection is not null;
             CompanionOutput companionOutput =
                 opts.ParseCompanionOutput(
                     parseResult,
@@ -555,6 +556,7 @@ public static class ApiCommandDefinitions
                     opts,
                     commandArgs,
                     matchOption,
+                    explanationProjection!.Value,
                     companionOutput) is { } explainConflict)
             {
                 CommandError.Write(explainConflict);
@@ -579,6 +581,14 @@ public static class ApiCommandDefinitions
                     commandArgs);
             if (explain && !hasSubjectIntent)
             {
+                if (explanationProjection
+                    == ExplanationProjection.Tips)
+                {
+                    CommandError.Write(
+                        "'--explain .tips' requires one Member "
+                            + "subject and source.");
+                    return 1;
+                }
                 if (companionOutput == CompanionOutput.Tips)
                 {
                     CommandError.Write(
@@ -785,12 +795,30 @@ public static class ApiCommandDefinitions
         SharedOptions opts,
         MemberOptionsParser.MemberCommandArgs args,
         Option<bool> matchOption,
+        ExplanationProjection explanationProjection,
         CompanionOutput companionOutput)
     {
-        if (companionOutput == CompanionOutput.Explanation)
+        bool duplicate =
+            explanationProjection == ExplanationProjection.Complete
+                && companionOutput == CompanionOutput.Explanation
+            || explanationProjection == ExplanationProjection.Tips
+                && companionOutput == CompanionOutput.Tips;
+        if (duplicate)
         {
-            return "'--explain -E' requests the same complete explanation "
-                + "twice. Use '--explain' alone, or add '-E .tips'.";
+            return explanationProjection
+                    == ExplanationProjection.Complete
+                ? "'--explain -E' requests the same complete explanation "
+                    + "twice. Use '--explain' alone, or add '-E .tips'."
+                : "'--explain .tips -E .tips' requests the same contextual "
+                    + "tips twice. Choose primary stdout or companion stderr.";
+        }
+
+        if (explanationProjection == ExplanationProjection.Tips
+            && parseResult.GetResult(opts.Markdown)
+                is { Implicit: false })
+        {
+            return "'--explain .tips' uses its natural plain-text shape "
+                + "and cannot be combined with '--markdown'.";
         }
 
         Option[] conflicting =

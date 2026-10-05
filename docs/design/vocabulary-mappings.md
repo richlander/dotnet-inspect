@@ -16,6 +16,11 @@ output and Browser catalog prove the need and supply the first production data.
 The later [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md)
 design consumes this pattern without extending its claim.
 
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) moves the
+declaration contracts into the `QuerySpace.Primitives` floor so that term
+owners declare their own vocabularies; see
+[Physical placement](#physical-placement).
+
 ## Owner and exact claim
 
 **Vocabulary Mappings** owns:
@@ -77,14 +82,16 @@ implicit:
   it can group the picker.
 
 The first production outcome keeps the existing Settings experience while
-removing those reconstructions. The product publishes one typed snapshot; the
-CLI projects its established vocabulary document from that snapshot, and
-Inspect Web groups choices through the declared `tier` term map.
+removing those reconstructions. Each host composes one typed snapshot from the
+owners' declarations; the CLI projects its established vocabulary document from
+its snapshot, and Inspect Web groups choices through the declared `tier` term
+map.
 
-Conceptually, the C# producer supplies:
+Conceptually, the C# host supplies:
 
 ```csharp
-VocabularySnapshot snapshot = VocabularyCatalog.Snapshot;
+VocabularySnapshot snapshot =
+    ProductVocabularyComposition.Compose(contributions);
 VocabularyMap tierMap = snapshot.GetMap(
     "csharp.style-choices",
     "tier");
@@ -512,15 +519,47 @@ The implementation must gate:
   feature behavior, while the Settings consumer resolves only its explicitly
   bound vocabulary and maps.
 
-The typed construction and identity cases belong in a focused
-`DotnetInspector.Vocabulary` Release suite or the existing CLI suite until that
-suite exists. Existing `VocabularyCommandTests` retain CLI compatibility.
+The typed construction and identity cases belong in the `QuerySpace.Primitives`
+Release suite once [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
+moves the declaration contracts there; until then they stay in the existing
+CLI suite. Existing `VocabularyCommandTests` retain CLI compatibility.
 `BrowserStyleOptionsTests`, strict generated-TypeScript compilation, and the
 Inspect Web test/build gates own the Browser adoption.
 
+## Physical placement
+
+This owner's contracts are split by role across two existing owners' assemblies;
+semantic authority stays here.
+
+| Contract | Assembly | Reason |
+| --- | --- | --- |
+| Catalog, vocabulary, term, map, and snapshot identities; `VocabularyDefinition`, `VocabularyTerm`, map definitions and entries, scalar values, cardinality, coverage; `VocabularySnapshot` and its construction-time validation | `QuerySpace.Primitives` | A declaration a term owner must be able to produce from any family; the floor is dependency-free under the [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers) |
+| `VocabularyDocument`, sections, fields, operators, rows, the wire document, and `VocabularyJson` | `DotnetInspector.Sections` | Product Vocabulary's declared section schema and compatibility wire projection; not part of the reusable mapping pattern |
+
+Owners declare; hosts compose, under the composition rule the
+[QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
+states for tier-1 declarations. A declaration is a value, not an interface the
+owner implements, and no reflection or plugin discovery assembles the list.
+The composed snapshot's identity derives from its declarations, so hosts that
+ship the same declarations observe the same identity.
+
+The snapshot identity is a `sha256:` digest over a deterministic canonical
+projection of the declarations, written with `Utf8JsonWriter`. The projection
+moves to `QuerySpace.Primitives` unchanged; `System.Text.Json` is a platform
+assembly the floor may reference, as the `Inspector.Findings` floor already
+does, so no rewrite is needed and every existing digest is preserved by
+construction. The product snapshot's pinned digest is the gate. It is one
+value, `ProductVocabularyPin`, that both host suites assert against their own
+composed snapshot (see [Product Vocabulary ownership](vocabulary.md#ownership)),
+and it must pass unchanged across every move. The pattern's own construction, validation, and
+identity gates (`VocabularyMappingsTests`) run in the `Primitives` suite,
+`tests/DotnetInspector.PortableQueries.Tests`, over test-owned catalogs. The
+declaration types use the `QuerySpace.Vocabulary` namespace under the
+[QuerySpace namespace rule](query-space-library.md#namespaces-and-identity).
+
 ## Delivery plan
 
-This shared substrate has a counted three-step path to both production hosts:
+This shared substrate has a counted four-step path to both production hosts:
 
 1. **Focused design — complete.** The merged design locks this pattern and the
    bounded Product Vocabulary adoption.
@@ -534,6 +573,11 @@ This shared substrate has a counted three-step path to both production hosts:
    its explicit feature binding, and remove the Browser-local semantic row
    interfaces, guards, double-materialized `JsonElement` path, and any
    superseded internal `ListVocabulary` shape.
+4. **Owner declaration and retirement — #9250.** Move the declaration
+   contracts to `QuerySpace.Primitives` and the document contracts to
+   `DotnetInspector.Sections`, have the Decompiler and Queries declare their
+   vocabularies, compose the snapshot in both hosts, and retire
+   `DotnetInspector.Vocabulary`.
 
 Step 3 resolves the allocation follow-up in
 [#4494](https://github.com/richlander/dotnet-inspect/issues/4494) if its
@@ -542,7 +586,7 @@ has been removed without a regression. The existing CLI wire projection is a
 public compatibility surface and remains intentionally; it is not a second
 semantic catalog.
 
-After these three steps,
+After these steps,
 [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md) may bind
 exact schema locations to terms in an exact Vocabulary Mappings snapshot.
 Other catalogs adopt one owner at a time.

@@ -60,11 +60,22 @@ public sealed record MetadataTypeDeclarationFailure(
     long? BudgetLimit,
     long? BudgetAttempted);
 
+public sealed record MetadataTypeGenericParameterDeclarationEvidence(
+    int DefinitionSegmentIndex,
+    int MetadataIndex,
+    InertString Name,
+    GenericParameterAttributes Attributes);
+
+public sealed record MetadataTypeDeclarationSignature(
+    ImmutableArray<MetadataTypeGenericParameterDeclarationEvidence>
+        GenericParameters);
+
 public sealed record MetadataTypeDeclarationEvidence(
     MetadataTypeDefinitionAddress Type,
     MetadataNamedTypeIdentity DefinitionIdentity,
     MetadataTypeIdentity OpenSelfIdentity,
     MetadataTypeIdentity.Primitive? PrimitiveAlias,
+    MetadataTypeDeclarationSignature Signature,
     TypeAttributes Attributes,
     MetadataTypeDeclarationCategory Category,
     bool IsByRefLike,
@@ -168,8 +179,10 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     "The requested TypeDef does not have a unique structured name.");
             }
 
+            MetadataTypeGenericParameterProjection genericParameters =
+                ReadGenericParameters(handle);
             ImmutableArray<int> introducedCounts =
-                ReadIntroducedGenericParameterCounts(handle);
+                genericParameters.IntroducedCounts;
             int totalGenericParameterCount = introducedCounts.Sum();
             int[] declaringRows =
                 ReadDeclaringRows(handle);
@@ -255,6 +268,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     named.Definition,
                     openSelf,
                     primitiveAlias,
+                    genericParameters.Signature,
                     attributes,
                     category,
                     isByRefLike,
@@ -651,7 +665,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 throw Refuse(
                     site,
                     rejected.Failure.RelationshipKind is
-                        { } relationshipKind
+                    { } relationshipKind
                         ? Map(relationshipKind)
                         : MetadataTypeDeclarationFailureReason
                             .MalformedMetadata,
@@ -661,7 +675,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         };
     }
 
-    ImmutableArray<int> ReadIntroducedGenericParameterCounts(
+    MetadataTypeGenericParameterProjection ReadGenericParameters(
         TypeDefinitionHandle handle)
     {
         MetadataTypeDeclarationSite site = Site(
@@ -719,6 +733,9 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
 
         var introduced =
             ImmutableArray.CreateBuilder<int>(consumed);
+        var signature =
+            ImmutableArray.CreateBuilder<
+                MetadataTypeGenericParameterDeclarationEvidence>();
         int enclosingCount = 0;
         for (int chainIndex = 0;
             chainIndex < consumed;
@@ -752,6 +769,22 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                             .MalformedMetadata,
                         "Type generic parameters have invalid ownership or ordering.");
                 }
+                if (cumulativeCount >= enclosingCount)
+                {
+                    string name =
+                        ReadDeclarationName(
+                            parameter.Name,
+                            parameterSite);
+                    Charge(
+                        parameterSite,
+                        MetadataOperationDimension.StructuredNodes);
+                    signature.Add(
+                        new(
+                            chainIndex,
+                            cumulativeCount,
+                            Retain(name, parameterSite),
+                            parameter.Attributes));
+                }
                 cumulativeCount++;
             }
 
@@ -766,7 +799,35 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             introduced.Add(cumulativeCount - enclosingCount);
             enclosingCount = cumulativeCount;
         }
-        return introduced.MoveToImmutable();
+        return new(
+            introduced.MoveToImmutable(),
+            new(signature.ToImmutable()));
+    }
+
+    string ReadDeclarationName(
+        StringHandle handle,
+        MetadataTypeDeclarationSite site)
+    {
+        int bytes = Read(
+            site,
+            () => _reader.GetBlobReader(handle).Length);
+        if (bytes
+            > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            throw Refuse(
+                site,
+                MetadataTypeDeclarationFailureReason.BudgetExceeded,
+                "A declaration name exceeds the structural string limit.");
+        }
+        Charge(
+            site,
+            MetadataOperationDimension.StructuredNodes,
+            bytes);
+        return Read(
+            site,
+            () => MetadataSafetyPolicy.ReadStructuralString(
+                _reader,
+                handle));
     }
 
     void ValidateGenericParameterOwnerOrdering(
@@ -1921,6 +1982,10 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         MetadataTypeDeclarationStage Stage,
         MetadataTypeDeclarationMechanism Mechanism,
         EntityHandle Handle);
+
+    readonly record struct MetadataTypeGenericParameterProjection(
+        ImmutableArray<int> IntroducedCounts,
+        MetadataTypeDeclarationSignature Signature);
 
     readonly record struct MetadataTypeReferenceNameEvidence(
         MetadataTypeDefinitionName Name,

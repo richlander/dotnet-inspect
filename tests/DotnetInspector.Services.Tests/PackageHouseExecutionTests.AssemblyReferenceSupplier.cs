@@ -7,6 +7,7 @@ using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -14,6 +15,169 @@ namespace DotnetInspector.Services.Tests;
 
 public sealed partial class PackageHouseExecutionTests
 {
+    [Fact]
+    public async Task TransitiveAssemblyRefCannotSelectFocalOnlySiblingSupplier()
+    {
+        const string referencingPackage = "callgraph.transitive";
+        const string siblingPackage = "callgraph.sibling";
+        string rootAssembly =
+            FixtureCatalog.AnalysisCallerGraphIndirectCaller
+                .AssemblyPath();
+        byte[] siblingAssembly = File.ReadAllBytes(CallGraphTargetPath);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntriesByPackageId:
+                        new Dictionary<
+                            string,
+                            IReadOnlyList<(string EntryPath, byte[] Content)>>(
+                            StringComparer.OrdinalIgnoreCase)
+                        {
+                            [referencingPackage] =
+                            [
+                                (
+                                    $"lib/net11.0/{Path.GetFileName(CallGraphCallerPath)}",
+                                    File.ReadAllBytes(CallGraphCallerPath)),
+                            ],
+                            [siblingPackage] =
+                            [
+                                (
+                                    $"lib/net11.0/{Path.GetFileName(CallGraphTargetPath)}",
+                                    siblingAssembly),
+                            ],
+                        },
+                    IncludeManifest: true));
+        PackageRootBinding rootBinding = CallGraphRootBinding(
+            static content => content,
+            rootAssembly,
+            (referencingPackage, RouteVersion),
+            (siblingPackage, RouteVersion));
+        PackageDependencyTraversalOutcome traversal =
+            await CompleteSupplierTraversalAsync(
+                environment,
+                rootBinding);
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            executions = PreparedRouteExecutions(traversal);
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
+        WorkspaceScopeSnapshot rooted =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    empty.Revision,
+                    empty.PublicationBase,
+                    [rootBinding],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        var graphRequest = new PackageDependencyMemberCallGraphRequest(
+            workspace,
+            rooted,
+            CurrentRegistrations(workspace),
+            traversal,
+            [rootBinding],
+            executions,
+            new(
+                rootOccurrenceIndex: 0,
+                ModuleVersionId(rootAssembly),
+                MethodToken(rootAssembly, "Entry", "Run")),
+            new(maxDepth: 3, maxNodes: 10),
+            DateTimeOffset.UtcNow.AddMinutes(1));
+        PackageDependencyMemberCallGraphPreparation preparation =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphPreparationOutcome.Prepared>(
+                await PackageDependencyMemberCallGraphOperation.PrepareAsync(
+                    graphRequest,
+                    environment.CreateHouse(
+                        (_, _) => new InMemoryPackageStore()),
+                    environment.IssueOperation(
+                        executions[0].Request,
+                        TestContext.Current.CancellationToken))).Value;
+        PackageRootBinding referencingBinding =
+            Assert.Single(
+                preparation.GraphBindings,
+                binding =>
+                    binding.Coordinate.PackageId == referencingPackage);
+        int referencingProjection =
+            preparation.ResolveReferencingProjection(
+                graphRequest,
+                referencingBinding.Root.Identity);
+        Assert.Empty(
+            traversal.ReachableEdgesFromProjection(
+                rootOccurrenceIndex: 0,
+                referencingProjection));
+        Assert.Equal(2, traversal.RootReachability[0].EdgeDistances.Count);
+        using AssemblyInspectionSession caller =
+            AssemblyInspectionSession.Open(CallGraphCallerPath);
+        AssemblyReferenceIdentity identity =
+            Assert.Single(
+                caller.AssemblyReferenceIdentities(),
+                reference =>
+                    reference.Name == CallGraphTargetIdentity().Name);
+        ResolutionEnvironment resolution =
+            await ResolutionEnvironment.CreateAsync();
+        foreach (HouseSourceClient client in environment.Clients)
+            client.ResetPayloadTracking();
+        PackageAssemblyReferenceSupplierAssociation referencing =
+            PackageAssemblyReferenceSupplierAssociation.Create(
+                new(
+                    resolution.Generation,
+                    resolution.FocalScope,
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    [],
+                    originProjectionIndex: referencingProjection));
+        PackageAssemblyReferenceSupplierAssociation focal =
+            PackageAssemblyReferenceSupplierAssociation.Create(
+                new(
+                    resolution.Generation,
+                    resolution.FocalScope,
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    executions));
+        Assert.Equal(
+            referencingProjection,
+            referencing.RouteProjection.OriginProjectionIndex);
+        Assert.Equal(
+            traversal.Roots[0].ProjectionIndex,
+            focal.RouteProjection.OriginProjectionIndex);
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        using PackageSourceOperationLease operation =
+            environment.IssueOperation(
+                executions[0].Request,
+                TestContext.Current.CancellationToken);
+        var absent = Assert.IsType<
+            PackageAssemblyReferenceSupplierOutcome.Missing>(
+            await referencing.ResolveAsync(
+                BindingRequest(identity),
+                AssemblyBindingSelection.NameNotOwned(),
+                house,
+                operation));
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            absent.Disposition);
+        Assert.Empty(
+            environment.Clients.SelectMany(
+                static client => client.PayloadPackageIds));
+
+        var selected = Assert.IsType<
+            PackageAssemblyReferenceSupplierOutcome.Selected>(
+            await focal.ResolveAsync(
+                BindingRequest(identity),
+                AssemblyBindingSelection.NameNotOwned(),
+                house,
+                operation));
+        Assert.Equal(
+            siblingPackage,
+            selected.Selection.Evidence.Route.Candidate.Coordinate
+                .PackageId);
+        Assert.Equal(
+            PackageAssemblyReferenceSupplierTier.SelectedFileName,
+            selected.Selection.Evidence.Tier);
+        operation.Dispose();
+        await environment.AssertRootSettledAsync();
+    }
+
     [Fact]
     public async Task
         AssemblyReferenceRouteProjectionBindsScopeAndOrdersTraversalRoutes()
@@ -837,6 +1001,8 @@ public sealed partial class PackageHouseExecutionTests
                 request,
                 association,
                 packageRoutes.Receipt);
+        var charged =
+            new Dictionary<AssemblyReferenceResolutionWorkKind, long>();
 
         var packageOwned = Assert.IsType<
             ExternalAssemblyReferenceSupplierOutcome.PackageOwned>(
@@ -852,15 +1018,93 @@ public sealed partial class PackageHouseExecutionTests
                             throw new InvalidOperationException(
                                 "Platform must not run after Package selection.");
                         },
-                        TestContext.Current.CancellationToken));
+                        TestContext.Current.CancellationToken,
+                        (kind, amount) =>
+                            charged[kind] =
+                                charged.GetValueOrDefault(kind) + amount));
 
         Assert.Equal(identity, packageOwned.Package.Selection.Assembly.Identity);
         Assert.Same(request, packageOwned.Request);
+        Assert.Same(packageRoute, packageOwned.Route);
         Assert.Same(
             packageRoutes.Receipt,
             packageRoute.PackageRoutes);
         Assert.Equal(0, platformCalls);
+        Assert.True(
+            charged[
+                AssemblyReferenceResolutionWorkKind
+                    .PackageCandidateOperation] > 0);
+        Assert.True(
+            charged[
+                AssemblyReferenceResolutionWorkKind.SourceOperation] > 0);
+        Assert.Equal(
+            1,
+            charged[AssemblyReferenceResolutionWorkKind.Acquisition]);
+        Assert.Equal(
+            1,
+            charged[
+                AssemblyReferenceResolutionWorkKind.RealizedAssembly]);
         operation.Dispose();
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        EmptyPlatformCompositionRetainsTypedNonParticipation()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        (
+                            $"lib/net11.0/{MaterializedPackageId}.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ],
+                    IncludeManifest: true));
+        (PackageAssemblyReferenceSupplierAssociation association, _) =
+            await SupplierAssociationAsync(
+                environment,
+                (MaterializedPackageId, RouteVersion));
+        var projected = Assert.IsType<
+            PackageAssemblyReferenceRouteProjectionOutcome.Completed>(
+                association.RouteProjection);
+        AssemblyBindingRequest request =
+            BindingRequest(CallGraphTargetIdentity());
+        var nonParticipation =
+            new PlatformAssemblyReferenceNonParticipationEvidence(
+                projected.Receipt.Generation,
+                projected.Receipt.FocalScope,
+                projected.Receipt,
+                "No exact Platform target is eligible.");
+        var route = new PlatformAssemblyReferenceExternalRoute(
+            request,
+            projected.Receipt.Generation,
+            projected.Receipt.FocalScope,
+            [],
+            projected.Receipt,
+            nonParticipation);
+        var familyCalls = 0;
+
+        var missing = Assert.IsType<
+            PlatformAssemblyReferenceBindingOutcome.Missing>(
+                await PlatformAssemblyReferenceRouteAdapter.ExecuteAsync(
+                    route,
+                    (_, _) =>
+                    {
+                        familyCalls++;
+                        throw new InvalidOperationException(
+                            "An empty Platform composition has no family work.");
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, familyCalls);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+        Assert.Empty(missing.FamilyResults);
+        Assert.Same(nonParticipation, route.NonParticipation);
         await environment.AssertRootSettledAsync();
     }
 

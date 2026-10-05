@@ -22,6 +22,58 @@ public class SlotMaterializationPassTests
         ], HasThis: false, GenericParameterCount: 0), locals, body);
 
     [Fact]
+    public void ProvenReferenceWideningAdmitsSubtypeStoreIntoJoinTypedSlot()
+    {
+        // A diamond stores a derived and a base instance into one slot whose
+        // load is typed at the base (the importer's join merge). Storage
+        // admission knows no hierarchy of its own: without the importer's
+        // proven widening the derived store is unrenderable; with it the web
+        // materializes as one base-typed local.
+        var baseType = TypeRef.Definition("Synthetic", "Samples", "JoinBase");
+        var derived = TypeRef.Definition("Synthetic", "Samples", "JoinDerived");
+        IrFunction Build()
+        {
+            var body = new BlockContainer();
+            var entry = new Block(0);
+            entry.Add(new ConditionalBranch(new LoadArgument(0, "x", Int32), 4));
+            entry.Add(new Branch(8));
+            var first = new Block(4);
+            first.Add(new StoreStackSlot(0, new LoadArgument(1, "d", derived)));
+            first.Add(new Branch(12));
+            var second = new Block(8);
+            second.Add(new StoreStackSlot(0, new LoadArgument(2, "b", baseType)));
+            second.Add(new Branch(12));
+            var join = new Block(12);
+            join.Add(new StoreLocal(0, baseType, new LoadStackSlot(0, baseType)));
+            join.Add(new Return(null));
+            body.Add(entry);
+            body.Add(first);
+            body.Add(second);
+            body.Add(join);
+            var function = Function([baseType], body);
+            function.TypeShapes = ImmutableDictionary<TypeRef, TypeShape>.Empty
+                .Add(baseType, TypeShape.Reference)
+                .Add(derived, TypeShape.Reference);
+            return function;
+        }
+
+        var without = Build();
+        var vetoed = Assert.Single(SlotMaterializationPass.Analyze(without), d => d.Slot == 0);
+        Assert.False(vetoed.WillMaterialize);
+        Assert.True(vetoed.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType), vetoed.Vetoes.ToString());
+
+        var with = Build();
+        with.ProvenReferenceWidenings = ImmutableHashSet.Create(new ReferenceWidening(derived, baseType));
+        var admitted = Assert.Single(SlotMaterializationPass.Analyze(with), d => d.Slot == 0);
+        Assert.True(admitted.WillMaterialize, admitted.Vetoes.ToString());
+        Assert.Equal(baseType, admitted.Type);
+
+        new SlotMaterializationPass().Run(with, PassContext.None);
+        Assert.DoesNotContain(with.Descendants, n => n is StoreStackSlot or LoadStackSlot);
+        with.CheckInvariant();
+    }
+
+    [Fact]
     public void CompilerProducedPropertyConditionalMaterializesBooleanIdentity()
     {
         // Mirrors the retained Boolean property temporary in Newtonsoft.Json
@@ -50,7 +102,7 @@ public class SlotMaterializationPassTests
 
         Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == slot);
         Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == slot);
-        Assert.Contains("bool S_", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant();
     }
@@ -120,7 +172,7 @@ public class SlotMaterializationPassTests
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(4, function.Locals.Length);
@@ -165,7 +217,7 @@ public class SlotMaterializationPassTests
         new SlotMaterializationPass().Run(function, PassContext.None);
         new CoercionInsertionPass().Run(function, PassContext.None);
 
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Contains("bool S_0", output);
@@ -344,7 +396,7 @@ public class SlotMaterializationPassTests
         var conditional = Assert.IsType<Conditional>(materialized.Value);
         Assert.Equal(Boolean, conditional.ResultType);
         Assert.Equal(Int32, materialized.Type);
-        Assert.Contains("? 1 : 0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("? 1 : 0", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant();
     }
@@ -388,7 +440,7 @@ public class SlotMaterializationPassTests
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(Boolean, Assert.Single(function.Locals));
-        Assert.Contains("bool S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 
@@ -418,7 +470,7 @@ public class SlotMaterializationPassTests
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(2, function.Locals.Length);
-        Assert.Contains("bool S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 
@@ -560,7 +612,7 @@ public class SlotMaterializationPassTests
         Assert.Equal(Int32, decision.Type);
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Equal(Int32, Assert.Single(function.Locals));
-        Assert.Contains("S_0 != 0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("S_0 != 0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 

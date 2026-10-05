@@ -12,7 +12,7 @@ import {
 } from "./rendered-interaction.ts";
 import type {
   BrowserCapabilityCatalogSearchResult,
-  BrowserResourceExplanationResourceKind,
+  BrowserCapabilityCatalogSearchResourceKind,
 } from "./facades/inspect-web-package.d.ts";
 
 type LensDefinition = readonly [id: string, label: string];
@@ -161,6 +161,7 @@ interface SpotlightOptions {
   ) => Promise<unknown> | undefined;
   reportCommandError: (error: unknown) => void;
   commandContext: () => CommandContext | null;
+  prepareResults?: () => void;
   schedulePackageFetch: () => void;
   resetPackageSearch: () => void;
   resetTypeSearch?: () => void;
@@ -334,7 +335,7 @@ function isPackageAdditionResult(result: SpotlightResult): result is SpotlightPa
 }
 
 function capabilityKindLabel(
-  kind: BrowserResourceExplanationResourceKind,
+  kind: BrowserCapabilityCatalogSearchResourceKind,
 ): string {
   switch (kind) {
     case "InspectionDocument":
@@ -902,6 +903,7 @@ export function createSpotlight(options: SpotlightOptions) {
       state.spotlightQuery = `${result.command} `;
       state.spotlightIndex = 0;
       selectedResultIdentity = null;
+      options.prepareResults?.();
       const input = document.querySelector<HTMLInputElement>("#spotlight-input");
       if (input) input.value = state.spotlightQuery;
       updateResults();
@@ -1109,6 +1111,7 @@ export function createSpotlight(options: SpotlightOptions) {
         }
         options.schedulePackageFetch();
         options.scheduleCapabilitySearch();
+        options.prepareResults?.();
         updateResults();
       });
       options.keybindings.register({

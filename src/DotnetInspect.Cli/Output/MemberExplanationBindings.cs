@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Output;
@@ -8,48 +9,62 @@ internal static class MemberExplanationBindings
     private const int ResourceLimit = 256;
     private const int RelationshipLimit = 512;
 
-    private static readonly Lazy<Registration> Registered =
-        new(CreateRegistration);
-
-    internal static InspectionEnvelope<MemberContextualExplanationDocument>
-        ExplainCommand() =>
-        MemberContextualExplanationOperation.ExplainCommand(
-            Registered.Value.Command.Document,
-            Registered.Value.Command.DefaultSections);
-
-    internal static InspectionEnvelope<MemberContextualExplanationDocument>
-        ExplainExactSubject(
-            DotnetInspector.Queries.ResolvedMemberInspectionBasis basis) =>
-        MemberContextualExplanationOperation.ExplainExactSubject(
-            Registered.Value.ExactSubject.Document,
-            basis,
-            Registered.Value.ExactSubject.DefaultSections);
-
-    private static Registration CreateRegistration() =>
-        new(
+    private static readonly Lazy<RegisteredResource> RegisteredCommand =
+        new(() =>
             CreateResource(
                 "member",
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.MemberType,
-                    InspectionCatalogIdentity.ApiMember)),
+                    InspectionCatalogIdentity.ApiMember)));
+    private static readonly Lazy<RegisteredResource> RegisteredMemberGroup =
+        new(() =>
+            CreateResource(
+                "member-overload",
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.MemberTarget,
+                    InspectionCatalogIdentity.ApiMemberOverload),
+                [SectionNames.Methods]));
+    private static readonly Lazy<RegisteredResource> RegisteredExactMember =
+        new(() =>
             CreateResource(
                 "member-detail",
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.MemberTarget,
                     InspectionCatalogIdentity.ApiMemberDetail)));
 
+    internal static InspectionEnvelope<MemberContextualExplanationDocument>
+        ExplainCommand() =>
+        MemberContextualExplanationOperation.ExplainCommand(
+            RegisteredCommand.Value.Document,
+            RegisteredCommand.Value.DefaultSections);
+
+    internal static InspectionEnvelope<MemberContextualExplanationDocument>
+        ExplainMemberGroup(
+            ResolvedMemberGroupExplanationBasis basis) =>
+        MemberContextualExplanationOperation.ExplainMemberGroup(
+            RegisteredMemberGroup.Value.Document,
+            basis,
+            RegisteredMemberGroup.Value.DefaultSections);
+
+    internal static InspectionEnvelope<MemberContextualExplanationDocument>
+        ExplainExactMember(
+            DotnetInspector.Queries.ResolvedMemberInspectionBasis basis) =>
+        MemberContextualExplanationOperation.ExplainExactMember(
+            RegisteredExactMember.Value.Document,
+            basis,
+            RegisteredExactMember.Value.DefaultSections);
+
     private static RegisteredResource CreateResource(
         string catalogName,
-        StructuralRoute route)
+        StructuralRoute route,
+        IEnumerable<string>? defaultSections = null)
     {
         StructuralSchemaProjection projection =
             StructuralViewRegistry.Project(route);
-        var capabilities = new OutputCapabilityCatalog(
-            projection.SelectableSectionNames.ToDictionary(
-                section => section,
-                _ => SectionOutputCapabilities.Create(
-                    OutputCapabilityCatalog.StandardSectionFormats),
-                StringComparer.OrdinalIgnoreCase));
+        OutputCapabilityCatalog capabilities =
+            projection.OutputCapabilities
+            ?? throw new InvalidOperationException(
+                $"Member explanation catalog '{catalogName}' has no output capabilities.");
         DiscoveryDocumentFactory.Projection structural =
             DiscoveryDocumentFactory.CreateProjection(
                 catalogName,
@@ -62,7 +77,8 @@ internal static class MemberExplanationBindings
                 projection.ExactOnlySections,
                 capabilities,
                 sectionCardinalities:
-                    projection.SectionCardinalities)
+                    projection.SectionCardinalities,
+                sectionShapes: projection.SectionShapes)
             ?? throw new InvalidOperationException(
                 $"Member explanation catalog '{catalogName}' was not created.");
         ResourceExplanationCatalog catalog =
@@ -84,12 +100,10 @@ internal static class MemberExplanationBindings
                     0,
                     ResourceLimit,
                     RelationshipLimit)).Content,
-            [.. projection.DefaultSectionNames]);
+            defaultSections is null
+                ? [.. projection.DefaultSectionNames]
+                : [.. defaultSections]);
     }
-
-    private sealed record Registration(
-        RegisteredResource Command,
-        RegisteredResource ExactSubject);
 
     private sealed record RegisteredResource(
         ResourceExplanationDocument Document,

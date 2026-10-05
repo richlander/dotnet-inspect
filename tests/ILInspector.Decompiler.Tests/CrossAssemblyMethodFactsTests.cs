@@ -699,14 +699,14 @@ public class CrossAssemblyMethodFactsTests
     static string Print(MetadataSource source, string methodName)
     {
         var function = ImportFunction(source, methodName);
-        return CSharpPrinter.Print(function).Output ?? "";
+        return DecidedPrint.Print(function).Output ?? "";
     }
 
     static string PrintRaised(MetadataSource source, string methodName)
     {
         var function = ImportFunction(source, methodName);
         IrPasses.Run(function);
-        return CSharpPrinter.Print(function).Output ?? "";
+        return DecidedPrint.Print(function).Output ?? "";
     }
 
     static void AssertCallRefKind(MetadataSource source, string methodName, string calleeName, ArgumentRefKind expected)

@@ -51,9 +51,11 @@ class FakeRoot {
 
 function recordingActions(calls: string[]): PackageViewBindingActions {
   return {
+    onPackageChildLibrarySelect: assetId =>
+      calls.push(`package-child-library:${assetId}`),
+    onRuntimeIdentifierPackageLoad: (packageId, packageVersion) =>
+      calls.push(`package-child-package:${packageId}@${packageVersion}`),
     onDependencyGroupSelect: value => calls.push(`dependency-group:${value}`),
-    onPruningEvaluate: () => calls.push("pruning-evaluate"),
-    onPruningFamilySelect: family => calls.push(`pruning-family:${family}`),
     onDependencyLoad: (id, version) =>
       calls.push(`dependency-load:${id}@${version}`),
     onDependencyOpen: value => calls.push(`dependency-open:${value}`),
@@ -72,8 +74,6 @@ test("package view bindings decode navigation controls without eager work", () =
   const root = new FakeRoot();
   const group = new FakeElement({ depGroup: "2" });
   const defaultGroup = new FakeElement();
-  const pruningFamily = new FakeElement({ value: "Microsoft.AspNetCore.App" });
-  const pruningEvaluate = new FakeElement();
   const open = new FakeElement({ depOpen: "Example@1.0.0::net10.0" });
   const secondOpen = new FakeElement({ depOpen: "Other@2.0.0::net9.0" });
   const emptyOpen = new FakeElement({ depOpen: "" });
@@ -100,9 +100,16 @@ test("package view bindings decode navigation controls without eager work", () =
     perfType: "Example.Type",
   });
   const defaultPerformance = new FakeElement();
+  const packageLibrary = new FakeElement({
+    packageChildLibrary: "tools/net10.0/any/Example.dll",
+  });
+  const ridPackage = new FakeElement({
+    packageChildPackage: "Example.linux-x64",
+    packageChildVersion: "1.2.3",
+  });
+  root.addAll("[data-package-child-library]", packageLibrary);
+  root.addAll("[data-package-child-package]", ridPackage);
   root.addAll("[data-dep-group]", group, defaultGroup);
-  root.addAll("[data-pruning-family]", pruningFamily);
-  root.addAll("[data-pruning-evaluate]", pruningEvaluate);
   root.addAll("[data-dep-open]", open, secondOpen, emptyOpen);
   root.addAll("[data-dep-load]", load, defaultVersion, emptyLoad);
   root.addAll("[data-kind-jump]", kind, defaultKind);
@@ -117,10 +124,10 @@ test("package view bindings decode navigation controls without eager work", () =
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
+  packageLibrary.dispatch("click");
+  ridPackage.dispatch("click");
   group.dispatch("click");
   defaultGroup.dispatch("click");
-  pruningFamily.dispatch("change");
-  pruningEvaluate.dispatch("click");
   open.dispatch("click");
   secondOpen.dispatch("click");
   emptyOpen.dispatch("click");
@@ -139,10 +146,10 @@ test("package view bindings decode navigation controls without eager work", () =
   defaultPerformance.dispatch("click");
 
   assert.deepEqual(calls, [
+    "package-child-library:tools/net10.0/any/Example.dll",
+    "package-child-package:Example.linux-x64@1.2.3",
     "dependency-group:2",
     "dependency-group:NaN",
-    "pruning-family:Microsoft.AspNetCore.App",
-    "pruning-evaluate",
     "dependency-open:Example@1.0.0::net10.0",
     "dependency-open:Other@2.0.0::net9.0",
     "dependency-load:Other.Package@[2.0.0,)",
@@ -200,11 +207,17 @@ test("package navigation exposes every target framework", () => {
   const html = renderPackageNav({
     frameworks: ["net10.0", "net9.0"],
     activeFramework: "net10.0",
+    versionFieldHtml:
+      '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>',
     escapeHtml: value => String(value),
   });
 
   assert.match(html, /aria-label="Frameworks"/);
+  assert.match(html, /package-framework-nav has-version-control/);
   assert.match(html, /id="content-navigation-close"/);
+  assert.match(
+    html,
+    /package-navigation-controls[\s\S]*id="package-version"[\s\S]*package-framework-list/);
   assert.match(html, /data-package-framework="net10\.0"/);
   assert.match(html, /data-package-framework="net9\.0"/);
   assert.match(html, /data-package-framework="net10\.0" aria-current="page"/);
@@ -222,4 +235,6 @@ test("empty package navigation retains its detail-return action", () => {
 
   assert.match(html, /No target frameworks are available/);
   assert.match(html, /id="content-navigation-close"/);
+  assert.doesNotMatch(html, /has-version-control/);
+  assert.doesNotMatch(html, /package-navigation-controls|package-version/);
 });

@@ -501,6 +501,7 @@ public readonly ref struct MethodDefinitionView
             }
 
             producer.CountUnit(ref producer.LastLookupUnit, Token, ref producer.LookupUses);
+            _unit.RecordLookupUse();
             return _unit.Lookup;
         }
     }
@@ -692,18 +693,26 @@ internal struct MethodDefinitionUnit(
 
     public MethodBodyBlock GetBody()
     {
+        _requestSourceCoverage?.RecordBodyAttempted(MethodHandle);
         if (_body is not null)
         {
             _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
             return _body;
         }
 
+        _physicalSourceCoverage.RecordBodyAttempted(MethodHandle);
         MethodBodyBlock body = _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
         _body = body;
         _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
         _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
         return body;
+    }
+
+    public readonly void RecordLookupUse()
+    {
+        _physicalSourceCoverage.RecordModuleLookupUsed(MethodHandle);
+        _requestSourceCoverage?.RecordModuleLookupUsed(MethodHandle);
     }
 
     /// <summary>

@@ -55,6 +55,22 @@ public class CommandLineTests
         }
     }
 
+    [Fact]
+    public void MemberExplain_AcceptsOneSharedProjection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var member = Assert.Single(
+            root.Subcommands,
+            command => command.Name == "member");
+        var option = Assert.IsType<Option<string?>>(
+            Assert.Single(
+                member.Options,
+                option => option.Name == "--explain"));
+
+        Assert.Equal(0, option.Arity.MinimumNumberOfValues);
+        Assert.Equal(1, option.Arity.MaximumNumberOfValues);
+    }
+
     [Theory]
     [InlineData("-T")]
     [InlineData("--tips")]
@@ -89,6 +105,7 @@ public class CommandLineTests
     [InlineData("package", "Newtonsoft.Json", "--out", "-T:q")]
     [InlineData("package", "Newtonsoft.Json", "--out", "-e")]
     [InlineData("package", "Newtonsoft.Json", "--out", "-E.tips")]
+    [InlineData("package", "Newtonsoft.Json", "--out", "--explain=.tips")]
     [InlineData("package", "Newtonsoft.Json", "--nugetconfig", "--tips")]
     [InlineData("Newtonsoft.Json", "--out", "--tips", null)]
     public void RemovedCompanionSpellingAsRequiredValueIsPreserved(
@@ -124,6 +141,20 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("--explain.tips")]
+    [InlineData("--explain=.tips")]
+    [InlineData("--explain:.tips")]
+    public void InlinePrimaryExplanationProjection_IsRejected(string option)
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", option],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains("separate token", error);
+    }
+
+    [Theory]
     [InlineData("tips")]
     [InlineData("references")]
     public void UndottedCompanionProjection_ReportsReplacement(string projection)
@@ -136,6 +167,20 @@ public class CommandLineTests
         Assert.Contains($"Use '-E .{projection}'", error);
     }
 
+    [Theory]
+    [InlineData("tips")]
+    [InlineData("references")]
+    public void UndottedPrimaryExplanationProjection_ReportsReplacement(
+        string projection)
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "--explain", projection],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains($"Use '--explain .{projection}'", error);
+    }
+
     [Fact]
     public void RepeatedCompanionOption_IsRejected()
     {
@@ -145,6 +190,23 @@ public class CommandLineTests
 
         Assert.True(rejected);
         Assert.Equal("'-E' may be specified only once.", error);
+    }
+
+    [Fact]
+    public void RepeatedPrimaryExplanationOption_IsRejected()
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            [
+                "member",
+                "JsonSerializer",
+                "--explain",
+                ".tips",
+                "--explain",
+            ],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Equal("'--explain' may be specified only once.", error);
     }
 
     [Fact]
@@ -225,6 +287,93 @@ public class CommandLineTests
             tokens);
     }
 
+    [Fact]
+    public void BarePrimaryExplanation_DoesNotClaimFollowingPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["member", "JsonSerializer", "--explain", "Serialize:1"],
+            root);
+
+        Assert.Equal(
+            ["member", "JsonSerializer", "Serialize:1", "--explain"],
+            tokens);
+    }
+
+    [Theory]
+    [InlineData("--explain")]
+    [InlineData("-E")]
+    public void BareExplanationAfterInlineRequiredValue_DoesNotClaimFollowingPositional(
+        string option)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            [
+                "member",
+                "JsonSerializer",
+                "--library=System.Text.Json.dll",
+                option,
+                "Serialize:1",
+            ],
+            root);
+
+        Assert.Equal(
+            [
+                "member",
+                "JsonSerializer",
+                "--library=System.Text.Json.dll",
+                "Serialize:1",
+                option,
+            ],
+            tokens);
+    }
+
+    [Fact]
+    public void PrimaryExplanationSpellingAsRequiredValueIsPreserved()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            [
+                "member",
+                "JsonSerializer",
+                "--out",
+                "--explain",
+            ],
+            root);
+
+        Assert.Equal(
+            [
+                "member",
+                "JsonSerializer",
+                "--out",
+                "--explain",
+            ],
+            tokens);
+    }
+
+    [Fact]
+    public void DottedPrimaryExplanation_DoesNotConsumeFollowingPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            [
+                "member",
+                "JsonSerializer",
+                "--explain",
+                ".tips",
+                "Serialize:1",
+            ],
+            root);
+        var result = root.Parse(tokens);
+
+        Assert.Empty(result.Errors);
+        var arguments = Assert.IsType<Argument<string[]>>(
+            Assert.Single(result.CommandResult.Command.Arguments));
+        Assert.Equal(
+            ["JsonSerializer", "Serialize:1"],
+            Assert.IsType<string[]>(result.GetValue(arguments)));
+    }
+
     [Theory]
     [InlineData(".references", "reusable references")]
     [InlineData(".unknown", "Unknown companion projection '.unknown'")]
@@ -241,6 +390,26 @@ public class CommandLineTests
         Assert.Contains(
             result.Errors,
             error => error.Message.Contains(expected, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(".references", "reusable references")]
+    [InlineData(".unknown", "Unknown explanation projection '.unknown'")]
+    public void UnavailablePrimaryExplanationProjection_IsRejected(
+        string projection,
+        string expected)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens =
+            ["member", "JsonSerializer", "--explain", projection];
+
+        var result = root.Parse(tokens);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                expected,
+                StringComparison.Ordinal));
     }
 
     [Fact]

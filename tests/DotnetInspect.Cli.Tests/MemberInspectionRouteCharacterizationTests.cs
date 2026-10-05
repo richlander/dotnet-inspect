@@ -260,7 +260,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "package",
                 "schema-static-without-target/effective-with-target",
-                "Package[schema:61:4FD76B6F9943]",
+                "Package[schema:61:9BF6EECEF3D3]",
                 "focus=SourceLink: Availability->SourceLink availability;"
                     + "discovery=none",
                 "focus:package-metadata=True;"
@@ -269,7 +269,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
                     + "effective-after-package-acquisition",
-                "Library[schema:139:3986B1CE315A]",
+                "Library[schema:141:2915F245B207]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Method classification (Library Info counts),"
@@ -282,7 +282,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:139:3986B1CE315A]",
+                "Library[schema:141:2915F245B207]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Method classification (Library Info counts),"
@@ -293,7 +293,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:141:F5BD90FC3236]",
+                "Library[schema:143:714801753082]",
                 "focus=Library Info->Assembly references,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Method classification (Library Info counts),"
@@ -966,11 +966,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
 
     private static string RemoveLibraryResourcePath(string node)
     {
+        // Structural discovery appends the resource path of every catalog that
+        // publishes one (library/..., package/...); the matrix compares names.
         int marker = node.LastIndexOf(
-            " [library/",
+            " [",
             StringComparison.Ordinal);
         return marker >= 0
             && node.EndsWith(']')
+            && node.IndexOf('/', marker) > marker
                 ? node[..marker]
                 : node;
     }

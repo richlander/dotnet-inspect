@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -30,6 +32,24 @@ public abstract record LibrarySurfaceLeverageResult
         string Detail,
         MetadataOperationCounters? Counters)
         : LibrarySurfaceLeverageResult;
+}
+
+internal abstract record LibrarySurfaceLeverageExhaustiveAcquisition
+{
+    private LibrarySurfaceLeverageExhaustiveAcquisition()
+    {
+    }
+
+    internal sealed record Available(
+        LibraryStructuralSalienceDocument Document,
+        ImmutableArray<MetadataLibrarySignatureUseResult> TypeInventories)
+        : LibrarySurfaceLeverageExhaustiveAcquisition;
+
+    internal sealed record Rejected(
+        MetadataLibrarySignatureUseRejectionKind Kind,
+        string Detail,
+        MetadataOperationCounters? Counters)
+        : LibrarySurfaceLeverageExhaustiveAcquisition;
 }
 
 /// <summary>
@@ -96,6 +116,31 @@ public static class AssemblyContextLibrarySurfaceLeverageQuery
             exhaustive: true,
             cancellationToken);
 
+    public static LibrarySurfaceLeverageResult ExecuteExhaustive(
+        AssemblyInspectionSession session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        cancellationToken.ThrowIfCancellationRequested();
+        return AcquireExhaustive(
+            session,
+            cancellationToken) switch
+        {
+            LibrarySurfaceLeverageExhaustiveAcquisition.Available
+                available =>
+                new LibrarySurfaceLeverageResult.AvailableExhaustive(
+                    available.Document),
+            LibrarySurfaceLeverageExhaustiveAcquisition.Rejected
+                rejected =>
+                new LibrarySurfaceLeverageResult.Rejected(
+                    rejected.Kind,
+                    rejected.Detail,
+                    rejected.Counters),
+            _ => throw new InvalidOperationException(
+                "Unknown exhaustive surface-leverage outcome."),
+        };
+    }
+
     private static AssemblyContextEntry<LibrarySurfaceLeverageResult>
         ExecuteParticipant(
             AssemblyContextGroup group,
@@ -117,6 +162,27 @@ public static class AssemblyContextLibrarySurfaceLeverageQuery
             {
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(snapshot);
+                if (exhaustive)
+                {
+                    return AcquireExhaustive(
+                        session,
+                        cancellationToken) switch
+                    {
+                        LibrarySurfaceLeverageExhaustiveAcquisition.Available
+                            available =>
+                            new LibrarySurfaceLeverageResult
+                                .AvailableExhaustive(available.Document),
+                        LibrarySurfaceLeverageExhaustiveAcquisition.Rejected
+                            rejected =>
+                            new LibrarySurfaceLeverageResult.Rejected(
+                                rejected.Kind,
+                                rejected.Detail,
+                                rejected.Counters),
+                        _ => throw new InvalidOperationException(
+                            "Unknown exhaustive surface-leverage outcome."),
+                    };
+                }
+
                 if (exactNamespace is not null)
                 {
                     return Acquire(
@@ -155,41 +221,65 @@ public static class AssemblyContextLibrarySurfaceLeverageQuery
                 LibraryStructuralNamespaceLeverageIndex index =
                     LibraryStructuralReport.CreateNamespaceLeverageIndex(
                         whole);
-                if (!exhaustive)
-                {
-                    return new
-                        LibrarySurfaceLeverageResult.AvailableIndex(index);
-                }
-
-                var shards =
-                    new List<LibraryStructuralTypeLeverageShard>(
-                        index.Rows.Length);
-                foreach (LibraryStructuralNamespaceLeverageRow row
-                    in index.Rows)
-                {
-                    MetadataLibrarySignatureUseOutcome shardOutcome =
-                        Acquire(
-                            session,
-                            new(s_policy, row.Namespace),
-                            cancellationToken);
-                    if (shardOutcome
-                        is MetadataLibrarySignatureUseOutcome.Rejected
-                            shardRejected)
-                    {
-                        return Rejected(shardRejected);
-                    }
-                    shards.Add(
-                        LibraryStructuralReport.CreateTypeLeverageShard(
-                            ((MetadataLibrarySignatureUseOutcome.Available)
-                                shardOutcome).Result));
-                }
-
                 return new
-                    LibrarySurfaceLeverageResult.AvailableExhaustive(
-                        LibraryStructuralReport.CreateStructuralSalience(
-                            index,
-                            shards));
+                    LibrarySurfaceLeverageResult.AvailableIndex(index);
             });
+    }
+
+    internal static LibrarySurfaceLeverageExhaustiveAcquisition
+        AcquireExhaustive(
+            AssemblyInspectionSession session,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        MetadataLibrarySignatureUseOutcome wholeOutcome =
+            Acquire(
+                session,
+                new(s_policy),
+                cancellationToken);
+        if (wholeOutcome
+            is MetadataLibrarySignatureUseOutcome.Rejected wholeRejected)
+        {
+            return RejectedExhaustive(wholeRejected);
+        }
+
+        MetadataLibrarySignatureUseResult whole =
+            ((MetadataLibrarySignatureUseOutcome.Available)
+                wholeOutcome).Result;
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(whole);
+        var inventories =
+            ImmutableArray.CreateBuilder<MetadataLibrarySignatureUseResult>(
+                index.Rows.Length);
+        var shards =
+            ImmutableArray.CreateBuilder<LibraryStructuralTypeLeverageShard>(
+                index.Rows.Length);
+        foreach (LibraryStructuralNamespaceLeverageRow row in index.Rows)
+        {
+            MetadataLibrarySignatureUseOutcome shardOutcome =
+                Acquire(
+                    session,
+                    new(s_policy, row.Namespace),
+                    cancellationToken);
+            if (shardOutcome
+                is MetadataLibrarySignatureUseOutcome.Rejected shardRejected)
+            {
+                return RejectedExhaustive(shardRejected);
+            }
+
+            MetadataLibrarySignatureUseResult inventory =
+                ((MetadataLibrarySignatureUseOutcome.Available)
+                    shardOutcome).Result;
+            inventories.Add(inventory);
+            shards.Add(
+                LibraryStructuralReport.CreateTypeLeverageShard(inventory));
+        }
+
+        return new LibrarySurfaceLeverageExhaustiveAcquisition.Available(
+            LibraryStructuralReport.CreateStructuralSalience(
+                index,
+                shards.MoveToImmutable()),
+            inventories.MoveToImmutable());
     }
 
     private static MetadataLibrarySignatureUseOutcome Acquire(
@@ -200,6 +290,14 @@ public static class AssemblyContextLibrarySurfaceLeverageQuery
 
     private static LibrarySurfaceLeverageResult.Rejected Rejected(
         MetadataLibrarySignatureUseOutcome.Rejected rejected) =>
+        new(
+            rejected.Kind,
+            rejected.Detail,
+            rejected.Counters);
+
+    private static LibrarySurfaceLeverageExhaustiveAcquisition.Rejected
+        RejectedExhaustive(
+            MetadataLibrarySignatureUseOutcome.Rejected rejected) =>
         new(
             rejected.Kind,
             rejected.Detail,

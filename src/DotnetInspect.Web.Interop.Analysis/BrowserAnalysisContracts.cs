@@ -314,15 +314,72 @@ public sealed record BrowserLibraryMetricsRelationship(
     int SourceDegree,
     int TargetDegree);
 
-public sealed record BrowserLibraryStructuralSalience(
-    int SchemaVersion,
+public sealed record BrowserLibraryDependencyStructure(
     string Outcome,
     string? MethodologyVersion,
-    string? EvidenceMode,
+    string? Completeness,
+    BrowserLibraryDependencyPopulation? Population,
+    BrowserLibraryDependencyNamespace[] Namespaces,
+    BrowserLibraryDependencyNamespaceEdge[] NamespaceEdges,
+    int TotalNamespaceEdgeCount,
+    BrowserLibraryDependencyCycle[] Cycles,
+    string[] Diagnostics,
+    string? Failure);
+
+public sealed record BrowserLibraryDependencyPopulation(
+    int ExaminedCallCount,
+    int InternalCallCount,
+    int ExternalCallCount,
+    int UnresolvedCallCount,
+    int IncompleteBodyCount,
+    int TypeCount,
+    int NamespaceCount);
+
+public sealed record BrowserLibraryDependencyNamespace(
+    string Namespace,
+    bool IsGlobalNamespace,
+    int TypeCount,
+    int IntraNamespaceRelationshipCount,
+    int? CycleIndex,
+    int Level);
+
+public sealed record BrowserLibraryDependencyNamespaceEdge(
+    string SourceNamespace,
+    string TargetNamespace,
+    BrowserLibraryDependencyCounts Counts,
+    int ContributingTypeEdgeCount,
+    BrowserLibraryDependencyTypeEdge[] ExplainingTypeEdges,
+    int RemainingContributorCount);
+
+public sealed record BrowserLibraryDependencyTypeEdge(
+    string SourceTypeKey,
+    string SourceTypeDisplay,
+    string TargetTypeKey,
+    string TargetTypeDisplay,
+    BrowserLibraryDependencyCounts Counts);
+
+public sealed record BrowserLibraryDependencyCounts(
+    int Invocations,
+    int FunctionReferences,
+    int Total);
+
+public sealed record BrowserLibraryDependencyCycle(
+    string[] Namespaces);
+
+public sealed record BrowserLibraryStructuralSalience(
+    int SchemaVersion,
+    BrowserLibraryTypeLeverageChannel Surface,
+    BrowserLibraryTypeLeverageChannel Implementation,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserLibraryTypeLeverageChannel(
+    string Outcome,
+    string? MethodologyVersion,
+    string EvidenceMode,
     BrowserLibraryNamespaceLeverageIndex? NamespaceIndex,
     BrowserLibraryTypeLeverageShard[] TypeLeverageShards,
     string? Failure,
-    BrowserCompileLibraryAvailability CompileLibrary);
+    string? FailureKind);
 
 public sealed record BrowserLibraryNamespaceLeverageIndex(
     string Disposition,
@@ -339,7 +396,8 @@ public sealed record BrowserLibraryNamespaceLeverageRow(
 public sealed record BrowserLibraryTypeLeverageShard(
     string Namespace,
     string Disposition,
-    BrowserLibrarySignatureUseCoverage Coverage,
+    BrowserLibrarySignatureUseCoverage? SignatureCoverage,
+    BrowserLibraryBodyUseCoverage? BodyCoverage,
     BrowserLibraryTypeLeverageRow[] Types,
     string[] SeaLevelOrder,
     string[] MountainPeakOrder,
@@ -350,6 +408,17 @@ public sealed record BrowserLibrarySignatureUseCoverage(
     int Examined,
     int Unavailable,
     int Limited);
+
+public sealed record BrowserLibraryBodyUseCoverage(
+    int BodiesConsidered,
+    int BodiesExamined,
+    int BodiesPhysicalOnly,
+    int BodiesUnavailable,
+    int BodiesLimited,
+    int OperandsConsidered,
+    int OperandsExamined,
+    int OperandsUnavailable,
+    int OperandsLimited);
 
 [JsonConverter(
     typeof(JsonStringEnumConverter<BrowserLibraryStructuralTypePole>))]
@@ -363,8 +432,8 @@ public sealed record BrowserLibraryTypeLeverageRow(
     string TypeDefinitionId,
     string TypeDisplay,
     bool DesignationEligible,
-    int SignatureIncomingDegree,
-    int SignatureOutgoingDegree,
+    int IncomingDegree,
+    int OutgoingDegree,
     string Role,
     BrowserLibraryStructuralTypePole? Pole);
 
@@ -537,6 +606,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
+[JsonSerializable(typeof(BrowserLibraryDependencyStructure))]
 [JsonSerializable(typeof(BrowserLibraryStructuralSalience))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserTypeImplementationHeat))]

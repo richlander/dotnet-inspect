@@ -1,6 +1,7 @@
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.PlatformQueries;
@@ -65,9 +66,15 @@ public abstract record ExternalAssemblyReferenceSupplierOutcome
     {
         internal PackageOwned(
             AssemblyBindingRequest request,
+            PackageAssemblyReferenceExternalRoute route,
             PackageAssemblyReferenceSupplierOutcome.Selected package)
-            : base(request, package) =>
+            : base(request, package)
+        {
+            Route = route;
             Package = package;
+        }
+
+        public PackageAssemblyReferenceExternalRoute Route { get; }
 
         public PackageAssemblyReferenceSupplierOutcome.Selected Package
         { get; }
@@ -218,7 +225,9 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 ValueTask<
                     PlatformAssemblyReferenceBindingOutcome>>
                 resolvePlatform,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork =
+                null)
     {
         ArgumentNullException.ThrowIfNull(packageRoute);
         ArgumentNullException.ThrowIfNull(
@@ -234,7 +243,8 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                     referencingContextSelection,
                     packageHouse,
                     packageSourceOperation,
-                    cancellationToken)
+                    cancellationToken,
+                    chargeWork)
                 .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         AssemblyBindingRequest request = packageRoute.Request;
@@ -242,7 +252,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
         {
             case PackageAssemblyReferenceSupplierOutcome.Selected selected:
                 return new ExternalAssemblyReferenceSupplierOutcome
-                    .PackageOwned(request, selected);
+                    .PackageOwned(request, packageRoute, selected);
             case PackageAssemblyReferenceSupplierOutcome.Ambiguous:
                 return new ExternalAssemblyReferenceSupplierOutcome
                     .Ambiguous(

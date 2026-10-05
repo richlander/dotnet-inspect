@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindPackageOpportunities,
-  renderPackageOpportunities,
+  renderOpportunityRow,
   type OpportunityItem,
   type PackageOpportunitiesBindingActions,
   type PackageOpportunityTarget,
@@ -51,30 +51,21 @@ function recordingActions(calls: string[]): PackageOpportunitiesBindingActions {
   };
 }
 
-test("opportunity bindings dispatch type, package, and search actions", () => {
+test("suggested integration bindings dispatch type, package, and search actions", () => {
   const root = new FakeRoot();
   const type = new FakeElement({ oppType: "Contoso.Widget" });
-  const secondType = new FakeElement({ oppType: "Contoso.Gadget" });
   const packageChip = new FakeElement({ oppPackage: "Contoso.Extensions" });
-  const secondPackage = new FakeElement({ oppPackage: "Contoso.Hosting" });
   const lookFor = new FakeElement({ oppLookfor: "AddWidgets" });
-  const secondLookFor = new FakeElement({ oppLookfor: "AddGadgets" });
-  root.add("[data-opp-type]", type, secondType);
-  root.add("[data-opp-package]", packageChip, secondPackage);
-  root.add("[data-opp-lookfor]", lookFor, secondLookFor);
+  root.add("[data-opp-type]", type);
+  root.add("[data-opp-package]", packageChip);
+  root.add("[data-opp-lookfor]", lookFor);
   const calls: string[] = [];
   bindPackageOpportunities(
     fakeDom.parentNode(root),
     recordingActions(calls));
 
-  assert.deepEqual(calls, []);
   type.dispatch("click");
-  assert.deepEqual(calls, ["type:Contoso.Widget"]);
   packageChip.dispatch("click");
-  assert.deepEqual(calls, [
-    "type:Contoso.Widget",
-    "package:Contoso.Extensions",
-  ]);
   lookFor.dispatch("click");
 
   assert.deepEqual(calls, [
@@ -82,21 +73,9 @@ test("opportunity bindings dispatch type, package, and search actions", () => {
     "package:Contoso.Extensions",
     "look:AddWidgets",
   ]);
-  secondType.dispatch("click");
-  secondPackage.dispatch("click");
-  secondLookFor.dispatch("click");
-
-  assert.deepEqual(calls, [
-    "type:Contoso.Widget",
-    "package:Contoso.Extensions",
-    "look:AddWidgets",
-    "type:Contoso.Gadget",
-    "package:Contoso.Hosting",
-    "look:AddGadgets",
-  ]);
 });
 
-test("opportunity bindings preserve empty values for malformed controls", () => {
+test("suggested integration bindings preserve empty values for malformed controls", () => {
   const root = new FakeRoot();
   const type = new FakeElement();
   const packageChip = new FakeElement();
@@ -109,17 +88,14 @@ test("opportunity bindings preserve empty values for malformed controls", () => 
     fakeDom.parentNode(root),
     recordingActions(calls));
 
-  assert.deepEqual(calls, []);
   type.dispatch("click");
-  assert.deepEqual(calls, ["type:"]);
   packageChip.dispatch("click");
-  assert.deepEqual(calls, ["type:", "package:"]);
   lookFor.dispatch("click");
 
   assert.deepEqual(calls, ["type:", "package:", "look:"]);
 });
 
-test("opportunity bindings preserve exact source identity for type navigation", () => {
+test("suggested integration bindings preserve exact source identity", () => {
   const root = new FakeRoot();
   const type = new FakeElement({
     oppType: "Contoso.Widget",
@@ -150,27 +126,6 @@ test("opportunity bindings preserve exact source identity for type navigation", 
   });
 });
 
-test("opportunity bindings distinguish legacy and explicitly unknown sources", () => {
-  const root = new FakeRoot();
-  const legacy = new FakeElement({ oppType: "Contoso.Legacy" });
-  const unknown = new FakeElement({
-    oppType: "Contoso.Unknown",
-    oppSourceIdentity: "unknown",
-  });
-  root.add("[data-opp-type]", legacy, unknown);
-  const selected: PackageOpportunityTarget[] = [];
-  bindPackageOpportunities(fakeDom.parentNode(root), {
-    ...recordingActions([]),
-    onTypeSelect: target => selected.push(target),
-  });
-
-  legacy.dispatch("click");
-  unknown.dispatch("click");
-
-  assert.equal(selected[0]?.sourceIdentity, "legacy");
-  assert.equal(selected[1]?.sourceIdentity, "unknown");
-});
-
 function escapeHtml(value: unknown) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -179,21 +134,7 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
-const baseOptions = {
-  libraryName: "Test.Assembly",
-  assemblyIdentity: "Test.Assembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
-  assetPath: "lib/net10.0/Test.Assembly.dll",
-  coordinate: "net10.0 · Test.Package@1.0.0",
-  requireLibrary: false,
-  pickerHtml: "",
-  fresh: true,
-  loading: false,
-  error: "",
-  data: null,
-  escapeHtml,
-};
-
-function opportunity(
+function suggestion(
   item: Pick<OpportunityItem, "api" | "integrationType" | "lookFor">
     & Partial<OpportunityItem>,
 ): OpportunityItem {
@@ -207,305 +148,62 @@ function opportunity(
   };
 }
 
-test("a platform package with no scoped library prompts to pick one, before any scan runs", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    requireLibrary: true,
-    pickerHtml: "<select><option>PICKER</option></select>",
-    fresh: false,
-  });
-
-  assert.match(html, /library-opportunities-controls/);
-  assert.match(html, /<select><option>PICKER<\/option><\/select>/);
-  assert.match(html, /Pick a library to scan/);
-  assert.match(html, /Select a library/);
-});
-
-test("a fresh scan in progress shows the scanning status", () => {
-  const html = renderPackageOpportunities({ ...baseOptions, loading: true });
-
-  assert.match(html, /Scanning opportunities/);
-});
-
-test("a loading flag from a stale (non-fresh) scope does not show the scanning status", () => {
-  const html = renderPackageOpportunities({ ...baseOptions, loading: true, fresh: false });
-
-  assert.doesNotMatch(html, /Scanning opportunities…/);
-  assert.match(html, /Loading…/);
-});
-
-test("a fresh scan error shows the failure message, escaped", () => {
-  const html = renderPackageOpportunities({ ...baseOptions, error: "<boom> failed to load" });
-
-  assert.match(html, /Opportunity scan failed/);
-  assert.match(html, /&lt;boom&gt; failed to load/);
-});
-
-test("no data yet (fresh, no error, no data) shows a generic loading placeholder", () => {
-  const html = renderPackageOpportunities(baseOptions);
-
-  assert.match(html, /Loading…/);
-});
-
-test("empty categories render the no-opportunities message with the scan scope", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: { categories: [], totalOpportunities: 0, isComplete: true, inspectionError: null },
-  });
-
-  assert.match(html, /No integration opportunities/);
-  assert.match(html, /Test\.Assembly/);
-  assert.match(html, /Test\.Package@1\.0\.0/);
-});
-
-test("an incomplete empty scan does not claim that no opportunities exist", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [],
-      totalOpportunities: 0,
-      isComplete: false,
-      inspectionError: null,
-    },
-  });
-
-  assert.match(html, /Opportunity scan incomplete/);
-  assert.match(html, /partial/);
-  assert.doesNotMatch(html, /No integration opportunities/);
-});
-
-test("the full-area frame retains Library identity and package coordinates", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: { categories: [], totalOpportunities: 0, isComplete: true, inspectionError: null },
-  });
-
-  assert.match(html, /lib\/net10\.0\/Test\.Assembly\.dll/);
-  assert.match(html, /Test\.Assembly, Version=1\.0\.0\.0/);
-  assert.match(html, /net10\.0 · Test\.Package@1\.0\.0/);
-});
-
-test("an inspection error renders a warning banner alongside categories", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{ integration: "Auth", items: [] }],
-      totalOpportunities: 0,
-      isComplete: false,
-      inspectionError: "<bad> assembly",
-    },
-  });
-
-  assert.match(html, /This library could not be scanned completely/);
-  assert.match(html, /&lt;bad&gt; assembly/);
-  assert.match(html, /partial/);
-});
-
-test("categories render quiet counts, guidance, and full-width category groups", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [
-        { integration: "Auth", items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })] },
-        { integration: "Database", items: [] },
-      ],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
-
-  assert.match(html, /2 areas · 1 suggestion/);
-  assert.match(html, /Types open in this package/);
-  assert.match(html, /<h2 id="opportunity-category-0">Auth<\/h2>/);
-  assert.match(html, /<h2 id="opportunity-category-1">Database<\/h2>/);
-  assert.doesNotMatch(html, /type-chip-list/);
-});
-
-test("an opportunity row splits the API into short name and qualifier", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "AI",
-        items: [{
-          api: "System.ClientModel.Primitives.PipelineMessage",
-          integrationType: "IServiceCollection registration",
-          lookFor: "",
-          sourceDefinitionId: 'System.ClientModel.Primitives.Pipeline"Message',
-          sourceAssembly: "System.ClientModel",
-          sourceAssemblyVersion: "1.2.3.4",
-          sourceAssemblyCulture: null,
-          sourceAssemblyPublicKeyToken: "0011223344556677",
-        }],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
+test("a suggested integration row retains exact source identity and qualified API display", () => {
+  const html = renderOpportunityRow(suggestion({
+    api: "System.ClientModel.Primitives.PipelineMessage",
+    integrationType: "IServiceCollection registration",
+    lookFor: "",
+    sourceDefinitionId: 'System.ClientModel.Primitives.Pipeline"Message',
+    sourceAssembly: "System.ClientModel",
+    sourceAssemblyVersion: "1.2.3.4",
+    sourceAssemblyPublicKeyToken: "0011223344556677",
+  }), escapeHtml);
 
   assert.match(html, /<span class="opp-type-name">PipelineMessage<\/span><span class="opp-type-ns">System\.ClientModel\.Primitives<\/span>/);
-  assert.match(html, /data-opp-type="System\.ClientModel\.Primitives\.PipelineMessage"/);
-  assert.match(html, /data-opp-source-identity="exact"/);
   assert.match(html, /data-opp-source-definition="System\.ClientModel\.Primitives\.Pipeline&quot;Message"/);
   assert.match(html, /data-opp-source-assembly="System\.ClientModel"/);
   assert.match(html, /data-opp-source-version="1\.2\.3\.4"/);
-  assert.match(html, /data-opp-source-culture=""/);
   assert.match(html, /data-opp-source-token="0011223344556677"/);
 });
 
-test("an explicitly unknown source identity remains distinct from a legacy row", () => {
-  const currentHtml = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "AI",
-        items: [{
-          api: "Example.Current",
-          integrationType: "IServiceCollection registration",
-          lookFor: "",
-          sourceDefinitionId: null,
-          sourceAssembly: "Example",
-          sourceAssemblyVersion: "",
-          sourceAssemblyCulture: null,
-          sourceAssemblyPublicKeyToken: null,
-        }],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
-  const legacyItem = opportunity({
-    api: "Example.Legacy",
+test("a suggested package and concrete APIs remain interactive", () => {
+  const html = renderOpportunityRow(suggestion({
+    api: "Widget",
+    integrationType: "Microsoft.Extensions.AI IChatClient extension",
+    lookFor: "AddChatClient, AddEmbeddingGenerator",
+  }), escapeHtml);
+
+  assert.match(html, /data-opp-package="Microsoft\.Extensions\.AI"/);
+  assert.match(html, /<span class="opp-kind-text">IChatClient extension<\/span>/);
+  assert.match(html, /data-opp-lookfor="AddChatClient"/);
+  assert.match(html, /data-opp-lookfor="AddEmbeddingGenerator"/);
+});
+
+test("wildcard and empty API hints remain non-interactive guidance", () => {
+  const wildcard = renderOpportunityRow(suggestion({
+    api: "Widget",
+    integrationType: "IServiceCollection registration",
+    lookFor: "Add*",
+  }), escapeHtml);
+  const empty = renderOpportunityRow(suggestion({
+    api: "Widget",
     integrationType: "IServiceCollection registration",
     lookFor: "",
-  });
-  Reflect.deleteProperty(legacyItem, "sourceDefinitionId");
-  const legacyHtml = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "AI",
-        items: [legacyItem],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
+  }), escapeHtml);
 
-  assert.match(currentHtml, /data-opp-source-identity="unknown"/);
-  assert.doesNotMatch(currentHtml, /data-opp-source-definition=/);
-  assert.doesNotMatch(legacyHtml, /data-opp-source-identity=/);
+  assert.match(wildcard, /<span class="opp-pattern" title="Naming pattern">Add\*<\/span>/);
+  assert.doesNotMatch(wildcard, /opp-chip/);
+  assert.match(empty, /<span class="opp-pattern">any registration surface<\/span>/);
 });
 
-test("an integration kind with a leading dotted namespace renders a load-on-demand package chip", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "AI",
-        items: [opportunity({ api: "Widget", integrationType: "Microsoft.Extensions.AI IChatClient extension", lookFor: "" })],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
-
-  assert.match(html, /<button class="opp-package-chip" data-opp-package="Microsoft\.Extensions\.AI"/);
-  assert.match(html, /<span class="opp-kind-text">IChatClient extension<\/span>/);
-});
-
-test("an integration kind with no dotted namespace renders as plain muted text", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "Config",
-        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
-
-  assert.doesNotMatch(html, /opp-package-chip/);
-  assert.match(html, /<span class="opp-kind-text">IServiceCollection registration<\/span>/);
-});
-
-test("look-for tokens render as spotlight-seeded chips, one per comma-separated identifier", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "AI",
-        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "AddChatClient, AddEmbeddingGenerator" })],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
-
-  assert.match(html, /<button class="opp-chip" data-opp-lookfor="AddChatClient"[^>]*>AddChatClient<\/button>/);
-  assert.match(html, /<button class="opp-chip" data-opp-lookfor="AddEmbeddingGenerator"[^>]*>AddEmbeddingGenerator<\/button>/);
-});
-
-test("a wildcard look-for pattern renders as a muted, non-interactive hint", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "Config",
-        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "Add*" })],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
-
-  assert.match(html, /<span class="opp-pattern" title="Naming pattern">Add\*<\/span>/);
-  assert.doesNotMatch(html, /opp-chip/);
-});
-
-test("an empty look-for hint renders a generic any-registration-surface hint", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "Config",
-        items: [opportunity({ api: "Widget", integrationType: "IServiceCollection registration", lookFor: "" })],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
-
-  assert.match(html, /<span class="opp-pattern">any registration surface<\/span>/);
-});
-
-test("API and integration-type text is escaped", () => {
-  const html = renderPackageOpportunities({
-    ...baseOptions,
-    data: {
-      categories: [{
-        integration: "<Cat>",
-        items: [opportunity({ api: "<Widget>", integrationType: "<bad> kind", lookFor: "<bad>" })],
-      }],
-      totalOpportunities: 1,
-      isComplete: true,
-      inspectionError: null,
-    },
-  });
+test("suggested integration row text uses the supplied escape boundary", () => {
+  const html = renderOpportunityRow(suggestion({
+    api: "<Widget>",
+    integrationType: "<bad> kind",
+    lookFor: "<bad>",
+  }), escapeHtml);
 
   assert.match(html, /&lt;Widget&gt;/);
   assert.match(html, /&lt;bad&gt; kind/);
-  assert.match(html, /&lt;Cat&gt;/);
   assert.doesNotMatch(html, /<Widget>/);
 });

@@ -905,6 +905,13 @@ jobs:
           --filter-class
           'ILInspector.Research.Tests.LibraryNameFamilySummaryTests'
 
+      - name: Self-test Library Type-leverage census
+        if: matrix.shard == 'host-policy'
+        run: >-
+          dotnet run -c Release
+          eng/census-library-type-leverage.cs --
+          --self-test
+
       - name: Test CLI runtime flavor across publish modes
         if: matrix.shard == 'host-policy'
         run: bash eng/test-runtime-flavor.sh ${{ matrix.rid }}
@@ -1133,29 +1140,21 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
-      - name: Run platform target currency tests
+      - name: Run platform target currency and manifest format tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Platforms.Tests -c Release
-
-      - name: Run platform manifest format tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Platforms.Formats.Tests -c Release
 
       - name: Run application dependency manifest format tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.DependencyManifests.Tests -c Release
 
-      - name: Run PlatformHouse contract tests
+      - name: Run PlatformHouse contract and execution tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
 
-      - name: Run PlatformHouse execution tests
+      - name: Run local PlatformHouse adapter tests
         if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Execution.Tests -c Release
-
-      - name: Run installed PlatformHouse adapter tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Installed.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Local.Tests -c Release
 
       - name: Run package-backed PlatformHouse adapter tests
         if: matrix.shard == 'contracts'
@@ -1925,14 +1924,15 @@ jobs:
 
       - name: Smoke test - package quiet
         run: |
-          dotnet-inspect package System.Text.Json@10.0.0 -v:q > smoke-package.md
-          cat smoke-package.md
-          grep -q "System.Text.Json" smoke-package.md
-          grep -q "Library" smoke-package.md
+          dotnet-inspect package System.Text.Json@10.0.0 -v:q > smoke-package.txt
+          cat smoke-package.txt
+          grep -q "System.Text.Json" smoke-package.txt
+          grep -q "System.Text.Json.dll" smoke-package.txt
 
       - name: Smoke test - package normal
         run: |
-          dotnet-inspect package System.Text.Json@10.0.0 -v:n > smoke-package-normal.md
+          dotnet-inspect package System.Text.Json@10.0.0 -v:n \
+            -S "Package Info,Signature" > smoke-package-normal.md
           cat smoke-package-normal.md
           grep -q "## Package Info" smoke-package-normal.md
           grep -q "## Signature" smoke-package-normal.md

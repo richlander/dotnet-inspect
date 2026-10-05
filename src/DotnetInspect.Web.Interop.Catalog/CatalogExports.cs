@@ -8,7 +8,6 @@ using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
 using ILInspector.Metadata;
-using Analysis = ILInspector.Analysis;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Catalog;
@@ -30,7 +29,8 @@ public static partial class CatalogExports
     private static readonly Lazy<BrowserVocabularyInspection>
         VocabularyInspection =
             new(() => BrowserVocabulary.ToBrowserInspection(
-                ProductVocabularyInspection.Execute()));
+                ProductVocabularyInspection.Execute(
+                    BrowserVocabularyComposition.Snapshot)));
 
     [JSExport]
     public static string InspectVocabulary() =>
@@ -235,18 +235,6 @@ public static partial class CatalogExports
                 member.Name,
                 member.GraphSelectorKey,
                 member.MetadataToken ?? 0);
-        BrowserWorkspaceParticipant participant = resolvedMember.ImplementationParticipant;
-        Analysis.CallGraphMemberResolution memberResolution = resolvedMember.Member;
-        MemberCallGraphView view = scope.UseImplementation(group =>
-        {
-            using var session = new MemberCallGraphSession(
-                group,
-                participant.Assembly,
-                memberResolution.BodyToken);
-            return session.HasCrossLibraryScope
-                ? session.CrossLibrary()
-                : session.Callers();
-        });
 
         return new BrowserHomeDemoRunResult(
             true,
@@ -267,7 +255,9 @@ public static partial class CatalogExports
                 member.AnchorDigest,
                 memberPlan.MemberSection),
             BrowserCatalogWireProjection.Project(
-                BrowserCallGraphProjection.Project(scope, view)));
+                BrowserCallGraphProjection.Project(
+                    scope,
+                    resolvedMember)));
     }
 
     static async Task<BrowserHomeDemoRunResult> RunPackageHomeDemoAsync(

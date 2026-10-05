@@ -256,19 +256,26 @@ public sealed class LibraryDependencyStructureQueryTests
                 LibraryBodyAnalysisRequest
                     .CreateCompleteImplementationProfile());
 
-        Assert.IsType<LibraryMetricsResult.Available>(
+        var metrics = Assert.IsType<LibraryMetricsResult.Available>(
             LibraryMetricsQuery.Execute(analysis));
+        var document =
+            Assert.IsType<
+                LibraryDependencyStructureResult.Available>(
+                    LibraryDependencyStructure.Execute(analysis));
         var dependency =
             Assert.IsType<
                 LibraryDependencyStructureQueryResult.Available>(
-                    LibraryDependencyStructureInspection.Execute(
-                        analysis,
+                    LibraryDependencyStructureInspection.Select(
+                        document,
                         Request(
                             LibraryDependencyStructureQuery
                                 .TypeNodesRowSet)));
         Assert.Same(
             analysis.CallGraph.Receipt,
             dependency.Document.AnalysisReceipt);
+        Assert.Same(
+            metrics.Document.AnalysisReceipt,
+            document.Document.AnalysisReceipt);
     }
 
     private static LibraryBodyAnalysisExecution Analysis(

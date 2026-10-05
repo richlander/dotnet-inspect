@@ -10,6 +10,8 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 /// <summary>

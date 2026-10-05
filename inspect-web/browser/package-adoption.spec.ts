@@ -2706,17 +2706,21 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       fixtureFramework,
       library.id,
     );
-    expect(salience.outcome).toBe("available");
-    expect(salience.methodologyVersion).toBe("structural-salience.v2");
-    expect(salience.evidenceMode).toBe("signature");
-    expect(salience.failure).toBeNull();
-    expect(salience.namespaceIndex).not.toBeNull();
-    const namespaces = salience.namespaceIndex!.namespaces;
+    expect(salience.surface.outcome).toBe("available");
+    expect(salience.surface.methodologyVersion)
+      .toBe("structural-salience.v3");
+    expect(salience.surface.evidenceMode).toBe("signature");
+    expect(salience.surface.failure).toBeNull();
+    expect(salience.surface.namespaceIndex).not.toBeNull();
+    expect(salience.implementation.outcome).toBe("available");
+    expect(salience.implementation.evidenceMode).toBe("body-use");
+    const namespaces = salience.surface.namespaceIndex!.namespaces;
     expect(namespaces.length).toBeGreaterThan(0);
-    expect(salience.typeLeverageShards.map(shard => shard.namespace)).toEqual(
-      namespaces.map(row => row.namespace),
-    );
-    for (const shard of salience.typeLeverageShards) {
+    for (const channel of [salience.surface, salience.implementation]) {
+      expect(channel.typeLeverageShards.map(shard => shard.namespace))
+        .toEqual(namespaces.map(row => row.namespace));
+    }
+    for (const shard of salience.surface.typeLeverageShards) {
       expect(
         new Set(shard.types.map(row => row.typeDefinitionId)).size,
       ).toBe(shard.types.length);
@@ -3005,6 +3009,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // The added Type carries its implicit constructor plus First and Second.
     await expect(panel.locator(".compare-status"))
       .toContainText("3 changed Members", { timeout: 60_000 });
+    const changedTypeNavigation = page.locator(
+      '#content-navigation-pane [data-type="LibraryApiDiffFixture.AddedType"]',
+    );
+    await expect(
+      changedTypeNavigation.locator(".item-achievement-glyph.api-diff"),
+    ).toHaveCount(1);
+    await expect(changedTypeNavigation.locator(".item-achievement-rail"))
+      .toHaveAttribute("aria-label", /API differences/);
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator(".library-api-diff-member button")).toHaveCount(3);
     await expect(panel).not.toContainText("Whole type diff");
@@ -3031,6 +3043,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("LibraryApiDiffFixture.AddedType.First");
     await expect(panel.locator(".compare-status"))
       .toContainText("Member added", { timeout: 60_000 });
+    const changedMemberNavigation = page.locator(
+      '#content-navigation-pane [data-nav-member="method:First"]',
+    );
+    await expect(
+      changedMemberNavigation.locator(".item-achievement-glyph.api-diff"),
+    ).toHaveCount(1);
+    await expect(changedMemberNavigation.locator(".item-achievement-rail"))
+      .toHaveAttribute("aria-label", /API differences/);
     await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(0);
     await expect(panel).not.toContainText("Member evidence");
     await expect(panel.locator("#library-api-diff-changes-title")).toHaveText("What changed");
@@ -3137,6 +3157,24 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(memberDiffExplorer).toHaveCount(0);
     await expect(explore).toBeFocused();
     await page.setViewportSize({ width: 1440, height: 900 });
+
+    // Cross-Member keyboard navigation keeps Compare active.
+    await page.locator("#type-list").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.Second");
+    await expect(page.locator(
+      '[data-inspector-tab][data-member-section="compare"]',
+    )).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowUp");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
+    await page.locator("#nav-back").click();
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.Second");
+    await page.locator("#nav-back").click();
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
 
     // A Member with its own classified change shows the producer's change row.
     await page.locator("#nav-back").click();
@@ -3858,6 +3896,9 @@ test.describe("bounded network-backed Worker smoke", () => {
       { waitUntil: "domcontentloaded" },
     );
     await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("[data-package-child-library]").filter({
+      hasText: "System.Text.Json",
+    }).click();
     await page.locator("button").filter({
       hasText: /^20System\.Text\.Json$/,
     }).click();
@@ -3966,17 +4007,22 @@ test.describe("bounded network-backed Worker smoke", () => {
       return ordered[Math.floor(ordered.length / 2)] ?? 0;
     };
     const measured = measurements.at(-1)?.value;
-    if (measured === undefined || measured.namespaceIndex === null) {
+    if (measured === undefined) {
       throw new Error("Expected structural salience measurements.");
     }
-    expect(measured.outcome).toBe("available");
-    const topNamespace = measured.namespaceIndex.namespaces.find(
+    const surfaceLeverage = measured.surface;
+    const namespaceIndex = surfaceLeverage.namespaceIndex;
+    if (namespaceIndex === null) {
+      throw new Error("Expected structural salience namespace evidence.");
+    }
+    expect(surfaceLeverage.outcome).toBe("available");
+    const topNamespace = namespaceIndex.namespaces.find(
       row => row.topLeverage,
     );
     if (topNamespace === undefined) {
       throw new Error("Expected a top-leverage System.Text.Json namespace.");
     }
-    const topShard = measured.typeLeverageShards.find(
+    const topShard = surfaceLeverage.typeLeverageShards.find(
       shard => shard.namespace === topNamespace.namespace,
     );
     if (topShard === undefined) {
@@ -3986,20 +4032,42 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(
       topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
+    expect(measured.implementation.outcome).toBe("available");
+    const implementationTypes =
+      measured.implementation.typeLeverageShards.flatMap(
+        shard => shard.types,
+      );
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.ThrowHelper",
+    )?.pole).toBe("SeaLevel");
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.JsonSerializer",
+    )?.pole).toBe("MountainPeak");
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.JsonDocument",
+    )?.pole).toBe("MountainPeak");
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Text.Json@10.0.0/net10.0",
-      namespaceCount: measured.namespaceIndex.namespaces.length,
+      namespaceCount: namespaceIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
-      typeRows: measured.typeLeverageShards.reduce(
+      typeRows: surfaceLeverage.typeLeverageShards.reduce(
         (sum, shard) => sum + shard.types.length,
         0,
       ),
       seaLevelDesignations:
-        measured.typeLeverageShards.flatMap(shard => shard.types)
+        surfaceLeverage.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "SeaLevel").length,
       mountainPeakDesignations:
-        measured.typeLeverageShards.flatMap(shard => shard.types)
+        surfaceLeverage.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "MountainPeak").length,
+      bodySeaLevelDesignations:
+        implementationTypes.filter(row => row.pole === "SeaLevel").length,
+      bodyMountainPeakDesignations:
+        implementationTypes.filter(
+          row => row.pole === "MountainPeak").length,
       exhaustiveMedianMilliseconds: median(
         measurements.map(measurement => measurement.milliseconds),
       ),
@@ -4039,18 +4107,23 @@ test.describe("bounded network-backed Worker smoke", () => {
       return ordered[Math.floor(ordered.length / 2)] ?? 0;
     };
     const measured = measurements.at(-1)?.value;
-    if (measured === undefined || measured.namespaceIndex === null) {
+    if (measured === undefined) {
       throw new Error("Expected CoreLib structural salience measurements.");
     }
-    expect(measured.outcome).toBe("available");
-    expect(measured.namespaceIndex.namespaces.length).toBeGreaterThan(50);
-    const topNamespace = measured.namespaceIndex.namespaces.find(
+    const surface = measured.surface;
+    const namespaceIndex = surface.namespaceIndex;
+    if (namespaceIndex === null) {
+      throw new Error("Expected CoreLib namespace evidence.");
+    }
+    expect(surface.outcome).toBe("available");
+    expect(namespaceIndex.namespaces.length).toBeGreaterThan(50);
+    const topNamespace = namespaceIndex.namespaces.find(
       row => row.topLeverage,
     );
     if (topNamespace === undefined) {
       throw new Error("Expected a top-leverage CoreLib namespace.");
     }
-    const topShard = measured.typeLeverageShards.find(
+    const topShard = surface.typeLeverageShards.find(
       shard => shard.namespace === topNamespace.namespace,
     );
     if (topShard === undefined) {
@@ -4060,20 +4133,38 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(
       topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
+    expect(measured.implementation.outcome).toBe("available");
+    const implementationTypes =
+      measured.implementation.typeLeverageShards.flatMap(
+        shard => shard.types,
+      );
+    expect(implementationTypes).toHaveLength(1_907);
+    expect(
+      implementationTypes.filter(row => row.pole === "SeaLevel"),
+    ).toHaveLength(29);
+    expect(
+      implementationTypes.filter(row => row.pole === "MountainPeak"),
+    ).toHaveLength(35);
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Private.CoreLib/.NET 11 RC1",
-      namespaceCount: measured.namespaceIndex.namespaces.length,
+      namespaceCount: namespaceIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
-      typeRows: measured.typeLeverageShards.reduce(
+      typeRows: surface.typeLeverageShards.reduce(
         (sum, shard) => sum + shard.types.length,
         0,
       ),
       seaLevelDesignations:
-        measured.typeLeverageShards.flatMap(shard => shard.types)
+        surface.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "SeaLevel").length,
       mountainPeakDesignations:
-        measured.typeLeverageShards.flatMap(shard => shard.types)
+        surface.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "MountainPeak").length,
+      bodyTypeRows: implementationTypes.length,
+      bodySeaLevelDesignations:
+        implementationTypes.filter(row => row.pole === "SeaLevel").length,
+      bodyMountainPeakDesignations:
+        implementationTypes.filter(
+          row => row.pole === "MountainPeak").length,
       exhaustiveMedianMilliseconds: median(
         measurements.map(measurement => measurement.milliseconds),
       ),

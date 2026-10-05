@@ -33,28 +33,54 @@ internal sealed record LibraryScalarFields(
     string? Version,
     string? DocumentFailure)
 {
+    internal static LibraryScalarFields From(
+        LibraryPresentationContext context,
+        LibraryDocumentInspection documentInspection)
+    {
+        if (documentInspection.Envelope?.Content
+            is LibraryInspectionOutcome.Available available)
+        {
+            return FromDocument(
+                context.PlatformVersion,
+                available.Document);
+        }
+
+        return Unavailable(
+            context.PlatformVersion,
+            ResolveDocumentFailure(documentInspection)
+                ?? "LibraryUnavailable");
+    }
+
     internal static LibraryScalarFields? From(
         LibraryInspection data,
         LibraryDocumentInspection? documentInspection = null)
     {
-        // Views that carry no assembly identity render no scalar fields, as before.
-        if (data.AssemblyInfo is not { } info)
-            return null;
-        if (documentInspection?.Document is { } document)
-            return FromDocument(data, document);
-        if (documentInspection?.Failure is { } failure)
+        if (documentInspection?.Envelope?.Content
+            is LibraryInspectionOutcome.Available available)
         {
-            return new(
-                null, null, null, null, null, null, null, false, null,
-                null, null, null, null, null,
+            return FromDocument(
                 data.PlatformVersion,
-                $"unavailable ({failure})");
+                available.Document);
         }
 
+        string? failure = ResolveDocumentFailure(documentInspection);
+        if (failure is not null)
+        {
+            return Unavailable(
+                data.PlatformVersion,
+                failure);
+        }
+
+        // Views that carry neither a document nor legacy assembly identity
+        // render no scalar fields.
+        if (data.AssemblyInfo is not { } info)
+            return null;
         return FromLegacy(data, info);
     }
 
-    private static LibraryScalarFields FromDocument(LibraryInspection data, LibraryDocument document)
+    private static LibraryScalarFields FromDocument(
+        string? platformVersion,
+        LibraryDocument document)
     {
         LibraryImageFacts? image = document.Image;
         LibraryDescriptionFacts? description = document.Description;
@@ -96,11 +122,38 @@ internal sealed record LibraryScalarFields(
             Text(description?.Copyright),
             EnabledLabels(document.Enablements),
             ResolveVersion(
-                data.PlatformVersion,
+                platformVersion,
                 informationalVersion is LibraryTextFact.Present present ? present.Value.ToString() : null,
                 assemblyVersion),
             null);
     }
+
+    private static LibraryScalarFields Unavailable(
+        string? platformVersion,
+        string failure) =>
+        new(
+            null, null, null, null, null, null, null, false, null,
+            null, null, null, null, null,
+            platformVersion,
+            $"unavailable ({failure})");
+
+    private static string? ResolveDocumentFailure(
+        LibraryDocumentInspection? documentInspection) =>
+        documentInspection switch
+        {
+            {
+                Envelope.Content:
+                    LibraryInspectionOutcome.Rejected rejected,
+            } => rejected.Reason.ToString(),
+            {
+                Envelope.Content:
+                    LibraryInspectionOutcome.Failed failed,
+            } => failed.Reason.ToString(),
+            { Envelope: not null } => "LibraryUnavailable",
+            { ExecutionFailure: { } executionFailure } =>
+                executionFailure,
+            _ => null,
+        };
 
     private static LibraryScalarFields FromLegacy(LibraryInspection data, AssemblyInfo info) =>
         new(

@@ -240,6 +240,31 @@ test("Top Leverage decorates source families without filter or history state", (
     /methodLeverageEnabled|memberLeverageFilter|onMethodLeverageActivate|onMethodLeverageFilterSelect/);
 });
 
+test("settled API Diff evidence decorates exact Type and Member navigation rows", () => {
+  const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
+  assert.match(
+    typeNav,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)[\s\S]*achievements\.push\(apiDiffAchievement\)/,
+  );
+
+  const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
+  assert.match(
+    memberNav,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*memberApiDiffAchievements\(\s*diffPresence\.memberFingerprints,\s*group,\s*index\)/,
+  );
+
+  const memberDiff = sourceText(
+    functionDeclaration("memberApiDiffAchievements"));
+  assert.match(
+    memberDiff,
+    /index === null[\s\S]*group\.overloads\.slice\(index, index \+ 1\)[\s\S]*memberFingerprints\.has\(overload\.anchorDigest\)/,
+  );
+  assert.match(
+    stylesSource,
+    /\.item-achievement-glyph\.api-diff[\s\S]*color: var\(--purple\)/,
+  );
+});
+
 test("platform call graphs carry the target pack into lazy acquisition", () => {
   assert.equal(
     platformPackFromProvenance(
@@ -500,7 +525,7 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
 test("workspace data bar receives package acquisition provenance", () => {
   assert.match(
     appSource,
-    /createPackageAcquisition\(\{[\s\S]*queryPackage:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
+    /createPackageAcquisition\(\{[\s\S]*queryPackageSummary:[\s\S]*loadRuntimePack:[\s\S]*loadRuntimePackAssembly:/);
   assert.match(appSource, /packageAcquisition\.loadPackage\(\{/);
   assert.match(appSource, /packageAcquisition\.loadRuntimePack\(/);
   assert.match(appSource, /packageAcquisition\.loadRuntimePackAssembly\(/);
@@ -629,6 +654,25 @@ test("explicit coordinate changes discard a floating canonical basis", () => {
     /state\.workspaceShareBasis = null;\s*state\.platformStack = \[\];\s*activatePackage[\s\S]*const firstLibrary = packageLibraries\(\)\[0\];\s*state\.libraryScope = firstLibrary \? new Set\(\[firstLibrary\.id\]\) : null/);
 });
 
+test("package coordinate work stays owned by the visible initiating view", () => {
+  const packageVersion = appSource.match(
+    /async function switchPackageVersion\([\s\S]*?\n}/)?.[0] ?? "";
+  const packageFramework = appSource.match(
+    /async function switchPackageFramework\([\s\S]*?\n}/)?.[0] ?? "";
+  const vulnerabilitiesLoader = appSource.match(
+    /function maybeAutoLoadPackageVulnerabilities\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+
+  assert.match(
+    vulnerabilitiesLoader,
+    /scope\(\) !== "package"[\s\S]*state\.packageLens !== "vulnerabilities"/);
+  for (const coordinateSwitch of [packageVersion, packageFramework]) {
+    assert.match(
+      coordinateSwitch,
+      /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*const loaded = await loadPackage\([\s\S]*navigationSeq,[\s\S]*if \(loaded\s*&& navigationSequence\.isCurrent\(navigationSeq\)\s*&& packageIdentityEquals\(state\.package, loaded\)\)/);
+  }
+});
+
 test("typed package inspection owns package-root request coordination", () => {
   const dependenciesLoader =
     appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
@@ -733,6 +777,11 @@ test("typed package view owns package navigation bindings", () => {
   const kindJump = actionSource("onKindJump");
   const libraryJump = actionSource("onLibraryScopeSelect");
   const namespaceJump = actionSource("onNamespaceJump");
+  const packageChildLibrary =
+    actionSource("onPackageChildLibrarySelect");
+  assert.match(
+    packageChildLibrary,
+    /navigationSequence\.begin\(\)[\s\S]*selectLibrarySubject\(assetId\)/);
   assert.match(
     kindJump,
     /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
@@ -862,7 +911,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     appSource,
-    /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*state\.analysisMode === "opportunities"[\s\S]*loadPackageLibraryMetrics\(\)/);
+    /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*state\.analysisMode === "complexity"[\s\S]*state\.analysisMode === "relationships"[\s\S]*loadPackageLibraryMetrics\(\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /\[data-(?:library-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
@@ -1084,7 +1133,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     appSource.match(/async function renderAnnotatedRelationshipDiagram\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Projects the neutral type-relationship)/)?.[0]
     ?? "";
   const dependencyGraph =
-    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
+    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nasync function renderLibraryReferenceGraph)/)?.[0]
+    ?? "";
+  const libraryReferenceGraph =
+    appSource.match(/async function renderLibraryReferenceGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
     ?? "";
   const callGraph =
     appSource.match(/function renderMermaidCallGraph\(\): Promise<CallGraphRenderResult> \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
@@ -1144,6 +1196,9 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     dependencyGraph,
     /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
   assert.match(
+    libraryReferenceGraph,
+    /buildAssemblyReferenceGraphMermaid\([\s\S]*graphControlsHtml\(\)[\s\S]*bindGraphPanZoom\(container, viewport, \{ keybindings \}\)/);
+  assert.match(
     callGraph,
     /const mounted = currentCallGraph\(\);[\s\S]*mounted\?\.mermaid !== definition[\s\S]*bindGraphPanZoom\(targetContainer, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(mounted, nodeId\)/);
   assert.match(
@@ -1176,10 +1231,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
-  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 4);
+  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 5);
   assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
-    `${annotatedRelationshipGraph}\n${typeGraph}\n${dependencyGraph}\n${callGraph}`,
+    `${annotatedRelationshipGraph}\n${typeGraph}\n${dependencyGraph}\n${libraryReferenceGraph}\n${callGraph}`,
     /\.addEventListener\(|querySelectorAll<SVGGElement>\("g\.node"\)/);
   assert.doesNotMatch(
     appSource,
@@ -1345,7 +1400,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameMedia\.matches\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     binding,
-    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(member\)[\s\S]*openOverload\(memberNavOverloadSourceIndex\(member, selector\)\)[\s\S]*openMemberDocument\(selector\)/);
+    /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{\s*openOverload\(selector\);\s*}/);
   assert.doesNotMatch(
     binding,
     /onCopyName|currentInspectedSubjectName/);
@@ -1486,11 +1541,11 @@ test("typed scope bar owns its rendered control bindings", () => {
   assert.deepEqual(
     statementSignatures(scope.body.body.slice(1)),
     [
+      "declare:const navigationSeq = navigationSequence.begin()",
       'assign:contentFramePane = "detail"',
       {
         if: 'target === "workspace"',
         whenTrue: [
-          "expression:navigationSequence.begin()",
           "assign:state.workspaceSubjectOpen = true",
           "assign:state.atPackageRoot = true",
           "assign:state.atLibraryRoot = false",
@@ -1520,6 +1575,14 @@ test("typed scope bar owns its rendered control bindings", () => {
                   {
                     if: 'target === "type"',
                     whenTrue: [
+                      {
+                        if: "!selectedType() && packageSurfaceCanLoadTypes(state.package)",
+                        whenTrue: [
+                          "call:observeAsync(enterTypeSubjectFromPackageSummary(state.package, navigationSeq), `Loading ${state.package.id} Type navigation`)",
+                          "statement:ReturnStatement:return;",
+                        ],
+                        whenFalse: [],
+                      },
                       "assign:state.workspaceSubjectOpen = false",
                       "declare:const forwarder = selectedForwarder()",
                       {
@@ -2171,7 +2234,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
+    /async function pickSpotlight\([\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*packageSurfaceCanLoadTypes\(pkg\)[\s\S]*loadPackageSurface\(pkg\)[\s\S]*if \(!pkg \|\| !type\)[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
     /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);

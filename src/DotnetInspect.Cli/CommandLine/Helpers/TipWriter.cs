@@ -46,7 +46,7 @@ public static class TipWriter
                 tips.Add(new(TypeCommand.Name, $"--package {packageName}", "discover types in package"));
                 tips.Add(new(FindCommand.Name, $"<pattern> --package {packageName}", "search API symbols"));
                 tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..<cur>", "diff versions"));
-                tips.Add(new(PackageCommand.Name, $"{packageName} -S \"Package README file\" --print", "view README"));
+                tips.Add(new(PackageCommand.Name, $"{packageName} -S \"README\" --print", "view README"));
                 tips.Add(new(PackageCommand.Name, $"{packageName} --path /", "list package files"));
                 tips.Add(new(PackageCommand.Name, $"{packageName} --layout", "show file tree"));
 

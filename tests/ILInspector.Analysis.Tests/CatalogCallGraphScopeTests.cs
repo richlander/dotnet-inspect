@@ -131,13 +131,17 @@ public class CatalogCallGraphScopeTests
                 new(analysis.CallGraph, analysisAssembly),
                 new(tests.CallGraph, testAssembly),
             ]);
-        MethodIdentity open = analysis.CallGraph.DeclaredMethods.First(method =>
-            method.DeclaringType.Name == nameof(LibraryBodyIndex)
-            && method.Name == nameof(LibraryBodyIndex.Open));
+        MethodIdentity executePath =
+            analysis.CallGraph.DeclaredMethods.First(method =>
+                method.DeclaringType.Name
+                    == nameof(LibraryBodyAnalysisService)
+                && method.Name
+                    == nameof(
+                        LibraryBodyAnalysisService.ExecutePath));
 
         CallTreeNode callers = scope.BuildCallerTree(
             analysis.CallGraph,
-            open.MetadataToken,
+            executePath.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
         int selections = policy.SelectionCount;
@@ -149,7 +153,7 @@ public class CatalogCallGraphScopeTests
 
         CallTreeNode callees = scope.BuildCallTree(
             analysis.CallGraph,
-            open.MetadataToken,
+            executePath.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
         _ = CallGraphProjection.Create(callers, callees);
@@ -1263,13 +1267,17 @@ public class CatalogCallGraphScopeTests
                 new(analysis.CallGraph, analysisAssembly),
                 new(tests.CallGraph, testAssembly),
             ]);
-        MethodIdentity open = analysis.CallGraph.DeclaredMethods.First(method =>
-            method.DeclaringType.Name == nameof(LibraryBodyIndex)
-            && method.Name == nameof(LibraryBodyIndex.Open));
+        MethodIdentity executePath =
+            analysis.CallGraph.DeclaredMethods.First(method =>
+                method.DeclaringType.Name
+                    == nameof(LibraryBodyAnalysisService)
+                && method.Name
+                    == nameof(
+                        LibraryBodyAnalysisService.ExecutePath));
 
         CallTreeNode callers = scope.BuildCallerTree(
             analysis.CallGraph,
-            open.MetadataToken,
+            executePath.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
 

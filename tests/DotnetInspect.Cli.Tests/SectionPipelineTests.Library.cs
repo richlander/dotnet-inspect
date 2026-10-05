@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(54 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(56 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
@@ -125,6 +125,8 @@ public partial class SectionPipelineTests
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Library Metrics", pipeline.AllSectionNames);
         Assert.Contains("Name Families", pipeline.AllSectionNames);
+        Assert.Contains("Name Family Roles", pipeline.AllSectionNames);
+        Assert.Contains("Name Family Role Types", pipeline.AllSectionNames);
         Assert.Contains("Performance: Boxing", pipeline.AllSectionNames);
         Assert.Contains("Performance: Arrays", pipeline.AllSectionNames);
         Assert.Contains("Performance: Closures and Delegates", pipeline.AllSectionNames);
@@ -210,6 +212,10 @@ public partial class SectionPipelineTests
                 LibrarySections.LibraryMetrics.SizeClass),
             (LibrarySections.NameFamilies.Name,
                 LibrarySections.NameFamilies.SizeClass),
+            (LibrarySections.NameFamilyRoles.Name,
+                LibrarySections.NameFamilyRoles.SizeClass),
+            (LibrarySections.NameFamilyRoleTypes.Name,
+                LibrarySections.NameFamilyRoleTypes.SizeClass),
             (LibrarySections.DependencyStructure.Name,
                 LibrarySections.DependencyStructure.SizeClass),
             (LibrarySections.BodyShapes.Name,
@@ -617,6 +623,8 @@ public partial class SectionPipelineTests
                 SectionNames.MemberMetrics,
                 SectionNames.LibraryMetrics,
                 SectionNames.NameFamilies,
+                SectionNames.NameFamilyRoles,
+                SectionNames.NameFamilyRoleTypes,
                 SectionNames.DependencyStructure,
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
@@ -1630,22 +1638,16 @@ public partial class SectionPipelineTests
             PackageFileFamily.SectionNames.OrderBy(n => n, StringComparer.Ordinal),
             sections.OrderBy(n => n, StringComparer.Ordinal));
 
-        var namedAsFiles = pipeline.AllSectionNames
-            .Where(n => n.EndsWith(" file", StringComparison.OrdinalIgnoreCase)
-                        || n.EndsWith(" files", StringComparison.OrdinalIgnoreCase))
-            // A "Group: Leaf" prefix claims the section for that group's door instead:
-            // "SourceLink: Files" is SourceLink data, not a package file listing.
-            .Where(n => !n.Contains(':'))
-            .ToArray();
-        Assert.NotEmpty(namedAsFiles);
+        // The family names are concise nouns (Section shapes adoption), so the
+        // door's membership comes from the declared family, not a noun suffix.
+        Assert.Equal(
+            ["Licenses", "Nuspec", "README", "Skills"],
+            sections.OrderBy(n => n, StringComparer.Ordinal));
+        Assert.Contains("SourceLink: Files", pipeline.AllSectionNames);
+        Assert.DoesNotContain("SourceLink: Files", sections);
 
-        var expected = namedAsFiles
-            .Where(n => !n.Equals(PackageSections.Files, StringComparison.Ordinal))
-            .OrderBy(n => n, StringComparer.Ordinal);
-        Assert.Equal(expected, sections.OrderBy(n => n, StringComparer.Ordinal));
-
-        // The superset is named like the family but is deliberately outside the door.
-        Assert.Contains(PackageSections.Files, namedAsFiles);
+        // The whole-package superset is registered but deliberately outside the door.
+        Assert.Contains(PackageSections.Files, pipeline.AllSectionNames);
         Assert.DoesNotContain(PackageSections.Files, sections);
     }
 
@@ -1885,6 +1887,7 @@ public partial class SectionPipelineTests
                 LibraryDependencyStructureQuery.Definition,
                 LibraryMetricsQuery.Definition,
                 LibraryNameFamilyQuery.Definition,
+                LibraryFamilyRoleQuery.Definition,
                 MetadataImageQuery.Definition,
                 MethodClassificationDemand.AsyncMethods,
                 MethodClassificationDemand.LibraryInfo,

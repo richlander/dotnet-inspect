@@ -96,6 +96,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task AllLibraries_PerformanceCount_UsesScalarKindCounts()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "package", packagePath, "--library",
+                "-S", "Performance: Boxing", "--count");
+            var selected = await RunAppAsync(
+                "package", packagePath, "--library", "Layout.dll",
+                "-S", "Performance: Boxing", "--count");
+
+            Assert.Equal(0, aggregate.Exit);
+            AssertOnlyPerformanceAnalysisWarnings(aggregate.Error);
+            Assert.Equal(0, selected.Exit);
+            AssertOnlyPerformanceAnalysisWarnings(selected.Error);
+            Assert.Equal(selected.Output, aggregate.Output);
+            Assert.True(
+                int.Parse(
+                    aggregate.Output.Trim(),
+                    CultureInfo.InvariantCulture) > 0);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task AllLibraries_ExplicitFixedOverviewCount_PreservesSections()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
@@ -970,7 +999,8 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "-S",
-                "Package Info");
+                "Package Info",
+                "--markdown");
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
@@ -1445,7 +1475,7 @@ public partial class CommandExecutionTests
             row.GetProperty("name").GetString());
         Assert.Equal(
             "inventory",
-            row.GetProperty("shape").GetString());
+            row.GetProperty("cardinality").GetString());
         Assert.Equal(
             ["rows", "count"],
             row.GetProperty("terminals")
@@ -1478,7 +1508,7 @@ public partial class CommandExecutionTests
             Assert.Single(document.RootElement.EnumerateArray());
         Assert.Equal(
             "scalar",
-            row.GetProperty("shape").GetString());
+            row.GetProperty("cardinality").GetString());
         Assert.Empty(
             row.GetProperty("terminals").EnumerateArray());
     }

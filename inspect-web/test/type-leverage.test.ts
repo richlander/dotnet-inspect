@@ -47,19 +47,20 @@ const index: BrowserLibraryNamespaceLeverageIndex = {
 const shard: BrowserLibraryTypeLeverageShard = {
   namespace: "Example.Core",
   disposition: "complete",
-  coverage: {
+  signatureCoverage: {
     considered: 4,
     examined: 4,
     unavailable: 0,
     limited: 0,
   },
+  bodyCoverage: null,
   types: [
     {
       typeDefinitionId: "Example.Core.Sea",
       typeDisplay: "Example.Core.Sea",
       designationEligible: true,
-      signatureIncomingDegree: 8,
-      signatureOutgoingDegree: 1,
+      incomingDegree: 8,
+      outgoingDegree: 1,
       role: "foundation",
       pole: "SeaLevel",
     },
@@ -67,8 +68,8 @@ const shard: BrowserLibraryTypeLeverageShard = {
       typeDefinitionId: "Example.Core.Peak",
       typeDisplay: "Example.Core.Peak",
       designationEligible: true,
-      signatureIncomingDegree: 8,
-      signatureOutgoingDegree: 10,
+      incomingDegree: 8,
+      outgoingDegree: 10,
       role: "hub",
       pole: "MountainPeak",
     },
@@ -76,8 +77,8 @@ const shard: BrowserLibraryTypeLeverageShard = {
       typeDefinitionId: "Example.Core.Tie",
       typeDisplay: "Example.Core.Tie",
       designationEligible: true,
-      signatureIncomingDegree: 8,
-      signatureOutgoingDegree: 8,
+      incomingDegree: 8,
+      outgoingDegree: 8,
       role: "hub",
       pole: null,
     },
@@ -103,14 +104,51 @@ const toolsShard: BrowserLibraryTypeLeverageShard = {
   mountainPeakOrder: [],
 };
 
+const bodyCoverage = {
+  bodiesConsidered: 8,
+  bodiesExamined: 8,
+  bodiesPhysicalOnly: 0,
+  bodiesUnavailable: 0,
+  bodiesLimited: 0,
+  operandsConsidered: 16,
+  operandsExamined: 16,
+  operandsUnavailable: 0,
+  operandsLimited: 0,
+};
+
+const bodyShard: BrowserLibraryTypeLeverageShard = {
+  ...shard,
+  bodyCoverage,
+  types: [],
+  seaLevelOrder: [],
+  mountainPeakOrder: [],
+};
+
+const bodyToolsShard: BrowserLibraryTypeLeverageShard = {
+  ...bodyShard,
+  namespace: "Example.Tools",
+};
+
 const document: BrowserLibraryStructuralSalience = {
-  schemaVersion: 1,
-  outcome: "available",
-  methodologyVersion: "structural-salience.v2",
-  evidenceMode: "signature",
-  namespaceIndex: index,
-  typeLeverageShards: [shard, toolsShard],
-  failure: null,
+  schemaVersion: 2,
+  surface: {
+    outcome: "available",
+    methodologyVersion: "structural-salience.v3",
+    evidenceMode: "signature",
+    namespaceIndex: index,
+    typeLeverageShards: [shard, toolsShard],
+    failure: null,
+    failureKind: null,
+  },
+  implementation: {
+    outcome: "available",
+    methodologyVersion: "structural-salience.v3",
+    evidenceMode: "body-use",
+    namespaceIndex: null,
+    typeLeverageShards: [bodyShard, bodyToolsShard],
+    failure: null,
+    failureKind: null,
+  },
   compileLibrary,
 };
 
@@ -137,21 +175,105 @@ test("owner-issued namespace and Type designations drive presentation", () => {
   );
   assert.equal(projection.seaLevelCount, 1);
   assert.equal(projection.mountainPeakCount, 1);
-  assert.equal(sea?.pole, "sea-level");
-  assert.equal(peak?.pole, "mountain-peak");
+  assert.equal(sea?.[0]?.pole, "sea-level");
+  assert.equal(peak?.[0]?.pole, "mountain-peak");
   assert.equal(projection.byType.has("Example.Core.Tie"), false);
+});
+
+test("aligned and opposing evidence modes retain two independent poles", () => {
+  const implementationShard: BrowserLibraryTypeLeverageShard = {
+    ...bodyShard,
+    types: [
+      {
+        typeDefinitionId: "Example.Core.Sea",
+        typeDisplay: "Example.Core.Sea",
+        designationEligible: true,
+        incomingDegree: 12,
+        outgoingDegree: 1,
+        role: "foundation",
+        pole: "SeaLevel",
+      },
+      {
+        typeDefinitionId: "Example.Core.Peak",
+        typeDisplay: "Example.Core.Peak",
+        designationEligible: true,
+        incomingDegree: 11,
+        outgoingDegree: 2,
+        role: "foundation",
+        pole: "SeaLevel",
+      },
+    ],
+    seaLevelOrder: ["Example.Core.Sea", "Example.Core.Peak"],
+    mountainPeakOrder: ["Example.Core.Peak", "Example.Core.Sea"],
+  };
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      ...document.implementation,
+      typeLeverageShards: [implementationShard, bodyToolsShard],
+    },
+  });
+
+  assert.deepEqual(
+    projection.byType.get("Example.Core.Sea")?.map(cue => [
+      cue.evidenceMode,
+      cue.pole,
+    ]),
+    [
+      ["surface", "sea-level"],
+      ["implementation", "sea-level"],
+    ],
+  );
+  assert.deepEqual(
+    projection.byType.get("Example.Core.Peak")?.map(cue => [
+      cue.evidenceMode,
+      cue.pole,
+    ]),
+    [
+      ["surface", "mountain-peak"],
+      ["implementation", "sea-level"],
+    ],
+  );
+  assert.equal(projection.seaLevelCount, 3);
+  assert.equal(projection.mountainPeakCount, 1);
+});
+
+test("implementation unavailability retains surface cues and warning", () => {
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      outcome: "unavailable",
+      methodologyVersion: null,
+      evidenceMode: "body-use",
+      namespaceIndex: null,
+      typeLeverageShards: [],
+      failure: "The Library is reference-only.",
+      failureKind: "NoImplementationAssembly",
+    },
+  });
+
+  assert.equal(
+    projection.byType.get("Example.Core.Sea")?.[0]?.evidenceMode,
+    "surface",
+  );
+  assert.deepEqual(projection.warnings, [
+    "Implementation Type leverage is unavailable (NoImplementationAssembly): The Library is reference-only.",
+  ]);
 });
 
 test("the Browser does not derive relative categories from scores", () => {
   const projection = projectTypeLeverage({
     ...document,
-    typeLeverageShards: [{
-      ...shard,
-      types: shard.types.map(row => ({
-        ...row,
-        pole: null,
-      })),
-    }, toolsShard],
+    surface: {
+      ...document.surface,
+      typeLeverageShards: [{
+        ...shard,
+        types: shard.types.map(row => ({
+          ...row,
+          pole: null,
+        })),
+      }, toolsShard],
+    },
   });
 
   assert.equal(projection.byType.size, 0);
@@ -163,20 +285,23 @@ test("malformed exact-identity orders fail visibly", () => {
   assert.throws(
     () => projectTypeLeverage({
       ...document,
-      typeLeverageShards: [{
-        ...shard,
-        seaLevelOrder: ["Example.Core.Missing"],
-      }, toolsShard],
+      surface: {
+        ...document.surface,
+        typeLeverageShards: [{
+          ...shard,
+          seaLevelOrder: ["Example.Core.Missing"],
+        }, toolsShard],
+      },
     }),
     /ineligible Type 'Example\.Core\.Missing'/,
   );
 });
 
-test("the exhaustive wire shape requires schema version one", () => {
+test("the exhaustive wire shape requires schema version two", () => {
   assert.throws(
     () => projectTypeLeverage({
       ...document,
-      schemaVersion: 2,
+      schemaVersion: 3,
     }),
     /Unsupported structural-salience schema version/,
   );
@@ -186,14 +311,20 @@ test("the exhaustive document must cover every namespace in index order", () => 
   assert.throws(
     () => projectTypeLeverage({
       ...document,
-      typeLeverageShards: [shard],
+      surface: {
+        ...document.surface,
+        typeLeverageShards: [shard],
+      },
     }),
     /does not cover every namespace/,
   );
   assert.throws(
     () => projectTypeLeverage({
       ...document,
-      typeLeverageShards: [toolsShard, shard],
+      surface: {
+        ...document.surface,
+        typeLeverageShards: [toolsShard, shard],
+      },
     }),
     /Expected Type-leverage shard 'Example\.Core' at index 0/,
   );
@@ -202,21 +333,24 @@ test("the exhaustive document must cover every namespace in index order", () => 
 test("qualified index and shard evidence remain visible", () => {
   const projection = projectTypeLeverage({
     ...document,
-    namespaceIndex: {
-      ...index,
-      disposition: "Qualified",
-      coverage: {
-        considered: 8,
-        examined: 6,
-        unavailable: 1,
-        limited: 1,
+    surface: {
+      ...document.surface,
+      namespaceIndex: {
+        ...index,
+        disposition: "Qualified",
+        coverage: {
+          considered: 8,
+          examined: 6,
+          unavailable: 1,
+          limited: 1,
+        },
+        diagnostics: ["SIG001: index evidence was unavailable"],
       },
-      diagnostics: ["SIG001: index evidence was unavailable"],
+      typeLeverageShards: [{
+        ...shard,
+        diagnostics: ["SIG002: shard evidence was limited"],
+      }, toolsShard],
     },
-    typeLeverageShards: [{
-      ...shard,
-      diagnostics: ["SIG002: shard evidence was limited"],
-    }, toolsShard],
   });
 
   assert.equal(projection.disposition, "Qualified");
@@ -375,10 +509,13 @@ test("pre-retry document completion cannot repopulate caches", async () => {
   let documentQueries = 0;
   const replacementDocument: BrowserLibraryStructuralSalience = {
     ...document,
-    typeLeverageShards: [{
-      ...shard,
-      types: shard.types.map(row => ({ ...row, pole: null })),
-    }, toolsShard],
+    surface: {
+      ...document.surface,
+      typeLeverageShards: [{
+        ...shard,
+        types: shard.types.map(row => ({ ...row, pole: null })),
+      }, toolsShard],
+    },
   };
   const coordinator = createTypeLeverageCoordinator<Request>({
     operationAuthority: createOperationAuthorityPage(),

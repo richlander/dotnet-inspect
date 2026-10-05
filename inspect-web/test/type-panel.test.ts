@@ -874,7 +874,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /data-type-filter-disclosure open/);
 });
 
-test("the type nav renders exclusive accessible pole cues", () => {
+test("the type nav renders dual accessible pole cues", () => {
     const html = renderTypeNav({
       current: jsonSerializer,
       visible: [jsonSerializer, jsonDocument],
@@ -903,17 +903,28 @@ test("the type nav renders exclusive accessible pole cues", () => {
           : null,
       itemAchievements: item => {
         if (item.id === jsonSerializer.id) {
-          return [{
-            kind: "sea-level",
-            description:
-              "8 incoming Type peers; 6 outgoing Type peers; sea-level Type",
-          }];
+          return [
+            {
+              kind: "surface-sea-level",
+              description:
+                "8 incoming Type peers; 6 outgoing Type peers; surface sea-level Type",
+            },
+            {
+              kind: "implementation-sea-level",
+              description:
+                "12 incoming Type peers; 2 outgoing Type peers; implementation sea-level Type",
+            },
+            {
+              kind: "api-diff",
+              description: "API differences",
+            },
+          ];
         }
         if (item.id === jsonDocument.id) {
           return [{
-            kind: "mountain-peak",
+            kind: "implementation-mountain-peak",
             description:
-              "4 incoming Type peers; 9 outgoing Type peers; mountain-peak Type",
+              "4 incoming Type peers; 9 outgoing Type peers; implementation mountain-peak Type",
           }];
         }
         return [];
@@ -921,9 +932,23 @@ test("the type nav renders exclusive accessible pole cues", () => {
     });
 
     assert.doesNotMatch(html, /data-type-leverage-filter/);
-    assert.match(html, /type-row selected sea-level/);
-    assert.match(html, /class="item-achievement-glyph sea-level"/);
-    assert.match(html, /class="item-achievement-glyph mountain-peak"/);
+    assert.match(
+      html,
+      /type-row selected surface-sea-level implementation-sea-level api-diff/,
+    );
+    assert.match(
+      html,
+      /class="item-achievement-glyph surface-sea-level"/,
+    );
+    assert.match(
+      html,
+      /class="item-achievement-glyph implementation-mountain-peak"/,
+    );
+    assert.match(
+      html,
+      /class="item-achievement-glyph implementation-sea-level"/,
+    );
+    assert.match(html, /class="item-achievement-glyph api-diff"/);
     assert.match(html, /class="item-achievement-rail"/);
     assert.doesNotMatch(html, /[▁▲]/);
     assert.match(
@@ -937,13 +962,16 @@ test("the type nav renders exclusive accessible pole cues", () => {
       /aria-label="8 external source Types; top-leverage namespace"/,
     );
     const seaRow = html.match(
-      /class="type-row selected sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
+      /class="type-row selected surface-sea-level implementation-sea-level api-diff"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
     const peakRow = html.match(
-      /class="type-row  mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
+      /class="type-row  implementation-mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
-    assert.doesNotMatch(seaRow, /mountain-peak/);
-    assert.doesNotMatch(peakRow, /sea-level/);
+    assert.match(seaRow, /surface-sea-level/);
+    assert.match(seaRow, /implementation-sea-level/);
+    assert.match(seaRow, /api-diff/);
+    assert.doesNotMatch(seaRow, /implementation-mountain-peak/);
+    assert.doesNotMatch(peakRow, /surface-sea-level/);
 });
 
 test("the type nav omits a parent action when the Library has no visible parent", () => {
@@ -1045,6 +1073,42 @@ test("the member nav marks the active group and its selected overload", () => {
     /data-nav-selection="overload:method:Serialize:1"/);
   assert.match(html, /id="member-filters"/);
   assert.match(html, /←→ sections/);
+});
+
+test("the member nav renders one active declaration as an exact member", () => {
+  const group = {
+    key: "method:Run",
+    name: "Run",
+    kind: "method",
+    overloads: [{
+      signature: "public void Run(int value)",
+      parameters: [{ name: "value", type: "int" }],
+    }],
+    sourceOverloadCount: 2,
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: group.key,
+    selectedOverloadIndex: 1,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /<span class="type-name"><span class="sig-name">Run<\/span><span class="sig-punct">\(.*<span class="sig-keyword">int<\/span><span class="sig-punct">\)<\/span><\/span>/);
+  assert.doesNotMatch(html, /family-name|family-count|data-nav-overload/);
+  assert.match(
+    html,
+    /data-nav-member="method:Run" role="option" aria-selected="true"/);
+  assert.match(html, /data-nav-selection="member:method:Run"/);
 });
 
 test("the member nav labels a selected graph-only target", () => {
@@ -2517,9 +2581,13 @@ test("member rows say what a member is rather than which kind it is", () => {
     }),
     memberAchievements: (group, index) =>
       (group.key === "method:WriteTo" && index === 0)
-      || (group.key === "method:Parse" && index === 1)
         ? [{ kind: "top-leverage", description: "Top Leverage" }]
-        : [],
+        : group.key === "method:Parse" && index === 1
+          ? [
+              { kind: "top-leverage", description: "Top Leverage" },
+              { kind: "api-diff", description: "API differences" },
+            ]
+          : [],
   });
 
   // A single method shows its compact parameter list; a property its type.
@@ -2540,11 +2608,15 @@ test("member rows say what a member is rather than which kind it is", () => {
   );
   assert.match(
     html,
+    /item-achievement-glyph api-diff/,
+  );
+  assert.match(
+    html,
     /item-achievement-glyph implementation-hub/,
   );
   assert.match(
     html,
-    /aria-label="Top Leverage; implementation hub"/,
+    /aria-label="Top Leverage; API differences; implementation hub"/,
   );
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
   assert.match(html, /aria-description="8 instructions"/);
@@ -2555,7 +2627,7 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
 });
 
-test("filtered overload rows retain their exact source index", () => {
+test("a filtered singleton retains exact selection without an overload row", () => {
   const group = {
     key: "method:Parse",
     name: "Parse",
@@ -2569,10 +2641,7 @@ test("filtered overload rows retain their exact source index", () => {
   };
   const html = renderMemberNav({
     type: jsonDocument,
-    entries: [
-      { kind: "member", group },
-      { kind: "overload", group, index: 0 },
-    ],
+    entries: [{ kind: "member", group }],
     memberCount: 3,
     visibleMemberCount: 1,
     filterControlsHtml: "",
@@ -2582,7 +2651,6 @@ test("filtered overload rows retain their exact source index", () => {
     typeDisplayName,
     shortKind,
     highlight,
-    overloadSourceIndex: () => 2,
     memberAchievements: (_group, index) => index === null
       ? []
       : [{
@@ -2591,14 +2659,14 @@ test("filtered overload rows retain their exact source index", () => {
         }],
   });
 
+  assert.match(html, /data-nav-selection="member:method:Parse"/);
   assert.match(
     html,
-    /data-nav-overload="2" role="option" aria-selected="true"/,
-  );
+    /data-nav-member="method:Parse" role="option" aria-selected="true"/);
+  assert.doesNotMatch(html, /data-nav-overload|family-count/);
   assert.equal(
     html.match(/item-achievement-glyph top-leverage/g)?.length,
     1,
-    "the family parent must not inherit its exact winner's achievement",
+    "the exact member row retains its declaration achievement",
   );
-  assert.match(html, /family-count">3×/);
 });
