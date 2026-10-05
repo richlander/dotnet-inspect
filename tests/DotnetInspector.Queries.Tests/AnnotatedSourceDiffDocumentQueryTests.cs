@@ -240,6 +240,12 @@ public sealed class AnnotatedSourceDiffDocumentQueryTests
             AnnotatedSourceDiffDocumentQueryUnavailability
                 .DivergentTerminalDomains,
             unavailable.Reason);
+        Assert.Collection(
+            unavailable.Correspondences,
+            static outcome => Assert.IsType<
+                ResearchTargetCorrespondenceOutcome.BeforeOnly>(outcome),
+            static outcome => Assert.IsType<
+                ResearchTargetCorrespondenceOutcome.AfterOnly>(outcome));
         Assert.Equal(2, unavailable.Forwarders.Length);
     }
 
