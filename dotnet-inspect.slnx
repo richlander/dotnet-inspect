@@ -200,6 +200,7 @@
     <Project Path="src/Inspector.Graph/Inspector.Graph.csproj" />
     <Project Path="src/Inspector.Resources/Inspector.Resources.csproj" />
     <Project Path="src/QuerySpace/QuerySpace.csproj" />
+    <Project Path="src/QuerySpace.Primitives/QuerySpace.Primitives.csproj" />
     <Project Path="src/Inspector.Text/Inspector.Text.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />

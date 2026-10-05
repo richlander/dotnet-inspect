@@ -966,11 +966,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
 
     private static string RemoveLibraryResourcePath(string node)
     {
+        // Structural discovery appends the resource path of every catalog that
+        // publishes one (library/..., package/...); the matrix compares names.
         int marker = node.LastIndexOf(
-            " [library/",
+            " [",
             StringComparison.Ordinal);
         return marker >= 0
             && node.EndsWith(']')
+            && node.IndexOf('/', marker) > marker
                 ? node[..marker]
                 : node;
     }

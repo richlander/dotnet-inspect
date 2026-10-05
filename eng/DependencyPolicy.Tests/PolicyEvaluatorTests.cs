@@ -633,6 +633,7 @@ public sealed class PolicyEvaluatorTests
     [Theory]
     [InlineData("Inspector.Resources")]
     [InlineData("TsJsExport.Contracts")]
+    [InlineData("QuerySpace.Primitives")]
     public void CheckedInPolicyTreatsContractFloorAsDependencyFree(
         string contractFloor)
     {
@@ -815,14 +816,16 @@ public sealed class PolicyEvaluatorTests
             [
                 "$platform",
                 "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
                 "ILInspector.Decompiler",
+                "QuerySpace.Primitives",
             ],
             rule.AllowOnly);
 
         AssertCheckedInRuleRejectsRepositoryDependency(
             "vocabulary-dependencies",
             "DotnetInspector.Vocabulary",
-            "DotnetInspector.Sections");
+            "QuerySpace");
     }
 
     [Fact]
@@ -1018,6 +1021,7 @@ public sealed class PolicyEvaluatorTests
                 "Inspector.Findings",
                 "Inspector.Text",
                 "QuerySpace",
+                "QuerySpace.Primitives",
             ],
             allowOnly);
         Assert.Null(rule.Deny);
@@ -1109,6 +1113,7 @@ public sealed class PolicyEvaluatorTests
                 "NuGet.Versioning",
                 "NuGetFetch",
                 "QuerySpace",
+                "QuerySpace.Primitives",
                 "System.CommandLine",
             ],
             allowOnly);

@@ -202,7 +202,7 @@ test("Type heat paints the member list without an Implementation section", async
   await compute.click();
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
-  await expect(rows.nth(1)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
   await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
 
   await page.locator('[data-nav-overload="1"]').click();

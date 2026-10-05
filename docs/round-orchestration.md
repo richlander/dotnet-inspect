@@ -181,7 +181,10 @@ ruleset. Keep GitHub auto-merge unarmed while gates are pending. After a green
 preflight, exercise a recorded authorization through a direct merge using the
 [exact-head precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
 If an auto-merge request exists, disable it before any recovery mutation or
-head-moving push.
+head-moving push; when the API cannot be read, the conflict-recovery push
+still proceeds (a conflict is never a waiting state) and names the request
+known from the last successful read, as [Probe the live base locally,
+first](github-status-queries.md#probe-the-live-base-locally-first) states.
 
 For stacks, every open layer must meet its applicable eligibility row above. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -232,7 +235,7 @@ unrelated members such as `review`. In the table, **status members** means
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
 | Green `ci-required` and positive mergeability at the expected head | Leave the status wait and continue when no other predicate remains. |
 | CI or mergeability is pending or missing | Preserve the unresolved status members and apply the round cadence below. |
-| Rate-limited or transient query failure (including a transient probe fetch failure) | Record the concrete failure and retry-not-before time, preserve the unresolved status members and any recorded local conflict, and apply the round cadence below. |
+| Rate-limited or transient query failure (including a transient probe fetch failure) | Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. A recorded local conflict never lands here: it takes the conflict row above even when the PR read fails. |
 | Terminal query failure | Leave the status wait with `rec=stop`, surface the failure, and end. |
 
 Read the table top-down. Conflict recovery outranks CI, terminal non-green
@@ -247,8 +250,9 @@ values.
 
 Every round attempts one current-head snapshot, starting with the local
 conflict probe. When CI is a reviewer-dispatch prerequisite, pending, missing,
-rate-limited, or transient status enters the 60-minute budget below; expiry publishes the status report and stops without
-dispatch. When CI may remain pending, record that status and continue the
+rate-limited, or transient status enters the 60-minute budget below; expiry
+publishes the status report (or, for a probe failure, the classified failure
+described at the end of this section) and stops without dispatch. When CI may remain pending, record that status and continue the
 current review path. A known conflict leaves the wait immediately for
 conflict recovery — a conflict is never a waiting state, `waiting` never
 carries a conflict predicate, and an unreadable API does not hold it (see
@@ -280,12 +284,13 @@ choose a conservative delay and never schedule beyond the deadline. Do not use
 `gh run watch`, `gh pr checks --watch`, fixed-rate schedules, synchronous
 sleeps, or concurrent status requests.
 
-When the budget expires with status unresolved, obtain a final snapshot. Do not
-publish the report below unless its fetched live base equals
-`conflict-checked-base`; instead classify and surface a fetch or probe
-failure. A recorded local conflict never reaches expiry: it left the wait for
-conflict recovery when it was found.
-Then clear `schedule`, keep the unresolved predicates, publish the report, set
+When the budget expires with status unresolved, obtain a final snapshot. If
+its probe records a conflict, leave the wait for conflict recovery at once and
+publish no report: a recorded local conflict never reaches expiry, including
+when the final snapshot is the one that finds it. If its fetched live base
+differs from `conflict-checked-base` (a fetch or probe failure), clear
+`schedule`, classify and surface the failure, and set `rec=stop`. Otherwise
+clear `schedule`, keep the unresolved predicates, publish the report, set
 `rec=stop`, and end. This is an informational stop: it ends observation only
 and neither closes nor abandons the PR.
 
@@ -482,7 +487,9 @@ response in the terminal, filling every field and choosing exactly one feedback
 classification. Do not emit it through a shell command such as `printf`, leave
 it only in tool output, collapse it behind a tool-call summary, or replace it
 with a shorter completion summary. Do not put it in an interactive approval
-prompt:
+prompt. Emit it once at that boundary; after merge, do not replay it or collect
+earlier reports into the forward-looking
+[theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff):
 
 ```text
 Round <n> is complete for PR <number>.
@@ -626,9 +633,13 @@ the path applies.
      already-merged result as terminal. Then remove `review-clean`, integrate
      the tip, re-run the claimed validation, push, obtain current-head CI, and
      re-dispatch the required reviewers at the new head as a normal round.
-   - *Conflict requiring semantic resolution:* expire merge authorization,
-     disable any armed auto-merge first, and handle an already-merged result as
-     terminal. Then remove `review-clean` and resolve it as an author change under
+   - *Conflict requiring semantic resolution:* expire merge authorization;
+     when the API can be read, disable any armed auto-merge first and handle
+     an already-merged result as terminal, and when it cannot, the recovery
+     push still proceeds and names the request known from the last successful
+     read ([Probe the live base locally,
+     first](github-status-queries.md#probe-the-live-base-locally-first)).
+     Then remove `review-clean` and resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 

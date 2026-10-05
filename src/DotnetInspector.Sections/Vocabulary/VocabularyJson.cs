@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
-namespace DotnetInspector.Vocabulary;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// One field's discoverable contract, exactly as it appears in a vocabulary document's JSON wire

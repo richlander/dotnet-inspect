@@ -13,6 +13,12 @@ implemented. The Release gates under [Verification](#verification)
 verify the implemented claims; performance remains subject to the exact
 NativeAOT evidence required by the adopting PR.
 
+**Analyzer** is this design's domain term for one classification question.
+Each analyzer is implemented by one concrete `*ClassificationProducer`,
+because that type is its Producer Planning declaration and execution
+participant. Gate classifiers remain `*Scope`/`MethodRowClassifier` types;
+composite Analysis helpers that prove relationships retain `*Analyzer`.
+
 Slice 2b of #8733 amends the async analyzer chosen in
 [#8788](https://github.com/richlander/dotnet-inspect/issues/8788). Async is
 now two analyzers, runtime async and compiler async, and the async analyzer
@@ -404,10 +410,11 @@ returns the one typed failure, and every host presents it.
 
 ## Layering
 
-The analyzers and the method-row gate live in `ILInspector.Analysis`, beside
-Producer Planning. The gate uses Metadata's classification, in-place
-comparison, and projection functions through a public API that names no
-Planning type, so Metadata does not reference Planning. The queries live in
+The analyzers' `*ClassificationProducer` declarations and the method-row gate
+live in `ILInspector.Analysis`, beside Producer Planning. The gate uses
+Metadata's classification, in-place comparison, and projection functions
+through a public API that names no Planning type, so Metadata does not
+reference Planning. The queries live in
 `DotnetInspector.Queries`, which already references Analysis. Hosts reference
 the queries only.
 

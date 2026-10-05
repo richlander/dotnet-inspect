@@ -569,23 +569,30 @@ suggestions:
 
 ```bash
 dotnet-inspect member --explain
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
   --explain
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
   --explain .tips
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize \
   -E .tips
 ```
 
 Command-level `member --explain` is acquisition-free. Subject-bearing
-`--explain` resolves exactly one Member and writes the explanation as the
-terminal stdout document instead of ordinary inspection output. Exact-subject
+`--explain` resolves exactly one semantic subject and writes its explanation as
+the terminal stdout document instead of ordinary inspection output. A bare
+ordinary method name is one MemberGroup subject regardless of overload count;
+an ordinal or digest selector is one exact Member subject. Singleton groups
+remain MemberGroups, and an overloaded group is not rejected as several
+subjects or reduced to its first overload. Resolved-subject
 `--explain .tips` writes only the headless plain-text suggestions to stdout; it
-does not produce ordinary Member Content. Command-level `.tips` requires an
-exact Member because the command resource has no applicable gesture context.
-Exact-subject bare `-E` preserves ordinary stdout byte-for-byte, flushes it,
-then writes the same explanation Content to `stderr`. `--explain -E` and
+does not produce ordinary Member Content. Command-level `.tips` requires a
+MemberGroup or exact Member because the command resource has no applicable
+gesture context. Resolved-subject bare `-E` preserves ordinary stdout
+byte-for-byte, flushes it, then writes the same explanation Content to
+`stderr`. `--explain -E` and
 `--explain .tips -E .tips` are duplicate projections and are rejected;
 different primary and companion projections compose. Bare `-E` remains
 reserved on other commands. Both `.references` placements remain reserved
@@ -625,8 +632,8 @@ not adopted this transport.
 | Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
-| Explain the Member command or one exact Member | `member --explain`, exact `member ... --explain`, or exact `member ... -E` |
-| Show contextual tips | Exact `member ... --explain .tips` on stdout or `-E .tips` on stderr |
+| Explain the Member command, one MemberGroup, or one exact Member | `member --explain`, subject-bearing `member ... --explain`, or `member ... -E` |
+| Show contextual tips | Subject-bearing `member ... --explain .tips` on stdout or `-E .tips` on stderr |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
@@ -685,12 +692,24 @@ dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --valu
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl
 ```
 
-Library `-D --details` is structural and does not acquire the target. It adds a
-`Formats` column to the top-level catalog, or reports one exact category or
-section in detail. A category reports the formats supported by its complete
-expansion plus the formats of each member; it never selects or drops members to
-satisfy a format. Use the result to choose an exact section before requesting a
-single-result projection such as `--tree` or `--mermaid`.
+Library and Package `-D --details` are structural and do not acquire the
+target. They add the owner-issued section properties to the top-level catalog,
+or report one exact category or section in detail: `Formats`, and, where the
+owner declares them, `Shape` (`table`, `hierarchy`, or `text`, per
+[Section shapes](design/section-shapes.md)), `Cardinality` (`scalar` or
+`inventory`), and `Terminals`. Package declares all of them; Library declares
+cardinality for `Library Info`. A category reports the formats supported by its
+complete expansion plus the formats of each member; it never selects or drops
+members to satisfy a format. Use the result to choose an exact section before
+requesting a single-result projection such as `--tree` or `--mermaid`.
+`explain package/sections/<section>` reports the same shape and cardinality
+for one package section, beside its formats and members.
+
+```bash
+dotnet-inspect package System.Text.Json -D --details
+dotnet-inspect package System.Text.Json -D "Package files" --details --json
+dotnet-inspect explain package/sections/package-files
+```
 
 ## Common examples
 
@@ -734,6 +753,39 @@ dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+Bare `package ID[@VERSION]` output and bare `--tree` render the Package's
+native children Tree. Ordinary packages list every Library in the selected
+compile population by identity without opening the Library binary or
+summarizing its Type population. `--tfm` selects an explicit target; otherwise
+the Package selection default chooses the target. Tool pointer packages list
+their RID packages, managed tool payloads list the entry-point Library before
+their dependencies, and native tool payloads state that they contain no managed
+Libraries. Minimal implicit Tree output may collapse a managed tool's
+dependency Libraries into one counted branch that names `-v:n` as the
+full-inventory gesture. Normal, Detailed, and explicit output formats list
+every Library.
+
+Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
+all consume that same Package children document. The tree title prints the
+subject identity followed by the owner-issued properties of the displayed
+children — source, selected target, and asset root, as in
+`System.Text.Json 10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
+carries subject, completion, total and selected Counts, and typed child rows.
+Row formats expose the exact asset ID, asset path, target, and child role;
+they carry no replay command, because host navigation is not package content
+(see [Section shapes](design/section-shapes.md#properties)). Package children
+output does not run the unrelated all-binary Signals scan or inspect selected
+Libraries. `--count`
+counts the owner-issued child population without producing rows; `--rows`
+windows the same ordered identities, and `--fields` or `--columns` projects
+child-row columns. Windows retain the
+complete population Count and original child ordinals; a window selecting no
+rows from a non-empty Package does not claim that the Package has no Libraries.
+
+Select `Package Info` explicitly for Package facts. A bare Package Tree is
+distinct from the dependency graph: select `Dependency Hierarchy` together
+with `--tree` for rooted transitive dependencies.
 
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
 in the packet's selected context, independently of its focused tab, and reuses
@@ -1373,9 +1425,10 @@ dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member --explain
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize --explain
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --explain .tips
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -E
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize --explain .tips
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize -E
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
@@ -1393,8 +1446,8 @@ dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
-An exact method name selects its MemberGroup. Its default output is a native
-Tree rooted at one compact identity line and containing every public,
+A bare ordinary method name selects its MemberGroup. Its default output is a
+native Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.
 This remains a MemberGroup when the selected version has one overload.
 Use `--columns "Signature;Description"` to request compiled documentation for

@@ -410,16 +410,21 @@ public sealed class AssemblyReferenceResolutionGenerationReceipt
     internal AssemblyReferenceResolutionGenerationReceipt(
         InspectionWorkspaceIdentity workspace,
         WorkspaceScopeRevisionIdentity scopeRevision,
+        WorkspaceRegistrationRevisionIdentity registrationRevision,
         ArtifactRootCompositionGenerationIdentity physicalComposition)
     {
         Workspace = workspace;
         ScopeRevision = scopeRevision;
+        RegistrationRevision = registrationRevision;
         PhysicalComposition = physicalComposition;
     }
 
     public InspectionWorkspaceIdentity Workspace { get; }
 
     public WorkspaceScopeRevisionIdentity ScopeRevision { get; }
+
+    public WorkspaceRegistrationRevisionIdentity RegistrationRevision
+    { get; }
 
     public ArtifactRootCompositionGenerationIdentity PhysicalComposition
     { get; }
@@ -442,8 +447,103 @@ public sealed class AssemblyReferenceResolutionGenerationReceipt
         return new(
             scope.Revision.Workspace,
             scope.Revision.Identity,
+            focalScope.RegistrationRevision,
             scope.PhysicalComposition);
     }
+}
+
+/// <summary>
+/// Workspace-owned proof that one active realization was atomically replaced
+/// by a fresh realization of the same logical Workspace definition.
+/// </summary>
+public sealed class AssemblyReferenceResolutionWorkspaceReplacementReceipt
+{
+    internal AssemblyReferenceResolutionWorkspaceReplacementReceipt(
+        WorkspaceReplacementCoordinator coordinator,
+        WorkspaceRealizationOperationLease predecessor,
+        WorkspaceRealizationOperationLease successor,
+        AssemblyReferenceResolutionGenerationReceipt predecessorGeneration,
+        AssemblyReferenceResolutionGenerationReceipt successorGeneration,
+        object demandEvidence)
+    {
+        ArgumentNullException.ThrowIfNull(coordinator);
+        ArgumentNullException.ThrowIfNull(predecessor);
+        ArgumentNullException.ThrowIfNull(successor);
+        ArgumentNullException.ThrowIfNull(predecessorGeneration);
+        ArgumentNullException.ThrowIfNull(successorGeneration);
+        ArgumentNullException.ThrowIfNull(demandEvidence);
+        if (!predecessor.IsOwnedBy(coordinator)
+            || !successor.IsOwnedBy(coordinator)
+            || !ReferenceEquals(
+                predecessorGeneration.Workspace,
+                predecessor.Realization)
+            || !ReferenceEquals(
+                predecessorGeneration.ScopeRevision,
+                predecessor.Scope.Revision.Identity)
+            || !ReferenceEquals(
+                predecessorGeneration.RegistrationRevision,
+                predecessor.Definition.Registrations.Identity)
+            || !ReferenceEquals(
+                predecessorGeneration.PhysicalComposition,
+                predecessor.Scope.PhysicalComposition)
+            || !ReferenceEquals(
+                successorGeneration.Workspace,
+                successor.Realization)
+            || !ReferenceEquals(
+                successorGeneration.ScopeRevision,
+                successor.Scope.Revision.Identity)
+            || !ReferenceEquals(
+                successorGeneration.RegistrationRevision,
+                successor.Definition.Registrations.Identity)
+            || !ReferenceEquals(
+                successorGeneration.PhysicalComposition,
+                successor.Scope.PhysicalComposition))
+        {
+            throw new ArgumentException(
+                "A replacement receipt requires exact active predecessor and successor generation evidence.");
+        }
+        if (ReferenceEquals(
+                predecessor.Realization,
+                successor.Realization)
+            || ReferenceEquals(
+                predecessor.Definition.Scope.Identity,
+                successor.Definition.Scope.Identity)
+            || ReferenceEquals(
+                predecessor.Definition.Registrations.Identity,
+                successor.Definition.Registrations.Identity)
+            || ReferenceEquals(
+                predecessorGeneration.PhysicalComposition,
+                successorGeneration.PhysicalComposition)
+            || !ReferenceEquals(
+                predecessor.Definition.Plan,
+                successor.Definition.Plan)
+            || !WorkspaceLogicalScopeCorrespondence.Matches(
+                predecessor.Scope.Revision,
+                successor.Scope.Revision))
+        {
+            throw new ArgumentException(
+                "A replacement receipt requires a fresh realization of the same logical Workspace definition.",
+                nameof(successor));
+        }
+
+        Predecessor = predecessorGeneration;
+        Successor = successorGeneration;
+        PredecessorDefinition = predecessor.Definition;
+        SuccessorDefinition = successor.Definition;
+        DemandEvidence = demandEvidence;
+    }
+
+    public AssemblyReferenceResolutionGenerationReceipt Predecessor
+    { get; }
+
+    public AssemblyReferenceResolutionGenerationReceipt Successor
+    { get; }
+
+    public WorkspaceDefinitionSnapshot PredecessorDefinition { get; }
+
+    public WorkspaceDefinitionSnapshot SuccessorDefinition { get; }
+
+    public object DemandEvidence { get; }
 }
 
 /// <summary>
@@ -459,7 +559,7 @@ public sealed class AssemblyReferenceResolutionContinuationReceipt
         AssemblyBindingRequest successorRequest,
         AssemblyReferenceResolutionGenerationReceipt successorGeneration,
         AssemblyBindingPolicyVersion successorPolicyVersion,
-        object ownerEvidence)
+        AssemblyReferenceResolutionWorkspaceReplacementReceipt replacement)
     {
         ArgumentNullException.ThrowIfNull(predecessorRequest);
         ArgumentNullException.ThrowIfNull(predecessorGeneration);
@@ -467,7 +567,7 @@ public sealed class AssemblyReferenceResolutionContinuationReceipt
         ArgumentNullException.ThrowIfNull(successorRequest);
         ArgumentNullException.ThrowIfNull(successorGeneration);
         ArgumentNullException.ThrowIfNull(successorPolicyVersion);
-        ArgumentNullException.ThrowIfNull(ownerEvidence);
+        ArgumentNullException.ThrowIfNull(replacement);
         if (!Equals(
                 predecessorRequest.Target,
                 successorRequest.Target)
@@ -489,18 +589,24 @@ public sealed class AssemblyReferenceResolutionContinuationReceipt
         if (ReferenceEquals(
                 predecessorGeneration,
                 successorGeneration)
-            || !ReferenceEquals(
+            || ReferenceEquals(
                 predecessorGeneration.Workspace,
                 successorGeneration.Workspace)
-            || !ReferenceEquals(
+            || ReferenceEquals(
                 predecessorGeneration.ScopeRevision,
                 successorGeneration.ScopeRevision)
             || ReferenceEquals(
-                predecessorGeneration.PhysicalComposition,
-                successorGeneration.PhysicalComposition))
+                predecessorGeneration.RegistrationRevision,
+                successorGeneration.RegistrationRevision)
+            || !ReferenceEquals(
+                replacement.Predecessor,
+                predecessorGeneration)
+            || !ReferenceEquals(
+                replacement.Successor,
+                successorGeneration))
         {
             throw new ArgumentException(
-                "A continuation must identify a new physical generation of the same Workspace Scope revision.",
+                "A continuation must identify the exact fresh Workspace replacement generation.",
                 nameof(successorGeneration));
         }
         if (ReferenceEquals(
@@ -518,7 +624,7 @@ public sealed class AssemblyReferenceResolutionContinuationReceipt
         SuccessorRequest = successorRequest;
         SuccessorGeneration = successorGeneration;
         SuccessorPolicyVersion = successorPolicyVersion;
-        OwnerEvidence = ownerEvidence;
+        Replacement = replacement;
     }
 
     public AssemblyBindingRequest PredecessorRequest { get; }
@@ -535,7 +641,10 @@ public sealed class AssemblyReferenceResolutionContinuationReceipt
 
     public AssemblyBindingPolicyVersion SuccessorPolicyVersion { get; }
 
-    public object OwnerEvidence { get; }
+    public AssemblyReferenceResolutionWorkspaceReplacementReceipt Replacement
+    { get; }
+
+    public object OwnerEvidence => Replacement.DemandEvidence;
 }
 
 public abstract record AssemblyReferenceResolutionContextOutcome
@@ -897,10 +1006,13 @@ public sealed class AssemblyReferenceResolutionRoutePlan
             ?? throw new ArgumentNullException(nameof(policyVersion));
         if (!ReferenceEquals(
                 generation.ScopeRevision,
-                focalScope.ScopeRevision))
+                focalScope.ScopeRevision)
+            || !ReferenceEquals(
+                generation.RegistrationRevision,
+                focalScope.RegistrationRevision))
         {
             throw new ArgumentException(
-                "The route plan must retain the generation's exact focal Scope revision.",
+                "The route plan must retain the generation's exact focal Scope and registration revisions.",
                 nameof(focalScope));
         }
 

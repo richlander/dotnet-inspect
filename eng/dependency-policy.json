@@ -16,6 +16,7 @@
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText",
+        "QuerySpace.Primitives",
         "TsJsExport.Contracts"
       ],
       "allowOnly": [
@@ -138,7 +139,8 @@
         "Inspector.Artifacts.Workspaces",
         "Inspector.Findings",
         "Inspector.Text",
-        "QuerySpace"
+        "QuerySpace",
+        "QuerySpace.Primitives"
       ]
     },
     {
@@ -209,6 +211,7 @@
         "NuGet.Versioning",
         "NuGetFetch",
         "QuerySpace",
+        "QuerySpace.Primitives",
         "System.CommandLine"
       ]
     },
@@ -646,7 +649,8 @@
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
         "InertText",
-        "QuerySpace"
+        "QuerySpace",
+        "QuerySpace.Primitives"
       ]
     },
     {
@@ -744,7 +748,9 @@
       "allowOnly": [
         "$platform",
         "DotnetInspector.Queries",
-        "ILInspector.Decompiler"
+        "DotnetInspector.Sections",
+        "ILInspector.Decompiler",
+        "QuerySpace.Primitives"
       ]
     },
     {

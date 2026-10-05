@@ -24,10 +24,9 @@ MethodDef coverage for definitions examined, physical methods selected, and
 terminal bodies attempted and acquired, plus module-lookup use. Type
 `Unsafe Members` effective discovery is the first sparse production consumer:
 it closes the unsafe-evidence producer with `Exists` over the selected TypeDef
-instead of rendering the ordinary section through a scoped
-`LibraryBodyIndex`. The source owns resource-free planning, exact subject
-binding, serial reference execution, source-receipt translation, and detached
-publication.
+instead of rendering the ordinary whole-scope section. The source owns
+resource-free planning, exact subject binding, serial reference execution,
+source-receipt translation, and detached publication.
 
 Compatible all-definition request sets now execute as one physical MethodDef
 traversal with independent terminal-specialized lanes. Each lane retains its
@@ -139,6 +138,12 @@ population.
 A **source plan** is resource-free and immutable. It binds resolved breadth,
 depth, terminal-specialized producer work, work bounds, and receipt
 requirements without opening the subject.
+
+One source request names exactly one requested producer. Its closed Producer
+Planning description also carries that producer's dependency closure, so
+dependency-consistent visits, completion, failure containment, and
+`WorkReceipt` remain intact. Another independently requested producer belongs
+to another request-set association rather than hitchhiking in that request.
 
 A **source execution group** is one QuerySpace-selected physical traversal
 serving one or more source plans over the same owner-issued resource identity.
@@ -512,6 +517,8 @@ The first implementation slice is gated in Release:
 - `MethodQuerySource_SequentialReferenceMatchesInterimExecutor`
 - `MethodQuerySource_ExistsStopsAtFirstSettledMethod`
 - `MethodQuerySource_ProducerFailureDoesNotBecomeSuccessfulAbsence`
+- `MethodQuerySource_ExecutesFocusedProducerDependencyClosure`
+- `MethodQuerySource_RejectsUnrelatedRequestedProducer`
 - `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
 - `Execute_FailedBodyReadIsNotReportedAsAcquired`
 

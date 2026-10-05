@@ -53,6 +53,34 @@ public partial class CommandExecutionTests
         Assert.Contains("JsonSerializer.Write.String.cs", output);
     }
 
+    [Fact]
+    public async Task Member_SourceLocations_SelectedSignature_JsonUsesPlatformSettlement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "Serialize:1", "-S", "Source Locations", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Contains(
+            "JsonSerializer.Serialize",
+            document.RootElement.GetProperty("member").GetString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "JsonSerializer.Write.String.cs",
+            document.RootElement
+                .GetProperty("document")
+                .GetProperty("path")
+                .GetString(),
+            StringComparison.Ordinal);
+        Assert.True(
+            document.RootElement
+                .GetProperty("pdb_span")
+                .GetProperty("start_line")
+                .GetInt32() > 0);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

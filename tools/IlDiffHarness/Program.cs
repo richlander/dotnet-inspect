@@ -5,6 +5,7 @@ using ILInspector.DiffHarnessCommon;
 using ILInspector.Instructions;
 using Markout;
 using Markout.Formatting;
+using ILInspector.ILDiff;
 
 const string Usage =
     """
