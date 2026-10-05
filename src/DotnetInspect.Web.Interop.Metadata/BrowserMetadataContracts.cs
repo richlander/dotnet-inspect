@@ -398,6 +398,7 @@ public sealed record BrowserTypeMemberPopulationGroup(
     string Kind,
     int BaselineOrdinal,
     string[] Receivers,
+    BrowserTypeMemberTraitCounts Traits,
     int CompleteCount);
 
 /// <summary>

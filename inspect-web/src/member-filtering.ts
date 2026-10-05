@@ -109,8 +109,10 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
       return [{
         ...group,
         overloads,
-        sourceOverloadCount:
-          group.sourceOverloadCount ?? group.completeCount ?? 0,
+        sourceOverloadCount: filteredSourceOverloadCount(
+          group,
+          overloads,
+          filters.trait ?? ""),
       }];
     }
     if (overloads.length === 0 || (
@@ -125,23 +127,67 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
     return [{
       ...group,
       overloads,
-      sourceOverloadCount:
-        group.sourceOverloadCount ?? group.overloads.length,
+      sourceOverloadCount: filteredSourceOverloadCount(
+        group,
+        overloads,
+        filters.trait ?? ""),
     }];
   });
+}
+
+function filteredSourceOverloadCount(
+  group: FilterableMemberGroup,
+  overloads: readonly FilterableMemberOverload[],
+  trait: string,
+): number {
+  const traitCount = groupTraitCount(group, trait);
+  if (traitCount !== null) return traitCount;
+  if (trait && group.detailsPending && group.overloads.length === 0) {
+    return group.sourceOverloadCount ?? group.completeCount ?? 0;
+  }
+  if (trait) return overloads.length;
+  return group.sourceOverloadCount
+    ?? group.completeCount
+    ?? group.overloads.length;
+}
+
+function groupTraitCount(
+  group: FilterableMemberGroup,
+  trait: string,
+): number | null {
+  const counts = group.traitCounts;
+  if (!counts) return null;
+  switch (trait) {
+    case "":
+      return counts.all;
+    case "static":
+      return counts.static;
+    case "instance":
+      return counts.instance;
+    case "virtual":
+      return counts.virtual;
+    case "interface":
+      return counts.interface;
+    case "extensions":
+      return counts.extensions;
+    default:
+      return null;
+  }
 }
 
 function groupMatchesSummaryTrait(
   group: FilterableMemberGroup,
   trait: string,
 ): boolean {
+  const traitCount = groupTraitCount(group, trait);
+  if (traitCount !== null) return traitCount > 0;
+
   const receivers = group.receivers ?? [];
   switch (trait) {
     case "":
       return true;
     case "static":
-      return receivers.includes("static")
-        && !receivers.includes("extension");
+      return receivers.includes("static");
     case "instance":
       return receivers.includes("this");
     case "extensions":

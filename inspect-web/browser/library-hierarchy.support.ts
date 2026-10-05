@@ -1447,6 +1447,14 @@ async function installFacades(
             kind: member.kind,
             baselineOrdinal: groups.size + 1,
             receivers: [],
+            traits: {
+              all: 0,
+              static: 0,
+              instance: 0,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
             completeCount: completeCounts.get(key) ?? 0,
           };
           const receiver = member.isExtension
@@ -1454,6 +1462,14 @@ async function installFacades(
             : member.isStatic ? "static" : "this";
           if (!group.receivers.includes(receiver)) {
             group.receivers.push(receiver);
+          }
+          group.traits.all++;
+          if (member.isExtension) group.traits.extensions++;
+          else if (member.isStatic) group.traits.static++;
+          else group.traits.instance++;
+          if (member.isVirtual) group.traits.virtual++;
+          if (member.isExplicitInterfaceImplementation) {
+            group.traits.interface++;
           }
           groups.set(key, group);
         }

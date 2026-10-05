@@ -242,6 +242,7 @@ public sealed record TypeMemberGroupShape(
     TypeMemberGroupRowBinding Binding,
     int BaselineOrdinal,
     MemberGroupReceiverForms Receivers,
+    TypeMemberTraitCounts Traits,
     int? ExactMemberCount);
 
 public sealed record TypeMemberCompositionCount(

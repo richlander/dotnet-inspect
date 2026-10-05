@@ -341,6 +341,13 @@ public static partial class MetadataExports
                             Kind(group.Binding.Category),
                             group.BaselineOrdinal,
                             Receivers(group.Receivers),
+                            new(
+                                group.Traits.All,
+                                group.Traits.Static,
+                                group.Traits.Instance,
+                                group.Traits.Virtual,
+                                group.Traits.Interface,
+                                group.Traits.Extensions),
                             group.ExactMemberCount
                                 ?? throw new InvalidOperationException(
                                     "The Browser Type document requested exact "

@@ -120,6 +120,7 @@ public sealed record MetadataTypeMemberGroupRow(
     string Name,
     MetadataTypeMemberGroupCategory Category,
     MetadataTypeMemberGroupReceiverForms Receivers,
+    MetadataTypeMemberTraitCounts Traits,
     int? ExactMemberCount);
 
 public sealed record MetadataTypeMemberGroupRows(
@@ -311,6 +312,20 @@ internal static class MetadataTypeMemberGroupPopulationInspection
     {
         public int Count;
         public MetadataTypeMemberGroupReceiverForms Receivers;
+        public int Static;
+        public int Instance;
+        public int Virtual;
+        public int Interface;
+        public int Extensions;
+
+        public MetadataTypeMemberTraitCounts TraitCounts =>
+            new(
+                Count,
+                Static,
+                Instance,
+                Virtual,
+                Interface,
+                Extensions);
     }
 
     private struct PopulationSink : IClassifiedMemberSink
@@ -416,6 +431,22 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             }
             group.Count = checked(group.Count + 1);
             group.Receivers |= Receiver(member.Receiver);
+            switch (member.Receiver)
+            {
+                case MetadataMethodReceiver.Static:
+                    group.Static = checked(group.Static + 1);
+                    break;
+                case MetadataMethodReceiver.This:
+                    group.Instance = checked(group.Instance + 1);
+                    break;
+                case MetadataMethodReceiver.Extension:
+                    group.Extensions = checked(group.Extensions + 1);
+                    break;
+            }
+            if (member.IsVirtual)
+                group.Virtual = checked(group.Virtual + 1);
+            if (member.IsExplicitInterfaceImplementation)
+                group.Interface = checked(group.Interface + 1);
         }
 
         public MetadataTypeMemberGroupPopulation Complete(
@@ -496,6 +527,7 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                     name,
                     Category(key.Kind),
                     group.Receivers,
+                    group.TraitCounts,
                     request.IncludeExactMemberCount
                         ? group.Count
                         : null));

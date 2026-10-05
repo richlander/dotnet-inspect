@@ -212,7 +212,7 @@ test("member filters compose locally after managed accessibility selection", () 
   const staticGroup = staticGroups[0];
   assert.ok(staticGroup);
   assert.equal(staticGroup.overloads.length, 1);
-  assert.equal(staticGroup.sourceOverloadCount, 2);
+  assert.equal(staticGroup.sourceOverloadCount, 1);
   assert.match(staticGroup.overloads[0]?.signature ?? "", /static/);
 
   const instanceGroups = filterMemberGroups(groups, {
@@ -225,7 +225,7 @@ test("member filters compose locally after managed accessibility selection", () 
   const instanceGroup = instanceGroups[0];
   assert.ok(instanceGroup);
   assert.equal(instanceGroup.overloads.length, 1);
-  assert.equal(instanceGroup.sourceOverloadCount, 2);
+  assert.equal(instanceGroup.sourceOverloadCount, 1);
   assert.doesNotMatch(instanceGroup.overloads[0]?.signature ?? "", /static/);
 });
 
@@ -328,6 +328,49 @@ test("compact summary groups filter before exact declarations load", () => {
       query: "",
     }),
     [summary]);
+});
+
+test("compact mixed groups use producer-issued trait counts", () => {
+  const summary = {
+    key: "method:Deserialize",
+    name: "Deserialize",
+    kind: "method",
+    overloads: [],
+    completeCount: 40,
+    sourceOverloadCount: 40,
+    detailsPending: true,
+    receivers: ["static", "extension"],
+    traitCounts: {
+      all: 40,
+      static: 25,
+      instance: 0,
+      virtual: 3,
+      interface: 2,
+      extensions: 15,
+    },
+  };
+
+  for (const [trait, expected] of [
+    ["static", 25],
+    ["virtual", 3],
+    ["interface", 2],
+    ["extensions", 15],
+  ] as const) {
+    const groups = filterMemberGroups([summary], {
+      kind: "method",
+      trait,
+      query: "",
+    });
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0]?.sourceOverloadCount, expected);
+  }
+  assert.deepEqual(
+    filterMemberGroups([summary], {
+      kind: "method",
+      trait: "instance",
+      query: "",
+    }),
+    []);
 });
 
 test("member traits use the complete selector vocabulary", () => {

@@ -461,6 +461,24 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             packageMembers.SelectorCounts.Traits.All,
             packageMembers.SelectorCounts.Kinds.Sum(count => count.Count));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.All,
+            packageMembers.Groups.Sum(group => group.Traits.All));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.Static,
+            packageMembers.Groups.Sum(group => group.Traits.Static));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.Instance,
+            packageMembers.Groups.Sum(group => group.Traits.Instance));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.Virtual,
+            packageMembers.Groups.Sum(group => group.Traits.Virtual));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.Interface,
+            packageMembers.Groups.Sum(group => group.Traits.Interface));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.Extensions,
+            packageMembers.Groups.Sum(group => group.Traits.Extensions));
         BrowserTypeDocumentInspection metadataPopulation =
             TypeDocument(
                 await MetadataExports.QueryTypeDocument(
@@ -539,6 +557,9 @@ public sealed class BrowserMemberDeclarationTests
             uploadedMembers.Groups,
             group => group.Name == "Examine");
         Assert.Equal(5, examine.CompleteCount);
+        Assert.Equal(5, examine.Traits.All);
+        Assert.Equal(5, examine.Traits.Extensions);
+        Assert.Equal(0, examine.Traits.Static);
         Assert.True(examine.BaselineOrdinal > 0);
         Assert.Contains("extension", examine.Receivers);
 

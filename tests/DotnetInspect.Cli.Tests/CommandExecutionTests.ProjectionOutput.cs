@@ -397,9 +397,9 @@ public partial class CommandExecutionTests
     }
 
     // A Type subject's native Count is its declared Member population: the
-    // public bucket by default, every bucket with hidden declarations under
-    // --all. Attached extensions are a separate contextual population and do
-    // not delay or inflate the declared result.
+    // public bucket by default and every bucket with hidden declarations under
+    // --all. Extension methods physically declared by the Type remain part of
+    // that population; attached extensions are separate.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -408,8 +408,8 @@ public partial class CommandExecutionTests
         string path = Path.Combine(
             AppContext.BaseDirectory, "RealAssets", "DiffAnalysis", "10.0.0", "System.Text.Json.dll");
         string[] arguments = all
-            ? ["type", "System.Text.Json.JsonDocument", "--library", path, "--count", "--all"]
-            : ["type", "System.Text.Json.JsonDocument", "--library", path, "--count"];
+            ? ["type", "System.Text.Json.JsonSerializer", "--library", path, "--count", "--all"]
+            : ["type", "System.Text.Json.JsonSerializer", "--library", path, "--count"];
 
         var (exit, output, error) = await RunAppAsync(arguments);
 
@@ -420,7 +420,7 @@ public partial class CommandExecutionTests
             MetadataTypeMemberCompositionInspection.Read(
                 peReader.GetMetadataReader(),
                 Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-                    MetadataTypeDefinitionName.Create("System.Text.Json", ["JsonDocument"])).Name,
+                    MetadataTypeDefinitionName.Create("System.Text.Json", ["JsonSerializer"])).Name,
                 MetadataMemberSpelling.CSharp,
                 includeHidden: all,
                 all ? MetadataMethodAccessibilityFilter.All : MetadataMethodAccessibilityFilter.Public));
@@ -430,8 +430,7 @@ public partial class CommandExecutionTests
                 + composition.Protected
                 + composition.Internal
                 + composition.Private
-                - composition.Extension
-            : composition.Public - composition.Extension;
+            : composition.Public;
         Assert.Equal(expected.ToString(System.Globalization.CultureInfo.InvariantCulture), output.Trim());
     }
 

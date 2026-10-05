@@ -703,6 +703,7 @@ export interface BrowserTypeMemberPopulationGroup {
   readonly kind: string;
   readonly baselineOrdinal: number;
   readonly receivers: ReadonlyArray<string>;
+  readonly traits: BrowserTypeMemberTraitCounts;
   readonly completeCount: number;
 }
 

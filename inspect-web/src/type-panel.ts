@@ -225,7 +225,17 @@ export interface MemberGroup {
   completeCountStatus?: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
   receivers?: readonly string[];
+  traitCounts?: MemberTraitCounts;
   detailsPending?: boolean;
+}
+
+export interface MemberTraitCounts {
+  readonly all: number;
+  readonly static: number;
+  readonly instance: number;
+  readonly virtual: number;
+  readonly interface: number;
+  readonly extensions: number;
 }
 
 export function memberGroupUsesFamilySurface(

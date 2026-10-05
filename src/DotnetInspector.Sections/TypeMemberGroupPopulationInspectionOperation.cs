@@ -349,6 +349,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                             rowBinding,
                             checked(startOrdinal + index + 1),
                             Receivers(row.Receivers),
+                            TraitCounts(row.Traits),
                             row.ExactMemberCount);
                     }),
             ];
@@ -390,6 +391,16 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 counts.Traits.Virtual,
                 counts.Traits.Interface,
                 counts.Traits.Extensions));
+
+    private static TypeMemberTraitCounts TraitCounts(
+        MetadataTypeMemberTraitCounts counts) =>
+        new(
+            counts.All,
+            counts.Static,
+            counts.Instance,
+            counts.Virtual,
+            counts.Interface,
+            counts.Extensions);
 
     internal static bool IsCompatible(
         TypeMemberGroupContinuation continuation,

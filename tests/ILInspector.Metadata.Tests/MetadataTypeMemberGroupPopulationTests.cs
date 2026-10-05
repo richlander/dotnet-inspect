@@ -57,9 +57,27 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             rows.Items,
             row => row.Category
                 is MetadataTypeMemberGroupCategory.Property);
+        MetadataTypeMemberTraitCounts traits =
+            Required(population.SelectorCounts).Traits;
+        Assert.Equal(108, traits.All);
         Assert.Equal(
-            108,
-            Required(population.SelectorCounts).Traits.All);
+            traits.All,
+            rows.Items.Sum(row => row.Traits.All));
+        Assert.Equal(
+            traits.Static,
+            rows.Items.Sum(row => row.Traits.Static));
+        Assert.Equal(
+            traits.Instance,
+            rows.Items.Sum(row => row.Traits.Instance));
+        Assert.Equal(
+            traits.Virtual,
+            rows.Items.Sum(row => row.Traits.Virtual));
+        Assert.Equal(
+            traits.Interface,
+            rows.Items.Sum(row => row.Traits.Interface));
+        Assert.Equal(
+            traits.Extensions,
+            rows.Items.Sum(row => row.Traits.Extensions));
         MetadataTypeMemberComposition composition =
             Required(population.Composition);
         Assert.Equal(
@@ -282,6 +300,9 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             Required(all.Rows).Items,
             row => row.Name == "Deserialize");
         Assert.Equal(40, allDeserialize.ExactMemberCount);
+        Assert.Equal(40, allDeserialize.Traits.All);
+        Assert.Equal(25, allDeserialize.Traits.Static);
+        Assert.Equal(15, allDeserialize.Traits.Extensions);
         Assert.Equal(
             MetadataTypeMemberGroupReceiverForms.Static
                 | MetadataTypeMemberGroupReceiverForms.Extension,

@@ -247,7 +247,7 @@ internal static class TypeDocumentTreeCommand
             population.Binding.Accessibility switch
             {
                 TypeMemberGroupAccessibilityFilter.Public =>
-                    composition.Public - composition.Extension,
+                    composition.Public,
                 TypeMemberGroupAccessibilityFilter.Protected =>
                     composition.Protected,
                 TypeMemberGroupAccessibilityFilter.Internal =>
@@ -258,8 +258,7 @@ internal static class TypeDocumentTreeCommand
                     composition.Public
                         + composition.Protected
                         + composition.Internal
-                        + composition.Private
-                        - composition.Extension,
+                        + composition.Private,
                 _ => throw new InvalidOperationException(
                     "Unknown Type Member accessibility."),
             };

@@ -492,6 +492,7 @@ import {
   renderTypeSource,
   TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
   type MemberNavEntry,
+  type MemberTraitCounts,
   type SourceTextRange,
   type TypeAccessibilitySelectionMode,
   typeMetadataSignature,
@@ -1182,6 +1183,7 @@ interface AppMemberGroup {
   completeCountStatus: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
   receivers?: readonly string[];
+  traitCounts?: MemberTraitCounts;
   detailsPending?: boolean;
 }
 
@@ -6756,6 +6758,7 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
         overloads: [],
         sourceOverloadCount: group.completeCount,
         receivers: group.receivers,
+        traitCounts: group.traits,
         detailsPending: true,
       };
       const document =
