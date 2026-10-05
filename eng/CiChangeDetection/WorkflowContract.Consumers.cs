@@ -122,6 +122,20 @@ internal static partial class WorkflowContract
             "test",
             "Run DotnetInspector.Packages tests",
             "dotnet run --project tests/DotnetInspector.Packages.Tests -c Release");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run inspection query tests",
+            "dotnet run --project tests/DotnetInspector.Queries.Tests -c Release --no-build -- " +
+            "--filter-class 'DotnetInspector.Queries.Tests.InspectionDefinitionTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.InspectionWorkspaceTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.PackageAssemblyQueryPlanningTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.PackageDependencyEvidenceQueryTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.WorkspaceRealizationTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.TypeFindPopulationSelectionTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.IntegrationCensusTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests' " +
+            "--filter-not-trait \"Speed=Slow\" --minimum-expected-tests 300");
     }
 
     private static void ValidateRepositoryGuardsJob(YamlMappingNode jobs)

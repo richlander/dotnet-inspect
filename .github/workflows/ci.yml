@@ -1221,7 +1221,21 @@ jobs:
 
       - name: Run inspection query tests
         if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- --filter-not-trait "Speed=Slow"
+        # The full 3,879-case query suite runs in daily Deep Inspect. Keep
+        # representative planning, workspace, graph, and package contracts on
+        # every code PR without repeating its multi-minute integration sweep.
+        run: >-
+          dotnet run --project tests/DotnetInspector.Queries.Tests -c Release --no-build --
+          --filter-class 'DotnetInspector.Queries.Tests.InspectionDefinitionTests'
+          --filter-class 'DotnetInspector.Queries.Tests.InspectionWorkspaceTests'
+          --filter-class 'DotnetInspector.Queries.Tests.PackageAssemblyQueryPlanningTests'
+          --filter-class 'DotnetInspector.Queries.Tests.PackageDependencyEvidenceQueryTests'
+          --filter-class 'DotnetInspector.Queries.Tests.WorkspaceRealizationTests'
+          --filter-class 'DotnetInspector.Queries.Tests.TypeFindPopulationSelectionTests'
+          --filter-class 'DotnetInspector.Queries.Tests.IntegrationCensusTests'
+          --filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests'
+          --filter-not-trait "Speed=Slow"
+          --minimum-expected-tests 300
 
       - name: Run presentation tests
         if: matrix.shard == 'contracts'
