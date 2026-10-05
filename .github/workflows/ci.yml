@@ -287,17 +287,9 @@ jobs:
   # remain small enough to protect a PR directly; the terminal inspect-web job
   # preserves one visible result for the complete Browser/Wasm validation.
   inspect-web-platform:
-    name: inspect-web platform probe (${{ matrix.name }})
+    name: inspect-web platform probes
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: MethodSemantics
-            command: eng/run-method-semantics-platform-probe.sh browser
-          - name: local-path admission
-            command: eng/run-local-path-admission-platform-probe.sh browser
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -310,8 +302,11 @@ jobs:
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
 
-      - name: Run Browser/Wasm platform probe
-        run: ${{ matrix.command }}
+      - name: Run MethodSemantics Browser/Wasm platform probe
+        run: eng/run-method-semantics-platform-probe.sh browser
+
+      - name: Run local-path admission Browser/Wasm platform probe
+        run: eng/run-local-path-admission-platform-probe.sh browser
 
   inspect-web-frontend:
     name: inspect-web frontend
@@ -392,8 +387,8 @@ jobs:
             eng/generate-inspect-web-engine-facade.sh --fast-check
           fi
 
-  inspect-web-multi-facade:
-    name: inspect-web multi-facade canary
+  inspect-web-canaries:
+    name: inspect-web facade and bridge canaries
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-26.04
@@ -429,33 +424,6 @@ jobs:
             eng/test-inspect-web-multi-facade-canary.sh --fast
           fi
 
-  inspect-web-managed-bridge:
-    name: inspect-web managed-operation bridge canary
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Install browser dependencies
-        working-directory: inspect-web
-        run: npm ci
-
       - name: Test managed-operation bridge Browser/Wasm canary
         env:
           COMPREHENSIVE: ${{ fromJSON(needs.changes.outputs.plan).validations.inspectWebComprehensive }}
@@ -465,33 +433,6 @@ jobs:
           else
             eng/test-inspect-web-managed-operation-bridge-canary.sh --fast
           fi
-
-  inspect-web-ts-jsexport:
-    name: inspect-web ts-jsexport typecheck
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Install browser dependencies
-        working-directory: inspect-web
-        run: npm ci
 
       - name: Typecheck generated ts-jsexport facade
         run: eng/test-ts-jsexport-typescript.sh
@@ -544,14 +485,28 @@ jobs:
       - name: Test Inspect Web managed API
         run: dotnet run --project tests/MsdlProxy.Tests -c Release
 
+      - name: Publish Inspect Web managed API
+        run: >
+          dotnet publish
+          src/MsdlProxy/MsdlProxy.csproj
+          -c Release
+          --output artifacts/inspect-web-api
+
+      - name: Verify Inspect Web managed API artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          api=artifacts/inspect-web-api
+          test -f "$api/host.json"
+          test -f "$api/functions.metadata"
+          test -f "$api/worker.config.json"
+          test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
+          jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
+
   inspect-web-browser:
-    name: inspect-web browser (${{ matrix.shard }}/2)
+    name: inspect-web browser
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -580,7 +535,7 @@ jobs:
 
       - name: Test browser UI in Firefox
         working-directory: inspect-web
-        run: npm run test:browser -- --shard=${{ matrix.shard }}/2
+        run: npm run test:browser
 
   inspect-web-published:
     name: inspect-web published application
@@ -693,37 +648,6 @@ jobs:
       - name: Test published browser application
         run: eng/test-inspect-web-published-application.sh
 
-  inspect-web-published-api:
-    name: inspect-web published managed API
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Publish Inspect Web managed API
-        run: >
-          dotnet publish
-          src/MsdlProxy/MsdlProxy.csproj
-          -c Release
-          --output artifacts/inspect-web-api
-
-      - name: Verify Inspect Web managed API artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          api=artifacts/inspect-web-api
-          test -f "$api/host.json"
-          test -f "$api/functions.metadata"
-          test -f "$api/worker.config.json"
-          test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
-          jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
-
   inspect-web:
     name: inspect-web
     needs:
@@ -731,14 +655,11 @@ jobs:
       - inspect-web-platform
       - inspect-web-frontend
       - inspect-web-facades
-      - inspect-web-multi-facade
-      - inspect-web-managed-bridge
-      - inspect-web-ts-jsexport
+      - inspect-web-canaries
       - inspect-web-managed-tests
       - inspect-web-msdl-tests
       - inspect-web-browser
       - inspect-web-published
-      - inspect-web-published-api
     if: >-
       always() &&
       fromJSON(needs.changes.outputs.plan).validations.inspectWeb
@@ -751,7 +672,7 @@ jobs:
         run: |
           jq -e '
             [to_entries[] | select(.key != "changes") | .value.result] as $results
-            | ($results | length) == 11
+            | ($results | length) == 8
             and all($results[]; . == "success")
           ' <<< "$RESULTS"
 
@@ -2043,14 +1964,11 @@ jobs:
       - inspect-web-platform
       - inspect-web-frontend
       - inspect-web-facades
-      - inspect-web-multi-facade
-      - inspect-web-managed-bridge
-      - inspect-web-ts-jsexport
+      - inspect-web-canaries
       - inspect-web-managed-tests
       - inspect-web-msdl-tests
       - inspect-web-browser
       - inspect-web-published
-      - inspect-web-published-api
       - inspect-web
       - skill-gate
       - repository-guards

@@ -10,14 +10,11 @@ internal static partial class WorkflowContract
         "inspect-web-platform",
         "inspect-web-frontend",
         "inspect-web-facades",
-        "inspect-web-multi-facade",
-        "inspect-web-managed-bridge",
-        "inspect-web-ts-jsexport",
+        "inspect-web-canaries",
         "inspect-web-managed-tests",
         "inspect-web-msdl-tests",
         "inspect-web-browser",
         "inspect-web-published",
-        "inspect-web-published-api",
     ];
 
     private static readonly string[] InspectWebDotnetJobs =
@@ -25,14 +22,11 @@ internal static partial class WorkflowContract
         "inspect-web-platform",
         "inspect-web-frontend",
         "inspect-web-facades",
-        "inspect-web-multi-facade",
-        "inspect-web-managed-bridge",
-        "inspect-web-ts-jsexport",
+        "inspect-web-canaries",
         "inspect-web-managed-tests",
         "inspect-web-msdl-tests",
         "inspect-web-browser",
         "inspect-web-published",
-        "inspect-web-published-api",
     ];
 
     internal static readonly string[] TestShards =
@@ -104,6 +98,7 @@ internal static partial class WorkflowContract
         RequireAbsent(changes, "env", "jobs.changes");
 
         ValidateInspectWebTopology(jobs);
+        ValidateInspectWebConsolidatedChecks(jobs);
         ValidateInspectWebBrowser(jobs);
         ValidateInspectWebManagedTests(jobs);
         ValidateInspectWebPublishedApplication(jobs);
@@ -283,6 +278,93 @@ internal static partial class WorkflowContract
                 "jobs.inspect-web.needs must contain changes and every " +
                 "inspect-web leaf job exactly once.");
         }
+
+        YamlSequenceNode aggregateSteps = GetRequiredSequence(
+            aggregate,
+            "steps",
+            "jobs.inspect-web");
+        string aggregateRun = GetRequiredScalar(
+            RequireMapping(aggregateSteps.Children[0], "jobs.inspect-web step"),
+            "run",
+            "jobs.inspect-web step");
+        if (!aggregateRun.Contains(
+                $"($results | length) == {InspectWebLeafJobs.Length}",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "jobs.inspect-web must require every current leaf result.");
+        }
+    }
+
+    private static void ValidateInspectWebConsolidatedChecks(
+        YamlMappingNode jobs)
+    {
+        ValidateRequiredRunStep(
+            jobs,
+            "inspect-web-platform",
+            "Run MethodSemantics Browser/Wasm platform probe",
+            "eng/run-method-semantics-platform-probe.sh browser");
+        ValidateRequiredRunStep(
+            jobs,
+            "inspect-web-platform",
+            "Run local-path admission Browser/Wasm platform probe",
+            "eng/run-local-path-admission-platform-probe.sh browser");
+        ValidateRequiredRunStep(
+            jobs,
+            "inspect-web-canaries",
+            "Typecheck generated ts-jsexport facade",
+            "eng/test-ts-jsexport-typescript.sh");
+        ValidateInspectWebScriptStep(
+            jobs,
+            "inspect-web-canaries",
+            "Test shared-runtime multi-facade canary",
+            "eng/test-inspect-web-multi-facade-canary.sh");
+        ValidateInspectWebScriptStep(
+            jobs,
+            "inspect-web-canaries",
+            "Test managed-operation bridge Browser/Wasm canary",
+            "eng/test-inspect-web-managed-operation-bridge-canary.sh");
+        ValidateRequiredRunStep(
+            jobs,
+            "inspect-web-msdl-tests",
+            "Test Inspect Web managed API",
+            "dotnet run --project tests/MsdlProxy.Tests -c Release");
+        ValidateInspectWebScriptStep(
+            jobs,
+            "inspect-web-msdl-tests",
+            "Publish Inspect Web managed API",
+            "src/MsdlProxy/MsdlProxy.csproj");
+        ValidateInspectWebScriptStep(
+            jobs,
+            "inspect-web-msdl-tests",
+            "Verify Inspect Web managed API artifact",
+            "artifacts/inspect-web-api");
+    }
+
+    private static void ValidateInspectWebScriptStep(
+        YamlMappingNode jobs,
+        string jobName,
+        string stepName,
+        string requiredCommand)
+    {
+        YamlSequenceNode steps = GetRequiredSequence(
+            GetRequiredMapping(jobs, jobName, "jobs"),
+            "steps",
+            $"jobs.{jobName}");
+        YamlMappingNode[] matches = steps.Children
+            .Select(node => RequireMapping(node, $"jobs.{jobName} step"))
+            .Where(step => GetOptionalScalar(step, "name") == stepName)
+            .ToArray();
+        if (matches.Length != 1 || !GetRequiredScalar(
+                matches[0],
+                "run",
+                $"jobs.{jobName} {stepName}").Contains(
+                    requiredCommand,
+                    StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"jobs.{jobName} must run {stepName} exactly once.");
+        }
     }
 
     private static void ValidateInspectWebBrowser(YamlMappingNode jobs)
@@ -340,7 +422,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             testSteps[0],
             "run",
-            "npm run test:browser -- --shard=${{ matrix.shard }}/2",
+            "npm run test:browser",
             "jobs.inspect-web-browser test step");
     }
 
